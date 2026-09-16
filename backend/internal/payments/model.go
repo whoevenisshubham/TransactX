@@ -14,20 +14,21 @@ type IdempotencyRecord struct {
 }
 
 const (
-	StateCreated               = "CREATED"
-	StateValidating            = "VALIDATING"
-	StateLocalSettlement       = "LOCAL_SETTLEMENT"
-	StateRouting               = "ROUTING"
-	StateProcessing            = "PROCESSING"
-	StateCommitted             = "COMMITTED"
-	StateCompleted             = "COMPLETED"
-	StateFailed                = "FAILED"
-	StatePendingReconciliation = "PENDING_RECONCILIATION"
-	StateReversed              = "REVERSED"
-	StateOfflineCaptured       = "OFFLINE_CAPTURED"
-	StateQueued                = "QUEUED"
-	StateSyncing               = "SYNCING"
-	StateReplayFailed          = "REPLAY_FAILED"
+	StateCreated                   = "CREATED"
+	StateValidating                = "VALIDATING"
+	StateLocalSettlement           = "LOCAL_SETTLEMENT"
+	StateRouting                   = "ROUTING"
+	StateProcessing                = "PROCESSING"
+	StateBankSettledCentralPending = "BANK_SETTLED_CENTRAL_PENDING"
+	StateCommitted                 = "COMMITTED"
+	StateCompleted                 = "COMPLETED"
+	StateFailed                    = "FAILED"
+	StatePendingReconciliation     = "PENDING_RECONCILIATION"
+	StateReversed                  = "REVERSED"
+	StateOfflineCaptured           = "OFFLINE_CAPTURED"
+	StateQueued                    = "QUEUED"
+	StateSyncing                   = "SYNCING"
+	StateReplayFailed              = "REPLAY_FAILED"
 )
 
 var ErrInvalidTransition = errors.New("invalid payment state transition")
@@ -65,8 +66,13 @@ var validTransitions = map[string]map[string]bool{
 		StateFailed:     true,
 	},
 	StateProcessing: {
+		StateCommitted:                 true,
+		StateFailed:                    true,
+		StatePendingReconciliation:     true,
+		StateBankSettledCentralPending: true,
+	},
+	StateBankSettledCentralPending: {
 		StateCommitted:             true,
-		StateFailed:                true,
 		StatePendingReconciliation: true,
 	},
 	StateCommitted: {
