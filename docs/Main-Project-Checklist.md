@@ -85,8 +85,8 @@ Duration: Week 3   Objective: Implement the financially correct heart of Transac
 \[x] M1 — Implement balance reconstruction from ledger.
 \[x] M1 — Implement insufficient-balance rejection.
 \[x] M1 — Add database transaction boundaries.
-\[ ] M1 — Add row locking / equivalent concurrency control.
-\[ ] M1 — Add payment service tests.
+\[x] M1 — Add row locking / equivalent concurrency control.
+\[x] M1 — Add payment service tests.
 \[ ] M1 — Build pay form.
 \[ ] M1 — Build confirm-payment screen.
 \[ ] M1 — Build processing screen.
@@ -94,10 +94,10 @@ Duration: Week 3   Objective: Implement the financially correct heart of Transac
 \[ ] M1 — Build transaction-details screen.
 \[ ] M1 — Build transaction-history screen.
 \[ ] ALL — Manually review every line of the payment/ledger/idempotency critical path.
-\[ ] ALL — Run duplicate-request tests.
-\[ ] ALL — Run same-key/different-payload conflict tests.
-\[ ] ALL — Run insufficient-balance tests.
-\[ ] ALL — Run concurrent same-account payment tests.
+\[x] ALL — Run duplicate-request tests.
+\[x] ALL — Run same-key/different-payload conflict tests.
+\[x] ALL — Run insufficient-balance tests.
+\[x] ALL — Run concurrent same-account payment tests.
 PHASE EXIT GATE: Normal payments are correct under retries and concurrency; no negative balance, duplicate logical payment, or debit/credit conservation violation is observed.
 
 # Phase 4 — Bank Simulation \& End-to-End Multi-Bank Flow

@@ -30,6 +30,8 @@ Phase 1B uses the existing schema plus migrations `000002_account_opening_balanc
 
 M1-3C settles payments in one transaction containing payment state, account mutations, ledger transaction, ledger entries, and idempotency linkage. A normal transfer writes exactly one debit and one credit for the payment amount. Reconstructed balance is opening balance plus credits minus debits.
 
+M1-3D PostgreSQL integration tests experimentally verify that the conditional debit update serializes concurrent attempts safely: insufficient-funds attempts do not leave payment, ledger, or idempotency artifacts; successful attempts conserve debit/credit totals; and materialized balances match opening balance plus ledger entries after contention. These are tested guarantees for the exercised local path, not formal verification or production certification.
+
 ### FUTURE WORK
 
-Broader financial concurrency control and stress validation remain M1-3D work. Bank adapters, routing, and payment seed data remain future implementation work. `backend/cmd/devseed` is a development-only provisioning command for the synthetic bank and OPS_ADMIN; its password must be supplied through `DEV_ADMIN_PASSWORD` and is never stored in the repository.
+Bank adapters, routing, and payment seed data remain future implementation work. `backend/cmd/devseed` is a development-only provisioning command for the synthetic bank and OPS_ADMIN; its password must be supplied through `DEV_ADMIN_PASSWORD` and is never stored in the repository.
