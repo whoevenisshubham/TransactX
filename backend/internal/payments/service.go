@@ -2,6 +2,9 @@ package payments
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -41,33 +44,48 @@ func NewService(accountsRepository *accounts.Repository, recipientsRepository *r
 }
 
 func (service *Service) Create(ctx context.Context, input CreateInput) (Payment, error) {
+	payment, _, err := service.CreateWithResult(ctx, input)
+	return payment, err
+}
+
+func (service *Service) CreateWithResult(ctx context.Context, input CreateInput) (Payment, bool, error) {
+	key := strings.TrimSpace(input.IdempotencyKey)
+	currency := strings.ToUpper(strings.TrimSpace(input.Currency))
 	if input.UserID == uuid.Nil || input.SourceAccountID == uuid.Nil ||
 		!common.ValidLength(strings.TrimSpace(input.Recipient), 3, 128) ||
-		input.AmountPaise <= 0 || strings.ToUpper(strings.TrimSpace(input.Currency)) != "INR" ||
-		!common.ValidLength(strings.TrimSpace(input.IdempotencyKey), 0, 255) {
-		return Payment{}, ErrInvalidRequest
+		input.AmountPaise <= 0 ||
+		!common.ValidLength(key, 1, 255) || strings.ContainsAny(key, "\r\n\t") {
+		return Payment{}, false, ErrInvalidRequest
+	}
+	recipientIdentifier := common.NormalizeIdentifier(input.Recipient)
+	requestHash := paymentRequestHash(input.SourceAccountID, recipientIdentifier, input.AmountPaise, currency)
+	if payment, duplicate, err := service.payments.GetIdempotent(ctx, input.UserID, key, requestHash); err != nil || duplicate {
+		return payment, duplicate, err
+	}
+	if currency != "INR" {
+		return Payment{}, false, ErrInvalidRequest
 	}
 
 	source, err := service.accounts.GetOwned(ctx, input.UserID, input.SourceAccountID)
 	if err != nil {
-		return Payment{}, ErrSourceNotFound
+		return Payment{}, false, ErrSourceNotFound
 	}
 	if source.Status != "ACTIVE" {
-		return Payment{}, ErrSourceInactive
+		return Payment{}, false, ErrSourceInactive
 	}
 
-	recipient, err := service.recipients.Resolve(ctx, common.NormalizeIdentifier(input.Recipient))
+	recipient, err := service.recipients.Resolve(ctx, recipientIdentifier)
 	if err != nil {
-		return Payment{}, ErrRecipientNotFound
+		return Payment{}, false, ErrRecipientNotFound
 	}
 	if recipient.AccountStatus != "ACTIVE" {
-		return Payment{}, ErrRecipientInactive
+		return Payment{}, false, ErrRecipientInactive
 	}
 	if recipient.AccountID == input.SourceAccountID || recipient.UserID == input.UserID {
-		return Payment{}, ErrSelfPayment
+		return Payment{}, false, ErrSelfPayment
 	}
 
-	return service.payments.Create(ctx, Payment{
+	return service.payments.CreateIdempotent(ctx, Payment{
 		ID:                uuid.New(),
 		InitiatedByUserID: input.UserID,
 		SenderAccountID:   input.SourceAccountID,
@@ -75,5 +93,16 @@ func (service *Service) Create(ctx context.Context, input CreateInput) (Payment,
 		AmountPaise:       input.AmountPaise,
 		Currency:          "INR",
 		State:             StateCreated,
-	})
+	}, key, requestHash)
+}
+
+func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string) string {
+	payload, _ := json.Marshal(struct {
+		SourceAccountID string `json:"sourceAccountId"`
+		Recipient       string `json:"recipient"`
+		AmountPaise     int64  `json:"amountPaise"`
+		Currency        string `json:"currency"`
+	}{sourceAccountID.String(), recipient, amountPaise, currency})
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
 }

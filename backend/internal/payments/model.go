@@ -7,6 +7,12 @@ import (
 	"github.com/google/uuid"
 )
 
+type IdempotencyRecord struct {
+	Key         string
+	RequestHash string
+	PaymentID   uuid.UUID
+}
+
 const (
 	StateCreated               = "CREATED"
 	StateValidating            = "VALIDATING"

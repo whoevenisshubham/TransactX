@@ -31,9 +31,9 @@ Status: **IMPLEMENTED**
 
 ## ADR-006: User-Scoped Idempotency
 
-Status: **IMPLEMENTED FOR STORAGE**
+Status: **IMPLEMENTED**
 
-Idempotency storage uniqueness is enforced by `(user_id, key)`. Phase 1A does not implement idempotency behavior: comparing request hashes, returning prior results, and rejecting conflicting payloads remain part of the payment slice.
+Idempotency storage uniqueness is enforced by `(user_id, key)`. M1-3B hashes the canonical logical request fields (source account, normalized recipient identifier, amount in paise, and currency), creates the payment and idempotency record in one PostgreSQL transaction, returns the original payment for an exact retry, and returns `409 Conflict` for a different hash. The database uniqueness constraint resolves concurrent duplicate requests.
 
 ## ADR-007: Phase 1B Authentication
 
@@ -47,10 +47,10 @@ Status: **IMPLEMENTED**
 
 Public registration accepts only CUSTOMER and MERCHANT. OPS_ADMIN and the synthetic development bank are provisioned only through `backend/cmd/devseed`, which requires `APP_DEVELOPMENT=true` and a `DEV_ADMIN_PASSWORD` environment variable. The user and initial account are created atomically with the bank setup.
 
-## ADR-009: M1-3A Payment Intent Boundary
+## ADR-009: M1-3B Idempotent Payment Intent Boundary
 
-Status: **IMPLEMENTED FOR PAYMENT CREATION ONLY**
+Status: **IMPLEMENTED**
 
-M1-3A accepts only the source account ID, recipient identifier, integer paise amount, currency, and optional `Idempotency-Key` header. The authenticated JWT identifies the payer; ownership and active-account checks are server-side. A validated payment is persisted as `CREATED` in an explicit PostgreSQL transaction. The centralized state machine records permitted future transitions.
+M1-3B accepts the source account ID, recipient identifier, integer paise amount, currency, and required `Idempotency-Key` header. The authenticated JWT identifies the payer; ownership and active-account checks are server-side. A canonical request hash excludes authentication, timestamps, generated IDs, and JSON formatting. A validated payment is persisted as `CREATED` together with its user-scoped idempotency record in one explicit PostgreSQL transaction. Exact retries return `200` with the original payment; key reuse with a different hash returns `409`.
 
 Balance mutation, ledger entries, idempotency semantics, row locking/concurrency control, bank routing, retries, reconciliation, and final settlement are intentionally excluded from M1-3A. They remain M1-3B/M1-3C or later work and must not be inferred from a `CREATED` response.

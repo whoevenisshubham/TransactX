@@ -51,7 +51,7 @@ func (h *Handler) createPayment(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 
-	payment, err := h.payments.Create(request.Context(), payments.CreateInput{
+	payment, duplicate, err := h.payments.CreateWithResult(request.Context(), payments.CreateInput{
 		UserID:          userID,
 		SourceAccountID: sourceAccountID,
 		Recipient:       input.Recipient,
@@ -63,7 +63,11 @@ func (h *Handler) createPayment(writer http.ResponseWriter, request *http.Reques
 		writePaymentError(writer, request, err)
 		return
 	}
-	writeData(writer, http.StatusCreated, request, paymentResponse{
+	status := http.StatusCreated
+	if duplicate {
+		status = http.StatusOK
+	}
+	writeData(writer, status, request, paymentResponse{
 		ID:          payment.ID.String(),
 		AmountPaise: payment.AmountPaise,
 		Currency:    payment.Currency,
@@ -86,6 +90,8 @@ func writePaymentError(writer http.ResponseWriter, request *http.Request, err er
 		writeAPIError(writer, request, common.NewAPIError("ACCOUNT_INACTIVE", "recipient account is inactive", http.StatusConflict))
 	case errors.Is(err, payments.ErrSelfPayment):
 		writeAPIError(writer, request, common.NewAPIError("SELF_PAYMENT_NOT_ALLOWED", "payer cannot pay their own account", http.StatusConflict))
+	case errors.Is(err, payments.ErrIdempotencyConflict):
+		writeAPIError(writer, request, common.NewAPIError("IDEMPOTENCY_CONFLICT", "idempotency key was already used for a different payment request", http.StatusConflict))
 	default:
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "internal server error", http.StatusInternalServerError))
 	}
