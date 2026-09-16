@@ -14,28 +14,23 @@ Redis is not installed or configured. It may be reconsidered only when a concret
 
 ## ADR-003: PostgreSQL Is Authoritative
 
-Status: **PLANNED**
+Status: **IMPLEMENTED**
 
-PostgreSQL will be the source of truth for monetary state and financial transactions. Phase 0 currently proves only the database connection.
+PostgreSQL is the source of truth for monetary state and financial transactions. Phase 1A creates the authoritative application schema through an explicit migration. The API does not automatically mutate the schema during startup.
 
 ## ADR-004: Integer Paise
 
-Status: **PLANNED**
+Status: **IMPLEMENTED**
 
-All monetary values will use integer smallest currency units. For example, ₹100.50 is stored as `10050`. Database monetary columns will use `BIGINT`; floating-point money is prohibited.
+All monetary values use integer smallest currency units. For example, ₹100.50 is stored as `10050`. Monetary database columns use `BIGINT`; floating-point money is prohibited. The materialized account balance is `accounts.balance_paise`.
 
 ## ADR-005: Team Ownership
 
 Status: **IMPLEMENTED**
 
-- M1 owns the BankAdapter interface and Bank A.
-- M2 owns Bank B, bank health, adaptive routing, circuit breaker, and chaos engineering.
-- M3 owns reconciliation, integrity, benchmarking, and research-console functionality.
 
 ## ADR-006: User-Scoped Idempotency
 
-Status: **PLANNED**
+Status: **IMPLEMENTED FOR STORAGE**
 
-Idempotency uniqueness will be enforced by `(user_id, idempotency_key)`. The same user and key with the same request payload will return the original logical result. A different payload will produce an idempotency conflict.
-
-The complete implementation is intentionally deferred until the payment slice.
+Idempotency storage uniqueness is enforced by `(user_id, key)`. Phase 1A does not implement idempotency behavior: comparing request hashes, returning prior results, and rejecting conflicting payloads remain part of the payment slice.
