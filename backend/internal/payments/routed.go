@@ -138,10 +138,27 @@ func (repository *Repository) settleRoutedCentral(ctx context.Context, payment P
 	if err := ledgerRepository.CreateEntry(ctx, tx, ledger.Entry{ID: uuid.New(), LedgerTransactionID: ledgerTransactionID, AccountID: payment.ReceiverAccountID, EntryType: ledger.EntryCredit, AmountPaise: payment.AmountPaise}); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE payments SET state = 'COMPLETED', bank_settled_at = CURRENT_TIMESTAMP, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND state = 'PROCESSING'`, payment.ID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE payments SET state = 'COMMITTED', bank_settled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND state IN ('PROCESSING', 'BANK_SETTLED_CENTRAL_PENDING')`, payment.ID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE payments SET state = 'COMPLETED', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND state = 'COMMITTED'`, payment.ID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (repository *Repository) RecoverBankSettledCentralPending(ctx context.Context, paymentID uuid.UUID) (Payment, error) {
+	payment, err := repository.Get(ctx, paymentID)
+	if err != nil {
+		return Payment{}, err
+	}
+	if payment.State != StateBankSettledCentralPending {
+		return payment, nil
+	}
+	if err := repository.settleRoutedCentral(ctx, payment); err != nil {
+		return Payment{}, err
+	}
+	return repository.Get(ctx, paymentID)
 }
 
 func (repository *Repository) updateState(ctx context.Context, paymentID uuid.UUID, state string) error {
