@@ -71,16 +71,31 @@ func (repository *Repository) runRoutedSaga(ctx context.Context, payment Payment
 	}
 
 	holdID := operationID(payment.ID, "hold")
+	if err := repository.trackBankOperation(ctx, payment.ID, sourceBankID, holdID, "HOLD", payment.AmountPaise, payment.Currency, uuid.Nil, uuid.Nil, "PROCESSING"); err != nil {
+		return err
+	}
 	hold, err := sourceAdapter.HoldFunds(ctx, bank.HoldFundsRequest{OperationRequest: bank.OperationRequest{PaymentID: payment.ID, OperationID: holdID, IdempotencyKey: holdID.String(), AccountID: payment.SenderAccountID, AmountPaise: payment.AmountPaise, Currency: payment.Currency}})
 	if err != nil {
+		_ = repository.updateBankOperation(ctx, holdID, operationStatusForError(err))
 		return repository.failOrPend(ctx, payment.ID, err)
+	}
+	if err := repository.updateBankOperation(ctx, holdID, string(hold.Status)); err != nil {
+		return err
 	}
 
 	creditID := operationID(payment.ID, "provisional-credit")
+	if err := repository.trackBankOperation(ctx, payment.ID, destinationBankID, creditID, "PROVISIONAL_CREDIT", payment.AmountPaise, payment.Currency, hold.HoldID, uuid.Nil, "PROCESSING"); err != nil {
+		return err
+	}
 	credit, err := destinationAdapter.ProvisionalCredit(ctx, bank.ProvisionalCreditRequest{OperationRequest: bank.OperationRequest{PaymentID: payment.ID, OperationID: creditID, IdempotencyKey: creditID.String(), AccountID: payment.ReceiverAccountID, AmountPaise: payment.AmountPaise, Currency: payment.Currency}})
 	if err != nil {
+		_ = repository.updateBankOperation(ctx, creditID, operationStatusForError(err))
 		releaseID := operationID(payment.ID, "release-hold")
+		_ = repository.trackBankOperation(ctx, payment.ID, sourceBankID, releaseID, "RELEASE_HOLD", payment.AmountPaise, payment.Currency, hold.HoldID, uuid.Nil, "PROCESSING")
 		_, releaseErr := sourceAdapter.ReleaseHold(ctx, bank.ReleaseHoldRequest{PaymentID: payment.ID, OperationID: releaseID, IdempotencyKey: releaseID.String(), HoldID: hold.HoldID})
+		if releaseErr == nil {
+			_ = repository.updateBankOperation(ctx, releaseID, string(bank.OperationSucceeded))
+		}
 		if releaseErr != nil || credit.Status == bank.OperationPending {
 			return repository.markPending(ctx, payment.ID)
 		}
@@ -88,13 +103,27 @@ func (repository *Repository) runRoutedSaga(ctx context.Context, payment Payment
 	}
 
 	confirmID := operationID(payment.ID, "confirm-hold")
+	if err := repository.trackBankOperation(ctx, payment.ID, sourceBankID, confirmID, "CONFIRM_SOURCE_HOLD", payment.AmountPaise, payment.Currency, hold.HoldID, uuid.Nil, "PROCESSING"); err != nil {
+		return err
+	}
 	if _, err := sourceAdapter.ConfirmHold(ctx, bank.ConfirmHoldRequest{PaymentID: payment.ID, OperationID: confirmID, IdempotencyKey: confirmID.String(), HoldID: hold.HoldID}); err != nil {
-		return repository.compensateRoutedPayment(ctx, payment, sourceAdapter, destinationAdapter, hold.HoldID, credit.OperationID, err)
+		_ = repository.updateBankOperation(ctx, confirmID, operationStatusForError(err))
+		return repository.compensateRoutedPayment(ctx, payment, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter, hold.HoldID, credit.OperationID, err)
+	}
+	if err := repository.updateBankOperation(ctx, confirmID, string(bank.OperationSucceeded)); err != nil {
+		return err
 	}
 
 	finalizeID := operationID(payment.ID, "finalize-credit")
+	if err := repository.trackBankOperation(ctx, payment.ID, destinationBankID, finalizeID, "FINALIZE_CREDIT", payment.AmountPaise, payment.Currency, credit.OperationID, credit.OperationID, "PROCESSING"); err != nil {
+		return err
+	}
 	if _, err := destinationAdapter.ConfirmHold(ctx, bank.ConfirmHoldRequest{PaymentID: payment.ID, OperationID: finalizeID, IdempotencyKey: finalizeID.String(), HoldID: credit.OperationID}); err != nil {
-		return repository.compensateRoutedPayment(ctx, payment, sourceAdapter, destinationAdapter, hold.HoldID, credit.OperationID, err)
+		_ = repository.updateBankOperation(ctx, finalizeID, operationStatusForError(err))
+		return repository.compensateRoutedPayment(ctx, payment, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter, hold.HoldID, credit.OperationID, err)
+	}
+	if err := repository.updateBankOperation(ctx, finalizeID, string(bank.OperationSucceeded)); err != nil {
+		return err
 	}
 
 	if err := repository.settleRoutedCentral(ctx, payment); err != nil {
@@ -103,11 +132,19 @@ func (repository *Repository) runRoutedSaga(ctx context.Context, payment Payment
 	return nil
 }
 
-func (repository *Repository) compensateRoutedPayment(ctx context.Context, payment Payment, sourceAdapter, destinationAdapter bank.BankAdapter, holdID, creditID uuid.UUID, originalErr error) error {
+func (repository *Repository) compensateRoutedPayment(ctx context.Context, payment Payment, sourceBankID, destinationBankID uuid.UUID, sourceAdapter, destinationAdapter bank.BankAdapter, holdID, creditID uuid.UUID, originalErr error) error {
 	releaseID := operationID(payment.ID, "release-hold")
+	_ = repository.trackBankOperation(ctx, payment.ID, sourceBankID, releaseID, "RELEASE_HOLD", payment.AmountPaise, payment.Currency, holdID, uuid.Nil, "PROCESSING")
 	_, releaseErr := sourceAdapter.ReleaseHold(ctx, bank.ReleaseHoldRequest{PaymentID: payment.ID, OperationID: releaseID, IdempotencyKey: releaseID.String(), HoldID: holdID})
+	if releaseErr == nil {
+		_ = repository.updateBankOperation(ctx, releaseID, string(bank.OperationSucceeded))
+	}
 	reverseID := operationID(payment.ID, "reverse-credit")
+	_ = repository.trackBankOperation(ctx, payment.ID, destinationBankID, reverseID, "REVERSE_CREDIT", payment.AmountPaise, payment.Currency, uuid.Nil, creditID, "PROCESSING")
 	_, reverseErr := destinationAdapter.ReverseProvisionalCredit(ctx, bank.ReverseCreditRequest{PaymentID: payment.ID, OperationID: reverseID, IdempotencyKey: reverseID.String(), OriginalOperationID: creditID})
+	if reverseErr == nil {
+		_ = repository.updateBankOperation(ctx, reverseID, string(bank.OperationSucceeded))
+	}
 	if releaseErr != nil || reverseErr != nil {
 		return repository.markPending(ctx, payment.ID)
 	}
@@ -172,6 +209,28 @@ func (repository *Repository) markPending(ctx context.Context, paymentID uuid.UU
 
 func (repository *Repository) markBankSettledPending(ctx context.Context, paymentID uuid.UUID) error {
 	return repository.updateState(ctx, paymentID, StateBankSettledCentralPending)
+}
+
+func (repository *Repository) trackBankOperation(ctx context.Context, paymentID, bankID, operationID uuid.UUID, operationType string, amount int64, currency string, holdID, originalOperationID uuid.UUID, status string) error {
+	_, err := repository.db.Exec(ctx, `
+		INSERT INTO payment_bank_operations (id, payment_id, bank_id, operation_id, operation_type, status, hold_id, original_operation_id, amount_paise, currency)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($8, '00000000-0000-0000-0000-000000000000'::uuid), $9, $10)
+		ON CONFLICT (bank_id, operation_id) DO UPDATE SET status = EXCLUDED.status, updated_at = CURRENT_TIMESTAMP`,
+		uuid.New(), paymentID, bankID, operationID, operationType, status, holdID, originalOperationID, amount, currency)
+	return err
+}
+
+func (repository *Repository) updateBankOperation(ctx context.Context, operationID uuid.UUID, status string) error {
+	_, err := repository.db.Exec(ctx, `UPDATE payment_bank_operations SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, operationID, status)
+	return err
+}
+
+func operationStatusForError(err error) string {
+	var adapterErr *bank.AdapterError
+	if errors.As(err, &adapterErr) && adapterErr.Code == bank.ErrCodeTransientFailure {
+		return string(bank.OperationPending)
+	}
+	return string(bank.OperationFailed)
 }
 
 func (repository *Repository) failOrPend(ctx context.Context, paymentID uuid.UUID, err error) error {

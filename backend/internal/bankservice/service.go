@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,20 +16,27 @@ import (
 
 type Service struct {
 	db        *pgxpool.Pool
+	mu        sync.RWMutex
 	available bool
 }
 
 func NewService(db *pgxpool.Pool) *Service { return &Service{db: db, available: true} }
 
-func (service *Service) SetAvailable(available bool) { service.available = available }
+func (service *Service) SetAvailable(available bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.available = available
+}
 
 func (service *Service) GetHealth(context.Context) (bank.HealthResult, error) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
 	return bank.HealthResult{Available: service.available}, nil
 }
 
 func (service *Service) ResolveAccount(ctx context.Context, request bank.ResolveAccountRequest) (bank.AccountResult, error) {
-	if !service.available {
-		return bank.AccountResult{}, service.unavailable()
+	if err := service.checkAvailable(); err != nil {
+		return bank.AccountResult{}, err
 	}
 	var status string
 	err := service.db.QueryRow(ctx, `SELECT status FROM bank_a.accounts WHERE id = $1`, request.AccountID).Scan(&status)
@@ -54,7 +62,7 @@ func (service *Service) HoldFunds(ctx context.Context, request bank.HoldFundsReq
 	}
 	defer tx.Rollback(ctx)
 
-	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID); err != nil || found {
+	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
 		if err != nil {
 			return bank.HoldResult{}, err
 		}
@@ -100,7 +108,7 @@ func (service *Service) ProvisionalCredit(ctx context.Context, request bank.Prov
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID); err != nil || found {
+	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
 		return existing, err
 	}
 	if err := ensureActiveAccount(ctx, tx, request.AccountID); err != nil {
@@ -133,6 +141,9 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
+		return existing, err
+	}
 	var paymentID uuid.UUID
 	var accountID uuid.UUID
 	var amount int64
@@ -150,8 +161,11 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	if status == "CONFIRMED" || status == "FINAL" {
 		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
 	}
-	if status != "ACTIVE" {
+	if status != "ACTIVE" && status != "PROVISIONAL" {
 		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationFailed), nil
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, amount_paise, currency, status, bank_reference) VALUES ($1, $2, $3, $4, 'CONFIRM_HOLD', $5, $6, $7, 'INR', 'CONFIRMED', $8)`, uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, accountID, request.HoldID, amount, bankReference(request.OperationID)); err != nil {
+		return bank.OperationResult{}, err
 	}
 	nextStatus := "CONFIRMED"
 	if operationType == "PROVISIONAL_CREDIT" {
@@ -181,6 +195,9 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
+		return existing, err
+	}
 	var paymentID, accountID uuid.UUID
 	var amount int64
 	var status string
@@ -195,6 +212,9 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "hold cannot be released"}
 	}
 	if status == "ACTIVE" {
+		if _, err := tx.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, amount_paise, currency, status, bank_reference) VALUES ($1, $2, $3, $4, 'RELEASE_HOLD', $5, $6, $7, 'INR', 'RELEASED', $8)`, uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, accountID, request.HoldID, amount, bankReference(request.OperationID)); err != nil {
+			return bank.OperationResult{}, err
+		}
 		if _, err := tx.Exec(ctx, `UPDATE bank_a.accounts SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, amount); err != nil {
 			return bank.OperationResult{}, err
 		}
@@ -220,6 +240,9 @@ func (service *Service) ReverseProvisionalCredit(ctx context.Context, request ba
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
+	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
+		return existing, err
+	}
 	var paymentID, accountID uuid.UUID
 	var amount int64
 	var status string
@@ -235,6 +258,9 @@ func (service *Service) ReverseProvisionalCredit(ctx context.Context, request ba
 	}
 	if status != "PROVISIONAL" {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "credit is no longer provisional"}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, original_operation_id, amount_paise, currency, status, bank_reference) VALUES ($1, $2, $3, $4, 'REVERSE_PROVISIONAL_CREDIT', $5, $6, $7, 'INR', 'REVERSED', $8)`, uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, accountID, request.OriginalOperationID, amount, bankReference(request.OperationID)); err != nil {
+		return bank.OperationResult{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'REVERSED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.OriginalOperationID); err != nil {
 		return bank.OperationResult{}, err
@@ -280,7 +306,10 @@ func (service *Service) GetLedgerSnapshot(ctx context.Context, scope bank.Ledger
 }
 
 func (service *Service) checkAvailable() error {
-	if !service.available {
+	service.mu.RLock()
+	available := service.available
+	service.mu.RUnlock()
+	if !available {
 		return service.unavailable()
 	}
 	return nil
@@ -309,15 +338,18 @@ func ensureActiveAccount(ctx context.Context, tx pgx.Tx, accountID uuid.UUID) er
 	return nil
 }
 
-func (service *Service) existingOperation(ctx context.Context, tx pgx.Tx, operationID uuid.UUID) (bank.OperationResult, bool, error) {
+func (service *Service) existingOperation(ctx context.Context, tx pgx.Tx, operationID uuid.UUID, idempotencyKey string) (bank.OperationResult, bool, error) {
 	var result bank.OperationResult
 	var status string
-	err := tx.QueryRow(ctx, `SELECT payment_id, operation_id, bank_reference, status FROM bank_a.operations WHERE operation_id = $1`, operationID).Scan(&result.PaymentID, &result.OperationID, &result.BankReference, &status)
+	err := tx.QueryRow(ctx, `SELECT payment_id, operation_id, bank_reference, status FROM bank_a.operations WHERE operation_id = $1 OR idempotency_key = $2`, operationID, idempotencyKey).Scan(&result.PaymentID, &result.OperationID, &result.BankReference, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, false, nil
 	}
 	if err != nil {
 		return bank.OperationResult{}, false, err
+	}
+	if result.OperationID != operationID {
+		return bank.OperationResult{}, false, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "idempotency key is already bound to another operation"}
 	}
 	result.Status = operationStatus(status)
 	return result, true, nil
@@ -338,9 +370,7 @@ func operationResultWithStatus(paymentID, operationID uuid.UUID, status bank.Ope
 
 func operationStatus(status string) bank.OperationStatus {
 	switch status {
-	case "ACTIVE", "PROVISIONAL":
-		return bank.OperationPending
-	case "CONFIRMED", "FINAL", "RELEASED", "REVERSED":
+	case "ACTIVE", "PROVISIONAL", "CONFIRMED", "FINAL", "RELEASED", "REVERSED":
 		return bank.OperationSucceeded
 	case "FAILED":
 		return bank.OperationFailed

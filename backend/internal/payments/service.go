@@ -70,6 +70,10 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 	recipientIdentifier := common.NormalizeIdentifier(input.Recipient)
 	requestHash := paymentRequestHash(input.SourceAccountID, recipientIdentifier, input.AmountPaise, currency)
 	if payment, duplicate, err := service.payments.GetIdempotent(ctx, input.UserID, key, requestHash); err != nil || duplicate {
+		if err == nil && duplicate && service.hasRoutedAdapters() && payment.State == StateBankSettledCentralPending {
+			recovered, recoveryErr := service.payments.RecoverBankSettledCentralPending(ctx, payment.ID)
+			return recovered, true, recoveryErr
+		}
 		return payment, duplicate, err
 	}
 	if currency != "INR" {
@@ -124,6 +128,10 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 		Currency:          "INR",
 		State:             StateCreated,
 	}, key, requestHash, service.accounts, service.ledger)
+}
+
+func (service *Service) hasRoutedAdapters() bool {
+	return service.adapter != nil || service.adapters != nil
 }
 
 func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string) string {
