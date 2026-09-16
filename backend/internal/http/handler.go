@@ -9,6 +9,7 @@ import (
 
 	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/auth"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/recipients"
@@ -26,6 +27,14 @@ type Handler struct {
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
+	return newHandler(db, logger, authService, jwtManager, nil)
+}
+
+func NewHandlerWithBankAdapter(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
+	return newHandler(db, logger, authService, jwtManager, adapter)
+}
+
+func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
 	handler := &Handler{
 		db:           db,
 		logger:       logger,
@@ -34,7 +43,7 @@ func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service
 		accountsRepo: accounts.NewRepository(db),
 		recipients:   recipients.NewRepository(db),
 	}
-	handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db), nil)
+	handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapter)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)

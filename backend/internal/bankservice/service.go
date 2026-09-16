@@ -134,8 +134,8 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	}
 	defer tx.Rollback(ctx)
 	var paymentID uuid.UUID
-	var status string
-	err = tx.QueryRow(ctx, `SELECT payment_id, status FROM bank_a.operations WHERE operation_id = $1 AND hold_id IS NULL`, request.HoldID).Scan(&paymentID, &status)
+	var status, operationType string
+	err = tx.QueryRow(ctx, `SELECT payment_id, status, operation_type FROM bank_a.operations WHERE operation_id = $1 AND hold_id IS NULL`, request.HoldID).Scan(&paymentID, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "hold is invalid"}
 	}
@@ -151,7 +151,11 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	if status != "ACTIVE" {
 		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationFailed), nil
 	}
-	if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'CONFIRMED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
+	nextStatus := "CONFIRMED"
+	if operationType == "PROVISIONAL_CREDIT" {
+		nextStatus = "FINAL"
+	}
+	if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID, nextStatus); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

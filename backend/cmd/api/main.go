@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/transactx/backend/internal/auth"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/config"
 	"github.com/transactx/backend/internal/database"
 	apihttp "github.com/transactx/backend/internal/http"
@@ -38,9 +39,18 @@ func main() {
 	}
 	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
 
+	var bankAdapter bank.BankAdapter
+	if bankURL := os.Getenv("BANK_A_URL"); bankURL != "" {
+		bankAdapter, err = bank.NewHTTPClient(bankURL, nil)
+		if err != nil {
+			logger.Error("configure Bank A adapter", "error", err)
+			os.Exit(1)
+		}
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Address,
-		Handler:           apihttp.NewHandler(db, logger, authService, jwtManager),
+		Handler:           apihttp.NewHandlerWithBankAdapter(db, logger, authService, jwtManager, bankAdapter),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

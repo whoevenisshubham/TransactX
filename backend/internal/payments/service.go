@@ -18,12 +18,13 @@ import (
 )
 
 var (
-	ErrInvalidRequest    = errors.New("invalid payment request")
-	ErrSourceNotFound    = errors.New("source account not found")
-	ErrSourceInactive    = errors.New("source account is inactive")
-	ErrRecipientNotFound = errors.New("recipient not found")
-	ErrRecipientInactive = errors.New("recipient account is inactive")
-	ErrSelfPayment       = errors.New("payer cannot pay their own account")
+	ErrInvalidRequest       = errors.New("invalid payment request")
+	ErrSourceNotFound       = errors.New("source account not found")
+	ErrSourceInactive       = errors.New("source account is inactive")
+	ErrRecipientNotFound    = errors.New("recipient not found")
+	ErrRecipientInactive    = errors.New("recipient account is inactive")
+	ErrSelfPayment          = errors.New("payer cannot pay their own account")
+	ErrBankRouteUnavailable = errors.New("selected bank route is unavailable")
 )
 
 type CreateInput struct {
@@ -41,10 +42,15 @@ type Service struct {
 	payments   *Repository
 	ledger     *ledger.Repository
 	adapter    bank.BankAdapter
+	adapters   map[uuid.UUID]bank.BankAdapter
 }
 
 func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapter bank.BankAdapter) *Service {
 	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapter: adapter}
+}
+
+func NewServiceWithAdapters(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter) *Service {
+	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters}
 }
 
 func (service *Service) Create(ctx context.Context, input CreateInput) (Payment, error) {
@@ -87,6 +93,26 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 	}
 	if recipient.AccountID == input.SourceAccountID || recipient.UserID == input.UserID {
 		return Payment{}, false, ErrSelfPayment
+	}
+	if service.adapters != nil || service.adapter != nil {
+		sourceAdapter, sourceOK := service.adapter, service.adapter != nil
+		destinationAdapter, destinationOK := service.adapter, service.adapter != nil
+		if service.adapters != nil {
+			sourceAdapter, sourceOK = service.adapters[source.BankID]
+			destinationAdapter, destinationOK = service.adapters[recipient.BankID]
+		}
+		if !sourceOK || !destinationOK {
+			return Payment{}, false, ErrBankRouteUnavailable
+		}
+		return service.payments.CreateRoutedIdempotent(ctx, Payment{
+			ID:                uuid.New(),
+			InitiatedByUserID: input.UserID,
+			SenderAccountID:   input.SourceAccountID,
+			ReceiverAccountID: recipient.AccountID,
+			AmountPaise:       input.AmountPaise,
+			Currency:          "INR",
+			State:             StateCreated,
+		}, key, requestHash, source.BankID, recipient.BankID, sourceAdapter, destinationAdapter)
 	}
 
 	return service.payments.CreateAndSettleIdempotent(ctx, Payment{
