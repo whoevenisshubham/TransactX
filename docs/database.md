@@ -34,4 +34,4 @@ M1-3D PostgreSQL integration tests experimentally verify that the conditional de
 
 ### FUTURE WORK
 
-Bank adapters, routing, and payment seed data remain future implementation work. `backend/cmd/devseed` is a development-only provisioning command for the synthetic bank and OPS_ADMIN; its password must be supplied through `DEV_ADMIN_PASSWORD` and is never stored in the repository.
+The domain contract at `backend/internal/bank` now defines the operations future bank implementations must provide. M1-4 adds the injection seam; the current handler injects `nil`, so the payment flow does not invoke an adapter. Bank-specific persistence, bank services, routing, and payment seed data remain future implementation work. The current authoritative settlement remains the PostgreSQL `LOCAL_SETTLEMENT` transaction. `backend/cmd/devseed` is a development-only provisioning command for the synthetic bank and OPS_ADMIN; its password must be supplied through `DEV_ADMIN_PASSWORD` and is never stored in the repository.

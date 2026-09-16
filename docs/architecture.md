@@ -24,8 +24,10 @@ React + TypeScript frontend
 
 ### PLANNED
 
-The payment service will eventually depend on a BankAdapter interface. M1 owns BankAdapter and Bank A. M2 owns Bank B and resilience behavior. M3 owns reconciliation, integrity, and research functionality. M1-3A does not implement that adapter or routing.
+M1-4 introduces the injected domain-level `backend/internal/bank.BankAdapter` seam. It defines account validation, debit, credit, and health operations with typed results and error classifications; it has no HTTP or PostgreSQL dependencies. The current handler injects `nil`, so the current payment flow does not invoke the adapter. Bank A and Bank B will eventually implement the same contract, but no routing logic is introduced in M1-4.
+
+The adapter will own communication with a bank participant and bank-specific operation details. Payment Service will continue to own payment validation, idempotency, state transitions, and authoritative settlement orchestration. The current production path remains `Payment Service -> PostgreSQL LOCAL_SETTLEMENT`.
 
 ### FUTURE WORK
 
-The M1-3D tests verify the current conditional `UPDATE` row-lock behavior for this local settlement path; they are not formal verification or production banking certification. Bank routing, offline replay, reconciliation, and the Network Console are not implemented. The BankAdapter interface and Bank A are also not implemented. JWT logout is client-side token disposal only; server-side revocation and refresh tokens are not implemented.
+The M1-3D tests verify the current conditional `UPDATE` row-lock behavior for this local settlement path; they are not formal verification or production banking certification. Bank A, Bank B, bank routing, offline replay, reconciliation, and the Network Console are not implemented. M1-4 adds only the adapter abstraction; it does not complete routed settlement. JWT logout is client-side token disposal only; server-side revocation and refresh tokens are not implemented.

@@ -34,7 +34,7 @@ func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service
 		accountsRepo: accounts.NewRepository(db),
 		recipients:   recipients.NewRepository(db),
 	}
-	handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db))
+	handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db), nil)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)

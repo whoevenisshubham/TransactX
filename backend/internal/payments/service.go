@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/ledger"
 	"github.com/transactx/backend/internal/recipients"
@@ -39,10 +40,11 @@ type Service struct {
 	recipients *recipients.Repository
 	payments   *Repository
 	ledger     *ledger.Repository
+	adapter    bank.BankAdapter
 }
 
-func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository) *Service {
-	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db)}
+func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapter bank.BankAdapter) *Service {
+	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapter: adapter}
 }
 
 func (service *Service) Create(ctx context.Context, input CreateInput) (Payment, error) {

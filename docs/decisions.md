@@ -68,3 +68,11 @@ M1-3C uses the explicit `CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED 
 Status: **IMPLEMENTED**
 
 M1-3D keeps the existing conditional account debit update as the concurrency control boundary. Deterministic PostgreSQL integration tests verify no negative balance or double spending under 10-way and 75-way contention, exact debit/credit conservation and balance reconstruction, one logical settlement for concurrent same-key requests, and atomic rollback of failed attempts. These results are experimental verification of the exercised local path, not formal verification or production banking certification.
+
+## ADR-012: M1-4 BankAdapter Contract
+
+Status: **IMPLEMENTED**
+
+M1-4 adds `backend/internal/bank.BankAdapter` as an injected domain-only boundary for future bank participants. The contract covers account validation, debit, credit, and health, and uses typed results plus error codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and later status or reconciliation mechanisms.
+
+The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. The current handler injects `nil`, so Payment Service does not invoke the adapter yet. Payment Service remains responsible for payment validation, idempotency, state transitions, and settlement orchestration. The current production path is unchanged: PostgreSQL performs authoritative `LOCAL_SETTLEMENT`; no Bank A, Bank B, routing, or adapter-backed settlement is implemented yet.

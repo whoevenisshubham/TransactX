@@ -112,7 +112,7 @@ Duration: Week 4   Objective: Introduce actual independent simulated bank partic
 \[ ] M2 — Implement bank health endpoint.
 \[ ] M2 — Implement configurable bank latency.
 \[ ] M2 — Implement configurable bank failure mode.
-\[ ] M1 — Implement payment-switch bank adapter abstraction.
+\[x] M1 — Implement payment-switch bank adapter abstraction/injection boundary.
 \[ ] M1 — Route a normal payment through the payment switch to the selected bank.
 \[ ] M1 — Persist selected route on the payment.
 \[ ] M1 — Define timeout/error mapping between switch and bank adapters.
