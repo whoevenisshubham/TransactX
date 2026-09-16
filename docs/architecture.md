@@ -14,6 +14,8 @@ M1-3B extends the authenticated payment foundation at `POST /api/payments` with 
 
 M1-3D experimentally verifies this local settlement boundary under deterministic PostgreSQL contention: conditional balance updates prevent negative balances and overspending, failed attempts roll back payment/ledger/idempotency work, successful transfers preserve double-entry and reconstructed-balance invariants, and concurrent same-key requests produce one logical settlement.
 
+M1-5 adds Bank A as the first concrete `BankAdapter` implementation. Bank A is a deterministic local simulation with explicitly supplied integer-paise account state; it is not a real financial institution and does not provide external bank connectivity. The adapter remains a domain-only package and is not invoked by the current payment flow.
+
 ```text
 PostgreSQL
     ↓
@@ -22,12 +24,12 @@ Go API
 React + TypeScript frontend
 ```
 
-### PLANNED
+### IMPLEMENTED
 
-M1-4 introduces the injected domain-level `backend/internal/bank.BankAdapter` seam. It defines account validation, debit, credit, and health operations with typed results and error classifications; it has no HTTP or PostgreSQL dependencies. The current handler injects `nil`, so the current payment flow does not invoke the adapter. Bank A and Bank B will eventually implement the same contract, but no routing logic is introduced in M1-4.
+M1-4 introduces the injected domain-level `backend/internal/bank.BankAdapter` seam. It defines account validation, debit, credit, and health operations with typed results and error classifications; it has no HTTP or PostgreSQL dependencies. M1-5 provides the first concrete implementation, Bank A. The current handler injects `nil`, so the current payment flow does not invoke the adapter, and no routing logic is introduced.
 
-The adapter will own communication with a bank participant and bank-specific operation details. Payment Service will continue to own payment validation, idempotency, state transitions, and authoritative settlement orchestration. The current production path remains `Payment Service -> PostgreSQL LOCAL_SETTLEMENT`.
+The adapter will own communication with a bank participant and bank-specific operation details. Bank A's simulated state is not authoritative application balance state and is not persisted to PostgreSQL. Payment Service will continue to own payment validation, idempotency, state transitions, and authoritative settlement orchestration. The current production/demo path remains `Payment Service -> PostgreSQL LOCAL_SETTLEMENT`; routed invocation is future integration work.
 
 ### FUTURE WORK
 
-The M1-3D tests verify the current conditional `UPDATE` row-lock behavior for this local settlement path; they are not formal verification or production banking certification. Bank A, Bank B, bank routing, offline replay, reconciliation, and the Network Console are not implemented. M1-4 adds only the adapter abstraction; it does not complete routed settlement. JWT logout is client-side token disposal only; server-side revocation and refresh tokens are not implemented.
+The M1-3D tests verify the current conditional `UPDATE` row-lock behavior for this local settlement path; they are not formal verification or production banking certification. Bank B, bank routing, offline replay, reconciliation, and the Network Console remain future work. M1-5 creates and verifies Bank A but does not complete routed settlement. JWT logout is client-side token disposal only; server-side revocation and refresh tokens are not implemented.

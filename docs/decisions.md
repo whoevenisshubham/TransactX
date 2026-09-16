@@ -75,4 +75,12 @@ Status: **IMPLEMENTED**
 
 M1-4 adds `backend/internal/bank.BankAdapter` as an injected domain-only boundary for future bank participants. The contract covers account validation, debit, credit, and health, and uses typed results plus error codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and later status or reconciliation mechanisms.
 
-The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. The current handler injects `nil`, so Payment Service does not invoke the adapter yet. Payment Service remains responsible for payment validation, idempotency, state transitions, and settlement orchestration. The current production path is unchanged: PostgreSQL performs authoritative `LOCAL_SETTLEMENT`; no Bank A, Bank B, routing, or adapter-backed settlement is implemented yet.
+The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. The current handler injects `nil`, so Payment Service does not invoke the adapter yet. Payment Service remains responsible for payment validation, idempotency, state transitions, and settlement orchestration. The current production path is unchanged: PostgreSQL performs authoritative `LOCAL_SETTLEMENT`; Bank B, routing, and adapter-backed settlement are not implemented yet.
+
+## ADR-013: M1-5 Simulated Bank A
+
+Status: **IMPLEMENTED**
+
+M1-5 adds `backend/internal/bank.BankA`, the first concrete implementation of `BankAdapter`. Bank A is a deterministic local domain simulation. It accepts explicitly supplied account records, uses mutex-protected integer-paise balances, returns typed adapter outcomes, and preserves payment/operation correlation metadata. Its state is not a second authoritative application balance store: the adapter is not wired into Payment Service, and PostgreSQL remains authoritative for the current `LOCAL_SETTLEMENT` path.
+
+Bank A is not a real financial institution and does not imply real external-bank connectivity. Bank B and routing remain future work; no payment flow, HTTP handler, PostgreSQL repository, retry system, or distributed banking behavior is added by this decision.

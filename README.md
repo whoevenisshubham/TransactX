@@ -14,17 +14,18 @@ TransactX is a simulated payment infrastructure research prototype. It does not 
 - Frontend API connectivity check.
 - Approved architecture decisions documented in `docs/decisions.md`.
 - Phase 1B authentication, Argon2id password hashing, JWT middleware, account reads, recipient lookup, and minimal customer authentication UI.
+- BankAdapter and the local simulated Bank A implementation.
 
 ### PLANNED
 
 - Payment execution, idempotency, state transitions, and ledger.
 - Payment validation, idempotency, state transitions, and ledger.
-- BankAdapter and Bank A.
 - Customer payment experience.
 
 ### FUTURE WORK
 
 - Bank B, routing, circuit breaker, and chaos engineering (M2).
+- Bank A integration into payment routing and real external-bank connectivity.
 - Reconciliation, integrity engine, and research console (M3).
 
 ## Local Development

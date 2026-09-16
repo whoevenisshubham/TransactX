@@ -783,11 +783,11 @@ idempotency key
 
 # 12\. Bank Adapter — Typed Result Contract
 
-M1-4 implements the injected domain contract in `backend/internal/bank/adapter.go`. `BankAdapter` exposes account validation, debit, credit, and health operations without HTTP or PostgreSQL types. The current handler injects `nil`, so the payment flow does not invoke an adapter. Debit and credit results carry the payment ID, bank-operation ID, bank reference, and a success or unresolved-pending status.
+M1-4 implements the injected domain contract in `backend/internal/bank/adapter.go`. M1-5 adds `backend/internal/bank.BankA` as its first concrete implementation. `BankAdapter` and Bank A expose account validation, debit, credit, and health operations without HTTP or PostgreSQL types. The current handler injects `nil`, so the payment flow does not invoke Bank A. Debit and credit results carry the payment ID, bank-operation ID, bank reference, and a success or unresolved-pending status.
 
 `PENDING` means the bank operation outcome is unknown or unresolved: the bank may have accepted or committed it, so the caller must not blindly repeat the monetary operation. The payment layer must use the operation/payment correlation metadata and later status or reconciliation mechanisms before deciding whether a retry is safe. This is distinct from definite success and definite business failure.
 
-Adapter errors use explicit codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failure, and permanent business failure. These outcomes must remain distinguishable when Bank A and Bank B are implemented. The current payment flow still uses authoritative PostgreSQL `LOCAL_SETTLEMENT`; Bank A, Bank B, and routed settlement remain future work.
+Adapter errors use explicit codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failure, and permanent business failure. Bank A uses integer paise and a deterministic local account simulation; it is not a real financial institution and does not provide real external-bank connectivity. Its simulated state is not authoritative and does not replace PostgreSQL. The current payment flow still uses authoritative PostgreSQL `LOCAL_SETTLEMENT`; Bank B and routed settlement remain future work.
 
 # 13\. Customer Frontend — Network State Integration
 
