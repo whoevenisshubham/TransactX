@@ -17,12 +17,12 @@ func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 func (repository *Repository) Resolve(ctx context.Context, paymentID string) (Recipient, error) {
 	var recipient Recipient
 	err := repository.db.QueryRow(ctx, `
-		SELECT u.id, u.name, u.upi_id, a.status
+		SELECT a.id, u.id, u.name, u.upi_id, a.status
 		FROM users u
 		JOIN accounts a ON a.user_id = u.id
 		WHERE u.upi_id = $1
 		ORDER BY a.created_at ASC
-		LIMIT 1`, paymentID).Scan(&recipient.UserID, &recipient.Name, &recipient.PaymentID, &recipient.AccountStatus)
+		LIMIT 1`, paymentID).Scan(&recipient.AccountID, &recipient.UserID, &recipient.Name, &recipient.PaymentID, &recipient.AccountStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Recipient{}, ErrNotFound
 	}

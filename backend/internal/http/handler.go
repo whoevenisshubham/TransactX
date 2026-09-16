@@ -10,6 +10,7 @@ import (
 	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/common"
+	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/users"
 )
@@ -21,6 +22,7 @@ type Handler struct {
 	users        *users.Repository
 	accountsRepo *accounts.Repository
 	recipients   *recipients.Repository
+	payments     *payments.Service
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -32,6 +34,7 @@ func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service
 		accountsRepo: accounts.NewRepository(db),
 		recipients:   recipients.NewRepository(db),
 	}
+	handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db))
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)
@@ -41,6 +44,7 @@ func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service
 	mux.Handle("GET /api/accounts", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.accounts))))
 	mux.Handle("GET /api/accounts/{accountID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.account))))
 	mux.Handle("GET /api/recipients/{paymentIdentifier}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.recipient))))
+	mux.Handle("POST /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.createPayment))))
 	return common.RequestIDMiddleware(cors(mux))
 }
 
