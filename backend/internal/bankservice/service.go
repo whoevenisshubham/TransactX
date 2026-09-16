@@ -200,15 +200,15 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 	}
 	var paymentID, accountID uuid.UUID
 	var amount int64
-	var status string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status FROM bank_a.operations WHERE operation_id = $1`, request.HoldID).Scan(&paymentID, &accountID, &amount, &status)
+	var status, operationType string
+	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status, operation_type FROM bank_a.operations WHERE operation_id = $1`, request.HoldID).Scan(&paymentID, &accountID, &amount, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "hold is invalid"}
 	}
 	if err != nil {
 		return bank.OperationResult{}, err
 	}
-	if paymentID != request.PaymentID || status == "CONFIRMED" {
+	if paymentID != request.PaymentID || operationType != "HOLD" || status == "CONFIRMED" {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "hold cannot be released"}
 	}
 	if status == "ACTIVE" {
@@ -245,8 +245,8 @@ func (service *Service) ReverseProvisionalCredit(ctx context.Context, request ba
 	}
 	var paymentID, accountID uuid.UUID
 	var amount int64
-	var status string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status FROM bank_a.operations WHERE operation_id = $1`, request.OriginalOperationID).Scan(&paymentID, &accountID, &amount, &status)
+	var status, operationType string
+	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status, operation_type FROM bank_a.operations WHERE operation_id = $1`, request.OriginalOperationID).Scan(&paymentID, &accountID, &amount, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "credit operation is invalid"}
 	}
@@ -256,7 +256,7 @@ func (service *Service) ReverseProvisionalCredit(ctx context.Context, request ba
 	if paymentID != request.PaymentID || status == "REVERSED" {
 		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
 	}
-	if status != "PROVISIONAL" {
+	if operationType != "PROVISIONAL_CREDIT" || status != "PROVISIONAL" {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "credit is no longer provisional"}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, original_operation_id, amount_paise, currency, status, bank_reference) VALUES ($1, $2, $3, $4, 'REVERSE_PROVISIONAL_CREDIT', $5, $6, $7, 'INR', 'REVERSED', $8)`, uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, accountID, request.OriginalOperationID, amount, bankReference(request.OperationID)); err != nil {

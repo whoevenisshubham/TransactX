@@ -149,6 +149,9 @@ func TestBankAReleaseAndReverseAreIdempotentCompensations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.ReleaseHold(context.Background(), bank.ReleaseHoldRequest{PaymentID: paymentID, OperationID: uuid.New(), IdempotencyKey: "invalid-release", HoldID: creditID}); err == nil {
+		t.Fatal("release unexpectedly accepted a provisional credit operation")
+	}
 	reverseRequest := bank.ReverseCreditRequest{PaymentID: paymentID, OperationID: uuid.New(), IdempotencyKey: "reverse-operation", OriginalOperationID: creditID}
 	if _, err := service.ReverseProvisionalCredit(context.Background(), reverseRequest); err != nil {
 		t.Fatal(err)
