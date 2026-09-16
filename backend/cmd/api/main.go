@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/config"
 	"github.com/transactx/backend/internal/database"
 	apihttp "github.com/transactx/backend/internal/http"
@@ -30,9 +31,16 @@ func main() {
 	}
 	defer db.Close()
 
+	jwtManager, err := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTLifetime)
+	if err != nil {
+		logger.Error("configure JWT", "error", err)
+		os.Exit(1)
+	}
+	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
+
 	server := &http.Server{
 		Addr:              cfg.Address,
-		Handler:           apihttp.NewHandler(db, logger),
+		Handler:           apihttp.NewHandler(db, logger, authService, jwtManager),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

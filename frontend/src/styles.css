@@ -6,70 +6,44 @@
   text-rendering: optimizeLegibility;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-.shell {
-  min-height: 100vh;
-  display: grid;
-  align-content: center;
-  gap: 1rem;
-  max-width: 42rem;
-  margin: 0 auto;
-  padding: 2rem;
-}
-
-.eyebrow {
-  margin: 0;
-  color: #28604d;
-  font-family: "Trebuchet MS", sans-serif;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0;
-  font-size: clamp(3.5rem, 12vw, 7rem);
-  line-height: 0.9;
-  letter-spacing: 0;
-}
-
-.subtitle {
-  max-width: 28rem;
-  margin: 0;
-  font-size: 1.25rem;
-  line-height: 1.45;
-}
-
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: fit-content;
-  padding: 0.7rem 0.9rem;
-  border: 1px solid #aabbb0;
-  border-radius: 0.25rem;
-  background: #f7faf5;
-  font-family: "Trebuchet MS", sans-serif;
-  font-size: 0.9rem;
-}
-
-.dot {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 50%;
-  background: #ad5c3c;
-}
-
-.dot.online {
-  background: #28604d;
-}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+.app-shell { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 28rem); gap: 4rem; align-items: center; max-width: 78rem; margin: 0 auto; padding: 3rem; }
+.brand-panel { max-width: 38rem; }
+.eyebrow { margin: 0 0 .8rem; color: #28604d; font-family: "Trebuchet MS", sans-serif; font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+h1 { margin: 0; font-size: clamp(3.5rem, 10vw, 7rem); line-height: .9; letter-spacing: 0; }
+h2 { margin: 0 0 1.8rem; font-size: 2rem; line-height: 1; }
+.brand-panel > p:not(.eyebrow) { max-width: 29rem; margin: 1.5rem 0; font-size: 1.3rem; line-height: 1.45; }
+.status-chip, .account-card, .lookup-panel, .form-panel { border: 1px solid #aabbb0; background: #f7faf5; }
+.status-chip { display: inline-flex; align-items: center; gap: .6rem; padding: .7rem .9rem; font-family: "Trebuchet MS", sans-serif; font-size: .85rem; }
+.dot { width: .65rem; height: .65rem; border-radius: 50%; background: #ad5c3c; }
+.dot.online { background: #28604d; }
+.form-panel { padding: 2rem; box-shadow: 12px 12px 0 #c9d8ca; }
+.tabs { display: flex; gap: 1.2rem; margin-bottom: 2rem; border-bottom: 1px solid #d5dfd4; }
+.tabs button { padding: .7rem 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #65716b; }
+.tabs button.active { border-color: #28604d; color: #18211f; font-weight: 700; }
+form { display: grid; gap: 1rem; }
+label { display: grid; gap: .4rem; font-family: "Trebuchet MS", sans-serif; font-size: .82rem; font-weight: 700; }
+input, select { width: 100%; padding: .8rem; border: 1px solid #aabbb0; border-radius: 0; background: #fff; color: #18211f; }
+.primary, .ghost { padding: .8rem 1rem; border: 1px solid #28604d; border-radius: 0; font-family: "Trebuchet MS", sans-serif; font-weight: 700; }
+.primary { background: #28604d; color: #fff; }
+.primary:disabled { opacity: .55; cursor: wait; }
+.ghost { background: transparent; color: #28604d; }
+.error { color: #a43e32; font-family: "Trebuchet MS", sans-serif; font-size: .85rem; }
+.dashboard { max-width: 72rem; margin: 0 auto; padding: 3rem; }
+.dashboard header { display: flex; align-items: start; justify-content: space-between; gap: 2rem; margin-bottom: 3rem; }
+.dashboard header h1 { font-size: clamp(2.6rem, 7vw, 5.5rem); }
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+.account-card { display: grid; gap: .6rem; padding: 1.5rem; }
+.account-card strong { font-size: 2.4rem; }
+.account-card span, .recipient-result span, .label { color: #65716b; font-family: "Trebuchet MS", sans-serif; font-size: .8rem; }
+.profile-row { display: flex; gap: 4rem; padding: 1.5rem 0; border-bottom: 1px solid #c9d8ca; }
+.profile-row div { display: grid; gap: .35rem; }
+.profile-row strong { font-size: 1.1rem; }
+.lookup-panel { max-width: 42rem; margin-top: 3rem; padding: 1.8rem; }
+.lookup-panel form { display: grid; grid-template-columns: 1fr auto; }
+.recipient-result { display: grid; gap: .3rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #d5dfd4; }
+.boundary-note { color: #65716b; font-family: "Trebuchet MS", sans-serif; font-size: .8rem; }
+@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; gap: 2.5rem; padding: 1.5rem; } .form-panel { box-shadow: 7px 7px 0 #c9d8ca; } .dashboard { padding: 1.5rem; } .dashboard header { margin-bottom: 2rem; } .profile-row { gap: 1.5rem; flex-wrap: wrap; } }

@@ -13,10 +13,11 @@ TransactX is a simulated payment infrastructure research prototype. It does not 
 - React + TypeScript + Vite frontend shell.
 - Frontend API connectivity check.
 - Approved architecture decisions documented in `docs/decisions.md`.
+- Phase 1B authentication, Argon2id password hashing, JWT middleware, account reads, recipient lookup, and minimal customer authentication UI.
 
 ### PLANNED
 
-- Authentication and customer accounts.
+- Payment execution, idempotency, state transitions, and ledger.
 - Payment validation, idempotency, state transitions, and ledger.
 - BankAdapter and Bank A.
 - Customer payment experience.
@@ -53,6 +54,8 @@ npm run dev
 ```
 
 The API runs at `http://localhost:8080` and the Vite frontend runs at the URL printed by Vite, normally `http://localhost:5173`.
+
+For Phase 1B, set `DATABASE_URL`, `JWT_SECRET` (at least 32 random bytes), and `DEFAULT_BANK_CODE` before starting the API. To provision development data, set `APP_DEVELOPMENT=true` and `DEV_ADMIN_PASSWORD`, then run `go run ./cmd/devseed` from `backend`. The command creates the synthetic bank and OPS_ADMIN atomically and has no password fallback.
 
 ## Repository Rules
 

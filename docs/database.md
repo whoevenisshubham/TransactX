@@ -26,6 +26,8 @@ The schema enforces positive payment and ledger-entry amounts, non-negative acco
 
 The schema does not by itself enforce debit/credit conservation, legal state transitions, account ownership by the authenticated user, or protection against double spending. Those require later application transactions, locking, and integrity checks.
 
+Phase 1B uses the existing schema without a new migration. Registration selects the active bank identified by the server-side `DEFAULT_BANK_CODE` and inserts the user and zero-balance initial account in one PostgreSQL transaction. Public input cannot choose the bank, account number, balance, or account status. Account reads include `user_id` ownership predicates. Recipient lookup uses the unique `users.upi_id` and returns only safe identity/status fields.
+
 ### FUTURE WORK
 
-Payment execution, authentication, idempotency behavior, ledger balancing logic, concurrency control, bank adapters, and seed data remain future implementation work.
+Payment execution, idempotency behavior, ledger balancing logic, concurrency control, bank adapters, and payment seed data remain future implementation work. `backend/cmd/devseed` is a development-only provisioning command for the synthetic bank and OPS_ADMIN; its password must be supplied through `DEV_ADMIN_PASSWORD` and is never stored in the repository.
