@@ -147,7 +147,7 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	if paymentID != request.PaymentID {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "hold payment does not match"}
 	}
-	if status == "CONFIRMED" {
+	if status == "CONFIRMED" || status == "FINAL" {
 		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
 	}
 	if status != "ACTIVE" {
