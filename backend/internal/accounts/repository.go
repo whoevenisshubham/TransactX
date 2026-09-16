@@ -10,12 +10,41 @@ import (
 )
 
 var ErrNotFound = errors.New("account not found")
+var ErrInsufficientFunds = errors.New("insufficient funds")
 
 type Repository struct{ db *pgxpool.Pool }
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
-const accountColumns = `id, user_id, bank_id, account_number, balance_paise, version, status, created_at, updated_at`
+const accountColumns = `id, user_id, bank_id, account_number, balance_paise, opening_balance_paise, version, status, created_at, updated_at`
+
+func (repository *Repository) Debit(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, amountPaise int64) error {
+	result, err := tx.Exec(ctx, `
+		UPDATE accounts
+		SET balance_paise = balance_paise - $2, version = version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status = 'ACTIVE' AND balance_paise >= $2`, accountID, amountPaise)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrInsufficientFunds
+	}
+	return nil
+}
+
+func (repository *Repository) Credit(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, amountPaise int64) error {
+	result, err := tx.Exec(ctx, `
+		UPDATE accounts
+		SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND status = 'ACTIVE'`, accountID, amountPaise)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
 
 func (repository *Repository) ListOwned(ctx context.Context, userID uuid.UUID) ([]Account, error) {
 	rows, err := repository.db.Query(ctx, `SELECT `+accountColumns+` FROM accounts WHERE user_id = $1 ORDER BY created_at ASC`, userID)
@@ -40,7 +69,7 @@ func (repository *Repository) GetOwned(ctx context.Context, userID, accountID uu
 
 func scanAccount(row pgx.Row) (Account, error) {
 	var account Account
-	err := row.Scan(&account.ID, &account.UserID, &account.BankID, &account.AccountNumber, &account.BalancePaise, &account.Version, &account.Status, &account.CreatedAt, &account.UpdatedAt)
+	err := row.Scan(&account.ID, &account.UserID, &account.BankID, &account.AccountNumber, &account.BalancePaise, &account.OpeningBalancePaise, &account.Version, &account.Status, &account.CreatedAt, &account.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}

@@ -16,6 +16,7 @@ type IdempotencyRecord struct {
 const (
 	StateCreated               = "CREATED"
 	StateValidating            = "VALIDATING"
+	StateLocalSettlement       = "LOCAL_SETTLEMENT"
 	StateRouting               = "ROUTING"
 	StateProcessing            = "PROCESSING"
 	StateCommitted             = "COMMITTED"
@@ -51,8 +52,13 @@ var validTransitions = map[string]map[string]bool{
 		StateValidating: true,
 	},
 	StateValidating: {
-		StateRouting: true,
-		StateFailed:  true,
+		StateLocalSettlement: true,
+		StateRouting:         true,
+		StateFailed:          true,
+	},
+	StateLocalSettlement: {
+		StateCommitted: true,
+		StateFailed:    true,
 	},
 	StateRouting: {
 		StateProcessing: true,

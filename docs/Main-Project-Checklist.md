@@ -79,12 +79,12 @@ Duration: Week 3   Objective: Implement the financially correct heart of Transac
 \[ ] M1 — Implement explicit transaction-state transition validation.
 \[ ] M1 — Implement idempotency-key persistence and uniqueness.
 \[ ] M1 — Implement request-hash validation for reused idempotency keys.
-\[ ] M1 — Implement atomic balance mutation.
-\[ ] M1 — Implement double-entry ledger transaction creation.
-\[ ] M1 — Implement debit and credit ledger entries.
-\[ ] M1 — Implement balance reconstruction from ledger.
-\[ ] M1 — Implement insufficient-balance rejection.
-\[ ] M1 — Add database transaction boundaries.
+\[x] M1 — Implement atomic balance mutation.
+\[x] M1 — Implement double-entry ledger transaction creation.
+\[x] M1 — Implement debit and credit ledger entries.
+\[x] M1 — Implement balance reconstruction from ledger.
+\[x] M1 — Implement insufficient-balance rejection.
+\[x] M1 — Add database transaction boundaries.
 \[ ] M1 — Add row locking / equivalent concurrency control.
 \[ ] M1 — Add payment service tests.
 \[ ] M1 — Build pay form.

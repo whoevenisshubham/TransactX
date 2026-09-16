@@ -10,7 +10,7 @@ Phase 1A adds the PostgreSQL payment-core schema through explicit SQL migrations
 
 Phase 1B adds Argon2id password hashing, HS256 JWT authentication, request IDs, server-side role checks, atomic user plus initial-account registration, authenticated profile/account reads, and safe recipient lookup. Public registration allows only CUSTOMER and MERCHANT. OPS_ADMIN is provisioned only by the development seed command.
 
-M1-3B extends the authenticated payment foundation at `POST /api/payments` with user-scoped idempotency. The server derives the payer from the JWT, validates the request, computes a deterministic hash over the source account, normalized recipient identifier, amount, and currency, and atomically persists the `CREATED` payment with its `(user_id, key)` idempotency record. Exact retries return the original payment; reuse with a different hash returns `409 Conflict`. This phase still does not mutate balances or create ledger entries.
+M1-3B extends the authenticated payment foundation at `POST /api/payments` with user-scoped idempotency. M1-3C now settles a new valid payment through the explicit `LOCAL_SETTLEMENT` path in the same PostgreSQL transaction as its payment and idempotency rows: the sender is debited, the receiver is credited, one debit and one credit ledger entry are written, and the payment reaches `COMPLETED`. Exact retries return the original settled payment; reuse with a different hash returns `409 Conflict`. `ROUTING` and `PROCESSING` remain reserved for future bank-routed payments.
 
 ```text
 PostgreSQL
@@ -26,4 +26,4 @@ The payment service will eventually depend on a BankAdapter interface. M1 owns B
 
 ### FUTURE WORK
 
-Settlement, balance mutation, double-entry ledger writes, financial row locking, bank routing, offline replay, reconciliation, and the Network Console are not implemented. The BankAdapter interface and Bank A are also not implemented. JWT logout is client-side token disposal only; server-side revocation and refresh tokens are not implemented. M1-3B persists payment intents idempotently but does not claim final settlement.
+Broader financial row-locking strategy and concurrency stress validation remain M1-3D work; M1-3C establishes the atomic settlement transaction but does not claim complete concurrent-spending protection. Bank routing, offline replay, reconciliation, and the Network Console are not implemented. The BankAdapter interface and Bank A are also not implemented. JWT logout is client-side token disposal only; server-side revocation and refresh tokens are not implemented.

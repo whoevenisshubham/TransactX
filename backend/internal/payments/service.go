@@ -12,6 +12,7 @@ import (
 
 	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/common"
+	"github.com/transactx/backend/internal/ledger"
 	"github.com/transactx/backend/internal/recipients"
 )
 
@@ -37,10 +38,11 @@ type Service struct {
 	accounts   *accounts.Repository
 	recipients *recipients.Repository
 	payments   *Repository
+	ledger     *ledger.Repository
 }
 
 func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository) *Service {
-	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository}
+	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db)}
 }
 
 func (service *Service) Create(ctx context.Context, input CreateInput) (Payment, error) {
@@ -85,7 +87,7 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 		return Payment{}, false, ErrSelfPayment
 	}
 
-	return service.payments.CreateIdempotent(ctx, Payment{
+	return service.payments.CreateAndSettleIdempotent(ctx, Payment{
 		ID:                uuid.New(),
 		InitiatedByUserID: input.UserID,
 		SenderAccountID:   input.SourceAccountID,
@@ -93,7 +95,7 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 		AmountPaise:       input.AmountPaise,
 		Currency:          "INR",
 		State:             StateCreated,
-	}, key, requestHash)
+	}, key, requestHash, service.accounts, service.ledger)
 }
 
 func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string) string {

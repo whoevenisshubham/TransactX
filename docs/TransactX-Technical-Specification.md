@@ -916,6 +916,24 @@ CREATED
 VALIDATING
    │
    ▼
+LOCAL_SETTLEMENT
+   │
+   ▼
+COMMITTED
+   │
+   ▼
+COMPLETED
+```
+
+For payments that use a selected bank route:
+
+```text
+CREATED
+   │
+   ▼
+VALIDATING
+   │
+   ▼
 ROUTING
    │
    ▼
@@ -976,9 +994,9 @@ CanTransition(from, to PaymentState) bool
 4. API validates amount and recipient.
 5. Idempotency layer checks whether key already exists.
 6. Payment record is created in CREATED/VALIDATING state.
-7. Routing layer selects bank participant.
+7. If a bank route exists, the routing layer selects a bank participant; otherwise the local-settlement path is selected.
 8. Payment orchestrator starts database transaction.
-9. Bank-side account operation is performed according to implementation model.
+9. Bank-side operation is performed only for routed payments; local settlement mutates the authoritative PostgreSQL accounts.
 10. Double-entry ledger records debit and credit.
 11. Transaction reaches COMMITTED / COMPLETED.
 12. Event/notification is emitted.

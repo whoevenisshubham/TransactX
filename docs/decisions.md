@@ -53,4 +53,12 @@ Status: **IMPLEMENTED**
 
 M1-3B accepts the source account ID, recipient identifier, integer paise amount, currency, and required `Idempotency-Key` header. The authenticated JWT identifies the payer; ownership and active-account checks are server-side. A canonical request hash excludes authentication, timestamps, generated IDs, and JSON formatting. A validated payment is persisted as `CREATED` together with its user-scoped idempotency record in one explicit PostgreSQL transaction. Exact retries return `200` with the original payment; key reuse with a different hash returns `409`.
 
-Balance mutation, ledger entries, idempotency semantics, row locking/concurrency control, bank routing, retries, reconciliation, and final settlement are intentionally excluded from M1-3A. They remain M1-3B/M1-3C or later work and must not be inferred from a `CREATED` response.
+M1-3B's intent boundary was completed by M1-3C: new valid requests now settle synchronously. The idempotency record, payment state, account debit/credit, and double-entry ledger rows commit together. Exact retries return the completed payment without repeating settlement. Broader row-locking strategy and concurrency stress testing remain deferred to M1-3D.
+
+## ADR-010: M1-3C Atomic Settlement
+
+Status: **IMPLEMENTED**
+
+`POST /api/payments` performs synchronous settlement for a new valid payment in one PostgreSQL transaction. The transaction inserts the payment, debits the active sender only when sufficient funds exist, credits the active receiver, creates one ledger transaction with one debit and one credit entry, transitions the payment through the centralized state machine to `COMPLETED`, and inserts the idempotency record. Any error rolls back all monetary and payment state. `accounts.opening_balance_paise` preserves the baseline needed for balance reconstruction; registration and development provisioning continue to initialize it to zero.
+
+M1-3C uses the explicit `CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED` path. `LOCAL_SETTLEMENT` identifies authoritative local PostgreSQL settlement without claiming that a bank route was selected or that bank processing occurred. The existing `ROUTING -> PROCESSING` path remains available for future BankAdapter-backed flows.

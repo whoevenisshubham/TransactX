@@ -180,7 +180,8 @@ expires\_at NULL
 
 # 7\. Payment State Machine
 
-CREATED -> VALIDATING -> ROUTING -> PROCESSING -> COMMITTED -> COMPLETED
+CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED
+VALIDATING -> ROUTING -> PROCESSING -> COMMITTED -> COMPLETED
 PROCESSING -> FAILED
 PROCESSING -> PENDING\_RECONCILIATION
 PENDING\_RECONCILIATION -> COMPLETED | REVERSED
@@ -476,11 +477,10 @@ validate(req)
 
     create payment + idempotency record safely
 
+  CURRENT M1-3C LOCAL SETTLEMENT:
     transition(CREATED, VALIDATING)
     recipient := resolveRecipient(req.recipient)
-    route := router.SelectBank(req)
-    transition(VALIDATING, ROUTING)
-    transition(ROUTING, PROCESSING)
+    transition(VALIDATING, LOCAL_SETTLEMENT)
 
     BEGIN DB TX
       SELECT sender FOR UPDATE
@@ -497,6 +497,13 @@ validate(req)
     persist response snapshot
     emit PAYMENT\_COMPLETED
     return result
+
+  FUTURE BANK-ROUTED SETTLEMENT:
+    route := router.SelectBank(req)
+    transition(VALIDATING, ROUTING)
+    transition(ROUTING, PROCESSING)
+    perform bank operation through BankAdapter
+    continue with the same atomic ledger and completion flow
 
 }
 
@@ -963,6 +970,8 @@ Q. Which parts of the implementation would change when scaling horizontally?
 |Transition|Rule|
 |-|-|
 |CREATED → VALIDATING|Request exists and can be processed|
+|VALIDATING → LOCAL_SETTLEMENT|Local synchronous settlement is selected|
+|LOCAL_SETTLEMENT → COMMITTED|Atomic local monetary commit succeeded|
 |VALIDATING → ROUTING|Input/recipient validation passed|
 |ROUTING → PROCESSING|A route is selected|
 |PROCESSING → COMMITTED|Atomic monetary commit succeeded|

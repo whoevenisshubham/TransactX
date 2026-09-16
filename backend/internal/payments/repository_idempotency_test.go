@@ -149,6 +149,8 @@ func (data repositoryTestData) close(t *testing.T) {
 		return
 	}
 	_, _ = data.pool.Exec(context.Background(), `DELETE FROM idempotency_records WHERE user_id = $1`, data.userID)
+	_, _ = data.pool.Exec(context.Background(), `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id = $1)`, data.userID)
+	_, _ = data.pool.Exec(context.Background(), `DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
 	_, _ = data.pool.Exec(context.Background(), `DELETE FROM payments WHERE initiated_by_user_id = $1`, data.userID)
 	_, _ = data.pool.Exec(context.Background(), `DELETE FROM accounts WHERE id IN ($1, $2)`, data.sourceID, data.receiverID)
 	_, _ = data.pool.Exec(context.Background(), `DELETE FROM users WHERE id IN ($1, $2)`, data.userID, data.receiverUserID)

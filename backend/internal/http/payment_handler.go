@@ -90,6 +90,8 @@ func writePaymentError(writer http.ResponseWriter, request *http.Request, err er
 		writeAPIError(writer, request, common.NewAPIError("ACCOUNT_INACTIVE", "recipient account is inactive", http.StatusConflict))
 	case errors.Is(err, payments.ErrSelfPayment):
 		writeAPIError(writer, request, common.NewAPIError("SELF_PAYMENT_NOT_ALLOWED", "payer cannot pay their own account", http.StatusConflict))
+	case errors.Is(err, payments.ErrInsufficientFunds):
+		writeAPIError(writer, request, common.NewAPIError("INSUFFICIENT_FUNDS", "source account has insufficient funds", http.StatusConflict))
 	case errors.Is(err, payments.ErrIdempotencyConflict):
 		writeAPIError(writer, request, common.NewAPIError("IDEMPOTENCY_CONFLICT", "idempotency key was already used for a different payment request", http.StatusConflict))
 	default:

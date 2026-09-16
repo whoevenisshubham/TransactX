@@ -9,7 +9,12 @@ func TestPaymentStateTransitions(t *testing.T) {
 		want bool
 	}{
 		{StateCreated, StateValidating, true},
+		{StateValidating, StateLocalSettlement, true},
+		{StateLocalSettlement, StateCommitted, true},
 		{StateValidating, StateRouting, true},
+		{StateRouting, StateProcessing, true},
+		{StateProcessing, StateCommitted, true},
+		{StateCommitted, StateCompleted, true},
 		{StateProcessing, StatePendingReconciliation, true},
 		{StatePendingReconciliation, StateReversed, true},
 		{StateCreated, StateCompleted, false},
