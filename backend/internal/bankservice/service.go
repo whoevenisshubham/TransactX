@@ -134,8 +134,10 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	}
 	defer tx.Rollback(ctx)
 	var paymentID uuid.UUID
+	var accountID uuid.UUID
+	var amount int64
 	var status, operationType string
-	err = tx.QueryRow(ctx, `SELECT payment_id, status, operation_type FROM bank_a.operations WHERE operation_id = $1 AND hold_id IS NULL`, request.HoldID).Scan(&paymentID, &status, &operationType)
+	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status, operation_type FROM bank_a.operations WHERE operation_id = $1 AND hold_id IS NULL`, request.HoldID).Scan(&paymentID, &accountID, &amount, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "hold is invalid"}
 	}
@@ -154,6 +156,12 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	nextStatus := "CONFIRMED"
 	if operationType == "PROVISIONAL_CREDIT" {
 		nextStatus = "FINAL"
+		if _, err := tx.Exec(ctx, `UPDATE bank_a.accounts SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'ACTIVE'`, accountID, amount); err != nil {
+			return bank.OperationResult{}, err
+		}
+		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: "INR"}, "FINAL_CREDIT"); err != nil {
+			return bank.OperationResult{}, err
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID, nextStatus); err != nil {
 		return bank.OperationResult{}, err
@@ -191,6 +199,9 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 			return bank.OperationResult{}, err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'RELEASED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
+			return bank.OperationResult{}, err
+		}
+		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: "INR"}, "RELEASE"); err != nil {
 			return bank.OperationResult{}, err
 		}
 	}
