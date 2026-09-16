@@ -19,6 +19,14 @@ type BankA struct {
 	mu        sync.RWMutex
 	available bool
 	accounts  map[uuid.UUID]SimulatedAccount
+	holds     map[uuid.UUID]holdRecord
+}
+
+type holdRecord struct {
+	PaymentID uuid.UUID
+	AccountID uuid.UUID
+	Amount    int64
+	Status    OperationStatus
 }
 
 var _ BankAdapter = (*BankA)(nil)
@@ -43,7 +51,7 @@ func NewBankA(accounts []SimulatedAccount) (*BankA, error) {
 		}
 		state[account.ID] = account
 	}
-	return &BankA{available: true, accounts: state}, nil
+	return &BankA{available: true, accounts: state, holds: make(map[uuid.UUID]holdRecord)}, nil
 }
 
 func (bank *BankA) SetAvailable(available bool) {
@@ -66,6 +74,122 @@ func (bank *BankA) ValidateAccount(ctx context.Context, request AccountValidatio
 		return AccountValidationResult{AccountID: request.AccountID, Status: AccountInvalid}, nil
 	}
 	return AccountValidationResult{AccountID: request.AccountID, Status: account.Status}, nil
+}
+
+func (bank *BankA) ResolveAccount(ctx context.Context, request ResolveAccountRequest) (AccountResult, error) {
+	return bank.ValidateAccount(ctx, request)
+}
+
+func (bank *BankA) GetHealth(ctx context.Context) (HealthResult, error) {
+	return bank.Health(ctx)
+}
+
+func (bank *BankA) HoldFunds(ctx context.Context, request HoldFundsRequest) (HoldResult, error) {
+	bank.mu.Lock()
+	defer bank.mu.Unlock()
+	if err := bank.checkLocked(ctx); err != nil {
+		return HoldResult{}, err
+	}
+	if err := validateOperation(request.AmountPaise, request.Currency); err != nil {
+		return HoldResult{}, err
+	}
+	if request.OperationID == uuid.Nil {
+		return HoldResult{}, &AdapterError{Code: ErrCodePermanentFailure, Message: "hold operation ID is required"}
+	}
+	if existing, ok := bank.holds[request.OperationID]; ok {
+		return HoldResult{OperationResult: operationResultWithID(request.PaymentID, request.OperationID), HoldID: request.OperationID}, holdError(existing.Status)
+	}
+	account, err := bank.activeAccount(request.AccountID)
+	if err != nil {
+		return HoldResult{}, err
+	}
+	if account.BalancePaise < request.AmountPaise {
+		return HoldResult{}, &AdapterError{Code: ErrCodeInsufficientFunds, Message: "bank account has insufficient funds"}
+	}
+	account.BalancePaise -= request.AmountPaise
+	bank.accounts[request.AccountID] = account
+	bank.holds[request.OperationID] = holdRecord{PaymentID: request.PaymentID, AccountID: request.AccountID, Amount: request.AmountPaise, Status: OperationSucceeded}
+	return HoldResult{OperationResult: operationResultWithID(request.PaymentID, request.OperationID), HoldID: request.OperationID}, nil
+}
+
+func (bank *BankA) ProvisionalCredit(ctx context.Context, request ProvisionalCreditRequest) (OperationResult, error) {
+	if err := bank.checkContext(ctx); err != nil {
+		return OperationResult{}, err
+	}
+	if err := validateOperation(request.AmountPaise, request.Currency); err != nil {
+		return OperationResult{}, err
+	}
+	bank.mu.RLock()
+	defer bank.mu.RUnlock()
+	if !bank.available {
+		return OperationResult{}, bank.unavailableError()
+	}
+	if _, err := bank.activeAccount(request.AccountID); err != nil {
+		return OperationResult{}, err
+	}
+	if request.OperationID == uuid.Nil {
+		return OperationResult{}, &AdapterError{Code: ErrCodePermanentFailure, Message: "credit operation ID is required"}
+	}
+	return operationResultWithID(request.PaymentID, request.OperationID), nil
+}
+
+func (bank *BankA) ConfirmHold(ctx context.Context, request ConfirmHoldRequest) (OperationResult, error) {
+	bank.mu.Lock()
+	defer bank.mu.Unlock()
+	if err := bank.checkLocked(ctx); err != nil {
+		return OperationResult{}, err
+	}
+	hold, ok := bank.holds[request.HoldID]
+	if !ok || hold.PaymentID != request.PaymentID {
+		return OperationResult{}, &AdapterError{Code: ErrCodeInvalidAccount, Message: "hold is invalid"}
+	}
+	if hold.Status != OperationSucceeded {
+		return operationResultWithID(request.PaymentID, request.OperationID), holdError(hold.Status)
+	}
+	return operationResultWithID(request.PaymentID, request.OperationID), nil
+}
+
+func (bank *BankA) ReleaseHold(ctx context.Context, request ReleaseHoldRequest) (OperationResult, error) {
+	bank.mu.Lock()
+	defer bank.mu.Unlock()
+	if err := bank.checkLocked(ctx); err != nil {
+		return OperationResult{}, err
+	}
+	hold, ok := bank.holds[request.HoldID]
+	if !ok || hold.PaymentID != request.PaymentID {
+		return OperationResult{}, &AdapterError{Code: ErrCodeInvalidAccount, Message: "hold is invalid"}
+	}
+	if hold.Status == OperationSucceeded {
+		account := bank.accounts[hold.AccountID]
+		account.BalancePaise += hold.Amount
+		bank.accounts[hold.AccountID] = account
+		hold.Status = OperationFailed
+		bank.holds[request.HoldID] = hold
+	}
+	return operationResultWithID(request.PaymentID, request.OperationID), nil
+}
+
+func (bank *BankA) ReverseProvisionalCredit(ctx context.Context, request ReverseCreditRequest) (OperationResult, error) {
+	if err := bank.checkContext(ctx); err != nil {
+		return OperationResult{}, err
+	}
+	return operationResultWithID(request.PaymentID, request.OperationID), nil
+}
+
+func (bank *BankA) GetOperationStatus(ctx context.Context, request OperationStatusRequest) (OperationResult, error) {
+	if err := bank.checkContext(ctx); err != nil {
+		return OperationResult{}, err
+	}
+	bank.mu.RLock()
+	defer bank.mu.RUnlock()
+	if hold, ok := bank.holds[request.OperationID]; ok {
+		return OperationResult{PaymentID: hold.PaymentID, OperationID: request.OperationID, Status: hold.Status}, nil
+	}
+	return OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: OperationPending}, nil
+}
+
+func (bank *BankA) GetLedgerSnapshot(context.Context, LedgerScope) (LedgerSnapshot, error) {
+	return LedgerSnapshot{BankID: "BANK-A", SnapshotID: uuid.New()}, nil
 }
 
 func (bank *BankA) Debit(ctx context.Context, request DebitRequest) (OperationResult, error) {
@@ -160,10 +284,21 @@ func validateOperation(amountPaise int64, currency string) error {
 
 func operationResult(paymentID uuid.UUID) OperationResult {
 	operationID := uuid.New()
+	return operationResultWithID(paymentID, operationID)
+}
+
+func operationResultWithID(paymentID, operationID uuid.UUID) OperationResult {
 	return OperationResult{
 		PaymentID:     paymentID,
 		OperationID:   operationID,
 		BankReference: fmt.Sprintf("BANK-A-%s", operationID),
 		Status:        OperationSucceeded,
 	}
+}
+
+func holdError(status OperationStatus) error {
+	if status == OperationSucceeded {
+		return nil
+	}
+	return &AdapterError{Code: ErrCodePermanentFailure, Message: "hold operation is no longer active"}
 }

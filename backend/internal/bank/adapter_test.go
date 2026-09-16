@@ -9,20 +9,40 @@ import (
 
 type contractBank struct{}
 
-func (contractBank) ValidateAccount(context.Context, AccountValidationRequest) (AccountValidationResult, error) {
-	return AccountValidationResult{Status: AccountActive}, nil
-}
-
-func (contractBank) Debit(context.Context, DebitRequest) (OperationResult, error) {
-	return OperationResult{Status: OperationSucceeded}, nil
-}
-
-func (contractBank) Credit(context.Context, CreditRequest) (OperationResult, error) {
-	return OperationResult{Status: OperationSucceeded}, nil
-}
-
-func (contractBank) Health(context.Context) (HealthResult, error) {
+func (contractBank) GetHealth(context.Context) (HealthResult, error) {
 	return HealthResult{Available: true}, nil
+}
+
+func (contractBank) ResolveAccount(context.Context, ResolveAccountRequest) (AccountResult, error) {
+	return AccountResult{Status: AccountActive}, nil
+}
+
+func (contractBank) HoldFunds(context.Context, HoldFundsRequest) (HoldResult, error) {
+	return HoldResult{OperationResult: OperationResult{Status: OperationSucceeded}}, nil
+}
+
+func (contractBank) ProvisionalCredit(context.Context, ProvisionalCreditRequest) (OperationResult, error) {
+	return OperationResult{Status: OperationSucceeded}, nil
+}
+
+func (contractBank) ConfirmHold(context.Context, ConfirmHoldRequest) (OperationResult, error) {
+	return OperationResult{Status: OperationSucceeded}, nil
+}
+
+func (contractBank) ReleaseHold(context.Context, ReleaseHoldRequest) (OperationResult, error) {
+	return OperationResult{Status: OperationSucceeded}, nil
+}
+
+func (contractBank) ReverseProvisionalCredit(context.Context, ReverseCreditRequest) (OperationResult, error) {
+	return OperationResult{Status: OperationSucceeded}, nil
+}
+
+func (contractBank) GetOperationStatus(context.Context, OperationStatusRequest) (OperationResult, error) {
+	return OperationResult{Status: OperationSucceeded}, nil
+}
+
+func (contractBank) GetLedgerSnapshot(context.Context, LedgerScope) (LedgerSnapshot, error) {
+	return LedgerSnapshot{}, nil
 }
 
 var _ BankAdapter = contractBank{}
