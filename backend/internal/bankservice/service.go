@@ -17,12 +17,50 @@ import (
 
 type Service struct {
 	db        *pgxpool.Pool
+	bankID    string
+	schema    string
 	mu        sync.RWMutex
 	available bool
 	latency   time.Duration
 }
 
-func NewService(db *pgxpool.Pool) *Service { return &Service{db: db, available: true} }
+func NewService(db *pgxpool.Pool) *Service { return NewParticipantService(db, "BANK-A", "bank_a") }
+
+// NewParticipantService creates the same durable participant implementation
+// for an independently owned bank schema. The schema is validated because it
+// is interpolated only into identifiers, never into user data.
+func NewParticipantService(db *pgxpool.Pool, bankID, schema string) *Service {
+	if !validBankID(bankID) || !validSchema(schema) {
+		panic("invalid participant bank identity")
+	}
+	return &Service{db: db, bankID: bankID, schema: schema, available: true}
+}
+
+func (service *Service) table(name string) string { return service.schema + "." + name }
+
+func validBankID(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validSchema(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
+}
 
 // SetAvailable and SetLatency are process-local test/chaos controls. They do
 // not alter durable bank state and are intentionally not exposed as public
@@ -53,7 +91,7 @@ func (service *Service) ResolveAccount(ctx context.Context, request bank.Resolve
 		return bank.AccountResult{}, err
 	}
 	var status string
-	err := service.db.QueryRow(ctx, `SELECT status FROM bank_a.accounts WHERE id = $1`, request.AccountID).Scan(&status)
+	err := service.db.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s WHERE id = $1`, service.table("accounts")), request.AccountID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.AccountResult{AccountID: request.AccountID, Status: bank.AccountInvalid}, nil
 	}
@@ -77,7 +115,7 @@ func (service *Service) HoldFunds(ctx context.Context, request bank.HoldFundsReq
 	defer tx.Rollback(ctx)
 
 	identity := operationIdentity{request: request.OperationRequest, operationType: "HOLD"}
-	if err := lockActiveAccount(ctx, tx, request.AccountID); err != nil {
+	if err := service.lockActiveAccount(ctx, tx, request.AccountID); err != nil {
 		return bank.HoldResult{}, err
 	}
 	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
@@ -86,19 +124,19 @@ func (service *Service) HoldFunds(ctx context.Context, request bank.HoldFundsReq
 		}
 		return bank.HoldResult{OperationResult: existing, HoldID: request.OperationID}, nil
 	}
-	result, err := tx.Exec(ctx, `
-		UPDATE bank_a.accounts SET balance_paise = balance_paise - $2, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND balance_paise >= $2`, request.AccountID, request.AmountPaise)
+	result, err := tx.Exec(ctx, fmt.Sprintf(`
+		UPDATE %s SET balance_paise = balance_paise - $2, version = version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND balance_paise >= $2`, service.table("accounts")), request.AccountID, request.AmountPaise)
 	if err != nil {
 		return bank.HoldResult{}, err
 	}
 	if result.RowsAffected() != 1 {
 		return bank.HoldResult{}, &bank.AdapterError{Code: bank.ErrCodeInsufficientFunds, Message: "bank account has insufficient funds"}
 	}
-	if err := insertOperation(ctx, tx, identity, "ACTIVE", uuid.Nil, uuid.Nil); err != nil {
+	if err := service.insertOperation(ctx, tx, identity, "ACTIVE", uuid.Nil, uuid.Nil); err != nil {
 		return bank.HoldResult{}, err
 	}
-	if err := insertLedgerEntry(ctx, tx, request.OperationRequest, "HOLD"); err != nil {
+	if err := service.insertLedgerEntry(ctx, tx, request.OperationRequest, "HOLD"); err != nil {
 		return bank.HoldResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -120,16 +158,16 @@ func (service *Service) ProvisionalCredit(ctx context.Context, request bank.Prov
 	}
 	defer tx.Rollback(ctx)
 	identity := operationIdentity{request: request.OperationRequest, operationType: "PROVISIONAL_CREDIT"}
-	if err := lockActiveAccount(ctx, tx, request.AccountID); err != nil {
+	if err := service.lockActiveAccount(ctx, tx, request.AccountID); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
 		return existing, err
 	}
-	if err := insertOperation(ctx, tx, identity, "PROVISIONAL", uuid.Nil, uuid.Nil); err != nil {
+	if err := service.insertOperation(ctx, tx, identity, "PROVISIONAL", uuid.Nil, uuid.Nil); err != nil {
 		return bank.OperationResult{}, err
 	}
-	if err := insertLedgerEntry(ctx, tx, request.OperationRequest, "PROVISIONAL_CREDIT"); err != nil {
+	if err := service.insertLedgerEntry(ctx, tx, request.OperationRequest, "PROVISIONAL_CREDIT"); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -158,7 +196,7 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	var paymentID, accountID uuid.UUID
 	var amount int64
 	var currency, status, operationType string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM bank_a.operations WHERE operation_id = $1 FOR UPDATE`, request.HoldID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM %s WHERE operation_id = $1 FOR UPDATE`, service.table("operations")), request.HoldID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "hold is invalid"}
 	}
@@ -177,11 +215,11 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	if status != "ACTIVE" && status != "PROVISIONAL" && status != "CONFIRMED" && status != "FINAL" {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "operation is no longer confirmable"}
 	}
-	if err := insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "CONFIRMED", request.HoldID, uuid.Nil); err != nil {
+	if err := service.insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "CONFIRMED", request.HoldID, uuid.Nil); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if status == "ACTIVE" {
-		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'CONFIRMED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET status = 'CONFIRMED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, service.table("operations")), request.HoldID); err != nil {
 			return bank.OperationResult{}, err
 		}
 	} else if status == "PROVISIONAL" {
@@ -189,19 +227,19 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 			return bank.OperationResult{}, invalidOperationError()
 		}
 		var balance int64
-		if err := tx.QueryRow(ctx, `SELECT balance_paise FROM bank_a.accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&balance); err != nil {
+		if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT balance_paise FROM %s WHERE id = $1 FOR UPDATE`, service.table("accounts")), accountID).Scan(&balance); err != nil {
 			return bank.OperationResult{}, err
 		}
 		if amount > math.MaxInt64-balance {
 			return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "bank account balance overflow"}
 		}
-		if _, err := tx.Exec(ctx, `UPDATE bank_a.accounts SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'ACTIVE'`, accountID, amount); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'ACTIVE'`, service.table("accounts")), accountID, amount); err != nil {
 			return bank.OperationResult{}, err
 		}
-		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "FINAL_CREDIT"); err != nil {
+		if err := service.insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "FINAL_CREDIT"); err != nil {
 			return bank.OperationResult{}, err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'FINAL', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET status = 'FINAL', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, service.table("operations")), request.HoldID); err != nil {
 			return bank.OperationResult{}, err
 		}
 	}
@@ -230,7 +268,7 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 	var paymentID, accountID uuid.UUID
 	var amount int64
 	var currency, status, operationType string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM bank_a.operations WHERE operation_id = $1 FOR UPDATE`, request.HoldID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM %s WHERE operation_id = $1 FOR UPDATE`, service.table("operations")), request.HoldID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "hold is invalid"}
 	}
@@ -243,17 +281,17 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
 		return existing, err
 	}
-	if err := insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "RELEASED", request.HoldID, uuid.Nil); err != nil {
+	if err := service.insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "RELEASED", request.HoldID, uuid.Nil); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if status == "ACTIVE" {
-		if _, err := tx.Exec(ctx, `UPDATE bank_a.accounts SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, amount); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, service.table("accounts")), accountID, amount); err != nil {
 			return bank.OperationResult{}, err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'RELEASED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET status = 'RELEASED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, service.table("operations")), request.HoldID); err != nil {
 			return bank.OperationResult{}, err
 		}
-		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "RELEASE"); err != nil {
+		if err := service.insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "RELEASE"); err != nil {
 			return bank.OperationResult{}, err
 		}
 	}
@@ -282,7 +320,7 @@ func (service *Service) ReverseProvisionalCredit(ctx context.Context, request ba
 	var paymentID, accountID uuid.UUID
 	var amount int64
 	var currency, status, operationType string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM bank_a.operations WHERE operation_id = $1 FOR UPDATE`, request.OriginalOperationID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
+	err = tx.QueryRow(ctx, fmt.Sprintf(`SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM %s WHERE operation_id = $1 FOR UPDATE`, service.table("operations")), request.OriginalOperationID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "credit operation is invalid"}
 	}
@@ -298,14 +336,14 @@ func (service *Service) ReverseProvisionalCredit(ctx context.Context, request ba
 	if status != "PROVISIONAL" && status != "REVERSED" {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "credit is no longer provisional"}
 	}
-	if err := insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "REVERSED", uuid.Nil, request.OriginalOperationID); err != nil {
+	if err := service.insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "REVERSED", uuid.Nil, request.OriginalOperationID); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if status == "PROVISIONAL" {
-		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'REVERSED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.OriginalOperationID); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(`UPDATE %s SET status = 'REVERSED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, service.table("operations")), request.OriginalOperationID); err != nil {
 			return bank.OperationResult{}, err
 		}
-		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "REVERSE_CREDIT"); err != nil {
+		if err := service.insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "REVERSE_CREDIT"); err != nil {
 			return bank.OperationResult{}, err
 		}
 	}
@@ -321,7 +359,7 @@ func (service *Service) GetOperationStatus(ctx context.Context, request bank.Ope
 	}
 	var paymentID, operationID uuid.UUID
 	var reference, status string
-	err := service.db.QueryRow(ctx, `SELECT payment_id, operation_id, bank_reference, status FROM bank_a.operations WHERE operation_id = $1`, request.OperationID).Scan(&paymentID, &operationID, &reference, &status)
+	err := service.db.QueryRow(ctx, fmt.Sprintf(`SELECT payment_id, operation_id, bank_reference, status FROM %s WHERE operation_id = $1`, service.table("operations")), request.OperationID).Scan(&paymentID, &operationID, &reference, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationPending}, nil
 	}
@@ -335,12 +373,12 @@ func (service *Service) GetOperationStatus(ctx context.Context, request bank.Ope
 }
 
 func (service *Service) GetLedgerSnapshot(ctx context.Context, scope bank.LedgerScope) (bank.LedgerSnapshot, error) {
-	rows, err := service.db.Query(ctx, `SELECT operation_id, payment_id, account_id, entry_type, amount_paise, currency, occurred_at FROM bank_a.ledger_entries WHERE occurred_at >= $1 AND occurred_at < $2 ORDER BY occurred_at, id`, scope.From, scope.To)
+	rows, err := service.db.Query(ctx, fmt.Sprintf(`SELECT operation_id, payment_id, account_id, entry_type, amount_paise, currency, occurred_at FROM %s WHERE occurred_at >= $1 AND occurred_at < $2 ORDER BY occurred_at, id`, service.table("ledger_entries")), scope.From, scope.To)
 	if err != nil {
 		return bank.LedgerSnapshot{}, err
 	}
 	defer rows.Close()
-	snapshot := bank.LedgerSnapshot{BankID: "BANK-A", SnapshotID: uuid.New(), CapturedAt: time.Now().UTC()}
+	snapshot := bank.LedgerSnapshot{BankID: service.bankID, SnapshotID: uuid.New(), CapturedAt: time.Now().UTC()}
 	for rows.Next() {
 		var entry bank.LedgerEntry
 		if err := rows.Scan(&entry.OperationID, &entry.PaymentID, &entry.AccountID, &entry.EntryType, &entry.AmountPaise, &entry.Currency, &entry.OccurredAt); err != nil {
@@ -393,7 +431,7 @@ func (service *Service) existingOperation(ctx context.Context, tx pgx.Tx, expect
 	var accountID, holdID, originalOperationID *uuid.UUID
 	var amount *int64
 	var currency, operationType, idempotencyKey, reference, status string
-	err := tx.QueryRow(ctx, `SELECT payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, original_operation_id, amount_paise, currency, bank_reference, status FROM bank_a.operations WHERE operation_id = $1 OR idempotency_key = $2`, expected.request.OperationID, expected.request.IdempotencyKey).Scan(&paymentID, &operationID, &idempotencyKey, &operationType, &accountID, &holdID, &originalOperationID, &amount, &currency, &reference, &status)
+	err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, original_operation_id, amount_paise, currency, bank_reference, status FROM %s WHERE operation_id = $1 OR idempotency_key = $2`, service.table("operations")), expected.request.OperationID, expected.request.IdempotencyKey).Scan(&paymentID, &operationID, &idempotencyKey, &operationType, &accountID, &holdID, &originalOperationID, &amount, &currency, &reference, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, false, nil
 	}
@@ -410,22 +448,22 @@ func optionalUUIDMatches(actual *uuid.UUID, expected uuid.UUID) bool {
 	return expected == uuid.Nil || (actual != nil && *actual == expected)
 }
 
-func insertOperation(ctx context.Context, tx pgx.Tx, identity operationIdentity, status string, holdID, originalOperationID uuid.UUID) error {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, bank_id, account_id, hold_id, original_operation_id, amount_paise, currency, status, bank_reference)
-		VALUES ($1, $2, $3, $4, $5, 'BANK-A', NULLIF($6, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($7, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($8, '00000000-0000-0000-0000-000000000000'::uuid), $9, $10, $11, $12)`,
-		uuid.New(), identity.request.PaymentID, identity.request.OperationID, identity.request.IdempotencyKey, identity.operationType, identity.request.AccountID, holdID, originalOperationID, identity.request.AmountPaise, identity.request.Currency, status, bankReference(identity.request.OperationID))
+func (service *Service) insertOperation(ctx context.Context, tx pgx.Tx, identity operationIdentity, status string, holdID, originalOperationID uuid.UUID) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`
+		INSERT INTO %s (id, payment_id, operation_id, idempotency_key, operation_type, bank_id, account_id, hold_id, original_operation_id, amount_paise, currency, status, bank_reference)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($8, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($9, '00000000-0000-0000-0000-000000000000'::uuid), $10, $11, $12, $13)`, service.table("operations")),
+		uuid.New(), identity.request.PaymentID, identity.request.OperationID, identity.request.IdempotencyKey, identity.operationType, service.bankID, identity.request.AccountID, holdID, originalOperationID, identity.request.AmountPaise, identity.request.Currency, status, bankReference(identity.request.OperationID))
 	return err
 }
 
-func insertLedgerEntry(ctx context.Context, tx pgx.Tx, request bank.OperationRequest, entryType string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO bank_a.ledger_entries (id, operation_id, payment_id, account_id, entry_type, amount_paise, currency) VALUES ($1, $2, $3, $4, $5, $6, $7)`, uuid.New(), request.OperationID, request.PaymentID, request.AccountID, entryType, request.AmountPaise, request.Currency)
+func (service *Service) insertLedgerEntry(ctx context.Context, tx pgx.Tx, request bank.OperationRequest, entryType string) error {
+	_, err := tx.Exec(ctx, fmt.Sprintf(`INSERT INTO %s (id, operation_id, payment_id, account_id, entry_type, amount_paise, currency) VALUES ($1, $2, $3, $4, $5, $6, $7)`, service.table("ledger_entries")), uuid.New(), request.OperationID, request.PaymentID, request.AccountID, entryType, request.AmountPaise, request.Currency)
 	return err
 }
 
-func lockActiveAccount(ctx context.Context, tx pgx.Tx, accountID uuid.UUID) error {
+func (service *Service) lockActiveAccount(ctx context.Context, tx pgx.Tx, accountID uuid.UUID) error {
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM bank_a.accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`SELECT status FROM %s WHERE id = $1 FOR UPDATE`, service.table("accounts")), accountID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
 		return &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "bank account is invalid"}
 	} else if err != nil {
 		return err
