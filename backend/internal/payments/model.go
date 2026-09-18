@@ -34,18 +34,22 @@ const (
 var ErrInvalidTransition = errors.New("invalid payment state transition")
 
 type Payment struct {
-	ID                uuid.UUID  `json:"id"`
-	InitiatedByUserID uuid.UUID  `json:"initiatedByUserId"`
-	SenderAccountID   uuid.UUID  `json:"senderAccountId"`
-	ReceiverAccountID uuid.UUID  `json:"receiverAccountId"`
-	AmountPaise       int64      `json:"amountPaise"`
-	Currency          string     `json:"currency"`
-	State             string     `json:"state"`
-	RouteBankID       *uuid.UUID `json:"routeBankId,omitempty"`
-	FailureReason     *string    `json:"failureReason,omitempty"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
-	CompletedAt       *time.Time `json:"completedAt,omitempty"`
+	ID                       uuid.UUID  `json:"id"`
+	InitiatedByUserID        uuid.UUID  `json:"initiatedByUserId"`
+	SenderAccountID          uuid.UUID  `json:"senderAccountId"`
+	ReceiverAccountID        uuid.UUID  `json:"receiverAccountId"`
+	AmountPaise              int64      `json:"amountPaise"`
+	Currency                 string     `json:"currency"`
+	State                    string     `json:"state"`
+	RouteBankID              *uuid.UUID `json:"routeBankId,omitempty"`
+	FailureReason            *string    `json:"failureReason,omitempty"`
+	CreatedAt                time.Time  `json:"createdAt"`
+	UpdatedAt                time.Time  `json:"updatedAt"`
+	CompletedAt              *time.Time `json:"completedAt,omitempty"`
+	SourceBankID             *uuid.UUID `json:"sourceBankId,omitempty"`
+	DestinationBankID        *uuid.UUID `json:"destinationBankId,omitempty"`
+	SourceBankAccountID      *uuid.UUID `json:"sourceBankAccountId,omitempty"`
+	DestinationBankAccountID *uuid.UUID `json:"destinationBankAccountId,omitempty"`
 }
 
 var validTransitions = map[string]map[string]bool{

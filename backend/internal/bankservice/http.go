@@ -70,7 +70,15 @@ func Handler(service *Service) http.Handler {
 			writeError(writer, http.StatusBadRequest, "invalid operation ID")
 			return
 		}
-		result, serviceErr := service.GetOperationStatus(request.Context(), bank.OperationStatusRequest{OperationID: operationID})
+		var paymentID uuid.UUID
+		if value := request.URL.Query().Get("paymentId"); value != "" {
+			paymentID, err = uuid.Parse(value)
+			if err != nil {
+				writeError(writer, http.StatusBadRequest, "invalid payment ID")
+				return
+			}
+		}
+		result, serviceErr := service.GetOperationStatus(request.Context(), bank.OperationStatusRequest{PaymentID: paymentID, OperationID: operationID})
 		writeResult(writer, result, serviceErr)
 	})
 	mux.HandleFunc("GET /v1/ledger/snapshot", func(writer http.ResponseWriter, request *http.Request) {

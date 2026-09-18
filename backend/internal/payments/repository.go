@@ -21,6 +21,12 @@ type Repository struct{ db *pgxpool.Pool }
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
+const routedPaymentColumns = `id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
+	state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
+	failure_reason, created_at, updated_at, completed_at`
+
+const routedPaymentSelect = `SELECT ` + routedPaymentColumns
+
 func (repository *Repository) Create(ctx context.Context, payment Payment) (Payment, error) {
 	tx, err := repository.db.Begin(ctx)
 	if err != nil {
@@ -33,7 +39,8 @@ func (repository *Repository) Create(ctx context.Context, payment Payment) (Paym
 			(id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, state)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
-			state, route_bank_id, failure_reason, created_at, updated_at, completed_at`,
+			state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
+			failure_reason, created_at, updated_at, completed_at`,
 		payment.ID, payment.InitiatedByUserID, payment.SenderAccountID, payment.ReceiverAccountID,
 		payment.AmountPaise, payment.Currency, payment.State))
 	if err != nil {
@@ -81,7 +88,8 @@ func (repository *Repository) CreateIdempotent(ctx context.Context, payment Paym
 			(id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, state)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
-			state, route_bank_id, failure_reason, created_at, updated_at, completed_at`,
+			state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
+			failure_reason, created_at, updated_at, completed_at`,
 		payment.ID, payment.InitiatedByUserID, payment.SenderAccountID, payment.ReceiverAccountID,
 		payment.AmountPaise, payment.Currency, payment.State))
 	if err != nil {
@@ -134,7 +142,8 @@ func (repository *Repository) CreateAndSettleIdempotent(ctx context.Context, pay
 		}
 		existing, getErr := scanPayment(tx.QueryRow(ctx, `
 			SELECT id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
-				state, route_bank_id, failure_reason, created_at, updated_at, completed_at
+				state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
+				failure_reason, created_at, updated_at, completed_at
 			FROM payments WHERE id = $1`, *existingPaymentID))
 		return existing, true, getErr
 	}
@@ -147,7 +156,8 @@ func (repository *Repository) CreateAndSettleIdempotent(ctx context.Context, pay
 			(id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, state)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
-			state, route_bank_id, failure_reason, created_at, updated_at, completed_at`,
+			state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
+			failure_reason, created_at, updated_at, completed_at`,
 		payment.ID, payment.InitiatedByUserID, payment.SenderAccountID, payment.ReceiverAccountID,
 		payment.AmountPaise, payment.Currency, payment.State))
 	if err != nil {
@@ -225,7 +235,8 @@ func settlePayment(ctx context.Context, tx pgx.Tx, payment *Payment, accountRepo
 func (repository *Repository) Get(ctx context.Context, paymentID uuid.UUID) (Payment, error) {
 	return scanPayment(repository.db.QueryRow(ctx, `
 		SELECT id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
-			state, route_bank_id, failure_reason, created_at, updated_at, completed_at
+			state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
+			failure_reason, created_at, updated_at, completed_at
 		FROM payments WHERE id = $1`, paymentID))
 }
 
@@ -239,6 +250,7 @@ func scanPayment(row pgx.Row) (Payment, error) {
 	err := row.Scan(
 		&payment.ID, &payment.InitiatedByUserID, &payment.SenderAccountID, &payment.ReceiverAccountID,
 		&payment.AmountPaise, &payment.Currency, &payment.State, &payment.RouteBankID,
+		&payment.SourceBankID, &payment.DestinationBankID, &payment.SourceBankAccountID, &payment.DestinationBankAccountID,
 		&payment.FailureReason, &payment.CreatedAt, &payment.UpdatedAt, &payment.CompletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

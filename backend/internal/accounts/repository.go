@@ -16,7 +16,7 @@ type Repository struct{ db *pgxpool.Pool }
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
-const accountColumns = `id, user_id, bank_id, account_number, balance_paise, opening_balance_paise, version, status, created_at, updated_at`
+const accountColumns = `id, user_id, bank_id, bank_account_id, account_number, balance_paise, opening_balance_paise, version, status, created_at, updated_at`
 
 func (repository *Repository) Debit(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, amountPaise int64) error {
 	result, err := tx.Exec(ctx, `
@@ -69,9 +69,16 @@ func (repository *Repository) GetOwned(ctx context.Context, userID, accountID uu
 
 func scanAccount(row pgx.Row) (Account, error) {
 	var account Account
-	err := row.Scan(&account.ID, &account.UserID, &account.BankID, &account.AccountNumber, &account.BalancePaise, &account.OpeningBalancePaise, &account.Version, &account.Status, &account.CreatedAt, &account.UpdatedAt)
+	var bankAccountID *uuid.UUID
+	err := row.Scan(&account.ID, &account.UserID, &account.BankID, &bankAccountID, &account.AccountNumber, &account.BalancePaise, &account.OpeningBalancePaise, &account.Version, &account.Status, &account.CreatedAt, &account.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Account{}, ErrNotFound
+	}
+	if err == nil {
+		account.BankAccountID = account.ID
+		if bankAccountID != nil {
+			account.BankAccountID = *bankAccountID
+		}
 	}
 	return account, err
 }

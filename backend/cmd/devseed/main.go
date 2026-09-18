@@ -67,7 +67,7 @@ func provision(ctx context.Context, db *pgxpool.Pool, password, bankCode string)
 	}
 	accountID := uuid.NewMD5(uuid.NameSpaceOID, []byte("transactx-admin-account"))
 	accountNumber := "TX-ADMIN-DEV-001"
-	if _, err := tx.Exec(ctx, `INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, version, status) VALUES ($1, $2, $3, $4, 0, 0, 'ACTIVE') ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, bank_id = EXCLUDED.bank_id, status = 'ACTIVE'`, accountID, adminID, bankID, accountNumber); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO accounts (id, user_id, bank_id, bank_account_id, account_number, balance_paise, version, status) VALUES ($1, $2, $3, $4, $5, 0, 0, 'ACTIVE') ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, bank_id = EXCLUDED.bank_id, bank_account_id = EXCLUDED.bank_account_id, status = 'ACTIVE'`, accountID, adminID, bankID, accountID, accountNumber); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

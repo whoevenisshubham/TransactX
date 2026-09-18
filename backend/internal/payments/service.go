@@ -70,9 +70,22 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 	recipientIdentifier := common.NormalizeIdentifier(input.Recipient)
 	requestHash := paymentRequestHash(input.SourceAccountID, recipientIdentifier, input.AmountPaise, currency)
 	if payment, duplicate, err := service.payments.GetIdempotent(ctx, input.UserID, key, requestHash); err != nil || duplicate {
-		if err == nil && duplicate && service.hasRoutedAdapters() && payment.State == StateBankSettledCentralPending {
-			recovered, recoveryErr := service.payments.RecoverBankSettledCentralPending(ctx, payment.ID)
-			return recovered, true, recoveryErr
+		if err == nil && duplicate && service.hasRoutedAdapters() {
+			if payment.State == StateBankSettledCentralPending {
+				recovered, recoveryErr := service.payments.RecoverBankSettledCentralPending(ctx, payment.ID)
+				return recovered, true, recoveryErr
+			}
+			if payment.State == StatePendingReconciliation || payment.State == StateProcessing {
+				sourceAdapter, destinationAdapter, ok := service.routedAdaptersFor(payment.SourceBankID, payment.DestinationBankID)
+				if ok {
+					recoveryErr := service.payments.RecoverRoutedPayment(ctx, payment, sourceAdapter, destinationAdapter)
+					recovered, getErr := service.payments.Get(ctx, payment.ID)
+					if getErr != nil {
+						return Payment{}, true, getErr
+					}
+					return recovered, true, recoveryErr
+				}
+			}
 		}
 		return payment, duplicate, err
 	}
@@ -109,13 +122,15 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 			return Payment{}, false, ErrBankRouteUnavailable
 		}
 		return service.payments.CreateRoutedIdempotent(ctx, Payment{
-			ID:                uuid.New(),
-			InitiatedByUserID: input.UserID,
-			SenderAccountID:   input.SourceAccountID,
-			ReceiverAccountID: recipient.AccountID,
-			AmountPaise:       input.AmountPaise,
-			Currency:          "INR",
-			State:             StateCreated,
+			ID:                       uuid.New(),
+			InitiatedByUserID:        input.UserID,
+			SenderAccountID:          input.SourceAccountID,
+			ReceiverAccountID:        recipient.AccountID,
+			AmountPaise:              input.AmountPaise,
+			Currency:                 "INR",
+			State:                    StateCreated,
+			SourceBankAccountID:      uuidPointer(source.BankAccountID),
+			DestinationBankAccountID: uuidPointer(recipient.BankAccountID),
 		}, key, requestHash, source.BankID, recipient.BankID, sourceAdapter, destinationAdapter)
 	}
 
@@ -132,6 +147,18 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 
 func (service *Service) hasRoutedAdapters() bool {
 	return service.adapter != nil || service.adapters != nil
+}
+
+func (service *Service) routedAdaptersFor(sourceBankID, destinationBankID *uuid.UUID) (bank.BankAdapter, bank.BankAdapter, bool) {
+	if service.adapters != nil && sourceBankID != nil && destinationBankID != nil {
+		source, sourceOK := service.adapters[*sourceBankID]
+		destination, destinationOK := service.adapters[*destinationBankID]
+		return source, destination, sourceOK && destinationOK
+	}
+	if service.adapter != nil {
+		return service.adapter, service.adapter, true
+	}
+	return nil, nil, false
 }
 
 func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string) string {

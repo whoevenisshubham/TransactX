@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -18,14 +19,27 @@ type Service struct {
 	db        *pgxpool.Pool
 	mu        sync.RWMutex
 	available bool
+	latency   time.Duration
 }
 
 func NewService(db *pgxpool.Pool) *Service { return &Service{db: db, available: true} }
 
+// SetAvailable and SetLatency are process-local test/chaos controls. They do
+// not alter durable bank state and are intentionally not exposed as public
+// customer operations.
 func (service *Service) SetAvailable(available bool) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	service.available = available
+}
+
+func (service *Service) SetLatency(latency time.Duration) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if latency < 0 {
+		latency = 0
+	}
+	service.latency = latency
 }
 
 func (service *Service) GetHealth(context.Context) (bank.HealthResult, error) {
@@ -35,7 +49,7 @@ func (service *Service) GetHealth(context.Context) (bank.HealthResult, error) {
 }
 
 func (service *Service) ResolveAccount(ctx context.Context, request bank.ResolveAccountRequest) (bank.AccountResult, error) {
-	if err := service.checkAvailable(); err != nil {
+	if err := service.before(ctx); err != nil {
 		return bank.AccountResult{}, err
 	}
 	var status string
@@ -50,7 +64,7 @@ func (service *Service) ResolveAccount(ctx context.Context, request bank.Resolve
 }
 
 func (service *Service) HoldFunds(ctx context.Context, request bank.HoldFundsRequest) (bank.HoldResult, error) {
-	if err := service.checkAvailable(); err != nil {
+	if err := service.before(ctx); err != nil {
 		return bank.HoldResult{}, err
 	}
 	if err := validateOperation(request.OperationRequest); err != nil {
@@ -62,30 +76,27 @@ func (service *Service) HoldFunds(ctx context.Context, request bank.HoldFundsReq
 	}
 	defer tx.Rollback(ctx)
 
-	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
+	identity := operationIdentity{request: request.OperationRequest, operationType: "HOLD"}
+	if err := lockActiveAccount(ctx, tx, request.AccountID); err != nil {
+		return bank.HoldResult{}, err
+	}
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
 		if err != nil {
 			return bank.HoldResult{}, err
 		}
 		return bank.HoldResult{OperationResult: existing, HoldID: request.OperationID}, nil
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO bank_a.operations
-			(id, payment_id, operation_id, idempotency_key, operation_type, account_id, amount_paise, currency, status, bank_reference)
-		VALUES ($1, $2, $3, $4, 'HOLD', $5, $6, $7, 'ACTIVE', $8)`,
-		uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, request.AccountID,
-		request.AmountPaise, request.Currency, bankReference(request.OperationID))
-	if err != nil {
-		return bank.HoldResult{}, err
-	}
 	result, err := tx.Exec(ctx, `
-		UPDATE bank_a.accounts
-		SET balance_paise = balance_paise - $2, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND status = 'ACTIVE' AND balance_paise >= $2`, request.AccountID, request.AmountPaise)
+		UPDATE bank_a.accounts SET balance_paise = balance_paise - $2, version = version + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND balance_paise >= $2`, request.AccountID, request.AmountPaise)
 	if err != nil {
 		return bank.HoldResult{}, err
 	}
 	if result.RowsAffected() != 1 {
 		return bank.HoldResult{}, &bank.AdapterError{Code: bank.ErrCodeInsufficientFunds, Message: "bank account has insufficient funds"}
+	}
+	if err := insertOperation(ctx, tx, identity, "ACTIVE", uuid.Nil, uuid.Nil); err != nil {
+		return bank.HoldResult{}, err
 	}
 	if err := insertLedgerEntry(ctx, tx, request.OperationRequest, "HOLD"); err != nil {
 		return bank.HoldResult{}, err
@@ -97,7 +108,7 @@ func (service *Service) HoldFunds(ctx context.Context, request bank.HoldFundsReq
 }
 
 func (service *Service) ProvisionalCredit(ctx context.Context, request bank.ProvisionalCreditRequest) (bank.OperationResult, error) {
-	if err := service.checkAvailable(); err != nil {
+	if err := service.before(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if err := validateOperation(request.OperationRequest); err != nil {
@@ -108,19 +119,14 @@ func (service *Service) ProvisionalCredit(ctx context.Context, request bank.Prov
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
-		return existing, err
-	}
-	if err := ensureActiveAccount(ctx, tx, request.AccountID); err != nil {
+	identity := operationIdentity{request: request.OperationRequest, operationType: "PROVISIONAL_CREDIT"}
+	if err := lockActiveAccount(ctx, tx, request.AccountID); err != nil {
 		return bank.OperationResult{}, err
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO bank_a.operations
-			(id, payment_id, operation_id, idempotency_key, operation_type, account_id, amount_paise, currency, status, bank_reference)
-		VALUES ($1, $2, $3, $4, 'PROVISIONAL_CREDIT', $5, $6, $7, 'PROVISIONAL', $8)`,
-		uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, request.AccountID,
-		request.AmountPaise, request.Currency, bankReference(request.OperationID))
-	if err != nil {
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
+		return existing, err
+	}
+	if err := insertOperation(ctx, tx, identity, "PROVISIONAL", uuid.Nil, uuid.Nil); err != nil {
 		return bank.OperationResult{}, err
 	}
 	if err := insertLedgerEntry(ctx, tx, request.OperationRequest, "PROVISIONAL_CREDIT"); err != nil {
@@ -129,26 +135,30 @@ func (service *Service) ProvisionalCredit(ctx context.Context, request bank.Prov
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResult(request.OperationRequest), nil
+	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHoldRequest) (bank.OperationResult, error) {
-	if err := service.checkAvailable(); err != nil {
+	if err := service.before(ctx); err != nil {
 		return bank.OperationResult{}, err
+	}
+	if request.PaymentID == uuid.Nil || request.OperationID == uuid.Nil || request.IdempotencyKey == "" || request.HoldID == uuid.Nil {
+		return bank.OperationResult{}, invalidOperationError()
 	}
 	tx, err := service.db.Begin(ctx)
 	if err != nil {
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
+	identity := operationIdentity{request: bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}, operationType: "CONFIRM_HOLD", holdID: request.HoldID}
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
 		return existing, err
 	}
-	var paymentID uuid.UUID
-	var accountID uuid.UUID
+
+	var paymentID, accountID uuid.UUID
 	var amount int64
-	var status, operationType string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status, operation_type FROM bank_a.operations WHERE operation_id = $1 AND hold_id IS NULL`, request.HoldID).Scan(&paymentID, &accountID, &amount, &status, &operationType)
+	var currency, status, operationType string
+	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM bank_a.operations WHERE operation_id = $1 FOR UPDATE`, request.HoldID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "hold is invalid"}
 	}
@@ -158,50 +168,69 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	if paymentID != request.PaymentID {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "hold payment does not match"}
 	}
-	if status == "CONFIRMED" || status == "FINAL" {
-		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
+	if operationType != "HOLD" && operationType != "PROVISIONAL_CREDIT" {
+		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "operation cannot be confirmed"}
 	}
-	if status != "ACTIVE" && status != "PROVISIONAL" {
-		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationFailed), nil
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
+		return existing, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, amount_paise, currency, status, bank_reference) VALUES ($1, $2, $3, $4, 'CONFIRM_HOLD', $5, $6, $7, 'INR', 'CONFIRMED', $8)`, uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, accountID, request.HoldID, amount, bankReference(request.OperationID)); err != nil {
+	if status != "ACTIVE" && status != "PROVISIONAL" && status != "CONFIRMED" && status != "FINAL" {
+		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "operation is no longer confirmable"}
+	}
+	if err := insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "CONFIRMED", request.HoldID, uuid.Nil); err != nil {
 		return bank.OperationResult{}, err
 	}
-	nextStatus := "CONFIRMED"
-	if operationType == "PROVISIONAL_CREDIT" {
-		nextStatus = "FINAL"
+	if status == "ACTIVE" {
+		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'CONFIRMED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
+			return bank.OperationResult{}, err
+		}
+	} else if status == "PROVISIONAL" {
+		if amount > math.MaxInt64 {
+			return bank.OperationResult{}, invalidOperationError()
+		}
+		var balance int64
+		if err := tx.QueryRow(ctx, `SELECT balance_paise FROM bank_a.accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&balance); err != nil {
+			return bank.OperationResult{}, err
+		}
+		if amount > math.MaxInt64-balance {
+			return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "bank account balance overflow"}
+		}
 		if _, err := tx.Exec(ctx, `UPDATE bank_a.accounts SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'ACTIVE'`, accountID, amount); err != nil {
 			return bank.OperationResult{}, err
 		}
-		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: "INR"}, "FINAL_CREDIT"); err != nil {
+		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "FINAL_CREDIT"); err != nil {
 			return bank.OperationResult{}, err
 		}
-	}
-	if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID, nextStatus); err != nil {
-		return bank.OperationResult{}, err
+		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'FINAL', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
+			return bank.OperationResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
+	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHoldRequest) (bank.OperationResult, error) {
-	if err := service.checkAvailable(); err != nil {
+	if err := service.before(ctx); err != nil {
 		return bank.OperationResult{}, err
+	}
+	if request.PaymentID == uuid.Nil || request.OperationID == uuid.Nil || request.IdempotencyKey == "" || request.HoldID == uuid.Nil {
+		return bank.OperationResult{}, invalidOperationError()
 	}
 	tx, err := service.db.Begin(ctx)
 	if err != nil {
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
+	identity := operationIdentity{request: bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}, operationType: "RELEASE_HOLD", holdID: request.HoldID}
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
 		return existing, err
 	}
 	var paymentID, accountID uuid.UUID
 	var amount int64
-	var status, operationType string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status, operation_type FROM bank_a.operations WHERE operation_id = $1`, request.HoldID).Scan(&paymentID, &accountID, &amount, &status, &operationType)
+	var currency, status, operationType string
+	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM bank_a.operations WHERE operation_id = $1 FOR UPDATE`, request.HoldID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "hold is invalid"}
 	}
@@ -211,72 +240,86 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 	if paymentID != request.PaymentID || operationType != "HOLD" || status == "CONFIRMED" {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "hold cannot be released"}
 	}
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
+		return existing, err
+	}
+	if err := insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "RELEASED", request.HoldID, uuid.Nil); err != nil {
+		return bank.OperationResult{}, err
+	}
 	if status == "ACTIVE" {
-		if _, err := tx.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, amount_paise, currency, status, bank_reference) VALUES ($1, $2, $3, $4, 'RELEASE_HOLD', $5, $6, $7, 'INR', 'RELEASED', $8)`, uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, accountID, request.HoldID, amount, bankReference(request.OperationID)); err != nil {
-			return bank.OperationResult{}, err
-		}
 		if _, err := tx.Exec(ctx, `UPDATE bank_a.accounts SET balance_paise = balance_paise + $2, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, accountID, amount); err != nil {
 			return bank.OperationResult{}, err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'RELEASED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.HoldID); err != nil {
 			return bank.OperationResult{}, err
 		}
-		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: "INR"}, "RELEASE"); err != nil {
+		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "RELEASE"); err != nil {
 			return bank.OperationResult{}, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
+	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) ReverseProvisionalCredit(ctx context.Context, request bank.ReverseCreditRequest) (bank.OperationResult, error) {
-	if err := service.checkAvailable(); err != nil {
+	if err := service.before(ctx); err != nil {
 		return bank.OperationResult{}, err
+	}
+	if request.PaymentID == uuid.Nil || request.OperationID == uuid.Nil || request.IdempotencyKey == "" || request.OriginalOperationID == uuid.Nil {
+		return bank.OperationResult{}, invalidOperationError()
 	}
 	tx, err := service.db.Begin(ctx)
 	if err != nil {
 		return bank.OperationResult{}, err
 	}
 	defer tx.Rollback(ctx)
-	if existing, found, err := service.existingOperation(ctx, tx, request.OperationID, request.IdempotencyKey); err != nil || found {
+	identity := operationIdentity{request: bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}, operationType: "REVERSE_PROVISIONAL_CREDIT", originalOperationID: request.OriginalOperationID}
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
 		return existing, err
 	}
 	var paymentID, accountID uuid.UUID
 	var amount int64
-	var status, operationType string
-	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, status, operation_type FROM bank_a.operations WHERE operation_id = $1`, request.OriginalOperationID).Scan(&paymentID, &accountID, &amount, &status, &operationType)
+	var currency, status, operationType string
+	err = tx.QueryRow(ctx, `SELECT payment_id, account_id, amount_paise, currency, status, operation_type FROM bank_a.operations WHERE operation_id = $1 FOR UPDATE`, request.OriginalOperationID).Scan(&paymentID, &accountID, &amount, &currency, &status, &operationType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "credit operation is invalid"}
 	}
 	if err != nil {
 		return bank.OperationResult{}, err
 	}
-	if paymentID != request.PaymentID || status == "REVERSED" {
-		return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
+	if paymentID != request.PaymentID || operationType != "PROVISIONAL_CREDIT" {
+		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "credit operation does not match"}
 	}
-	if operationType != "PROVISIONAL_CREDIT" || status != "PROVISIONAL" {
+	if existing, found, err := service.existingOperation(ctx, tx, identity); err != nil || found {
+		return existing, err
+	}
+	if status != "PROVISIONAL" && status != "REVERSED" {
 		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "credit is no longer provisional"}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, original_operation_id, amount_paise, currency, status, bank_reference) VALUES ($1, $2, $3, $4, 'REVERSE_PROVISIONAL_CREDIT', $5, $6, $7, 'INR', 'REVERSED', $8)`, uuid.New(), request.PaymentID, request.OperationID, request.IdempotencyKey, accountID, request.OriginalOperationID, amount, bankReference(request.OperationID)); err != nil {
+	if err := insertOperation(ctx, tx, identityWithAmount(identity, accountID, amount, currency), "REVERSED", uuid.Nil, request.OriginalOperationID); err != nil {
 		return bank.OperationResult{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'REVERSED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.OriginalOperationID); err != nil {
-		return bank.OperationResult{}, err
-	}
-	if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: "INR"}, "REVERSE_CREDIT"); err != nil {
-		return bank.OperationResult{}, err
+	if status == "PROVISIONAL" {
+		if _, err := tx.Exec(ctx, `UPDATE bank_a.operations SET status = 'REVERSED', updated_at = CURRENT_TIMESTAMP WHERE operation_id = $1`, request.OriginalOperationID); err != nil {
+			return bank.OperationResult{}, err
+		}
+		if err := insertLedgerEntry(ctx, tx, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, AccountID: accountID, AmountPaise: amount, Currency: currency}, "REVERSE_CREDIT"); err != nil {
+			return bank.OperationResult{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded), nil
+	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) GetOperationStatus(ctx context.Context, request bank.OperationStatusRequest) (bank.OperationResult, error) {
-	var paymentID uuid.UUID
-	var operationID uuid.UUID
+	if request.OperationID == uuid.Nil {
+		return bank.OperationResult{}, invalidOperationError()
+	}
+	var paymentID, operationID uuid.UUID
 	var reference, status string
 	err := service.db.QueryRow(ctx, `SELECT payment_id, operation_id, bank_reference, status FROM bank_a.operations WHERE operation_id = $1`, request.OperationID).Scan(&paymentID, &operationID, &reference, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -284,6 +327,9 @@ func (service *Service) GetOperationStatus(ctx context.Context, request bank.Ope
 	}
 	if err != nil {
 		return bank.OperationResult{}, err
+	}
+	if request.PaymentID != uuid.Nil && request.PaymentID != paymentID {
+		return bank.OperationResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "operation payment does not match"}
 	}
 	return bank.OperationResult{PaymentID: paymentID, OperationID: operationID, BankReference: reference, Status: operationStatus(status)}, nil
 }
@@ -305,28 +351,79 @@ func (service *Service) GetLedgerSnapshot(ctx context.Context, scope bank.Ledger
 	return snapshot, rows.Err()
 }
 
-func (service *Service) checkAvailable() error {
+func (service *Service) before(ctx context.Context) error {
 	service.mu.RLock()
-	available := service.available
+	available, latency := service.available, service.latency
 	service.mu.RUnlock()
 	if !available {
-		return service.unavailable()
+		return &bank.AdapterError{Code: bank.ErrCodeBankUnavailable, Message: "bank A is unavailable"}
 	}
-	return nil
-}
-
-func (service *Service) unavailable() error {
-	return &bank.AdapterError{Code: bank.ErrCodeBankUnavailable, Message: "bank A is unavailable"}
-}
-
-func validateOperation(request bank.OperationRequest) error {
-	if request.PaymentID == uuid.Nil || request.OperationID == uuid.Nil || request.IdempotencyKey == "" || request.AccountID == uuid.Nil || request.AmountPaise <= 0 || request.Currency != "INR" {
-		return &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "bank operation is invalid"}
+	if latency <= 0 {
+		if err := ctx.Err(); err != nil {
+			return &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: "bank operation context ended", Err: err}
+		}
+		return nil
 	}
-	return nil
+	timer := time.NewTimer(latency)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: "bank operation context ended", Err: ctx.Err()}
+	}
 }
 
-func ensureActiveAccount(ctx context.Context, tx pgx.Tx, accountID uuid.UUID) error {
+type operationIdentity struct {
+	request             bank.OperationRequest
+	operationType       string
+	holdID              uuid.UUID
+	originalOperationID uuid.UUID
+}
+
+func identityWithAmount(identity operationIdentity, accountID uuid.UUID, amount int64, currency string) operationIdentity {
+	identity.request.AccountID = accountID
+	identity.request.AmountPaise = amount
+	identity.request.Currency = currency
+	return identity
+}
+
+func (service *Service) existingOperation(ctx context.Context, tx pgx.Tx, expected operationIdentity) (bank.OperationResult, bool, error) {
+	var paymentID, operationID uuid.UUID
+	var accountID, holdID, originalOperationID *uuid.UUID
+	var amount *int64
+	var currency, operationType, idempotencyKey, reference, status string
+	err := tx.QueryRow(ctx, `SELECT payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, original_operation_id, amount_paise, currency, bank_reference, status FROM bank_a.operations WHERE operation_id = $1 OR idempotency_key = $2`, expected.request.OperationID, expected.request.IdempotencyKey).Scan(&paymentID, &operationID, &idempotencyKey, &operationType, &accountID, &holdID, &originalOperationID, &amount, &currency, &reference, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return bank.OperationResult{}, false, nil
+	}
+	if err != nil {
+		return bank.OperationResult{}, false, err
+	}
+	if paymentID != expected.request.PaymentID || operationID != expected.request.OperationID || idempotencyKey != expected.request.IdempotencyKey || operationType != expected.operationType || !optionalUUIDMatches(accountID, expected.request.AccountID) || !optionalUUIDMatches(holdID, expected.holdID) || !optionalUUIDMatches(originalOperationID, expected.originalOperationID) || (expected.request.AmountPaise != 0 && (amount == nil || *amount != expected.request.AmountPaise)) || (expected.request.Currency != "" && currency != expected.request.Currency) {
+		return bank.OperationResult{}, false, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "bank operation identity or payload conflicts with an existing operation"}
+	}
+	return bank.OperationResult{PaymentID: paymentID, OperationID: operationID, BankReference: reference, Status: operationStatus(status)}, true, nil
+}
+
+func optionalUUIDMatches(actual *uuid.UUID, expected uuid.UUID) bool {
+	return expected == uuid.Nil || (actual != nil && *actual == expected)
+}
+
+func insertOperation(ctx context.Context, tx pgx.Tx, identity operationIdentity, status string, holdID, originalOperationID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, original_operation_id, amount_paise, currency, status, bank_reference)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($7, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($8, '00000000-0000-0000-0000-000000000000'::uuid), $9, $10, $11, $12)`,
+		uuid.New(), identity.request.PaymentID, identity.request.OperationID, identity.request.IdempotencyKey, identity.operationType, identity.request.AccountID, holdID, originalOperationID, identity.request.AmountPaise, identity.request.Currency, status, bankReference(identity.request.OperationID))
+	return err
+}
+
+func insertLedgerEntry(ctx context.Context, tx pgx.Tx, request bank.OperationRequest, entryType string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO bank_a.ledger_entries (id, operation_id, payment_id, account_id, entry_type, amount_paise, currency) VALUES ($1, $2, $3, $4, $5, $6, $7)`, uuid.New(), request.OperationID, request.PaymentID, request.AccountID, entryType, request.AmountPaise, request.Currency)
+	return err
+}
+
+func lockActiveAccount(ctx context.Context, tx pgx.Tx, accountID uuid.UUID) error {
 	var status string
 	if err := tx.QueryRow(ctx, `SELECT status FROM bank_a.accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
 		return &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: "bank account is invalid"}
@@ -338,26 +435,15 @@ func ensureActiveAccount(ctx context.Context, tx pgx.Tx, accountID uuid.UUID) er
 	return nil
 }
 
-func (service *Service) existingOperation(ctx context.Context, tx pgx.Tx, operationID uuid.UUID, idempotencyKey string) (bank.OperationResult, bool, error) {
-	var result bank.OperationResult
-	var status string
-	err := tx.QueryRow(ctx, `SELECT payment_id, operation_id, bank_reference, status FROM bank_a.operations WHERE operation_id = $1 OR idempotency_key = $2`, operationID, idempotencyKey).Scan(&result.PaymentID, &result.OperationID, &result.BankReference, &status)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return bank.OperationResult{}, false, nil
+func validateOperation(request bank.OperationRequest) error {
+	if request.PaymentID == uuid.Nil || request.OperationID == uuid.Nil || request.IdempotencyKey == "" || request.AccountID == uuid.Nil || request.AmountPaise <= 0 || request.Currency != "INR" {
+		return invalidOperationError()
 	}
-	if err != nil {
-		return bank.OperationResult{}, false, err
-	}
-	if result.OperationID != operationID {
-		return bank.OperationResult{}, false, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "idempotency key is already bound to another operation"}
-	}
-	result.Status = operationStatus(status)
-	return result, true, nil
+	return nil
 }
 
-func insertLedgerEntry(ctx context.Context, tx pgx.Tx, request bank.OperationRequest, entryType string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO bank_a.ledger_entries (id, operation_id, payment_id, account_id, entry_type, amount_paise, currency) VALUES ($1, $2, $3, $4, $5, $6, $7)`, uuid.New(), request.OperationID, request.PaymentID, request.AccountID, entryType, request.AmountPaise, request.Currency)
-	return err
+func invalidOperationError() error {
+	return &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "bank operation is invalid"}
 }
 
 func operationResult(request bank.OperationRequest) bank.OperationResult {

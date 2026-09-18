@@ -79,7 +79,7 @@ func (service *Service) Register(ctx context.Context, input RegisterInput) (user
 	if err != nil {
 		return users.PublicUser{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, version, status) VALUES ($1, $2, $3, $4, 0, 0, 'ACTIVE')`, accountID, userID, bankID, accountNumber)
+	_, err = tx.Exec(ctx, `INSERT INTO accounts (id, user_id, bank_id, bank_account_id, account_number, balance_paise, version, status) VALUES ($1, $2, $3, $4, $5, 0, 0, 'ACTIVE')`, accountID, userID, bankID, accountID, accountNumber)
 	if err != nil {
 		return users.PublicUser{}, err
 	}

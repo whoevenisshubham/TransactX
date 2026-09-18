@@ -10,6 +10,7 @@ type Account struct {
 	ID                  uuid.UUID `json:"id"`
 	UserID              uuid.UUID `json:"userId"`
 	BankID              uuid.UUID `json:"bankId"`
+	BankAccountID       uuid.UUID `json:"bankAccountId"`
 	AccountNumber       string    `json:"accountNumber"`
 	BalancePaise        int64     `json:"balancePaise"`
 	OpeningBalancePaise int64     `json:"-"`
