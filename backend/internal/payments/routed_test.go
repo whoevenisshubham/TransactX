@@ -17,9 +17,20 @@ type transientBankAdapter struct {
 	calls int
 }
 
+type pendingStatusBankAdapter struct{ transientBankAdapter }
+type failedStatusBankAdapter struct{ transientBankAdapter }
+
 func (adapter *transientBankAdapter) HoldFunds(context.Context, bank.HoldFundsRequest) (bank.HoldResult, error) {
 	adapter.calls++
 	return bank.HoldResult{}, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: "simulated unknown hold outcome"}
+}
+
+func (adapter *pendingStatusBankAdapter) GetOperationStatus(_ context.Context, request bank.OperationStatusRequest) (bank.OperationResult, error) {
+	return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationPending}, nil
+}
+
+func (adapter *failedStatusBankAdapter) GetOperationStatus(_ context.Context, request bank.OperationStatusRequest) (bank.OperationResult, error) {
+	return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationFailed}, nil
 }
 
 func (successfulBankAdapter) GetHealth(context.Context) (bank.HealthResult, error) {
@@ -151,5 +162,83 @@ func TestRoutedTransientOutcomeBecomesPendingWithoutRetry(t *testing.T) {
 	}
 	if source.calls != 1 {
 		t.Fatalf("hold calls = %d, want 1", source.calls)
+	}
+}
+
+func TestRoutedPendingOperationResolvesByStatusWithoutRepeatingHold(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	data := newRepositoryTestData(t)
+	setBalances(t, data, 1000, 0)
+	defer func() {
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		data.close(t)
+	}()
+	source := &transientBankAdapter{}
+	payment, _, err := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 100), "pending-recovery-key", "pending-recovery-hash", data.bankID, data.bankID, source, successfulBankAdapter{})
+	if err != nil || payment.State != StatePendingReconciliation {
+		t.Fatalf("initial pending payment = %+v, err = %v", payment, err)
+	}
+	recovered, duplicate, err := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 100), "pending-recovery-key", "pending-recovery-hash", data.bankID, data.bankID, source, successfulBankAdapter{})
+	if err != nil || !duplicate || recovered.State != StateCompleted {
+		t.Fatalf("recovered payment = %+v, duplicate=%v, err = %v", recovered, duplicate, err)
+	}
+	if source.calls != 1 {
+		t.Fatalf("hold calls = %d, want exactly one original monetary call", source.calls)
+	}
+}
+
+func TestRoutedPendingOperationStaysPendingWhenStatusIsUnknown(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	data := newRepositoryTestData(t)
+	setBalances(t, data, 1000, 0)
+	defer func() {
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		data.close(t)
+	}()
+	source := &pendingStatusBankAdapter{}
+	payment, _, err := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 100), "still-pending-key", "still-pending-hash", data.bankID, data.bankID, source, successfulBankAdapter{})
+	if err != nil || payment.State != StatePendingReconciliation {
+		t.Fatalf("initial pending payment = %+v, err = %v", payment, err)
+	}
+	if err := data.repository.RecoverRoutedPayment(context.Background(), payment, source, successfulBankAdapter{}); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := data.repository.Get(context.Background(), payment.ID)
+	if err != nil || recovered.State != StatePendingReconciliation {
+		t.Fatalf("unresolved payment = %+v, err = %v", recovered, err)
+	}
+	if source.calls != 1 {
+		t.Fatalf("hold calls = %d, want exactly one original monetary call", source.calls)
+	}
+}
+
+func TestRoutedPendingOperationWithDefiniteFailureDoesNotRepeatOperation(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	data := newRepositoryTestData(t)
+	setBalances(t, data, 1000, 0)
+	defer func() {
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		data.close(t)
+	}()
+	source := &failedStatusBankAdapter{}
+	payment, _, err := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 100), "failed-status-key", "failed-status-hash", data.bankID, data.bankID, source, successfulBankAdapter{})
+	if err != nil || payment.State != StatePendingReconciliation {
+		t.Fatalf("initial pending payment = %+v, err = %v", payment, err)
+	}
+	if err := data.repository.RecoverRoutedPayment(context.Background(), payment, source, successfulBankAdapter{}); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := data.repository.Get(context.Background(), payment.ID)
+	if err != nil || recovered.State != StateFailed {
+		t.Fatalf("failed payment = %+v, err = %v", recovered, err)
+	}
+	if source.calls != 1 {
+		t.Fatalf("hold calls = %d, want exactly one original monetary call", source.calls)
 	}
 }

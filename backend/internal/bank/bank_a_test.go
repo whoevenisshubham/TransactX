@@ -109,6 +109,52 @@ func TestBankACreditOverflowReturnsPermanentFailureAndPreservesBalance(t *testin
 	}
 }
 
+func TestBankARoutedOperationsAreIdempotentAndProvisionalIsNonSpendable(t *testing.T) {
+	sourceID, destinationID, paymentID := uuid.New(), uuid.New(), uuid.New()
+	adapter := newTestBank(t,
+		bank.SimulatedAccount{ID: sourceID, BalancePaise: 500, Status: bank.AccountActive},
+		bank.SimulatedAccount{ID: destinationID, BalancePaise: 0, Status: bank.AccountActive},
+	)
+	holdID := uuid.New()
+	holdRequest := bank.HoldFundsRequest{OperationRequest: bank.OperationRequest{
+		PaymentID: paymentID, OperationID: holdID, IdempotencyKey: "hold", AccountID: sourceID, AmountPaise: 200, Currency: "INR",
+	}}
+	if _, err := adapter.HoldFunds(context.Background(), holdRequest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.HoldFunds(context.Background(), holdRequest); err != nil {
+		t.Fatal("duplicate hold was not replayed: ", err)
+	}
+	if _, err := adapter.HoldFunds(context.Background(), bank.HoldFundsRequest{OperationRequest: bank.OperationRequest{
+		PaymentID: paymentID, OperationID: holdID, IdempotencyKey: "hold", AccountID: sourceID, AmountPaise: 201, Currency: "INR",
+	}}); err == nil {
+		t.Fatal("operation ID reuse with a different amount was accepted")
+	}
+
+	creditID := uuid.New()
+	creditRequest := bank.ProvisionalCreditRequest{OperationRequest: bank.OperationRequest{
+		PaymentID: paymentID, OperationID: creditID, IdempotencyKey: "credit", AccountID: destinationID, AmountPaise: 200, Currency: "INR",
+	}}
+	if _, err := adapter.ProvisionalCredit(context.Background(), creditRequest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.ProvisionalCredit(context.Background(), creditRequest); err != nil {
+		t.Fatal("duplicate provisional credit was not replayed: ", err)
+	}
+	if _, err := adapter.Debit(context.Background(), bank.DebitRequest{PaymentID: uuid.New(), AccountID: destinationID, AmountPaise: 1, Currency: "INR"}); err == nil {
+		t.Fatal("provisional credit affected spendable balance")
+	}
+	if _, err := adapter.ConfirmHold(context.Background(), bank.ConfirmHoldRequest{PaymentID: paymentID, OperationID: uuid.New(), IdempotencyKey: "confirm", HoldID: holdID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.ConfirmHold(context.Background(), bank.ConfirmHoldRequest{PaymentID: paymentID, OperationID: uuid.New(), IdempotencyKey: "finalize", HoldID: creditID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Debit(context.Background(), bank.DebitRequest{PaymentID: uuid.New(), AccountID: destinationID, AmountPaise: 200, Currency: "INR"}); err != nil {
+		t.Fatal("finalized credit did not become spendable: ", err)
+	}
+}
+
 func newTestBank(t *testing.T, accounts ...bank.SimulatedAccount) *bank.BankA {
 	t.Helper()
 	adapter, err := bank.NewBankA(accounts)

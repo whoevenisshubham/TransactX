@@ -2,8 +2,12 @@ package bankservice
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -52,6 +56,56 @@ func TestBankAHTTPIntegrationPreservesDurableOperationFlow(t *testing.T) {
 	assertBankBalance(t, pool, receiverID, 200)
 }
 
+func TestBankAHTTPLostResponseIsResolvedByOriginalOperationStatus(t *testing.T) {
+	pool := newBankServiceTestPool(t)
+	defer pool.Close()
+	if !bankSchemaAvailable(t, pool) {
+		t.Skip("M1-6 bank_a schema is not applied")
+	}
+	accountID, paymentID := uuid.New(), uuid.New()
+	cleanupBankFixtures(t, pool, accountID, uuid.Nil, paymentID)
+	defer cleanupBankFixtures(t, pool, accountID, uuid.Nil, paymentID)
+	insertBankAccount(t, pool, accountID, "lost-response", 500)
+	server := httptest.NewServer(Handler(NewService(pool)))
+	defer server.Close()
+
+	baseClient := server.Client()
+	lostResponseClient := &http.Client{Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		response, err := baseClient.Transport.RoundTrip(request)
+		if err != nil {
+			return nil, err
+		}
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+		return nil, errors.New("simulated lost response")
+	})}
+	lostAdapter, err := bank.NewHTTPClient(server.URL, lostResponseClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalAdapter, err := bank.NewHTTPClient(server.URL, baseClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holdID := uuid.New()
+	_, err = lostAdapter.HoldFunds(context.Background(), bank.HoldFundsRequest{OperationRequest: bank.OperationRequest{PaymentID: paymentID, OperationID: holdID, IdempotencyKey: "lost-response-hold", AccountID: accountID, AmountPaise: 200, Currency: "INR"}})
+	var adapterErr *bank.AdapterError
+	if !errors.As(err, &adapterErr) || adapterErr.Code != bank.ErrCodeTransientFailure {
+		t.Fatalf("lost response error = %v, want transient failure", err)
+	}
+	status, err := normalAdapter.GetOperationStatus(context.Background(), bank.OperationStatusRequest{PaymentID: paymentID, OperationID: holdID})
+	if err != nil || status.Status != bank.OperationSucceeded {
+		t.Fatalf("resolved operation status = %+v, err = %v", status, err)
+	}
+	assertBankBalance(t, pool, accountID, 300)
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
 func TestBankAOperationsAreDurableIdempotentAndRestartSafe(t *testing.T) {
 	pool := newBankServiceTestPool(t)
 	defer pool.Close()
@@ -75,6 +129,9 @@ func TestBankAOperationsAreDurableIdempotentAndRestartSafe(t *testing.T) {
 	secondHold, err := service.HoldFunds(context.Background(), holdRequest)
 	if err != nil || secondHold.OperationID != firstHold.OperationID {
 		t.Fatalf("idempotent hold = %+v, err = %v", secondHold, err)
+	}
+	if _, err := service.HoldFunds(context.Background(), bank.HoldFundsRequest{OperationRequest: bank.OperationRequest{PaymentID: paymentID, OperationID: holdID, IdempotencyKey: holdRequest.IdempotencyKey, AccountID: accountID, AmountPaise: 301, Currency: "INR"}}); err == nil {
+		t.Fatal("operation ID reuse with a different amount was accepted")
 	}
 	assertBankBalance(t, pool, accountID, 700)
 
@@ -114,6 +171,48 @@ func TestBankAOperationsAreDurableIdempotentAndRestartSafe(t *testing.T) {
 	}
 	if len(entries) != 3 || entries[0] != "HOLD" || entries[1] != "PROVISIONAL_CREDIT" || entries[2] != "FINAL_CREDIT" {
 		t.Fatalf("bank ledger entries = %v", entries)
+	}
+}
+
+func TestBankAConcurrentSameOperationHasOneMonetaryEffect(t *testing.T) {
+	pool := newBankServiceTestPool(t)
+	defer pool.Close()
+	if !bankSchemaAvailable(t, pool) {
+		t.Skip("M1-6 bank_a schema is not applied")
+	}
+	accountID, paymentID := uuid.New(), uuid.New()
+	cleanupBankFixtures(t, pool, accountID, uuid.Nil, paymentID)
+	defer cleanupBankFixtures(t, pool, accountID, uuid.Nil, paymentID)
+	insertBankAccount(t, pool, accountID, "concurrent-operation", 1000)
+	request := bank.HoldFundsRequest{OperationRequest: bank.OperationRequest{PaymentID: paymentID, OperationID: uuid.New(), IdempotencyKey: "concurrent-hold", AccountID: accountID, AmountPaise: 300, Currency: "INR"}}
+	service := NewService(pool)
+	results := make(chan error, 2)
+	var waitGroup sync.WaitGroup
+	for range 2 {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			_, err := service.HoldFunds(context.Background(), request)
+			results <- err
+		}()
+	}
+	waitGroup.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertBankBalance(t, pool, accountID, 700)
+	var operationCount, ledgerCount int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM bank_a.operations WHERE payment_id = $1`, paymentID).Scan(&operationCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM bank_a.ledger_entries WHERE payment_id = $1`, paymentID).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if operationCount != 1 || ledgerCount != 1 {
+		t.Fatalf("operation/ledger counts = %d/%d, want 1/1", operationCount, ledgerCount)
 	}
 }
 
