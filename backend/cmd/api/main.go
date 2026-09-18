@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/config"
@@ -39,18 +41,35 @@ func main() {
 	}
 	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
 
-	var bankAdapter bank.BankAdapter
-	if bankURL := os.Getenv("BANK_A_URL"); bankURL != "" {
-		bankAdapter, err = bank.NewHTTPClient(bankURL, nil)
-		if err != nil {
-			logger.Error("configure Bank A adapter", "error", err)
+	adapters := make(map[uuid.UUID]bank.BankAdapter)
+	configureBank := func(url, code string) {
+		if url == "" {
+			return
+		}
+		var bankID uuid.UUID
+		if err := db.QueryRow(context.Background(), `SELECT id FROM banks WHERE code = $1 AND status = 'ACTIVE'`, code).Scan(&bankID); err != nil {
+			logger.Error("resolve configured bank", "code", code, "error", err)
 			os.Exit(1)
 		}
+		adapter, clientErr := bank.NewHTTPClient(url, nil)
+		if clientErr != nil {
+			logger.Error("configure bank adapter", "code", code, "error", clientErr)
+			os.Exit(1)
+		}
+		adapters[bankID] = adapter
 	}
+	configureBank(os.Getenv("BANK_A_URL"), getEnv("BANK_A_CODE", "BANK-A"))
+	configureBank(os.Getenv("BANK_B_URL"), getEnv("BANK_B_CODE", "BANK-B"))
 
+	var handler http.Handler
+	if len(adapters) == 0 {
+		handler = apihttp.NewHandler(db, logger, authService, jwtManager)
+	} else {
+		handler = apihttp.NewHandlerWithBankAdapters(db, logger, authService, jwtManager, adapters)
+	}
 	server := &http.Server{
 		Addr:              cfg.Address,
-		Handler:           apihttp.NewHandlerWithBankAdapter(db, logger, authService, jwtManager, bankAdapter),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -77,4 +96,11 @@ func main() {
 			os.Exit(1)
 		}
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

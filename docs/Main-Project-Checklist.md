@@ -109,7 +109,7 @@ PHASE EXIT GATE: Normal payments are correct under retries and concurrency; no n
 Duration: Week 4   Objective: Introduce actual independent simulated bank participants and routing boundaries.
 
 \[x] M2 — Implement Bank A service.
-\[ ] M2 — Implement Bank B service.
+\[x] M2 — Implement Bank B service.
 \[x] M2 — Implement bank account lookup.
 \[x] M2 — Implement bank debit operation.
 \[x] M2 — Implement bank credit operation.
@@ -394,4 +394,3 @@ PHASE EXIT GATE: Fresh-clone build passes, critical tests pass, benchmark eviden
 |M2|Resilience|Offline queue, bank adapters, health, routing, circuit breaker, chaos, merchant frontend|
 |M3|Research / Console|Merkle engine, reconciliation, integrity, benchmarks, network console|
 |ALL|Shared|Architecture, reviews, integration, testing, documentation, paper, demo|
-

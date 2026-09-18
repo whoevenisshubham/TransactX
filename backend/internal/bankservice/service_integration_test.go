@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -54,6 +55,70 @@ func TestBankAHTTPIntegrationPreservesDurableOperationFlow(t *testing.T) {
 		t.Fatalf("HTTP operation status = %+v, err = %v", status, err)
 	}
 	assertBankBalance(t, pool, receiverID, 200)
+}
+
+func TestBankBIndependentDurableParticipantFlow(t *testing.T) {
+	pool := newBankServiceTestPool(t)
+	defer pool.Close()
+	if !bankBSchemaAvailable(t, pool) {
+		t.Skip("Phase 4 bank_b schema is not applied")
+	}
+	accountID, receiverID, paymentID := uuid.New(), uuid.New(), uuid.New()
+	_, _ = pool.Exec(context.Background(), `DELETE FROM bank_b.ledger_entries WHERE payment_id = $1`, paymentID)
+	_, _ = pool.Exec(context.Background(), `DELETE FROM bank_b.operations WHERE payment_id = $1`, paymentID)
+	_, _ = pool.Exec(context.Background(), `DELETE FROM bank_b.accounts WHERE id IN ($1, $2)`, accountID, receiverID)
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM bank_b.ledger_entries WHERE payment_id = $1`, paymentID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM bank_b.operations WHERE payment_id = $1`, paymentID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM bank_b.accounts WHERE id IN ($1, $2)`, accountID, receiverID)
+	}()
+	if _, err := pool.Exec(context.Background(), `INSERT INTO bank_b.accounts (id, account_number, balance_paise, status) VALUES ($1, $2, 500, 'ACTIVE'), ($3, $4, 0, 'ACTIVE')`, accountID, "b-source-"+accountID.String(), receiverID, "b-receiver-"+receiverID.String()); err != nil {
+		t.Fatal(err)
+	}
+	service := NewParticipantService(pool, "BANK-B", "bank_b")
+	health, err := service.GetHealth(context.Background())
+	if err != nil || !health.Available {
+		t.Fatalf("Bank B health = %+v, err = %v", health, err)
+	}
+	account, err := service.ResolveAccount(context.Background(), bank.ResolveAccountRequest{AccountID: accountID})
+	if err != nil || account.Status != bank.AccountActive {
+		t.Fatalf("Bank B account = %+v, err = %v", account, err)
+	}
+	service.SetAvailable(false)
+	health, err = service.GetHealth(context.Background())
+	if err != nil || health.Available {
+		t.Fatalf("Bank B unavailable health = %+v, err = %v", health, err)
+	}
+	service.SetAvailable(true)
+	service.SetLatency(20 * time.Millisecond)
+	latencyContext, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	_, err = service.ResolveAccount(latencyContext, bank.ResolveAccountRequest{AccountID: accountID})
+	cancel()
+	var latencyError *bank.AdapterError
+	if !errors.As(err, &latencyError) || latencyError.Code != bank.ErrCodeTransientFailure {
+		t.Fatalf("Bank B latency error = %v", err)
+	}
+	service.SetLatency(0)
+	holdID := uuid.New()
+	if _, err := service.HoldFunds(context.Background(), bank.HoldFundsRequest{OperationRequest: bank.OperationRequest{PaymentID: paymentID, OperationID: holdID, IdempotencyKey: "b-hold", AccountID: accountID, AmountPaise: 200, Currency: "INR"}}); err != nil {
+		t.Fatal(err)
+	}
+	creditID := uuid.New()
+	if _, err := service.ProvisionalCredit(context.Background(), bank.ProvisionalCreditRequest{OperationRequest: bank.OperationRequest{PaymentID: paymentID, OperationID: creditID, IdempotencyKey: "b-credit", AccountID: receiverID, AmountPaise: 200, Currency: "INR"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ConfirmHold(context.Background(), bank.ConfirmHoldRequest{PaymentID: paymentID, OperationID: uuid.New(), IdempotencyKey: "b-confirm", HoldID: holdID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ConfirmHold(context.Background(), bank.ConfirmHoldRequest{PaymentID: paymentID, OperationID: uuid.New(), IdempotencyKey: "b-finalize", HoldID: creditID}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := NewParticipantService(pool, "BANK-B", "bank_b").GetOperationStatus(context.Background(), bank.OperationStatusRequest{PaymentID: paymentID, OperationID: creditID})
+	if err != nil || status.Status != bank.OperationSucceeded {
+		t.Fatalf("Bank B status after restart = %+v, err = %v", status, err)
+	}
+	assertParticipantBalance(t, pool, "bank_b", accountID, 300)
+	assertParticipantBalance(t, pool, "bank_b", receiverID, 200)
 }
 
 func TestBankAHTTPLostResponseIsResolvedByOriginalOperationStatus(t *testing.T) {
@@ -280,6 +345,26 @@ func bankSchemaAvailable(t *testing.T, pool *pgxpool.Pool) bool {
 		t.Fatal(err)
 	}
 	return exists
+}
+
+func bankBSchemaAvailable(t *testing.T, pool *pgxpool.Pool) bool {
+	t.Helper()
+	var exists bool
+	if err := pool.QueryRow(context.Background(), `SELECT to_regclass('bank_b.accounts') IS NOT NULL`).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	return exists
+}
+
+func assertParticipantBalance(t *testing.T, pool *pgxpool.Pool, schema string, accountID uuid.UUID, want int64) {
+	t.Helper()
+	var got int64
+	if err := pool.QueryRow(context.Background(), `SELECT balance_paise FROM `+schema+`.accounts WHERE id = $1`, accountID).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("participant balance = %d, want %d", got, want)
+	}
 }
 
 func insertBankAccount(t *testing.T, pool *pgxpool.Pool, id uuid.UUID, number string, balance int64) {

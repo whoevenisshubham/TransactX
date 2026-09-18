@@ -2,12 +2,15 @@ package payments
 
 import (
 	"context"
+	"net/http/httptest"
 	"os"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/bankservice"
 )
 
 type successfulBankAdapter struct{}
@@ -123,6 +126,70 @@ func TestRoutedPaymentPersistsBothBanksAndOperationTracking(t *testing.T) {
 	}
 	if operationCount != 4 {
 		t.Fatalf("tracked bank operations = %d, want 4", operationCount)
+	}
+}
+
+func TestRoutedPaymentExecutesAcrossIndependentBankAAndBankBHTTPParticipants(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	data := newRepositoryTestData(t)
+	secondBankID := uuid.New()
+	setBalances(t, data, 1000, 0)
+	defer func() {
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM bank_a.ledger_entries WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM bank_a.operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM bank_b.ledger_entries WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM bank_b.operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM bank_a.accounts WHERE id IN ($1, $2)`, data.sourceID, data.receiverID)
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM bank_b.accounts WHERE id IN ($1, $2)`, data.sourceID, data.receiverID)
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM banks WHERE id = $1`, secondBankID)
+		_, _ = data.pool.Exec(context.Background(), `UPDATE accounts SET bank_id = $2, bank_account_id = $1 WHERE id = $1`, data.receiverID, data.bankID)
+		data.close(t)
+	}()
+	if _, err := data.pool.Exec(context.Background(), `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Bank B', 'ACTIVE')`, secondBankID, "BANK-B-"+secondBankID.String()[:12]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.pool.Exec(context.Background(), `UPDATE accounts SET bank_id = $2, bank_account_id = id WHERE id = $1`, data.sourceID, data.bankID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.pool.Exec(context.Background(), `UPDATE accounts SET bank_id = $2, bank_account_id = id WHERE id = $1`, data.receiverID, secondBankID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.pool.Exec(context.Background(), `INSERT INTO bank_a.accounts (id, account_number, balance_paise, status) VALUES ($1, $2, 1000, 'ACTIVE')`, data.sourceID, "a-"+data.sourceID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.pool.Exec(context.Background(), `INSERT INTO bank_b.accounts (id, account_number, balance_paise, status) VALUES ($1, $2, 0, 'ACTIVE')`, data.receiverID, "b-"+data.receiverID.String()); err != nil {
+		t.Fatal(err)
+	}
+	bankAServer := httptest.NewServer(bankservice.Handler(bankservice.NewService(data.pool)))
+	defer bankAServer.Close()
+	bankBServer := httptest.NewServer(bankservice.Handler(bankservice.NewParticipantService(data.pool, "BANK-B", "bank_b")))
+	defer bankBServer.Close()
+	adapterA, err := bank.NewHTTPClient(bankAServer.URL, bankAServer.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterB, err := bank.NewHTTPClient(bankBServer.URL, bankBServer.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payment, duplicate, err := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 250), "real-a-b", "real-a-b-hash", data.bankID, secondBankID, adapterA, adapterB)
+	if err != nil || duplicate || payment.State != StateCompleted {
+		t.Fatalf("A -> B payment = %+v, duplicate=%v, err=%v", payment, duplicate, err)
+	}
+	assertRoutedParticipantBalance(t, data.pool, "bank_a", data.sourceID, 750)
+	assertRoutedParticipantBalance(t, data.pool, "bank_b", data.receiverID, 250)
+}
+
+func assertRoutedParticipantBalance(t *testing.T, pool *pgxpool.Pool, schema string, accountID uuid.UUID, want int64) {
+	t.Helper()
+	var got int64
+	if err := pool.QueryRow(context.Background(), `SELECT balance_paise FROM `+schema+`.accounts WHERE id = $1`, accountID).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("%s balance = %d, want %d", schema, got, want)
 	}
 }
 
