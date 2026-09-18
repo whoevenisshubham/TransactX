@@ -6,7 +6,7 @@ The central database and Bank A schema are separate authority domains even when 
 
 Central PostgreSQL owns `users`, `banks`, central `accounts`, `payments`, `idempotency_records`, `ledger_transactions`, `ledger_entries`, and `payment_bank_operations`. Central `accounts.bank_account_id` maps a logical central account to its participant account; existing rows are backfilled to the same UUID for compatibility.
 
-Bank A owns `bank_a.accounts`, `bank_a.operations`, and `bank_a.ledger_entries`. Participant balances are never updated by the central ledger transaction. Bank-side operation records contain payment ID, stable operation ID, idempotency key, operation type, participant account, amount, currency, related operation IDs, status, and bank reference.
+Bank A owns `bank_a.accounts`, `bank_a.operations`, and `bank_a.ledger_entries`. Participant balances are never updated by the central ledger transaction. Bank-side operation records contain bank ID, payment ID, stable operation ID, idempotency key, operation type, participant account ID, amount, currency, related operation IDs, status, and bank reference.
 
 ## Migrations
 
@@ -17,6 +17,7 @@ Apply the explicit SQL migrations in order:
 3. `000003_local_settlement_state`
 4. `000004_m1_6_routed_payment_boundary` — route identity, central operation tracking, and Bank A schema.
 5. `000005_m1_6_account_identity_hardening` — participant account mapping and operation tracking payload fields.
+6. `000006_m1_6_bank_operation_identity` — explicit Bank A identity on every durable operation row.
 
 The API and Bank A process do not run migrations automatically at startup.
 

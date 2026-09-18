@@ -412,8 +412,8 @@ func optionalUUIDMatches(actual *uuid.UUID, expected uuid.UUID) bool {
 
 func insertOperation(ctx context.Context, tx pgx.Tx, identity operationIdentity, status string, holdID, originalOperationID uuid.UUID) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, hold_id, original_operation_id, amount_paise, currency, status, bank_reference)
-		VALUES ($1, $2, $3, $4, $5, NULLIF($6, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($7, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($8, '00000000-0000-0000-0000-000000000000'::uuid), $9, $10, $11, $12)`,
+		INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, bank_id, account_id, hold_id, original_operation_id, amount_paise, currency, status, bank_reference)
+		VALUES ($1, $2, $3, $4, $5, 'BANK-A', NULLIF($6, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($7, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($8, '00000000-0000-0000-0000-000000000000'::uuid), $9, $10, $11, $12)`,
 		uuid.New(), identity.request.PaymentID, identity.request.OperationID, identity.request.IdempotencyKey, identity.operationType, identity.request.AccountID, holdID, originalOperationID, identity.request.AmountPaise, identity.request.Currency, status, bankReference(identity.request.OperationID))
 	return err
 }

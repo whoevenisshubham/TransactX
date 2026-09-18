@@ -31,6 +31,7 @@ psql $env:DATABASE_URL -f backend/migrations/000002_account_opening_balance.up.s
 psql $env:DATABASE_URL -f backend/migrations/000003_local_settlement_state.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000004_m1_6_routed_payment_boundary.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000005_m1_6_account_identity_hardening.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000006_m1_6_bank_operation_identity.up.sql
 ```
 
 Start Bank A and the API in separate terminals. `BANK_A_DATABASE_URL` may point to the same PostgreSQL server because the participant uses the separate `bank_a` schema.
