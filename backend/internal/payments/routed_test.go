@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -93,8 +94,8 @@ func TestRoutedPaymentPersistsBothBanksAndOperationTracking(t *testing.T) {
 		t.Skip("DATABASE_URL is not set")
 	}
 	data := newRepositoryTestData(t)
-	secondBankID := uuid.New()
 	setBalances(t, data, 1000, 0)
+	secondBankID := uuid.New()
 	defer func() {
 		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
 		_, _ = data.pool.Exec(context.Background(), `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id = $1)`, data.userID)
@@ -180,6 +181,85 @@ func TestRoutedPaymentExecutesAcrossIndependentBankAAndBankBHTTPParticipants(t *
 	}
 	assertRoutedParticipantBalance(t, data.pool, "bank_a", data.sourceID, 750)
 	assertRoutedParticipantBalance(t, data.pool, "bank_b", data.receiverID, 250)
+}
+
+func TestRoutedPaymentExecutesAllHTTPBankDirections(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	for _, direction := range []struct {
+		name   string
+		source string
+		dest   string
+	}{
+		{name: "A-to-A", source: "A", dest: "A"},
+		{name: "B-to-B", source: "B", dest: "B"},
+		{name: "B-to-A", source: "B", dest: "A"},
+	} {
+		t.Run(direction.name, func(t *testing.T) {
+			runHTTPDirection(t, direction.source, direction.dest)
+		})
+	}
+}
+
+func runHTTPDirection(t *testing.T, sourceCode, destinationCode string) {
+	t.Helper()
+	data := newRepositoryTestData(t)
+	setBalances(t, data, 1000, 0)
+	secondBankID := uuid.New()
+	bankIDs := map[string]uuid.UUID{"A": data.bankID}
+	if sourceCode == "B" || destinationCode == "B" {
+		bankIDs["B"] = secondBankID
+		if _, err := data.pool.Exec(context.Background(), `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Bank B', 'ACTIVE')`, secondBankID, "HTTP-B-"+secondBankID.String()[:12]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sourceBankID, destinationBankID := bankIDs[sourceCode], bankIDs[destinationCode]
+	if _, err := data.pool.Exec(context.Background(), `UPDATE accounts SET bank_id = $2, bank_account_id = id WHERE id = $1`, data.sourceID, sourceBankID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.pool.Exec(context.Background(), `UPDATE accounts SET bank_id = $2, bank_account_id = id WHERE id = $1`, data.receiverID, destinationBankID); err != nil {
+		t.Fatal(err)
+	}
+	insertParticipantAccount(t, data.pool, "bank_"+strings.ToLower(sourceCode), data.sourceID, "http-source-"+data.sourceID.String(), 1000)
+	if sourceCode == destinationCode {
+		insertParticipantAccount(t, data.pool, "bank_"+strings.ToLower(sourceCode), data.receiverID, "http-dest-"+data.receiverID.String(), 0)
+	} else {
+		insertParticipantAccount(t, data.pool, "bank_"+strings.ToLower(destinationCode), data.receiverID, "http-dest-"+data.receiverID.String(), 0)
+	}
+	defer func() {
+		for _, schema := range []string{"bank_a", "bank_b"} {
+			_, _ = data.pool.Exec(context.Background(), `DELETE FROM `+schema+`.ledger_entries WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+			_, _ = data.pool.Exec(context.Background(), `DELETE FROM `+schema+`.operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+			_, _ = data.pool.Exec(context.Background(), `DELETE FROM `+schema+`.accounts WHERE id IN ($1, $2)`, data.sourceID, data.receiverID)
+		}
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM banks WHERE id = $1`, secondBankID)
+		data.close(t)
+	}()
+	bankAServer := httptest.NewServer(bankservice.Handler(bankservice.NewService(data.pool)))
+	defer bankAServer.Close()
+	bankBServer := httptest.NewServer(bankservice.Handler(bankservice.NewParticipantService(data.pool, "BANK-B", "bank_b")))
+	defer bankBServer.Close()
+	adapterA, err := bank.NewHTTPClient(bankAServer.URL, bankAServer.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterB, err := bank.NewHTTPClient(bankBServer.URL, bankBServer.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapters := map[string]bank.BankAdapter{"A": adapterA, "B": adapterB}
+	payment, duplicate, err := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 100), "real-"+sourceCode+destinationCode, "real-"+sourceCode+destinationCode, sourceBankID, destinationBankID, adapters[sourceCode], adapters[destinationCode])
+	if err != nil || duplicate || payment.State != StateCompleted {
+		t.Fatalf("%s -> %s payment = %+v, duplicate=%v, err=%v", sourceCode, destinationCode, payment, duplicate, err)
+	}
+}
+
+func insertParticipantAccount(t *testing.T, pool *pgxpool.Pool, schema string, accountID uuid.UUID, number string, balance int64) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `INSERT INTO `+schema+`.accounts (id, account_number, balance_paise, status) VALUES ($1, $2, $3, 'ACTIVE')`, accountID, number, balance); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertRoutedParticipantBalance(t *testing.T, pool *pgxpool.Pool, schema string, accountID uuid.UUID, want int64) {
