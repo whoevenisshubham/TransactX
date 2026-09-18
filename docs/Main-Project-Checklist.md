@@ -5,6 +5,10 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 # How to Use This Checklist
 
+## Current repository checkpoint
+
+The current branch completes the Member-1 routed-payment checkpoint (M1-6): durable Bank A, the frozen adapter contract, routed saga persistence, operation status, compensation, and deterministic pending recovery. The roadmap's later **Phase 6 — Offline-First Client & Safe Replay** remains intentionally unchecked; it is a separate later project phase and is outside this takeover's exit scope.
+
 \[ ] Work strictly in phase order unless a dependency explicitly allows parallel work.
 \[ ] Tick an item only when it is implemented, tested, and verified — not merely coded.
 \[ ] For payment, ledger, idempotency, concurrency, offline replay, routing, and reconciliation code, human review is mandatory.
@@ -104,20 +108,20 @@ PHASE EXIT GATE: Normal payments are correct under retries and concurrency; no n
 
 Duration: Week 4   Objective: Introduce actual independent simulated bank participants and routing boundaries.
 
-\[ ] M2 — Implement Bank A service.
+\[x] M2 — Implement Bank A service.
 \[ ] M2 — Implement Bank B service.
-\[ ] M2 — Implement bank account lookup.
-\[ ] M2 — Implement bank debit operation.
-\[ ] M2 — Implement bank credit operation.
-\[ ] M2 — Implement bank health endpoint.
-\[ ] M2 — Implement configurable bank latency.
-\[ ] M2 — Implement configurable bank failure mode.
+\[x] M2 — Implement bank account lookup.
+\[x] M2 — Implement bank debit operation.
+\[x] M2 — Implement bank credit operation.
+\[x] M2 — Implement bank health endpoint.
+\[x] M2 — Implement configurable bank latency.
+\[x] M2 — Implement configurable bank failure mode.
 \[x] M1 — Implement payment-switch bank adapter abstraction/injection boundary.
-\[ ] M1 — Route a normal payment through the payment switch to the selected bank.
-\[ ] M1 — Persist selected route on the payment.
-\[ ] M1 — Define timeout/error mapping between switch and bank adapters.
-\[ ] ALL — Run end-to-end customer → switch → bank → ledger → response flow.
-\[ ] ALL — Verify bank failures cannot silently create successful payments.
+\[x] M1 — Route a normal payment through the payment switch to the selected bank.
+\[x] M1 — Persist selected route on the payment.
+\[x] M1 — Define timeout/error mapping between switch and bank adapters.
+\[x] ALL — Run end-to-end customer → switch → bank → ledger → response flow.
+\[x] ALL — Verify bank failures cannot silently create successful payments.
 PHASE EXIT GATE: A real payment travels through the switch and bank adapter into the ledger, with failures surfaced safely.
 
 # Phase 5 — Incremental Merkle Reconciliation
@@ -390,6 +394,4 @@ PHASE EXIT GATE: Fresh-clone build passes, critical tests pass, benchmark eviden
 |M2|Resilience|Offline queue, bank adapters, health, routing, circuit breaker, chaos, merchant frontend|
 |M3|Research / Console|Merkle engine, reconciliation, integrity, benchmarks, network console|
 |ALL|Shared|Architecture, reviews, integration, testing, documentation, paper, demo|
-
-
 

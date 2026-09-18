@@ -1,35 +1,39 @@
 # Architecture
 
-## Status
+## Phase-6 status
 
-### IMPLEMENTED
-
-The Phase 0 foundation contains one Go HTTP API and one React frontend. The API connects to local PostgreSQL and exposes health/readiness checks. The frontend independently starts with Vite and checks API connectivity.
-
-Phase 1A adds the PostgreSQL payment-core schema through explicit SQL migrations. PostgreSQL now provides the data foundation for users, banks, accounts, payments, idempotency records, and the double-entry ledger. The API still does not execute payments or run migrations automatically at startup.
-
-Phase 1B adds Argon2id password hashing, HS256 JWT authentication, request IDs, server-side role checks, atomic user plus initial-account registration, authenticated profile/account reads, and safe recipient lookup. Public registration allows only CUSTOMER and MERCHANT. OPS_ADMIN is provisioned only by the development seed command.
-
-M1-3B extends the authenticated payment foundation at `POST /api/payments` with user-scoped idempotency. M1-3C now settles a new valid payment through the explicit `LOCAL_SETTLEMENT` path in the same PostgreSQL transaction as its payment and idempotency rows: the sender is debited, the receiver is credited, one debit and one credit ledger entry are written, and the payment reaches `COMPLETED`. Exact retries return the original settled payment; reuse with a different hash returns `409 Conflict`. `ROUTING` and `PROCESSING` remain reserved for future bank-routed payments.
-
-M1-3D experimentally verifies this local settlement boundary under deterministic PostgreSQL contention: conditional balance updates prevent negative balances and overspending, failed attempts roll back payment/ledger/idempotency work, successful transfers preserve double-entry and reconstructed-balance invariants, and concurrent same-key requests produce one logical settlement.
-
-M1-5 adds Bank A as the first concrete `BankAdapter` implementation. Bank A is a deterministic local simulation with explicitly supplied integer-paise account state; it is not a real financial institution and does not provide external bank connectivity. The adapter remains a domain-only package and is not invoked by the current payment flow.
+TransactX has two explicit execution paths:
 
 ```text
-PostgreSQL
-    ↓
-Go API
-    ↓
-React + TypeScript frontend
+Customer -> Go API -> Payment Service -> central PostgreSQL
+                                  \-> BankAdapter -> Bank A HTTP service -> bank_a schema
 ```
 
-### IMPLEMENTED
+The local path remains the synchronous `LOCAL_SETTLEMENT` PostgreSQL transaction. When adapters are configured, the routed path creates the central payment intent and executes a durable saga across the selected source and destination participants.
 
-M1-4 introduces the injected domain-level `backend/internal/bank.BankAdapter` seam. It defines account validation, debit, credit, and health operations with typed results and error classifications; it has no HTTP or PostgreSQL dependencies. M1-5 provides the first concrete implementation, Bank A. The current handler injects `nil`, so the current payment flow does not invoke the adapter, and no routing logic is introduced.
+Central PostgreSQL owns users, central accounts and account-to-bank-account mapping, payment state, user-scoped idempotency, the central double-entry ledger, route metadata, bank-operation tracking, and recovery state. It is not a second live copy of a participant's balance for routed settlement.
 
-The adapter will own communication with a bank participant and bank-specific operation details. Bank A's simulated state is not authoritative application balance state and is not persisted to PostgreSQL. Payment Service will continue to own payment validation, idempotency, state transitions, and authoritative settlement orchestration. The current production/demo path remains `Payment Service -> PostgreSQL LOCAL_SETTLEMENT`; routed invocation is future integration work.
+Bank A is a separate Go process. Its `bank_a` schema owns participant accounts, balances, account status, holds, provisional/final credits, participant operations, participant ledger entries, and status lookup. The service boundary is HTTP; `internal/bank.HTTPClient` implements the domain-only `BankAdapter` contract.
 
-### FUTURE WORK
+## Routed protocol
 
-The M1-3D tests verify the current conditional `UPDATE` row-lock behavior for this local settlement path; they are not formal verification or production banking certification. Bank B, bank routing, offline replay, reconciliation, and the Network Console remain future work. M1-5 creates and verifies Bank A but does not complete routed settlement. JWT logout is client-side token disposal only; server-side revocation and refresh tokens are not implemented.
+```text
+CREATED -> VALIDATING -> ROUTING -> PROCESSING
+  -> resolve source and destination accounts
+  -> HOLD source
+  -> PROVISIONAL_CREDIT destination
+  -> CONFIRM source hold
+  -> FINALIZE destination credit
+  -> central PostgreSQL settlement
+  -> COMMITTED -> COMPLETED
+```
+
+Every monetary operation has a deterministic operation ID derived from the payment and logical step. Retries reuse it. A timeout or lost response is `PENDING`, never presumed failed: the recovery entry point calls `GetOperationStatus` using the original ID. A still-unknown operation keeps the payment in `PENDING_RECONCILIATION`; definite failure follows release/reversal compensation where safe.
+
+If bank-side settlement succeeds but central persistence fails, the payment is `BANK_SETTLED_CENTRAL_PENDING`. Its recovery path repairs only central accounts and ledger state; it never repeats bank operations.
+
+There is no transaction spanning Bank A and central PostgreSQL, and the system makes no distributed-ACID claim.
+
+## Boundaries and future work
+
+The adapter is keyed by bank ID and contains no Bank-A-specific orchestration logic. Bank B, adaptive routing, circuit breakers, Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases and are not claimed as implemented here.

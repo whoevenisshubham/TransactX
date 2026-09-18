@@ -415,22 +415,23 @@ Messaging can initially be implemented through an application event abstraction 
 
 The MVP contains exactly two active simulated banks: **Bank A and Bank B**. The payment switch must never contain bank-specific business logic. It depends on an adapter interface so additional participants can be introduced without changing payment orchestration.
 
-Conceptual interface:
+The implemented Phase-6 contract is:
 
 ```go
 type BankAdapter interface {
-    GetHealth(ctx context.Context) HealthStatus
-    ResolveAccount(ctx context.Context, accountID string) (Account, error)
-    HoldFunds(ctx context.Context, req HoldRequest) (HoldResult, error)
-    ConfirmHold(ctx context.Context, holdID string) error
-    ReleaseHold(ctx context.Context, holdID string) error
-    Debit(ctx context.Context, req DebitRequest) error
-    Credit(ctx context.Context, req CreditRequest) error
+    GetHealth(ctx context.Context) (HealthResult, error)
+    ResolveAccount(ctx context.Context, req ResolveAccountRequest) (AccountResult, error)
+    HoldFunds(ctx context.Context, req HoldFundsRequest) (HoldResult, error)
+    ProvisionalCredit(ctx context.Context, req ProvisionalCreditRequest) (OperationResult, error)
+    ConfirmHold(ctx context.Context, req ConfirmHoldRequest) (OperationResult, error)
+    ReleaseHold(ctx context.Context, req ReleaseHoldRequest) (OperationResult, error)
+    ReverseProvisionalCredit(ctx context.Context, req ReverseCreditRequest) (OperationResult, error)
+    GetOperationStatus(ctx context.Context, req OperationStatusRequest) (OperationResult, error)
     GetLedgerSnapshot(ctx context.Context, scope LedgerScope) (LedgerSnapshot, error)
 }
 ```
 
-The concrete implementation can expose these methods over HTTP. The switch should depend only on the interface.
+The concrete implementation can expose these methods over HTTP. The switch depends only on the interface. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD`; raw debit is not the routed protocol. `PENDING` means that the caller cannot establish whether the bank-side monetary operation committed, so recovery must use the original operation ID and `GetOperationStatus` before proceeding.
 
 Adding Bank C later must be a configuration/deployment change, not a redesign of the payment engine.
 
@@ -960,6 +961,14 @@ PENDING\_RECONCILIATION
     └────► REVERSED
 ```
 
+Bank-side settlement followed by a central persistence failure:
+
+```text
+PROCESSING -> BANK_SETTLED_CENTRAL_PENDING -> COMMITTED -> COMPLETED
+```
+
+Recovery from `BANK_SETTLED_CENTRAL_PENDING` repairs only central PostgreSQL and must not repeat bank monetary operations.
+
 Offline:
 
 ```text
@@ -996,7 +1005,7 @@ CanTransition(from, to PaymentState) bool
 6. Payment record is created in CREATED/VALIDATING state.
 7. If a bank route exists, the routing layer selects a bank participant; otherwise the local-settlement path is selected.
 8. Payment orchestrator starts database transaction.
-9. Bank-side operation is performed only for routed payments; local settlement mutates the authoritative PostgreSQL accounts.
+9. A routed payment resolves source and destination participant accounts, creates one durable source hold, creates one durable non-spendable destination provisional credit, confirms the source hold, finalizes the destination credit, and then persists central settlement. Local settlement mutates the authoritative PostgreSQL accounts directly.
 10. Double-entry ledger records debit and credit.
 11. Transaction reaches COMMITTED / COMPLETED.
 12. Event/notification is emitted.
@@ -3440,4 +3449,3 @@ Evidence
 ```
 
 That is the standard TransactX should be built to.
-

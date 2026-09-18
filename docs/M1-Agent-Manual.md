@@ -274,18 +274,40 @@ COMMIT;
 
 # 12\. Bank Adapter + Bank A
 
+The frozen routed contract is:
+
+```go
 type BankAdapter interface {
-GetBalance(ctx context.Context, accountID string) (Balance, error)
-Debit(ctx context.Context, req DebitRequest) (OperationResult, error)
-Credit(ctx context.Context, req CreditRequest) (OperationResult, error)
-Health(ctx context.Context) (HealthResult, error)
+    GetHealth(context.Context) (HealthResult, error)
+    ResolveAccount(context.Context, ResolveAccountRequest) (AccountResult, error)
+    HoldFunds(context.Context, HoldFundsRequest) (HoldResult, error)
+    ProvisionalCredit(context.Context, ProvisionalCreditRequest) (OperationResult, error)
+    ConfirmHold(context.Context, ConfirmHoldRequest) (OperationResult, error)
+    ReleaseHold(context.Context, ReleaseHoldRequest) (OperationResult, error)
+    ReverseProvisionalCredit(context.Context, ReverseCreditRequest) (OperationResult, error)
+    GetOperationStatus(context.Context, OperationStatusRequest) (OperationResult, error)
+    GetLedgerSnapshot(context.Context, LedgerScope) (LedgerSnapshot, error)
 }
-\[ ] Payment logic depends on interface, not Bank A URL/details.
-\[ ] Bank A has independent service.
-\[ ] Health, debit, credit, and account lookup exist.
-\[ ] Timeouts are typed and do not trigger unsafe blind duplication.
-\[ ] Explicit rejection is distinguishable from unknown outcome.
-\[ ] Request/payment IDs are correlated in logs.
+```
+
+\[x] Payment logic depends on the interface, not Bank A URL/details.
+\[x] Bank A has an independent durable Go/HTTP service.
+\[x] Health, account resolution, hold, provisional credit, finalization, release, reversal, status, and ledger snapshot exist.
+\[x] Timeouts and lost responses are typed as unknown and do not trigger unsafe blind duplication.
+\[x] Explicit rejection is distinguishable from unknown outcome.
+\[x] Request/payment/operation identity is persisted for correlation.
+
+The deployed participant uses PostgreSQL schema `bank_a`; the in-process `bank.BankA` is a deterministic adapter test implementation.
+
+## 12.1 Routed recovery contract
+
+The routed path is a durable saga, not a distributed transaction:
+
+```text
+hold -> provisional credit -> confirm source hold -> finalize destination credit
+```
+
+Every step has one deterministic operation ID derived from the payment and step name. A timeout or lost response persists `PENDING_RECONCILIATION`. `RecoverRoutedPayment` and an exact idempotent payment retry call `GetOperationStatus` with the original ID. Success advances the saga, definite failure uses release/reversal where safe, and an unresolved result remains pending. After bank settlement, `BANK_SETTLED_CENTRAL_PENDING` recovery only repairs central PostgreSQL.
 
 # 13\. Customer Frontend Deep Dive
 
@@ -1118,6 +1140,4 @@ Q. Which parts of the implementation would change when scaling horizontally?
 |M1-E Concurrency|Hot-account stress produces no negative balance|
 |M1-F Bank Adapter|Payment switch calls Bank A through interface|
 |M1-G Customer UI|Browser payment journey is complete|
-
-
 

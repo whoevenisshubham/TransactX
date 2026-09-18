@@ -1,34 +1,20 @@
 # TransactX
 
-TransactX is a simulated payment infrastructure research prototype. It does not process real money or connect to real banking infrastructure.
+TransactX is a simulated payment infrastructure research prototype. It does not process real money, implement UPI/NPCI, or connect to real banks.
 
-## Current Status
+## Current status
 
-### IMPLEMENTED
+Implemented through the routed Phase-6 boundary:
 
-- Docker-free local project foundation.
-- Go API using standard `net/http`.
-- PostgreSQL connection and readiness check using `pgx`.
-- `GET /health` and `GET /health/db` endpoints.
-- React + TypeScript + Vite frontend shell.
-- Frontend API connectivity check.
-- Approved architecture decisions documented in `docs/decisions.md`.
-- Phase 1B authentication, Argon2id password hashing, JWT middleware, account reads, recipient lookup, and minimal customer authentication UI.
-- BankAdapter and the local simulated Bank A implementation.
+- Go HTTP API, React + TypeScript frontend shell, JWT authentication, accounts, recipients, and user-scoped idempotency.
+- Atomic local PostgreSQL settlement with integer paise, double-entry ledger entries, and concurrency protection.
+- A typed `BankAdapter` contract and durable Bank A process with its own PostgreSQL schema, HTTP boundary, holds, provisional/final credits, operation status, ledger, and restart-safe operation identity.
+- Routed saga persistence for source/destination bank identity and bank operations, deterministic retries, compensation, pending-operation recovery, and central-only recovery after bank settlement.
+- Unit, PostgreSQL-backed integration, and race-detector coverage for the critical payment and bank paths.
 
-### PLANNED
+Phase-7 routing intelligence, circuit breakers, Bank B, Merkle reconciliation, chaos orchestration, and offline queue UX remain future work.
 
-- Payment execution, idempotency, state transitions, and ledger.
-- Payment validation, idempotency, state transitions, and ledger.
-- Customer payment experience.
-
-### FUTURE WORK
-
-- Bank B, routing, circuit breaker, and chaos engineering (M2).
-- Bank A integration into payment routing and real external-bank connectivity.
-- Reconciliation, integrity engine, and research console (M3).
-
-## Local Development
+## Local development
 
 Prerequisites:
 
@@ -36,17 +22,37 @@ Prerequisites:
 - Node.js and npm
 - PostgreSQL 18 running locally
 
-Create a local database named `transactx`, then configure the connection if your local credentials differ from `.env.example`. Environment variables are read by the processes directly; this repository does not load a `.env` file automatically.
+Create a local database named `transactx`, apply migrations in order with `psql`, and configure the processes. The repository does not load a `.env` file automatically.
 
-Start the backend:
+```powershell
+$env:DATABASE_URL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
+psql $env:DATABASE_URL -f backend/migrations/000001_phase1a_payment_core.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000002_account_opening_balance.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000003_local_settlement_state.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000004_m1_6_routed_payment_boundary.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000005_m1_6_account_identity_hardening.up.sql
+```
+
+Start Bank A and the API in separate terminals. `BANK_A_DATABASE_URL` may point to the same PostgreSQL server because the participant uses the separate `bank_a` schema.
 
 ```powershell
 cd backend
-go mod download
+$env:DATABASE_URL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
+$env:BANK_A_DATABASE_URL = $env:DATABASE_URL
+$env:BANK_A_ADDR = ":8081"
+go run ./cmd/bank-a
+```
+
+```powershell
+cd backend
+$env:DATABASE_URL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
+$env:JWT_SECRET = "replace-with-at-least-32-random-bytes"
+$env:DEFAULT_BANK_CODE = "BANK-DEV"
+$env:BANK_A_URL = "http://localhost:8081"
 go run ./cmd/api
 ```
 
-Start the frontend in another terminal:
+Start the frontend separately:
 
 ```powershell
 cd frontend
@@ -54,13 +60,11 @@ npm install
 npm run dev
 ```
 
-The API runs at `http://localhost:8080` and the Vite frontend runs at the URL printed by Vite, normally `http://localhost:5173`.
+For development seed data, set `APP_DEVELOPMENT=true` and `DEV_ADMIN_PASSWORD`, then run `go run ./cmd/devseed` from `backend`.
 
-For Phase 1B, set `DATABASE_URL`, `JWT_SECRET` (at least 32 random bytes), and `DEFAULT_BANK_CODE` before starting the API. To provision development data, set `APP_DEVELOPMENT=true` and `DEV_ADMIN_PASSWORD`, then run `go run ./cmd/devseed` from `backend`. The command creates the synthetic bank and OPS_ADMIN atomically and has no password fallback.
+## Design boundaries
 
-## Repository Rules
-
-- PostgreSQL is authoritative for monetary state.
-- Monetary values will use integer paise (`BIGINT`).
-- Docker and Redis are not part of the initial architecture.
-- Payment, idempotency, ledger, and concurrency code requires human review.
+- Central PostgreSQL owns payment state, idempotency, central accounts, central ledger, and recovery state.
+- Bank A owns participant accounts, balances, holds, operations, participant ledger records, and operation status.
+- Routed settlement is a durable saga, not a distributed ACID transaction. Unknown outcomes are resolved with the original operation ID; unresolved effects stay pending reconciliation.
+- Monetary values are integer paise (`BIGINT`). Docker, Redis, Kafka, Kubernetes, real banking integrations, AI/ML, blockchain, and real-money movement are intentionally excluded.

@@ -75,12 +75,30 @@ Status: **IMPLEMENTED**
 
 M1-4 adds `backend/internal/bank.BankAdapter` as an injected domain-only boundary for future bank participants. The contract covers account validation, debit, credit, and health, and uses typed results plus error codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and later status or reconciliation mechanisms.
 
-The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. The current handler injects `nil`, so Payment Service does not invoke the adapter yet. Payment Service remains responsible for payment validation, idempotency, state transitions, and settlement orchestration. The current production path is unchanged: PostgreSQL performs authoritative `LOCAL_SETTLEMENT`; Bank B, routing, and adapter-backed settlement are not implemented yet.
+The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD`; raw debit is retained only as a legacy primitive and is not part of routed execution. Operation status lookup is part of the frozen contract.
 
 ## ADR-013: M1-5 Simulated Bank A
 
 Status: **IMPLEMENTED**
 
-M1-5 adds `backend/internal/bank.BankA`, the first concrete implementation of `BankAdapter`. Bank A is a deterministic local domain simulation. It accepts explicitly supplied account records, uses mutex-protected integer-paise balances, returns typed adapter outcomes, and preserves payment/operation correlation metadata. Its state is not a second authoritative application balance store: the adapter is not wired into Payment Service, and PostgreSQL remains authoritative for the current `LOCAL_SETTLEMENT` path.
+M1-5 adds `backend/internal/bank.BankA`, the in-process deterministic adapter test implementation. It now models durable-contract semantics in memory for adapter tests, including holds, provisional/final credits, compensation, operation identity, and participant ledger records. The deployed participant is the separate `backend/cmd/bank-a` process backed by the `bank_a` PostgreSQL schema.
 
-Bank A is not a real financial institution and does not imply real external-bank connectivity. Bank B and routing remain future work; no payment flow, HTTP handler, PostgreSQL repository, retry system, or distributed banking behavior is added by this decision.
+Bank A is not a real financial institution and does not imply real external-bank connectivity.
+
+## ADR-014: M1-6 Durable Routed Saga
+
+Status: **IMPLEMENTED**
+
+Routed payments persist source and destination bank identity, participant account identity, and one stable operation ID for every logical bank step. Central PostgreSQL and Bank A commit independently. The saga uses status lookup, explicit release/reversal compensation, `PENDING_RECONCILIATION`, and `BANK_SETTLED_CENTRAL_PENDING` rather than pretending to provide distributed ACID.
+
+## ADR-015: M1-6 Unknown-Outcome Recovery
+
+Status: **IMPLEMENTED**
+
+An adapter timeout or lost response is not treated as proof of failure. A duplicate payment request or explicit `RecoverRoutedPayment` call loads the persisted operation, calls `GetOperationStatus` with the original operation ID, and either advances the saga, compensates a definite failure, or leaves the payment pending. Central-only recovery repairs central persistence without repeating bank monetary operations.
+
+## ADR-016: M1-6 Bank Participant Persistence
+
+Status: **IMPLEMENTED**
+
+Bank A owns its accounts, balances, operation records, and ledger entries. Bank operation idempotency validates payment, operation identity, idempotency key, operation type, account, amount, currency, and related operation IDs. A retry with a conflicting payload is rejected.
