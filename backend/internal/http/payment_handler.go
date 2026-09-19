@@ -9,6 +9,7 @@ import (
 
 	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/auth"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/payments"
 )
@@ -138,6 +139,27 @@ func intermediatePaymentState(state string) bool {
 }
 
 func writePaymentError(writer http.ResponseWriter, request *http.Request, err error) {
+	var adapterErr *bank.AdapterError
+	if errors.As(err, &adapterErr) {
+		switch adapterErr.Code {
+		case bank.ErrCodeInsufficientFunds:
+			writeAPIError(writer, request, common.NewAPIError("INSUFFICIENT_FUNDS", "source account has insufficient funds", http.StatusConflict))
+			return
+		case bank.ErrCodeInvalidAccount:
+			writeAPIError(writer, request, common.NewAPIError("ACCOUNT_NOT_FOUND", "bank account not found", http.StatusNotFound))
+			return
+		case bank.ErrCodeInactiveAccount:
+			writeAPIError(writer, request, common.NewAPIError("ACCOUNT_INACTIVE", "bank account is inactive", http.StatusConflict))
+			return
+		case bank.ErrCodeBankUnavailable:
+			writeAPIError(writer, request, common.NewAPIError("BANK_UNAVAILABLE", "selected bank route is unavailable", http.StatusServiceUnavailable))
+			return
+		case bank.ErrCodeTransientFailure:
+			writeAPIError(writer, request, common.NewAPIError("BANK_UNAVAILABLE", "bank communication failed", http.StatusServiceUnavailable))
+			return
+		}
+	}
+
 	switch {
 	case errors.Is(err, payments.ErrInvalidRequest):
 		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "payment request is invalid", http.StatusBadRequest))
@@ -157,6 +179,8 @@ func writePaymentError(writer http.ResponseWriter, request *http.Request, err er
 		writeAPIError(writer, request, common.NewAPIError("IDEMPOTENCY_CONFLICT", "idempotency key was already used for a different payment request", http.StatusConflict))
 	case errors.Is(err, payments.ErrAmbiguousSource):
 		writeAPIError(writer, request, common.NewAPIError("ACCOUNT_AMBIGUOUS", "your account setup needs attention before sending a payment", http.StatusConflict))
+	case errors.Is(err, payments.ErrBankRouteUnavailable):
+		writeAPIError(writer, request, common.NewAPIError("BANK_UNAVAILABLE", "selected bank route is unavailable", http.StatusServiceUnavailable))
 	default:
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "internal server error", http.StatusInternalServerError))
 	}

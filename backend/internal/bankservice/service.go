@@ -394,7 +394,7 @@ func (service *Service) before(ctx context.Context) error {
 	available, latency := service.available, service.latency
 	service.mu.RUnlock()
 	if !available {
-		return &bank.AdapterError{Code: bank.ErrCodeBankUnavailable, Message: "bank A is unavailable"}
+		return &bank.AdapterError{Code: bank.ErrCodeBankUnavailable, Message: fmt.Sprintf("%s is unavailable", service.bankID)}
 	}
 	if latency <= 0 {
 		if err := ctx.Err(); err != nil {

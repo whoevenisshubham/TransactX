@@ -2,14 +2,17 @@ package payments
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/ledger"
 )
 
@@ -64,6 +67,10 @@ func (repository *Repository) CreateRoutedIdempotent(ctx context.Context, paymen
 	}
 	defer tx.Rollback(ctx)
 
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('idemp:' || $1::text || ':' || $2))`, payment.InitiatedByUserID, key); err != nil {
+		return Payment{}, false, err
+	}
+
 	var existingHash string
 	var existingPaymentID *uuid.UUID
 	err = tx.QueryRow(ctx, `SELECT request_hash, payment_id FROM idempotency_records WHERE user_id = $1 AND key = $2`, payment.InitiatedByUserID, key).Scan(&existingHash, &existingPaymentID)
@@ -115,33 +122,56 @@ func (repository *Repository) CreateRoutedIdempotent(ctx context.Context, paymen
 		return Payment{}, false, err
 	}
 
-	if err := repository.runRoutedSaga(ctx, created, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter); err != nil {
-		result, getErr := repository.Get(ctx, payment.ID)
-		if getErr != nil {
-			return Payment{}, false, getErr
-		}
-		return result, false, err
-	}
-	result, err := repository.Get(ctx, payment.ID)
-	return result, false, err
+	return repository.replayRoutedPayment(ctx, created, false, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
 }
 
 func (repository *Repository) replayRoutedPayment(ctx context.Context, payment Payment, duplicate bool, sourceBankID, destinationBankID uuid.UUID, sourceAdapter, destinationAdapter bank.BankAdapter) (Payment, bool, error) {
-	var err error
-	switch payment.State {
+	unlock, err := repository.lockPayment(ctx, payment.ID)
+	if err != nil {
+		return Payment{}, false, err
+	}
+	defer unlock()
+
+	current, err := repository.Get(ctx, payment.ID)
+	if err != nil {
+		return Payment{}, false, err
+	}
+	if current.State == StateCompleted || current.State == StateFailed || current.State == StateReversed {
+		return current, duplicate, nil
+	}
+
+	var sagaErr error
+	switch current.State {
 	case StateCreated, StateValidating, StateRouting:
-		err = repository.runRoutedSaga(ctx, payment, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
+		sagaErr = repository.runRoutedSaga(ctx, current, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
 	case StateProcessing, StatePendingReconciliation:
-		err = repository.RecoverRoutedPayment(ctx, payment, sourceAdapter, destinationAdapter)
+		sagaErr = repository.RecoverRoutedPayment(ctx, current, sourceAdapter, destinationAdapter)
 	case StateBankSettledCentralPending:
-		payment, err = repository.RecoverBankSettledCentralPending(ctx, payment.ID)
+		current, sagaErr = repository.RecoverBankSettledCentralPending(ctx, current.ID)
 	}
 	if refreshed, getErr := repository.Get(ctx, payment.ID); getErr == nil {
-		payment = refreshed
-	} else if err == nil {
-		err = getErr
+		current = refreshed
+	} else if sagaErr == nil {
+		sagaErr = getErr
 	}
-	return payment, duplicate, err
+	return current, duplicate, sagaErr
+}
+
+func (repository *Repository) lockPayment(ctx context.Context, paymentID uuid.UUID) (func(), error) {
+	conn, err := repository.db.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	lockKey := int64(binary.BigEndian.Uint64(paymentID[:8])) ^ int64(binary.BigEndian.Uint64(paymentID[8:]))
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
+		conn.Release()
+		return nil, err
+	}
+	unlock := func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
+		conn.Release()
+	}
+	return unlock, nil
 }
 
 func (repository *Repository) runRoutedSaga(ctx context.Context, payment Payment, sourceBankID, destinationBankID uuid.UUID, sourceAdapter, destinationAdapter bank.BankAdapter) error {
@@ -294,26 +324,30 @@ func (repository *Repository) ensureBankOperation(ctx context.Context, payment P
 			return operationFailed, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: operationType + " failed"}
 		}
 		status, statusErr := adapter.GetOperationStatus(ctx, bank.OperationStatusRequest{PaymentID: payment.ID, OperationID: operationID})
-		if statusErr != nil || status.Status == bank.OperationPending {
+		if statusErr != nil {
 			_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
 			return operationPending, statusErr
-		}
-		if status.Status == bank.OperationFailed {
-			_ = repository.updateBankOperation(ctx, operationID, bankOperationFailed)
-			return operationFailed, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: operationType + " failed"}
 		}
 		if !validOperationCorrelation(status, payment.ID, operationID) {
 			_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
 			return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an unresolved status"}
 		}
-		if status.Status != bank.OperationSucceeded {
+		switch status.Status {
+		case bank.OperationSucceeded:
+			if err := repository.updateBankOperationResult(ctx, operationID, bankOperationSucceeded, status.BankReference); err != nil {
+				return operationPending, err
+			}
+			return operationSucceeded, nil
+		case bank.OperationFailed:
+			_ = repository.updateBankOperation(ctx, operationID, bankOperationFailed)
+			return operationFailed, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: operationType + " failed"}
+		case bank.OperationPending:
 			_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
-			return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an unresolved status"}
+			return operationPending, nil
+		default:
+			_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
+			return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an invalid or unsupported status"}
 		}
-		if err := repository.updateBankOperationResult(ctx, operationID, bankOperationSucceeded, status.BankReference); err != nil {
-			return operationPending, err
-		}
-		return operationSucceeded, nil
 	}
 
 	inserted, err := repository.trackBankOperation(ctx, payment.ID, bankID, operationID, operationType, accountID, payment.AmountPaise, payment.Currency, holdID, originalOperationID, bankOperationProcessing)
@@ -339,22 +373,22 @@ func (repository *Repository) ensureBankOperation(ctx context.Context, payment P
 		_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
 		return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an unresolved status"}
 	}
-	if result.Status == bank.OperationPending {
-		_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
-		return operationPending, nil
-	}
-	if result.Status == bank.OperationFailed {
+	switch result.Status {
+	case bank.OperationSucceeded:
+		if err := repository.updateBankOperationResult(ctx, operationID, bankOperationSucceeded, result.BankReference); err != nil {
+			return operationPending, err
+		}
+		return operationSucceeded, nil
+	case bank.OperationFailed:
 		_ = repository.updateBankOperation(ctx, operationID, bankOperationFailed)
 		return operationFailed, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: operationType + " failed"}
-	}
-	if result.Status != bank.OperationSucceeded {
+	case bank.OperationPending:
 		_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
-		return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an unresolved status"}
+		return operationPending, nil
+	default:
+		_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
+		return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an invalid or unsupported status"}
 	}
-	if err := repository.updateBankOperationResult(ctx, operationID, bankOperationSucceeded, result.BankReference); err != nil {
-		return operationPending, err
-	}
-	return operationSucceeded, nil
 }
 
 func validOperationCorrelation(result bank.OperationResult, paymentID, operationID uuid.UUID) bool {
@@ -388,7 +422,17 @@ func (repository *Repository) settleRoutedCentral(ctx context.Context, payment P
 	if err := tx.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1 FOR UPDATE`, payment.ID).Scan(&currentState); err != nil {
 		return err
 	}
-	if currentState == StateCompleted || currentState == StateCommitted {
+	if currentState == StateCompleted {
+		return tx.Commit(ctx)
+	}
+	if currentState == StateCommitted {
+		current := Payment{State: currentState}
+		if err := Transition(&current, StateCompleted); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE payments SET state = $2, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, payment.ID, current.State); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	current := Payment{State: currentState}
@@ -422,7 +466,18 @@ func (repository *Repository) settleRoutedCentral(ctx context.Context, payment P
 	if _, err := tx.Exec(ctx, `UPDATE payments SET state = $2, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, payment.ID, current.State); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	requestID := common.RequestIDFromContext(ctx)
+	slog.InfoContext(ctx, "routed payment settled central",
+		"request_id", requestID,
+		"payment_id", payment.ID.String(),
+		"ledger_transaction_id", ledgerTransactionID.String(),
+		"old_state", currentState,
+		"new_state", StateCompleted,
+	)
+	return nil
 }
 
 func (repository *Repository) RecoverBankSettledCentralPending(ctx context.Context, paymentID uuid.UUID) (Payment, error) {
@@ -470,6 +525,13 @@ func (repository *Repository) updateState(ctx context.Context, paymentID uuid.UU
 		if _, err := tx.Exec(ctx, `UPDATE payments SET state = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, paymentID, state); err != nil {
 			return err
 		}
+		requestID := common.RequestIDFromContext(ctx)
+		slog.InfoContext(ctx, "payment state transition",
+			"request_id", requestID,
+			"payment_id", paymentID.String(),
+			"old_state", currentState,
+			"new_state", state,
+		)
 	}
 	return tx.Commit(ctx)
 }
@@ -483,10 +545,16 @@ func (repository *Repository) markBankSettledPending(ctx context.Context, paymen
 }
 
 func (repository *Repository) markFailure(ctx context.Context, paymentID uuid.UUID, cause error) error {
+	requestID := common.RequestIDFromContext(ctx)
+	slog.WarnContext(ctx, "payment marked failed",
+		"request_id", requestID,
+		"payment_id", paymentID.String(),
+		"error", cause,
+	)
 	if err := repository.updateState(ctx, paymentID, StateFailed); err != nil {
 		return err
 	}
-	_, err := repository.db.Exec(ctx, `UPDATE payments SET failure_reason = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND state = 'FAILED'`, paymentID, errorMessage(cause))
+	_, err := repository.db.Exec(ctx, `UPDATE payments SET failure_reason = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND state = 'FAILED'`, paymentID, customerSafeFailureReason(cause))
 	return err
 }
 
@@ -538,11 +606,43 @@ func accountStatusError(status bank.AccountStatus, side string) error {
 	return &bank.AdapterError{Code: bank.ErrCodeInvalidAccount, Message: side + " bank account is invalid"}
 }
 
-func errorMessage(err error) string {
-	if err == nil {
+func customerSafeFailureReason(cause error) string {
+	if cause == nil {
 		return ""
 	}
-	return err.Error()
+	var adapterErr *bank.AdapterError
+	if errors.As(cause, &adapterErr) {
+		switch adapterErr.Code {
+		case bank.ErrCodeInsufficientFunds:
+			return "Insufficient funds."
+		case bank.ErrCodeInvalidAccount:
+			return "Account could not be found."
+		case bank.ErrCodeInactiveAccount:
+			return "Account is inactive."
+		case bank.ErrCodeBankUnavailable:
+			return "Bank service is temporarily unavailable."
+		case bank.ErrCodeTransientFailure:
+			return "Payment is still being confirmed."
+		default:
+			return "Payment could not be completed."
+		}
+	}
+	switch {
+	case errors.Is(cause, ErrInsufficientFunds):
+		return "Insufficient funds."
+	case errors.Is(cause, ErrSourceNotFound), errors.Is(cause, ErrRecipientNotFound):
+		return "Account could not be found."
+	case errors.Is(cause, ErrSourceInactive), errors.Is(cause, ErrRecipientInactive):
+		return "Account is inactive."
+	case errors.Is(cause, ErrSelfPayment):
+		return "Payer cannot pay their own account."
+	case errors.Is(cause, ErrIdempotencyConflict):
+		return "Payment request conflicted with an existing request."
+	case errors.Is(cause, ErrBankRouteUnavailable):
+		return "Bank service is temporarily unavailable."
+	default:
+		return "Payment could not be completed."
+	}
 }
 
 func bankAccountID(mapped *uuid.UUID, fallback uuid.UUID) uuid.UUID {

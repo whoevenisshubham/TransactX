@@ -109,7 +109,6 @@ var validTransitions = map[string]map[string]bool{
 		StateCompleted: true,
 	},
 	StatePendingReconciliation: {
-		StateCompleted: true,
 		StateCommitted: true,
 		StateFailed:    true,
 		StateReversed:  true,

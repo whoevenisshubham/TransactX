@@ -12,10 +12,9 @@ export type Account = {
 };
 
 export type Recipient = {
-  accountId: string;
   name: string;
   paymentIdentifier: string;
-  accountStatus: string;
+  status: string;
 };
 
 export type Payment = {
