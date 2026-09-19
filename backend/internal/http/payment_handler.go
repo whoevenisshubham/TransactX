@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,6 +75,50 @@ func (h *Handler) createPayment(writer http.ResponseWriter, request *http.Reques
 		State:       payment.State,
 		CreatedAt:   payment.CreatedAt,
 	})
+}
+
+func (h *Handler) paymentsList(writer http.ResponseWriter, request *http.Request) {
+	identity, ok := auth.IdentityFromRequest(request)
+	if !ok {
+		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
+		return
+	}
+	userID, err := uuid.Parse(identity.UserID)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
+		return
+	}
+	limit, _ := strconv.Atoi(request.URL.Query().Get("limit"))
+	result, err := h.payments.ListForUser(request.Context(), userID, limit)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "transactions are temporarily unavailable", http.StatusInternalServerError))
+		return
+	}
+	writeData(writer, http.StatusOK, request, result)
+}
+
+func (h *Handler) paymentDetails(writer http.ResponseWriter, request *http.Request) {
+	identity, ok := auth.IdentityFromRequest(request)
+	if !ok {
+		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
+		return
+	}
+	userID, userErr := uuid.Parse(identity.UserID)
+	paymentID, paymentErr := uuid.Parse(request.PathValue("paymentID"))
+	if userErr != nil || paymentErr != nil {
+		writeAPIError(writer, request, common.NewAPIError("PAYMENT_NOT_FOUND", "transaction not found", http.StatusNotFound))
+		return
+	}
+	result, err := h.payments.GetForUser(request.Context(), userID, paymentID)
+	if errors.Is(err, payments.ErrNotFound) {
+		writeAPIError(writer, request, common.NewAPIError("PAYMENT_NOT_FOUND", "transaction not found", http.StatusNotFound))
+		return
+	}
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "transaction details are temporarily unavailable", http.StatusInternalServerError))
+		return
+	}
+	writeData(writer, http.StatusOK, request, result)
 }
 
 func writePaymentError(writer http.ResponseWriter, request *http.Request, err error) {

@@ -58,6 +58,14 @@ func (service *Service) Create(ctx context.Context, input CreateInput) (Payment,
 	return payment, err
 }
 
+func (service *Service) ListForUser(ctx context.Context, userID uuid.UUID, limit int) ([]CustomerPayment, error) {
+	return service.payments.ListForUser(ctx, userID, limit)
+}
+
+func (service *Service) GetForUser(ctx context.Context, userID, paymentID uuid.UUID) (CustomerPayment, error) {
+	return service.payments.GetForUser(ctx, userID, paymentID)
+}
+
 func (service *Service) CreateWithResult(ctx context.Context, input CreateInput) (Payment, bool, error) {
 	key := strings.TrimSpace(input.IdempotencyKey)
 	currency := strings.ToUpper(strings.TrimSpace(input.Currency))

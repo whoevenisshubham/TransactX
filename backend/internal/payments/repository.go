@@ -240,6 +240,51 @@ func (repository *Repository) Get(ctx context.Context, paymentID uuid.UUID) (Pay
 		FROM payments WHERE id = $1`, paymentID))
 }
 
+func (repository *Repository) ListForUser(ctx context.Context, userID uuid.UUID, limit int) ([]CustomerPayment, error) {
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	rows, err := repository.db.Query(ctx, `
+		SELECT p.id, p.amount_paise, p.currency, p.state, p.created_at, p.completed_at,
+		       p.failure_reason, u.name, u.upi_id
+		FROM payments p
+		JOIN accounts a ON a.id = p.receiver_account_id
+		JOIN users u ON u.id = a.user_id
+		WHERE p.initiated_by_user_id = $1
+		ORDER BY p.created_at DESC, p.id DESC
+		LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]CustomerPayment, 0)
+	for rows.Next() {
+		var payment CustomerPayment
+		if err := rows.Scan(&payment.ID, &payment.AmountPaise, &payment.Currency, &payment.State, &payment.CreatedAt, &payment.CompletedAt, &payment.FailureReason, &payment.CounterpartyName, &payment.CounterpartyPaymentID); err != nil {
+			return nil, err
+		}
+		result = append(result, payment)
+	}
+	return result, rows.Err()
+}
+
+func (repository *Repository) GetForUser(ctx context.Context, userID, paymentID uuid.UUID) (CustomerPayment, error) {
+	var payment CustomerPayment
+	err := repository.db.QueryRow(ctx, `
+		SELECT p.id, p.amount_paise, p.currency, p.state, p.created_at, p.completed_at,
+		       p.failure_reason, u.name, u.upi_id
+		FROM payments p
+		JOIN accounts a ON a.id = p.receiver_account_id
+		JOIN users u ON u.id = a.user_id
+		WHERE p.initiated_by_user_id = $1 AND p.id = $2`, userID, paymentID).Scan(
+		&payment.ID, &payment.AmountPaise, &payment.Currency, &payment.State, &payment.CreatedAt, &payment.CompletedAt,
+		&payment.FailureReason, &payment.CounterpartyName, &payment.CounterpartyPaymentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CustomerPayment{}, ErrNotFound
+	}
+	return payment, err
+}
+
 func isUniqueViolation(err error) bool {
 	var pgError *pgconn.PgError
 	return errors.As(err, &pgError) && pgError.Code == "23505"

@@ -52,6 +52,20 @@ type Payment struct {
 	DestinationBankAccountID *uuid.UUID `json:"destinationBankAccountId,omitempty"`
 }
 
+// CustomerPayment is the deliberately small, customer-facing payment view.
+// Internal bank-operation and routing fields stay behind the API boundary.
+type CustomerPayment struct {
+	ID                    uuid.UUID  `json:"id"`
+	AmountPaise           int64      `json:"amountPaise"`
+	Currency              string     `json:"currency"`
+	State                 string     `json:"state"`
+	CreatedAt             time.Time  `json:"createdAt"`
+	CompletedAt           *time.Time `json:"completedAt,omitempty"`
+	FailureReason         *string    `json:"failureReason,omitempty"`
+	CounterpartyName      string     `json:"counterpartyName"`
+	CounterpartyPaymentID string     `json:"counterpartyPaymentIdentifier"`
+}
+
 var validTransitions = map[string]map[string]bool{
 	StateCreated: {
 		StateValidating: true,

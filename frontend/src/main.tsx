@@ -1,180 +1,77 @@
-import { StrictMode, FormEvent, useEffect, useState } from "react";
+import { FormEvent, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { api, ApiError } from "./api";
+import { Amount, Avatar, BrandMark, Button, EmptyState, formatDate, Icon, PageHeader, PaymentRow, paymentResultCopy, Skeleton, StatusBadge } from "./components";
+import type { Account, Payment, Recipient, User, View } from "./types";
 import "./styles.css";
-
-type User = {
-  id: string;
-  name: string;
-  paymentIdentifier: string;
-  role: string;
-};
-
-type Account = {
-  id: string;
-  accountNumber: string;
-  balancePaise: number;
-  status: string;
-};
-
-type Recipient = {
-  name: string;
-  paymentIdentifier: string;
-  status: string;
-};
-
-type ApiResponse<T> = { requestId: string; data: T };
-type ApiErrorResponse = { requestId: string; error?: { code: string; message: string } };
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
-
-async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
-  const body = (await response.json()) as ApiResponse<T> | ApiErrorResponse;
-  if (!response.ok) {
-    throw new Error("error" in body && body.error ? body.error.message : "Request failed");
-  }
-  return (body as ApiResponse<T>).data;
-}
 
 function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem("transactx.token"));
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [message, setMessage] = useState("");
-
-  function authenticated(nextToken: string) {
-    sessionStorage.setItem("transactx.token", nextToken);
-    setToken(nextToken);
-    setMessage("");
-  }
-
-  function logout() {
-    sessionStorage.removeItem("transactx.token");
-    setToken(null);
-  }
-
-  if (token) {
-    return <CustomerShell token={token} onLogout={logout} />;
-  }
-
-  return (
-    <main className="app-shell">
-      <section className="brand-panel">
-        <p className="eyebrow">Payment infrastructure research prototype</p>
-        <h1>TransactX</h1>
-        <p>Identity and account access for a simulated, resilient payment network.</p>
-        <div className="status-chip"><span className="dot online" /> API-backed access</div>
-      </section>
-      <section className="form-panel">
-        <div className="tabs">
-          <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>Sign in</button>
-          <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>Create account</button>
-        </div>
-        {mode === "login" ? <LoginForm onAuthenticated={authenticated} setMessage={setMessage} /> : <RegisterForm onAuthenticated={authenticated} setMessage={setMessage} />}
-        {message && <p className="error" role="alert">{message}</p>}
-      </section>
-    </main>
-  );
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  function authenticated(nextToken: string) { sessionStorage.setItem("transactx.token", nextToken); setToken(nextToken); }
+  function logout() { sessionStorage.removeItem("transactx.token"); setToken(null); }
+  return token ? <CustomerShell token={token} onLogout={logout} /> : <AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} />;
 }
 
-function LoginForm({ onAuthenticated, setMessage }: { onAuthenticated: (token: string) => void; setMessage: (message: string) => void }) {
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      const data = await apiRequest<{ token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ identifier, password }) });
-      onAuthenticated(data.token);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to sign in");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return <form onSubmit={submit}>
-    <p className="eyebrow">Welcome back</p>
-    <h2>Sign in to your account</h2>
-    <label>Phone or payment identifier<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} required /></label>
-    <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-    <button className="primary" disabled={busy}>{busy ? "Checking..." : "Sign in"}</button>
-  </form>;
+function AuthPage({ mode, onModeChange, onAuthenticated }: { mode: "login" | "register"; onModeChange: (mode: "login" | "register") => void; onAuthenticated: (token: string) => void }) {
+  return <main className="auth-layout"><section className="auth-intro"><div className="brand-lockup"><BrandMark /><span>TransactX</span></div><div className="auth-intro-copy"><p className="eyebrow">A calmer way to move money</p><h1>Payments with a clear line of sight.</h1><p>Send money, follow every confirmation, and keep your financial activity precise.</p></div><div className="intro-foot"><span className="network-pulse" /><span>Secure account access</span><span className="intro-separator">•</span><span>INR payments</span></div></section><section className="auth-panel"><div className="auth-panel-top"><span className="mobile-brand"><BrandMark />TransactX</span><span className="auth-context">Customer account</span></div><div className="auth-form-wrap"><div className="auth-tabs" role="tablist"><button className={mode === "login" ? "is-active" : ""} onClick={() => onModeChange("login")} role="tab" aria-selected={mode === "login"}>Sign in</button><button className={mode === "register" ? "is-active" : ""} onClick={() => onModeChange("register")} role="tab" aria-selected={mode === "register"}>Create account</button></div>{mode === "login" ? <LoginForm onAuthenticated={onAuthenticated} /> : <RegisterForm onAuthenticated={onAuthenticated} />}</div><p className="auth-legal">By continuing, you agree to use TransactX as a simulated payment network.</p></section></main>;
 }
 
-function RegisterForm({ onAuthenticated, setMessage }: { onAuthenticated: (token: string) => void; setMessage: (message: string) => void }) {
-  const [form, setForm] = useState({ name: "", phone: "", paymentIdentifier: "", password: "", role: "CUSTOMER" });
-  const [busy, setBusy] = useState(false);
+function LoginForm({ onAuthenticated }: { onAuthenticated: (token: string) => void }) {
+  const [identifier, setIdentifier] = useState(""); const [password, setPassword] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { const result = await api.login(identifier, password); onAuthenticated(result.token); } catch (caught) { setError(caught instanceof Error ? caught.message : "We couldn't sign you in."); } finally { setBusy(false); } }
+  return <form className="auth-form" onSubmit={submit}><div className="form-heading"><p className="eyebrow">Welcome back</p><h2>Sign in to continue</h2><p>Access your balance and payment activity.</p></div><Field label="Phone or payment ID" value={identifier} onChange={setIdentifier} placeholder="you@transactx" autoComplete="username" /><Field label="Password" value={password} onChange={setPassword} type="password" autoComplete="current-password" />{error && <InlineError message={error} />}<Button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}<Icon name="arrow" /></Button></form>;
+}
 
+function RegisterForm({ onAuthenticated }: { onAuthenticated: (token: string) => void }) {
+  const [form, setForm] = useState({ name: "", phone: "", paymentIdentifier: "", password: "", role: "CUSTOMER" }); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   function update(field: keyof typeof form, value: string) { setForm((current) => ({ ...current, [field]: value })); }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    try {
-      await apiRequest("/api/auth/register", { method: "POST", body: JSON.stringify(form) });
-      const login = await apiRequest<{ token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ identifier: form.paymentIdentifier, password: form.password }) });
-      onAuthenticated(login.token);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to create account");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return <form onSubmit={submit}>
-    <p className="eyebrow">New identity</p>
-    <h2>Create your TransactX account</h2>
-    <label>Name<input value={form.name} onChange={(event) => update("name", event.target.value)} required /></label>
-    <label>Phone<input value={form.phone} onChange={(event) => update("phone", event.target.value)} required /></label>
-    <label>Payment identifier<input value={form.paymentIdentifier} onChange={(event) => update("paymentIdentifier", event.target.value)} placeholder="you@transactx" required /></label>
-    <label>Password<input type="password" minLength={8} value={form.password} onChange={(event) => update("password", event.target.value)} required /></label>
-    <label>Account type<select value={form.role} onChange={(event) => update("role", event.target.value)}><option value="CUSTOMER">Customer</option><option value="MERCHANT">Merchant</option></select></label>
-    <button className="primary" disabled={busy}>{busy ? "Creating..." : "Create account"}</button>
-  </form>;
+  async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await api.register(form); const result = await api.login(form.paymentIdentifier, form.password); onAuthenticated(result.token); } catch (caught) { setError(caught instanceof Error ? caught.message : "We couldn't create your account."); } finally { setBusy(false); } }
+  return <form className="auth-form auth-form-register" onSubmit={submit}><div className="form-heading"><p className="eyebrow">Start with TransactX</p><h2>Create your account</h2><p>A simple account for clear, deliberate payments.</p></div><div className="form-grid"><Field label="Full name" value={form.name} onChange={(value) => update("name", value)} autoComplete="name" /><Field label="Phone" value={form.phone} onChange={(value) => update("phone", value)} autoComplete="tel" /><Field className="form-grid-wide" label="Payment ID" value={form.paymentIdentifier} onChange={(value) => update("paymentIdentifier", value)} placeholder="you@transactx" autoComplete="username" /><Field className="form-grid-wide" label="Password" value={form.password} onChange={(value) => update("password", value)} type="password" autoComplete="new-password" minLength={8} /></div>{error && <InlineError message={error} />}<Button type="submit" disabled={busy}>{busy ? "Creating account…" : "Create account"}<Icon name="arrow" /></Button></form>;
 }
+
+function Field({ label, value, onChange, className = "", ...props }: { label: string; value: string; onChange: (value: string) => void; className?: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "value">) { return <label className={`field ${className}`}><span>{label}</span><input value={value} onChange={(event) => onChange(event.target.value)} {...props} /></label>; }
+function InlineError({ message }: { message: string }) { return <p className="inline-error" role="alert"><Icon name="alert" size={16} />{message}</p>; }
 
 function CustomerShell({ token, onLogout }: { token: string; onLogout: () => void }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [recipient, setRecipient] = useState<Recipient | null>(null);
-  const [lookup, setLookup] = useState("");
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    Promise.all([apiRequest<User>("/api/me", {}, token), apiRequest<Account[]>("/api/accounts", {}, token)])
-      .then(([profile, accountList]) => { setUser(profile); setAccounts(accountList); })
-      .catch(() => onLogout());
-  }, [token, onLogout]);
-
-  async function resolveRecipient(event: FormEvent) {
-    event.preventDefault();
-    setMessage("");
-    try {
-      setRecipient(await apiRequest<Recipient>(`/api/recipients/${encodeURIComponent(lookup)}`, {}, token));
-    } catch (error) {
-      setRecipient(null);
-      setMessage(error instanceof Error ? error.message : "Recipient not found");
-    }
-  }
-
-  return <main className="dashboard">
-    <header><div><p className="eyebrow">Authenticated customer shell</p><h1>Hello, {user?.name ?? "there"}</h1></div><button className="ghost" onClick={onLogout}>Log out</button></header>
-    <section className="account-grid">{accounts.map((account) => <article className="account-card" key={account.id}><p className="eyebrow">Available balance</p><strong>₹{(account.balancePaise / 100).toFixed(2)}</strong><span>{account.accountNumber} · {account.status}</span></article>)}</section>
-    <section className="profile-row"><div><span className="label">Payment identifier</span><strong>{user?.paymentIdentifier}</strong></div><div><span className="label">Role</span><strong>{user?.role}</strong></div></section>
-    <section className="lookup-panel"><p className="eyebrow">Recipient lookup</p><h2>Find a TransactX identity</h2><form onSubmit={resolveRecipient}><input value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="recipient@transactx" required /><button className="primary">Look up</button></form>{recipient && <div className="recipient-result"><strong>{recipient.name}</strong><span>{recipient.paymentIdentifier} · {recipient.status}</span></div>}{message && <p className="error" role="alert">{message}</p>}</section>
-    <p className="boundary-note">Payment execution is not enabled in Phase 1B. This screen never mutates balances.</p>
-  </main>;
+  const [user, setUser] = useState<User | null>(null); const [accounts, setAccounts] = useState<Account[]>([]); const [payments, setPayments] = useState<Payment[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [view, setView] = useState<View>(readView()); const [selectedPaymentID, setSelectedPaymentID] = useState<string | null>(readPaymentID());
+  useEffect(() => { let active = true; Promise.all([api.me(token), api.accounts(token), api.payments(token)]).then(([profile, accountList, paymentList]) => { if (active) { setUser(profile); setAccounts(accountList); setPayments(paymentList); setLoading(false); } }).catch((caught) => { if (!active) return; if (caught instanceof ApiError && caught.status === 401) onLogout(); else { setError(caught instanceof Error ? caught.message : "We couldn't load your account."); setLoading(false); } }); return () => { active = false; }; }, [token, onLogout]);
+  useEffect(() => { const handlePopState = () => { setView(readView()); setSelectedPaymentID(readPaymentID()); }; window.addEventListener("popstate", handlePopState); return () => window.removeEventListener("popstate", handlePopState); }, []);
+  function navigate(nextView: View, paymentID?: string) { const path = paymentID ? `/transactions/${paymentID}` : nextView === "home" ? "/" : `/${nextView}`; window.history.pushState({}, "", path); setView(nextView); setSelectedPaymentID(paymentID ?? null); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function refreshPayments() { api.payments(token).then(setPayments).catch(() => undefined); }
+  function completedPayment(payment: Payment) { refreshPayments(); navigate("details", payment.id); }
+  if (loading) return <LoadingShell />; if (error) return <main className="center-state"><InlineError message={error} /><Button onClick={() => window.location.reload()}>Try again</Button></main>;
+  const account = accounts[0];
+  return <div className="product-shell"><Sidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} /><main className="main-content"><MobileHeader user={user} onLogout={onLogout} /><div className="content-wrap">{view === "home" && <HomeView user={user} account={account} payments={payments} onNavigate={navigate} />}{view === "pay" && <PayView account={account} token={token} onComplete={completedPayment} onNavigate={navigate} />}{view === "transactions" && <TransactionsView payments={payments} onNavigate={navigate} />}{view === "details" && selectedPaymentID && <DetailsView paymentID={selectedPaymentID} token={token} onNavigate={navigate} />}</div></main></div>;
 }
+
+function Sidebar({ view, user, onNavigate, onLogout }: { view: View; user: User | null; onNavigate: (view: View) => void; onLogout: () => void }) { return <aside className="sidebar"><div className="brand-lockup"><BrandMark /><span>TransactX</span></div><div className="sidebar-rule" /><nav aria-label="Primary navigation"><NavItem view="home" active={view === "home"} label="Overview" icon="home" onClick={onNavigate} /><NavItem view="pay" active={view === "pay"} label="Pay" icon="send" onClick={onNavigate} /><NavItem view="transactions" active={view === "transactions" || view === "details"} label="Transactions" icon="activity" onClick={onNavigate} /></nav><div className="sidebar-bottom"><div className="user-chip"><Avatar name={user?.name ?? "Customer"} /><span><strong>{user?.name ?? "Customer"}</strong><small>{user?.paymentIdentifier ?? ""}</small></span></div><button className="logout-button" onClick={onLogout}>Log out</button></div></aside>; }
+function NavItem({ view, active, label, icon, onClick }: { view: View; active: boolean; label: string; icon: "home" | "send" | "activity"; onClick: (view: View) => void }) { return <button className={`nav-item ${active ? "is-active" : ""}`} onClick={() => onClick(view)}><Icon name={icon} /><span>{label}</span></button>; }
+function MobileHeader({ user, onLogout }: { user: User | null; onLogout: () => void }) { return <header className="mobile-header"><div className="mobile-brand"><BrandMark /><span>TransactX</span></div><button className="mobile-user" onClick={onLogout} aria-label={`Log out ${user?.name ?? ""}`}><Avatar name={user?.name ?? "Customer"} /></button></header>; }
+
+function HomeView({ user, account, payments, onNavigate }: { user: User | null; account?: Account; payments: Payment[]; onNavigate: (view: View, paymentID?: string) => void }) { return <><PageHeader eyebrow="Overview" title={`Good morning, ${firstName(user?.name)}`} description="Your account at a glance." action={<Button onClick={() => onNavigate("pay")}><Icon name="send" />Send money</Button>} /><section className="overview-grid"><div className="balance-panel"><div className="section-kicker">Available balance</div><Amount paise={account?.balancePaise ?? 0} prominent /><div className="balance-foot"><span>{account?.accountNumber ?? "Account unavailable"}</span><span className="account-status"><span className="status-dot" />{account?.status === "ACTIVE" ? "Active" : account?.status ?? "Unavailable"}</span></div></div><div className="account-note"><span className="note-index">01</span><div><strong>Ready when you are</strong><p>Send a payment using a TransactX ID. You will review the recipient and amount before anything is submitted.</p><button className="text-link" onClick={() => onNavigate("pay")}>Start a payment <Icon name="arrow" size={15} /></button></div></div></section><section className="section-block"><div className="section-heading"><div><p className="eyebrow">Activity</p><h2>Recent transactions</h2></div>{payments.length > 0 && <button className="text-link" onClick={() => onNavigate("transactions")}>View all <Icon name="arrow" size={15} /></button>}</div>{payments.length === 0 ? <EmptyState title="No transactions yet" description="Your payments will appear here after your first transfer." action={<Button variant="secondary" onClick={() => onNavigate("pay")}>Send money</Button>} /> : <div className="payment-list">{payments.slice(0, 5).map((payment) => <PaymentRow key={payment.id} payment={payment} onClick={() => onNavigate("details", payment.id)} />)}</div>}</section><section className="account-summary"><div><p className="eyebrow">Account details</p><h2>Your TransactX identity</h2></div><div className="summary-detail"><span>Payment ID</span><strong>{user?.paymentIdentifier}</strong></div><div className="summary-detail"><span>Account number</span><strong>{account?.accountNumber ?? "—"}</strong></div></section></>; }
+
+function PayView({ account, token, onComplete, onNavigate }: { account?: Account; token: string; onComplete: (payment: Payment) => void; onNavigate: (view: View) => void }) {
+  const [stage, setStage] = useState<"form" | "confirm" | "processing" | "result">("form"); const [recipientInput, setRecipientInput] = useState(""); const [recipient, setRecipient] = useState<Recipient | null>(null); const [amount, setAmount] = useState(""); const [lookupBusy, setLookupBusy] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [payment, setPayment] = useState<Payment | null>(null);
+  async function resolve(event?: FormEvent) { event?.preventDefault(); if (!recipientInput.trim()) return; setLookupBusy(true); setError(""); setRecipient(null); try { setRecipient(await api.resolveRecipient(recipientInput.trim(), token)); } catch (caught) { setError(caught instanceof Error ? caught.message : "Payment ID not found"); } finally { setLookupBusy(false); } }
+  function continueToConfirm(event: FormEvent) { event.preventDefault(); if (!recipient) { void resolve(); return; } if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) { setError("Enter an amount greater than ₹0"); return; } if (Number(amount) * 100 > (account?.balancePaise ?? 0)) { setError("Your balance is too low for this payment."); return; } setError(""); setStage("confirm"); }
+  async function submitPayment() { if (!recipient) return; setStage("processing"); setBusy(true); setError(""); try { const result = await api.createPayment({ sourceAccountId: account?.id ?? "", recipient: recipient.paymentIdentifier, amountPaise: Math.round(Number(amount) * 100), currency: "INR" }, token, crypto.randomUUID()); setPayment(result); setStage("result"); } catch (caught) { setError(paymentError(caught)); setStage("form"); } finally { setBusy(false); } }
+  if (stage === "confirm") return <ConfirmPayment recipient={recipient!} amount={Number(amount) * 100} onBack={() => setStage("form")} onConfirm={submitPayment} busy={busy} />; if (stage === "processing") return <ProcessingPayment recipient={recipient!} amount={Number(amount) * 100} />; if (stage === "result" && payment) return <PaymentResult payment={payment} onView={() => onComplete(payment)} onDone={() => onNavigate("home")} />;
+  return <><PageHeader eyebrow="New payment" title="Send money" description="Review the recipient and amount before you confirm." /><form className="pay-form" onSubmit={continueToConfirm}><div className="form-section"><div className="form-section-number">01</div><div className="form-section-body"><label className="field field-large"><span>Recipient payment ID</span><div className="input-with-action"><input value={recipientInput} onChange={(event) => { setRecipientInput(event.target.value); setRecipient(null); setError(""); }} onBlur={() => { if (recipientInput && !recipient) void resolve(); }} placeholder="name@transactx" autoComplete="off" /><button type="button" className="input-action" onClick={() => void resolve()} disabled={lookupBusy}>{lookupBusy ? "Checking…" : "Find"}</button></div><small className="field-hint">Use the recipient’s TransactX payment ID.</small></label>{recipient && <div className="recipient-confirmed"><Avatar name={recipient.name} /><span><strong>{recipient.name}</strong><small>{recipient.paymentIdentifier}</small></span><Icon name="check" /></div>}</div></div><div className="form-section"><div className="form-section-number">02</div><div className="form-section-body"><label className="field field-large"><span>Amount</span><div className="amount-input"><span>₹</span><input value={amount} onChange={(event) => { setAmount(event.target.value.replace(/[^0-9.]/g, "")); setError(""); }} inputMode="decimal" placeholder="0.00" aria-label="Amount in Indian rupees" /></div><small className="field-hint">Available to send: <Amount paise={account?.balancePaise ?? 0} /></small></label></div></div>{error && <InlineError message={error} />}<div className="pay-actions"><Button type="button" variant="quiet" onClick={() => onNavigate("home")}>Cancel</Button><Button type="submit" disabled={!recipient || !amount}>Review payment <Icon name="arrow" /></Button></div></form></>;
+}
+
+function ConfirmPayment({ recipient, amount, onBack, onConfirm, busy }: { recipient: Recipient; amount: number; onBack: () => void; onConfirm: () => void; busy: boolean }) { return <div className="focused-state"><button className="back-link" onClick={onBack}><Icon name="arrow" size={15} />Back to payment</button><div className="confirm-heading"><p className="eyebrow">Review payment</p><h1>Check the details</h1><p>Make sure everything looks right before you confirm.</p></div><div className="confirm-sheet"><div className="confirm-recipient"><Avatar name={recipient.name} /><span><small>Sending to</small><strong>{recipient.name}</strong><span>{recipient.paymentIdentifier}</span></span></div><div className="confirm-amount"><small>Amount</small><Amount paise={amount} prominent /></div><div className="confirm-note"><span><Icon name="check" size={15} />Recipient verified</span><span><Icon name="check" size={15} />INR payment</span></div></div><div className="confirm-actions"><Button variant="secondary" onClick={onBack}>Edit payment</Button><Button onClick={onConfirm} disabled={busy}>{busy ? "Confirming…" : "Confirm payment"}<Icon name="arrow" /></Button></div></div>; }
+function ProcessingPayment({ recipient, amount }: { recipient: Recipient; amount: number }) { return <div className="focused-state centered-state"><div className="processing-mark"><span /><span /><span /></div><p className="eyebrow">Payment</p><h1>Confirming your payment</h1><p className="state-description">We’re checking the payment with the network. Keep this window open for a moment.</p><div className="mini-payment"><Avatar name={recipient.name} /><span><strong>{recipient.name}</strong><small><Amount paise={amount} /></small></span></div></div>; }
+function PaymentResult({ payment, onView, onDone }: { payment: Payment; onView: () => void; onDone: () => void }) { const copy = paymentResultCopy(payment); return <div className="focused-state centered-state"><div className={`result-mark result-${copy.tone}`}><Icon name={copy.tone === "success" ? "check" : copy.tone === "error" ? "close" : "activity"} size={24} /></div><p className="eyebrow">Payment update</p><h1>{copy.title}</h1><p className="state-description">{copy.description}</p><Amount paise={payment.amountPaise} prominent /><div className="result-recipient">To <strong>{payment.counterpartyName}</strong><span>{payment.counterpartyPaymentIdentifier}</span></div><div className="confirm-actions"><Button variant="secondary" onClick={onDone}>Back to overview</Button><Button onClick={onView}>View transaction <Icon name="arrow" /></Button></div></div>; }
+
+function TransactionsView({ payments, onNavigate }: { payments: Payment[]; onNavigate: (view: View, paymentID?: string) => void }) { return <><PageHeader eyebrow="Activity" title="Transactions" description="A clear record of your payment activity." action={<Button onClick={() => onNavigate("pay")}><Icon name="send" />Send money</Button>} />{payments.length === 0 ? <EmptyState title="No transactions yet" description="Your payments will appear here after your first transfer." action={<Button onClick={() => onNavigate("pay")}>Send money</Button>} /> : <section className="transactions-section"><div className="transactions-toolbar"><span>{payments.length} {payments.length === 1 ? "transaction" : "transactions"}</span><span className="toolbar-note">Most recent first</span></div><div className="payment-list payment-list-large">{payments.map((payment) => <PaymentRow key={payment.id} payment={payment} onClick={() => onNavigate("details", payment.id)} />)}</div></section>}</>; }
+function DetailsView({ paymentID, token, onNavigate }: { paymentID: string; token: string; onNavigate: (view: View) => void }) { const [payment, setPayment] = useState<Payment | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); useEffect(() => { api.payment(paymentID, token).then(setPayment).catch((caught) => setError(caught instanceof Error ? caught.message : "Transaction not found")).finally(() => setLoading(false)); }, [paymentID, token]); if (loading) return <DetailsSkeleton />; if (error || !payment) return <div className="center-state"><InlineError message={error || "Transaction not found"} /><Button variant="secondary" onClick={() => onNavigate("transactions")}>Back to transactions</Button></div>; const copy = paymentResultCopy(payment); return <div className="details-page"><button className="back-link" onClick={() => onNavigate("transactions")}><Icon name="arrow" size={15} />Back to transactions</button><div className="details-heading"><div><p className="eyebrow">Transaction</p><h1>Payment details</h1></div><StatusBadge state={payment.state} /></div><section className="details-hero"><div><span className="detail-label">Amount</span><Amount paise={payment.amountPaise} prominent /><p className="detail-state">{copy.description}</p></div><div className="details-recipient"><Avatar name={payment.counterpartyName} /><span><small>Recipient</small><strong>{payment.counterpartyName}</strong><span>{payment.counterpartyPaymentIdentifier}</span></span></div></section><section className="record-section"><p className="eyebrow">Record</p><div className="record-list"><Record label="Status"><StatusBadge state={payment.state} /></Record><Record label="Created" value={formatDate(payment.createdAt)} /><Record label="Completed" value={payment.completedAt ? formatDate(payment.completedAt) : "Not yet confirmed"} /><Record label="Reference" value={payment.id} mono /></div></section>{payment.failureReason && <div className="detail-alert"><Icon name="alert" size={17} /><span>{payment.failureReason}</span></div>}</div>; }
+function Record({ label, value, mono, children }: { label: string; value?: string; mono?: boolean; children?: React.ReactNode }) { return <div className="record-row"><span>{label}</span>{children ?? <strong className={mono ? "mono" : ""}>{value}</strong>}</div>; }
+function LoadingShell() { return <div className="product-shell"><aside className="sidebar"><div className="brand-lockup"><BrandMark /><span>TransactX</span></div></aside><main className="main-content"><div className="content-wrap"><Skeleton className="skeleton-heading" /><div className="skeleton-block" /><div className="skeleton-block skeleton-short" /></div></main></div>; }
+function DetailsSkeleton() { return <div className="details-page"><Skeleton className="skeleton-heading" /><div className="skeleton-block" /><div className="skeleton-block skeleton-short" /></div>; }
+function firstName(name?: string) { return name?.trim().split(" ")[0] || "there"; }
+function readView(): View { const path = window.location.pathname; if (path.startsWith("/pay")) return "pay"; if (path.startsWith("/transactions/")) return "details"; if (path.startsWith("/transactions")) return "transactions"; return "home"; }
+function readPaymentID() { const match = window.location.pathname.match(/^\/transactions\/([^/]+)/); return match?.[1] ?? null; }
+function paymentError(caught: unknown) { if (!(caught instanceof ApiError)) return "We couldn't complete the payment. Please try again."; if (caught.code === "INSUFFICIENT_FUNDS") return "Your balance is too low for this payment."; if (caught.code === "RECIPIENT_NOT_FOUND") return "That payment ID could not be found."; if (caught.code === "BANK_UNAVAILABLE") return "Payments are temporarily unavailable. Try again shortly."; return caught.message; }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
