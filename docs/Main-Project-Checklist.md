@@ -7,7 +7,7 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 ## Current repository checkpoint
 
-The current branch completes the Member-1 routed-payment checkpoint (M1-6): durable Bank A, the frozen adapter contract, routed saga persistence, operation status, compensation, and deterministic pending recovery. The roadmap's later **Phase 6 — Offline-First Client & Safe Replay** remains intentionally unchecked; it is a separate later project phase and is outside this takeover's exit scope.
+The current branch completes the Member-1 routed-payment checkpoint and the customer payment frontend/API hardening: durable bank operation identity, routed saga persistence, operation status, compensation, deterministic pending recovery, safe customer DTOs, exact paise input, notes, incoming/outgoing history, and rendered responsive screens. The roadmap's later **Phase 6 — Offline-First Client & Safe Replay** remains intentionally unchecked and is outside this takeover's exit scope.
 
 \[ ] Work strictly in phase order unless a dependency explicitly allows parallel work.
 \[ ] Tick an item only when it is implemented, tested, and verified — not merely coded.
@@ -64,10 +64,10 @@ Duration: Week 2   Objective: Make the application usable before adding complex 
 \[ ] M1 — Implement server-side role authorization.
 \[ ] M1 — Implement user profile and payment-identifier resolution.
 \[ ] M1 — Implement account lookup and balance read.
-\[ ] M1 — Build login screen.
-\[ ] M1 — Build registration screen.
-\[ ] M1 — Build customer home screen.
-\[ ] M1 — Build customer navigation shell.
+\[x] M1 — Build login screen.
+\[x] M1 — Build registration screen.
+\[x] M1 — Build customer home screen.
+\[x] M1 — Build customer navigation shell.
 \[ ] M2 — Build merchant navigation shell and merchant identity flow.
 \[ ] M3 — Build initial network-console shell with placeholder states only.
 \[ ] ALL — Add unit and integration tests for authentication and authorization.
@@ -262,14 +262,14 @@ Duration: Week 10–11   Objective: Complete the application so it feels like a 
 \[ ] M2 — Build incoming-payment feed.
 \[ ] M2 — Build settlement-status view.
 \[ ] M2 — Build merchant transaction search.
-\[ ] M1 — Add customer scan/pay flow.
-\[ ] M1 — Improve customer transaction timeline.
-\[ ] M1 — Add loading, success, failure, and empty states.
-\[ ] ALL — Make customer and merchant surfaces visually consistent.
+\[x] M1 — Add customer scan/pay flow.
+\[x] M1 — Improve customer transaction timeline.
+\[x] M1 — Add loading, success, failure, pending, and empty states.
+\[x] ALL — Make customer and merchant surfaces visually consistent.
 \[ ] ALL — Make Network Console visually distinct from the consumer product.
 \[ ] ALL — Remove placeholder text and dead routes.
-\[ ] ALL — Verify responsive behavior at common desktop/mobile widths.
-\[ ] ALL — Add meaningful error messages that do not leak internal details.
+\[x] ALL — Verify responsive behavior at common desktop/mobile widths.
+\[x] ALL — Add meaningful error messages that do not leak internal details.
 \[ ] ALL — Add demo seed/reset controls outside the customer experience.
 PHASE EXIT GATE: Customer, merchant, and network-console journeys are all usable end-to-end and no major screen is visibly unfinished.
 

@@ -142,7 +142,7 @@ func (service *Service) HoldFunds(ctx context.Context, request bank.HoldFundsReq
 	if err := tx.Commit(ctx); err != nil {
 		return bank.HoldResult{}, err
 	}
-	return bank.HoldResult{OperationResult: operationResult(request.OperationRequest), HoldID: request.OperationID}, nil
+	return bank.HoldResult{OperationResult: operationResult(service, request.OperationRequest), HoldID: request.OperationID}, nil
 }
 
 func (service *Service) ProvisionalCredit(ctx context.Context, request bank.ProvisionalCreditRequest) (bank.OperationResult, error) {
@@ -173,7 +173,7 @@ func (service *Service) ProvisionalCredit(ctx context.Context, request bank.Prov
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
+	return operationResult(service, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHoldRequest) (bank.OperationResult, error) {
@@ -246,7 +246,7 @@ func (service *Service) ConfirmHold(ctx context.Context, request bank.ConfirmHol
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
+	return operationResult(service, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHoldRequest) (bank.OperationResult, error) {
@@ -298,7 +298,7 @@ func (service *Service) ReleaseHold(ctx context.Context, request bank.ReleaseHol
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
+	return operationResult(service, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) ReverseProvisionalCredit(ctx context.Context, request bank.ReverseCreditRequest) (bank.OperationResult, error) {
@@ -350,7 +350,7 @@ func (service *Service) ReverseProvisionalCredit(ctx context.Context, request ba
 	if err := tx.Commit(ctx); err != nil {
 		return bank.OperationResult{}, err
 	}
-	return operationResult(bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
+	return operationResult(service, bank.OperationRequest{PaymentID: request.PaymentID, OperationID: request.OperationID, IdempotencyKey: request.IdempotencyKey}), nil
 }
 
 func (service *Service) GetOperationStatus(ctx context.Context, request bank.OperationStatusRequest) (bank.OperationResult, error) {
@@ -452,7 +452,7 @@ func (service *Service) insertOperation(ctx context.Context, tx pgx.Tx, identity
 	_, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO %s (id, payment_id, operation_id, idempotency_key, operation_type, bank_id, account_id, hold_id, original_operation_id, amount_paise, currency, status, bank_reference)
 		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($8, '00000000-0000-0000-0000-000000000000'::uuid), NULLIF($9, '00000000-0000-0000-0000-000000000000'::uuid), $10, $11, $12, $13)`, service.table("operations")),
-		uuid.New(), identity.request.PaymentID, identity.request.OperationID, identity.request.IdempotencyKey, identity.operationType, service.bankID, identity.request.AccountID, holdID, originalOperationID, identity.request.AmountPaise, identity.request.Currency, status, bankReference(identity.request.OperationID))
+		uuid.New(), identity.request.PaymentID, identity.request.OperationID, identity.request.IdempotencyKey, identity.operationType, service.bankID, identity.request.AccountID, holdID, originalOperationID, identity.request.AmountPaise, identity.request.Currency, status, service.bankReference(identity.request.OperationID))
 	return err
 }
 
@@ -484,12 +484,12 @@ func invalidOperationError() error {
 	return &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "bank operation is invalid"}
 }
 
-func operationResult(request bank.OperationRequest) bank.OperationResult {
-	return operationResultWithStatus(request.PaymentID, request.OperationID, bank.OperationSucceeded)
+func operationResult(service *Service, request bank.OperationRequest) bank.OperationResult {
+	return operationResultWithStatus(service, request.PaymentID, request.OperationID, bank.OperationSucceeded)
 }
 
-func operationResultWithStatus(paymentID, operationID uuid.UUID, status bank.OperationStatus) bank.OperationResult {
-	return bank.OperationResult{PaymentID: paymentID, OperationID: operationID, BankReference: bankReference(operationID), Status: status}
+func operationResultWithStatus(service *Service, paymentID, operationID uuid.UUID, status bank.OperationStatus) bank.OperationResult {
+	return bank.OperationResult{PaymentID: paymentID, OperationID: operationID, BankReference: service.bankReference(operationID), Status: status}
 }
 
 func operationStatus(status string) bank.OperationStatus {
@@ -503,6 +503,8 @@ func operationStatus(status string) bank.OperationStatus {
 	}
 }
 
-func bankReference(operationID uuid.UUID) string { return fmt.Sprintf("BANK-A-%s", operationID) }
+func (service *Service) bankReference(operationID uuid.UUID) string {
+	return fmt.Sprintf("%s-%s", service.bankID, operationID)
+}
 
 var _ bank.BankAdapter = (*Service)(nil)

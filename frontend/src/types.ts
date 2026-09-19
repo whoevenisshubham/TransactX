@@ -6,7 +6,6 @@ export type User = {
 };
 
 export type Account = {
-  id: string;
   accountNumber: string;
   balancePaise: number;
   status: string;
@@ -23,14 +22,22 @@ export type Payment = {
   id: string;
   amountPaise: number;
   currency: string;
+  note?: string;
+  origin: string;
   state: string;
   createdAt: string;
   completedAt?: string;
   failureReason?: string;
-  counterpartyName: string;
-  counterpartyPaymentIdentifier: string;
-  senderAccountId: string;
-  receiverAccountId: string;
+  senderName: string;
+  senderPaymentIdentifier: string;
+  receiverName: string;
+  receiverPaymentIdentifier: string;
+  direction: "SENT" | "RECEIVED";
+  sourceBankName?: string;
+  sourceBankCode?: string;
+  destinationBankName?: string;
+  destinationBankCode?: string;
+  durationMs?: number;
 };
 
 export type View = "home" | "pay" | "transactions" | "details";

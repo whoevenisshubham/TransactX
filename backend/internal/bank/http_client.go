@@ -102,10 +102,15 @@ func (client *HTTPClient) do(ctx context.Context, method, path, payload string, 
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		var failure struct {
-			Error string `json:"error"`
+			Error json.RawMessage `json:"error"`
 		}
 		_ = json.NewDecoder(response.Body).Decode(&failure)
-		return classifyHTTPError(response.StatusCode, failure.Error)
+		var typed struct {
+			Code    ErrorCode `json:"code"`
+			Message string    `json:"message"`
+		}
+		_ = json.Unmarshal(failure.Error, &typed)
+		return classifyHTTPError(response.StatusCode, typed.Code, typed.Message)
 	}
 	if err := json.NewDecoder(response.Body).Decode(output); err != nil {
 		return &AdapterError{Code: ErrCodeTransientFailure, Message: "bank response is invalid", Err: err}
@@ -113,20 +118,29 @@ func (client *HTTPClient) do(ctx context.Context, method, path, payload string, 
 	return nil
 }
 
-func classifyHTTPError(status int, message string) error {
+func classifyHTTPError(status int, typedCode ErrorCode, message string) error {
 	code := ErrCodeTransientFailure
-	switch status {
-	case http.StatusNotFound:
-		code = ErrCodeInvalidAccount
-	case http.StatusConflict:
-		code = ErrCodeInsufficientFunds
-	case http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		code = ErrCodeBankUnavailable
-	case http.StatusBadRequest:
-		code = ErrCodePermanentFailure
+	if typedCode != "" {
+		code = typedCode
+	}
+	if typedCode == "" {
+		switch status {
+		case http.StatusNotFound:
+			code = ErrCodeInvalidAccount
+		case http.StatusConflict:
+			code = ErrCodeInsufficientFunds
+		case http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			code = ErrCodeBankUnavailable
+		case http.StatusBadRequest:
+			code = ErrCodePermanentFailure
+		}
 	}
 	if message == "" {
-		message = fmt.Sprintf("bank request returned HTTP %d", status)
+		if status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout {
+			message = "bank unavailable"
+		} else {
+			message = fmt.Sprintf("bank request returned HTTP %d", status)
+		}
 	}
 	return &AdapterError{Code: code, Message: message}
 }

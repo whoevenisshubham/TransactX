@@ -20,6 +20,8 @@ Apply the explicit SQL migrations in order:
 6. `000006_m1_6_bank_operation_identity` — explicit Bank A identity on every durable operation row.
 7. `000007_phase4_bank_b` — independent Bank B participant schema with the same durable boundary.
 
+8. `000008_m1_customer_payment_contract` — payment note/origin fields, history lookup index, and customer contract support.
+
 The API and Bank A process do not run migrations automatically at startup.
 
 ## Monetary and transaction invariants
@@ -29,6 +31,7 @@ The API and Bank A process do not run migrations automatically at startup.
 - A completed central transfer has one debit and one credit for the same amount.
 - A provisional Bank A credit is durable and ledger-visible but does not change spendable balance. Finalization adds the spendable balance; reversal is a separate durable compensation operation.
 - Idempotency is scoped to `(user_id, key)` centrally and to `(operation_id, idempotency_key)` at Bank A. Equivalent retries replay the original result; payload conflicts are rejected.
+- Customer payment history is scoped to payments where the authenticated customer owns either side of the transfer; the API derives explicit `SENT`/`RECEIVED` direction and does not expose internal account, bank, or operation identifiers. Notes are limited to 280 characters and are included in the idempotency request hash.
 - Central settlement is atomic within central PostgreSQL. Bank calls and central settlement are separate commits coordinated by the durable saga.
 
 ## Deterministic participant ledger

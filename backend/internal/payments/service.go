@@ -25,6 +25,7 @@ var (
 	ErrRecipientInactive    = errors.New("recipient account is inactive")
 	ErrSelfPayment          = errors.New("payer cannot pay their own account")
 	ErrBankRouteUnavailable = errors.New("selected bank route is unavailable")
+	ErrAmbiguousSource      = errors.New("multiple active source accounts")
 )
 
 type CreateInput struct {
@@ -33,6 +34,7 @@ type CreateInput struct {
 	Recipient       string
 	AmountPaise     int64
 	Currency        string
+	Note            string
 	IdempotencyKey  string
 }
 
@@ -76,7 +78,11 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 		return Payment{}, false, ErrInvalidRequest
 	}
 	recipientIdentifier := common.NormalizeIdentifier(input.Recipient)
-	requestHash := paymentRequestHash(input.SourceAccountID, recipientIdentifier, input.AmountPaise, currency)
+	note := strings.TrimSpace(input.Note)
+	if len(note) > 280 {
+		return Payment{}, false, ErrInvalidRequest
+	}
+	requestHash := paymentRequestHash(input.SourceAccountID, recipientIdentifier, input.AmountPaise, currency, note)
 	if payment, duplicate, err := service.payments.GetIdempotent(ctx, input.UserID, key, requestHash); err != nil || duplicate {
 		if err == nil && duplicate && service.hasRoutedAdapters() {
 			if payment.State == StateBankSettledCentralPending {
@@ -126,20 +132,21 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 			sourceAdapter, sourceOK = service.adapters[source.BankID]
 			destinationAdapter, destinationOK = service.adapters[recipient.BankID]
 		}
-		if !sourceOK || !destinationOK {
-			return Payment{}, false, ErrBankRouteUnavailable
+		if sourceOK && destinationOK {
+			return service.payments.CreateRoutedIdempotent(ctx, Payment{
+				ID:                       uuid.New(),
+				InitiatedByUserID:        input.UserID,
+				SenderAccountID:          input.SourceAccountID,
+				ReceiverAccountID:        recipient.AccountID,
+				AmountPaise:              input.AmountPaise,
+				Currency:                 "INR",
+				Note:                     optionalNote(note),
+				Origin:                   "ONLINE",
+				State:                    StateCreated,
+				SourceBankAccountID:      uuidPointer(source.BankAccountID),
+				DestinationBankAccountID: uuidPointer(recipient.BankAccountID),
+			}, key, requestHash, source.BankID, recipient.BankID, sourceAdapter, destinationAdapter)
 		}
-		return service.payments.CreateRoutedIdempotent(ctx, Payment{
-			ID:                       uuid.New(),
-			InitiatedByUserID:        input.UserID,
-			SenderAccountID:          input.SourceAccountID,
-			ReceiverAccountID:        recipient.AccountID,
-			AmountPaise:              input.AmountPaise,
-			Currency:                 "INR",
-			State:                    StateCreated,
-			SourceBankAccountID:      uuidPointer(source.BankAccountID),
-			DestinationBankAccountID: uuidPointer(recipient.BankAccountID),
-		}, key, requestHash, source.BankID, recipient.BankID, sourceAdapter, destinationAdapter)
 	}
 
 	return service.payments.CreateAndSettleIdempotent(ctx, Payment{
@@ -149,6 +156,8 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 		ReceiverAccountID: recipient.AccountID,
 		AmountPaise:       input.AmountPaise,
 		Currency:          "INR",
+		Note:              optionalNote(note),
+		Origin:            "ONLINE",
 		State:             StateCreated,
 	}, key, requestHash, service.accounts, service.ledger)
 }
@@ -169,13 +178,25 @@ func (service *Service) routedAdaptersFor(sourceBankID, destinationBankID *uuid.
 	return nil, nil, false
 }
 
-func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string) string {
+func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string, notes ...string) string {
+	note := ""
+	if len(notes) > 0 {
+		note = notes[0]
+	}
 	payload, _ := json.Marshal(struct {
 		SourceAccountID string `json:"sourceAccountId"`
 		Recipient       string `json:"recipient"`
 		AmountPaise     int64  `json:"amountPaise"`
 		Currency        string `json:"currency"`
-	}{sourceAccountID.String(), recipient, amountPaise, currency})
+		Note            string `json:"note"`
+	}{sourceAccountID.String(), recipient, amountPaise, currency, note})
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:])
+}
+
+func optionalNote(note string) *string {
+	if note == "" {
+		return nil
+	}
+	return &note
 }

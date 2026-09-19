@@ -1,6 +1,6 @@
 # Architecture
 
-## Phase-6 status
+## Current routed-payment status
 
 TransactX has two explicit execution paths:
 
@@ -12,6 +12,8 @@ Customer -> Go API -> Payment Service -> central PostgreSQL
 The local path remains the synchronous `LOCAL_SETTLEMENT` PostgreSQL transaction. When adapters are configured, the routed path creates the central payment intent and executes a durable saga across the selected source and destination participants.
 
 Central PostgreSQL owns users, central accounts and account-to-bank-account mapping, payment state, user-scoped idempotency, the central double-entry ledger, route metadata, bank-operation tracking, and recovery state. It is not a second live copy of a participant's balance for routed settlement.
+
+Customer payment creation selects the single active primary account on the server. A fresh central account uses local settlement unless both persisted source and destination bank IDs have configured adapters. Customer DTOs expose only payment references, names, direction, safe bank names/codes, state, timing, note, origin, and failure information.
 
 Bank A and Bank B are separate Go processes. Each bank schema owns participant accounts, balances, account status, holds, provisional/final credits, participant operations, participant ledger entries, and status lookup. The service boundary is HTTP; `internal/bank.HTTPClient` implements the domain-only `BankAdapter` contract.
 

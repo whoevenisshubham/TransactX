@@ -184,7 +184,7 @@ CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED
 VALIDATING -> ROUTING -> PROCESSING -> COMMITTED -> COMPLETED
 PROCESSING -> FAILED
 PROCESSING -> PENDING\_RECONCILIATION
-PENDING\_RECONCILIATION -> COMPLETED | REVERSED
+PENDING\_RECONCILIATION -> COMMITTED | COMPLETED | FAILED | REVERSED
 
 OFFLINE\_CAPTURED -> QUEUED -> SYNCING
 SYNCING -> COMPLETED | REPLAY\_FAILED
@@ -204,23 +204,25 @@ Idempotency-Key: <UUID>
 "note": "Lunch"
 }
 
+The customer request does not carry a source account ID. The server selects exactly one active primary account; zero accounts is a safe not-found response and more than one active candidate is an explicit account-setup conflict. Customer account DTOs contain only account number, balance, and status. Customer payment DTOs contain payment ID, integer paise amount, currency, optional note, origin, state/timestamps, failure reason, sender/receiver names and payment identifiers, explicit `SENT`/`RECEIVED` direction, safe bank names/codes, and duration; internal account, bank, and operation IDs never cross this boundary.
+
 ## 8.1 Server sequence
 
-\[ ] Authenticate.
-\[ ] Validate amount as a positive smallest-unit integer.
-\[ ] Resolve/validate recipient.
-\[ ] Check idempotency key for this user/scope.
-\[ ] Compare request hash if key exists.
-\[ ] Return prior result on identical key + identical request.
-\[ ] Reject same key + different request.
-\[ ] Create payment and transition state.
-\[ ] Select bank through adapter/routing contract.
-\[ ] Begin authoritative PostgreSQL transaction.
-\[ ] Lock/revalidate sender balance.
-\[ ] Perform required balance mutations and ledger writes atomically.
-\[ ] Commit.
-\[ ] Advance state and emit event.
-\[ ] Return final or intermediate status honestly.
+\[x] Authenticate.
+\[x] Validate amount as a positive smallest-unit integer.
+\[x] Resolve/validate recipient.
+\[x] Check idempotency key for this user/scope.
+\[x] Compare request hash, including note, if key exists.
+\[x] Return prior result on identical key + identical request.
+\[x] Reject same key + different request.
+\[x] Create payment and transition state.
+\[x] Select bank through adapter/routing contract.
+\[x] Begin authoritative PostgreSQL transaction.
+\[x] Lock/revalidate sender balance.
+\[x] Perform required balance mutations and ledger writes atomically.
+\[x] Commit.
+\[x] Advance state and emit event.
+\[x] Return final or intermediate status honestly.
 
 # 9\. Idempotency Deep Dive
 
@@ -313,57 +315,57 @@ Every step has one deterministic operation ID derived from the payment and step 
 
 ## Login
 
-\[ ] Identifier/password
-\[ ] Loading/error states
-\[ ] Successful navigation
+\[x] Identifier/password
+\[x] Loading/error states
+\[x] Successful navigation
 
 ## Register
 
-\[ ] Fields/validation
-\[ ] Password rules
-\[ ] Success navigation
+\[x] Fields/validation
+\[x] Password rules
+\[x] Success navigation
 
 ## Home
 
-\[ ] Payment identifier
-\[ ] Balance
-\[ ] Recent transactions
-\[ ] Send/scan CTAs
+\[x] Payment identifier
+\[x] Balance
+\[x] Recent transactions
+\[x] Send/scan CTAs
 \[ ] Online/offline state
 \[ ] Pending sync count
 
 ## Pay
 
-\[ ] Recipient
-\[ ] Amount
-\[ ] Note
-\[ ] Validation
-\[ ] Submit
+\[x] Recipient
+\[x] Amount
+\[x] Note
+\[x] Validation
+\[x] Submit
 
 ## Confirm
 
-\[ ] Recipient/amount confirmation
-\[ ] Explicit final action
+\[x] Recipient/amount/note confirmation
+\[x] Explicit final action
 
 ## Processing
 
-\[ ] Payment ID
-\[ ] Current server state
-\[ ] Honest pending state
+\[x] Payment ID
+\[x] Current server state
+\[x] Honest pending state
 
 ## Success/Failure
 
-\[ ] Reference ID
-\[ ] Amount
-\[ ] Status
-\[ ] Safe retry where applicable
+\[x] Reference ID
+\[x] Amount
+\[x] Status
+\[x] Safe retry where applicable
 
 ## Transaction Details
 
-\[ ] Sender
-\[ ] Receiver
-\[ ] Amount
-\[ ] Time
+\[x] Sender
+\[x] Receiver
+\[x] Amount
+\[x] Time
 \[ ] Status
 \[ ] Routing bank
 \[ ] Duration
@@ -1140,4 +1142,3 @@ Q. Which parts of the implementation would change when scaling horizontally?
 |M1-E Concurrency|Hot-account stress produces no negative balance|
 |M1-F Bank Adapter|Payment switch calls Bank A through interface|
 |M1-G Customer UI|Browser payment journey is complete|
-

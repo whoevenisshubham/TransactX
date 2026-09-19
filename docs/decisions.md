@@ -33,7 +33,7 @@ Status: **IMPLEMENTED**
 
 Status: **IMPLEMENTED**
 
-Idempotency storage uniqueness is enforced by `(user_id, key)`. M1-3B hashes the canonical logical request fields (source account, normalized recipient identifier, amount in paise, and currency), creates the payment and idempotency record in one PostgreSQL transaction, returns the original payment for an exact retry, and returns `409 Conflict` for a different hash. The database uniqueness constraint resolves concurrent duplicate requests.
+Idempotency storage uniqueness is enforced by `(user_id, key)`. The canonical logical request includes the server-selected source account, normalized recipient identifier, integer paise amount, currency, and optional note. Exact retries replay the original payment; a different payload returns `409 Conflict`. Routed operation IDs are deterministic per payment and logical bank step, and a concurrent idempotency winner is recovered from the durable record before any bank call is repeated.
 
 ## ADR-007: Phase 1B Authentication
 
@@ -75,7 +75,7 @@ Status: **IMPLEMENTED**
 
 M1-4 adds `backend/internal/bank.BankAdapter` as an injected domain-only boundary for future bank participants. The contract covers account validation, debit, credit, and health, and uses typed results plus error codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and later status or reconciliation mechanisms.
 
-The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD`; raw debit is retained only as a legacy primitive and is not part of routed execution. Operation status lookup is part of the frozen contract.
+The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD`; raw debit is retained only as a legacy primitive and is not part of routed execution. Operation status lookup is part of the frozen contract. Operation results must correlate to the requested payment and operation IDs; unknown or malformed statuses remain pending and never count as success. Bank HTTP errors use typed safe codes/messages.
 
 ## ADR-013: M1-5 Simulated Bank A
 

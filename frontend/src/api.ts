@@ -49,5 +49,5 @@ export const api = {
   resolveRecipient: (identifier: string, token: string) => apiRequest<Recipient>(`/api/recipients/${encodeURIComponent(identifier)}`, {}, token),
   payments: (token: string) => apiRequest<Payment[]>("/api/payments?limit=50", {}, token),
   payment: (id: string, token: string) => apiRequest<Payment>(`/api/payments/${encodeURIComponent(id)}`, {}, token),
-  createPayment: (input: { sourceAccountId: string; recipient: string; amountPaise: number; currency: string }, token: string, idempotencyKey: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }, token),
+  createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }, token),
 };
