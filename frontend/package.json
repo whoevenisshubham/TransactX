@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "tsc -b --pretty false"
+    "lint": "tsc -b --pretty false",
+    "test:money": "node scripts/verify-money.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

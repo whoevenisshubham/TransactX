@@ -8,6 +8,7 @@
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
@@ -17,8 +18,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/bankservice"
+	"github.com/transactx/backend/internal/recipients"
 )
 
 // ---------------------------------------------------------------------------
@@ -184,6 +187,21 @@ func TestK3_RetryReusesOperationIDWithoutDuplicatingMonetaryCalls(t *testing.T) 
 	if src.calls != 1 {
 		t.Fatalf("K3: hold calls after retry = %d, want 1 (no repeated monetary call)", src.calls)
 	}
+
+	var holdOpID uuid.UUID
+	var holdCount int
+	if err := data.pool.QueryRow(context.Background(),
+		`SELECT operation_id, count(*) OVER () FROM payment_bank_operations WHERE payment_id = $1 AND operation_type = 'HOLD'`,
+		recovered.ID).Scan(&holdOpID, &holdCount); err != nil {
+		t.Fatalf("K3: load hold operation: %v", err)
+	}
+	if holdCount != 1 {
+		t.Fatalf("K3: HOLD operations = %d, want 1", holdCount)
+	}
+	expectedHoldID := operationID(recovered.ID, "hold")
+	if holdOpID != expectedHoldID {
+		t.Fatalf("K3: persisted hold operation_id = %s, want stable %s", holdOpID, expectedHoldID)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -203,20 +221,43 @@ func (a *unknownStatusAdapter) HoldFunds(_ context.Context, req bank.HoldFundsRe
 func TestK4_UnknownBankStatusNeverBecomesSuccess(t *testing.T) {
 	data := newRepositoryTestData(t)
 	setBalances(t, data, 1000, 0)
-	defer func() {
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
-		data.close(t)
-	}()
+	defer data.close(t)
 
-	p, _, _ := data.repository.CreateRoutedIdempotent(
+	p, _, err := data.repository.CreateRoutedIdempotent(
 		context.Background(),
 		settlementPayment(data, 100),
 		"k4-key", "k4-hash",
 		data.bankID, data.bankID,
 		&unknownStatusAdapter{}, successfulBankAdapter{},
 	)
-	if p.State == StateCompleted {
-		t.Fatal("K4: payment became COMPLETED after bank returned unknown status WHATEVER")
+	if err != nil {
+		t.Fatalf("K4: unexpected error: %v", err)
+	}
+	if p.State != StatePendingReconciliation {
+		t.Fatalf("K4: payment state = %q, want PENDING_RECONCILIATION", p.State)
+	}
+
+	var opStatus string
+	var opCount int
+	if err := data.pool.QueryRow(context.Background(),
+		`SELECT status, count(*) OVER () FROM payment_bank_operations WHERE payment_id = $1 AND operation_type = 'HOLD'`,
+		p.ID).Scan(&opStatus, &opCount); err != nil {
+		t.Fatalf("K4: load hold operation: %v", err)
+	}
+	if opCount != 1 {
+		t.Fatalf("K4: HOLD operations = %d, want 1", opCount)
+	}
+	if opStatus != bankOperationPending {
+		t.Fatalf("K4: hold status = %q, want PENDING (unresolved)", opStatus)
+	}
+	var creditCount int
+	if err := data.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM payment_bank_operations WHERE payment_id = $1 AND operation_type <> 'HOLD'`,
+		p.ID).Scan(&creditCount); err != nil {
+		t.Fatal(err)
+	}
+	if creditCount != 0 {
+		t.Fatalf("K4: downstream monetary operations = %d, want 0", creditCount)
 	}
 }
 
@@ -247,40 +288,64 @@ func (a *wrongOperationIDAdapter) HoldFunds(_ context.Context, req bank.HoldFund
 func TestK5_CorrelationMismatchOnPaymentIDNeverSucceeds(t *testing.T) {
 	data := newRepositoryTestData(t)
 	setBalances(t, data, 1000, 0)
-	defer func() {
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
-		data.close(t)
-	}()
+	defer data.close(t)
 
-	p, _, _ := data.repository.CreateRoutedIdempotent(
+	p, _, err := data.repository.CreateRoutedIdempotent(
 		context.Background(),
 		settlementPayment(data, 100),
 		"k5a-key", "k5a-hash",
 		data.bankID, data.bankID,
 		&wrongPaymentIDAdapter{}, successfulBankAdapter{},
 	)
-	if p.State == StateCompleted {
-		t.Fatal("K5a: payment became COMPLETED after bank returned wrong PaymentID in correlation")
+	if err != nil {
+		t.Fatalf("K5a: unexpected error: %v", err)
 	}
+	if p.State != StatePendingReconciliation {
+		t.Fatalf("K5a: payment state = %q, want PENDING_RECONCILIATION", p.State)
+	}
+	assertNoDownstreamBankOps(t, data, p.ID, "K5a")
 }
 
 func TestK5_CorrelationMismatchOnOperationIDNeverSucceeds(t *testing.T) {
 	data := newRepositoryTestData(t)
 	setBalances(t, data, 1000, 0)
-	defer func() {
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
-		data.close(t)
-	}()
+	defer data.close(t)
 
-	p, _, _ := data.repository.CreateRoutedIdempotent(
+	p, _, err := data.repository.CreateRoutedIdempotent(
 		context.Background(),
 		settlementPayment(data, 100),
 		"k5b-key", "k5b-hash",
 		data.bankID, data.bankID,
 		&wrongOperationIDAdapter{}, successfulBankAdapter{},
 	)
-	if p.State == StateCompleted {
-		t.Fatal("K5b: payment became COMPLETED after bank returned wrong OperationID in correlation")
+	if err != nil {
+		t.Fatalf("K5b: unexpected error: %v", err)
+	}
+	if p.State != StatePendingReconciliation {
+		t.Fatalf("K5b: payment state = %q, want PENDING_RECONCILIATION", p.State)
+	}
+	assertNoDownstreamBankOps(t, data, p.ID, "K5b")
+}
+
+func assertNoDownstreamBankOps(t *testing.T, data repositoryTestData, paymentID uuid.UUID, label string) {
+	t.Helper()
+	var holdStatus string
+	if err := data.pool.QueryRow(context.Background(),
+		`SELECT status FROM payment_bank_operations WHERE payment_id = $1 AND operation_type = 'HOLD'`,
+		paymentID).Scan(&holdStatus); err != nil {
+		t.Fatalf("%s: load hold status: %v", label, err)
+	}
+	if holdStatus != bankOperationPending {
+		t.Fatalf("%s: hold status = %q, want PENDING", label, holdStatus)
+	}
+	var other int
+	if err := data.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM payment_bank_operations WHERE payment_id = $1 AND operation_type <> 'HOLD'`,
+		paymentID).Scan(&other); err != nil {
+		t.Fatal(err)
+	}
+	if other != 0 {
+		t.Fatalf("%s: downstream monetary operations = %d, want 0", label, other)
 	}
 }
 
@@ -311,34 +376,87 @@ func TestK6_PendingReconciliationMustGoViaCommittedToCompleted(t *testing.T) {
 	}
 }
 
+func TestK6_RuntimeUpdateStateEnforcesPendingReconciliationPath(t *testing.T) {
+	data := newRepositoryTestData(t)
+	defer data.close(t)
+
+	paymentID := uuid.New()
+	if _, err := data.pool.Exec(context.Background(),
+		`INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, state)
+		 VALUES ($1, $2, $3, $4, 100, 'INR', 'PENDING_RECONCILIATION')`,
+		paymentID, data.userID, data.sourceID, data.receiverID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := data.repository.updateState(context.Background(), paymentID, StateCompleted); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("K6 runtime: direct PENDING_RECONCILIATION -> COMPLETED error = %v, want ErrInvalidTransition", err)
+	}
+	var state string
+	if err := data.pool.QueryRow(context.Background(), `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != StatePendingReconciliation {
+		t.Fatalf("K6 runtime: state = %q after rejected transition, want PENDING_RECONCILIATION", state)
+	}
+	if err := data.repository.updateState(context.Background(), paymentID, StateCommitted); err != nil {
+		t.Fatalf("K6 runtime: PENDING_RECONCILIATION -> COMMITTED: %v", err)
+	}
+	if err := data.repository.updateState(context.Background(), paymentID, StateCompleted); err != nil {
+		t.Fatalf("K6 runtime: COMMITTED -> COMPLETED: %v", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // K7: CustomerPayment DTO contains no internal UUIDs (structural test).
 // ---------------------------------------------------------------------------
 
 func TestK7_CustomerPaymentDTODoesNotExposeInternalIdentifiers(t *testing.T) {
-	// If any internal UUID field (SenderAccountID, ReceiverAccountID, etc.) were
-	// added to CustomerPayment, the json tag would expose it over the API.
-	// This test enforces the contract by proving the struct compiles correctly
-	// with only the approved fields.
+	note := "Coffee"
+	srcName, srcCode := "Source Bank", "BANK-SRC"
+	dstName, dstCode := "Dest Bank", "BANK-DST"
+	var duration int64 = 42
 	cp := CustomerPayment{
-		ID:                  uuid.New(),
-		AmountPaise:         100,
+		ID:                  uuid.MustParse("11111111-1111-4111-8111-111111111111"),
+		AmountPaise:         12550,
 		Currency:            "INR",
+		Note:                &note,
+		Origin:              "ONLINE",
 		State:               StateCompleted,
 		Direction:           "SENT",
 		SenderName:          "Alice",
 		ReceiverName:        "Bob",
-		SenderPaymentID:     "alice@bank",
-		ReceiverPaymentID:   "bob@bank",
+		SenderPaymentID:     "alice@transactx",
+		ReceiverPaymentID:   "bob@transactx",
+		SourceBankName:      &srcName,
+		SourceBankCode:      &srcCode,
+		DestinationBankName: &dstName,
+		DestinationBankCode: &dstCode,
+		DurationMs:          &duration,
 	}
-	_ = cp
-	// Verify no internal UUID fields are accessible on CustomerPayment.
-	// These would fail to compile if the fields were present:
-	//   _ = cp.SenderAccountID        // must not exist
-	//   _ = cp.ReceiverAccountID      // must not exist
-	//   _ = cp.InitiatedByUserID      // must not exist
-	//   _ = cp.SourceBankID           // must not exist
-	//   _ = cp.DestinationBankID      // must not exist
+	raw, err := json.Marshal(cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded map[string]any
+	if err := json.Unmarshal(raw, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	banned := []string{
+		"senderAccountId", "receiverAccountId", "initiatedByUserId",
+		"sourceBankId", "destinationBankId", "sourceBankAccountId", "destinationBankAccountId",
+		"routeBankId", "operationId", "holdId", "bankOperationId",
+	}
+	for _, key := range banned {
+		if _, found := encoded[key]; found {
+			t.Errorf("K7: customer DTO JSON exposes internal field %q", key)
+		}
+	}
+	required := []string{"id", "amountPaise", "currency", "state", "direction", "senderName", "receiverName", "senderPaymentIdentifier", "receiverPaymentIdentifier", "origin"}
+	for _, key := range required {
+		if _, found := encoded[key]; !found {
+			t.Errorf("K7: customer DTO JSON missing required field %q", key)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -481,35 +599,57 @@ func TestK10_PaymentDetailAuthorizesOnlySenderAndReceiver(t *testing.T) {
 func TestK11_NoteIsPersistedAndHashedForIdempotency(t *testing.T) {
 	data := newRepositoryTestData(t)
 	defer data.close(t)
+	setBalances(t, data, 1000, 0)
 
-	paymentID := uuid.New()
+	service := NewService(accounts.NewRepository(data.pool), recipients.NewRepository(data.pool), data.repository, nil)
+	recipientID := "receiver-" + data.receiverUserID.String()
 	note := "Test note for K11"
-	if _, err := data.pool.Exec(context.Background(),
-		`INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, state, note)
-		 VALUES ($1, $2, $3, $4, 100, 'INR', 'COMPLETED', $5)`,
-		paymentID, data.userID, data.sourceID, data.receiverID, note); err != nil {
-		t.Fatal(err)
+	first, duplicate, err := service.CreateWithResult(context.Background(), CreateInput{
+		UserID:          data.userID,
+		SourceAccountID: data.sourceID,
+		Recipient:       recipientID,
+		AmountPaise:     100,
+		Currency:        "INR",
+		Note:            note,
+		IdempotencyKey:  "k11-service-key",
+	})
+	if err != nil || duplicate {
+		t.Fatalf("K11: create error = %v, duplicate = %v", err, duplicate)
 	}
-	if _, err := data.pool.Exec(context.Background(),
-		`INSERT INTO idempotency_records (id, user_id, key, request_hash, payment_id, response_snapshot)
-		 VALUES ($1, $2, 'k11-key', 'k11-hash-with-note', $3, '{}')`,
-		uuid.New(), data.userID, paymentID); err != nil {
-		t.Fatal(err)
+	if first.Note == nil || *first.Note != note {
+		t.Fatalf("K11: persisted note = %v, want %q", first.Note, note)
 	}
-
-	// Same hash replays correctly and note is preserved.
-	p, duplicate, err := data.repository.GetIdempotent(context.Background(), data.userID, "k11-key", "k11-hash-with-note")
-	if err != nil || !duplicate {
-		t.Fatalf("K11: replay error = %v, duplicate = %v", err, duplicate)
-	}
-	if p.Note == nil || *p.Note != note {
-		t.Fatalf("K11: note = %v, want %q", p.Note, note)
+	if first.State != StateCompleted {
+		t.Fatalf("K11: state = %q, want COMPLETED", first.State)
 	}
 
-	// Changed hash conflicts.
-	_, _, conflictErr := data.repository.GetIdempotent(context.Background(), data.userID, "k11-key", "k11-hash-changed")
+	replay, replayDup, replayErr := service.CreateWithResult(context.Background(), CreateInput{
+		UserID:          data.userID,
+		SourceAccountID: data.sourceID,
+		Recipient:       recipientID,
+		AmountPaise:     100,
+		Currency:        "INR",
+		Note:            note,
+		IdempotencyKey:  "k11-service-key",
+	})
+	if replayErr != nil || !replayDup {
+		t.Fatalf("K11: replay error = %v, duplicate = %v", replayErr, replayDup)
+	}
+	if replay.ID != first.ID {
+		t.Fatalf("K11: replay payment = %s, want %s", replay.ID, first.ID)
+	}
+
+	_, _, conflictErr := service.CreateWithResult(context.Background(), CreateInput{
+		UserID:          data.userID,
+		SourceAccountID: data.sourceID,
+		Recipient:       recipientID,
+		AmountPaise:     100,
+		Currency:        "INR",
+		Note:            "changed note",
+		IdempotencyKey:  "k11-service-key",
+	})
 	if !errors.Is(conflictErr, ErrIdempotencyConflict) {
-		t.Fatalf("K11: changed hash error = %v, want ErrIdempotencyConflict", conflictErr)
+		t.Fatalf("K11: changed note error = %v, want ErrIdempotencyConflict", conflictErr)
 	}
 }
 
@@ -526,6 +666,44 @@ func TestK12_LocalSettlementStateTransitionsAreValid(t *testing.T) {
 	}
 	if p.State != StateCompleted {
 		t.Fatalf("K12: final state = %q, want COMPLETED", p.State)
+	}
+}
+
+func TestK12_FreshRegistrationUsesLocalSettlementWhenBankAdaptersDoNotMatch(t *testing.T) {
+	data := newRepositoryTestData(t)
+	defer data.close(t)
+	setBalances(t, data, 5000, 0)
+
+	// Adapters exist for other banks, but these accounts remain on data.bankID (no matching adapter).
+	foreignBankID := uuid.New()
+	adapters := map[uuid.UUID]bank.BankAdapter{
+		foreignBankID: successfulBankAdapter{},
+	}
+	service := NewServiceWithAdapters(accounts.NewRepository(data.pool), recipients.NewRepository(data.pool), data.repository, adapters)
+	payment, duplicate, err := service.CreateWithResult(context.Background(), CreateInput{
+		UserID:          data.userID,
+		SourceAccountID: data.sourceID,
+		Recipient:       "receiver-" + data.receiverUserID.String(),
+		AmountPaise:     250,
+		Currency:        "INR",
+		Note:            "local after register",
+		IdempotencyKey:  "k12-local-key",
+	})
+	if err != nil || duplicate {
+		t.Fatalf("K12 registration path: create error = %v, duplicate = %v", err, duplicate)
+	}
+	if payment.State != StateCompleted {
+		t.Fatalf("K12 registration path: state = %q, want COMPLETED", payment.State)
+	}
+	if payment.SourceBankID != nil || payment.DestinationBankID != nil {
+		t.Fatalf("K12 registration path: unexpected routed bank IDs source=%v dest=%v", payment.SourceBankID, payment.DestinationBankID)
+	}
+	var opCount int
+	if err := data.pool.QueryRow(context.Background(), `SELECT count(*) FROM payment_bank_operations WHERE payment_id = $1`, payment.ID).Scan(&opCount); err != nil {
+		t.Fatal(err)
+	}
+	if opCount != 0 {
+		t.Fatalf("K12 registration path: bank operations = %d, want 0 (local settlement)", opCount)
 	}
 }
 
@@ -581,7 +759,7 @@ func TestK13_ErrorSanitizationDoesNotLeakInternalErrors(t *testing.T) {
 
 func TestK14_BankBUnavailableMessageReferencesBankB(t *testing.T) {
 	data := newRepositoryTestData(t)
-	defer data.pool.Close()
+	defer data.close(t)
 
 	bankBSvc := bankservice.NewParticipantService(data.pool, "BANK-B", "bank_b")
 	bankBSvc.SetAvailable(false)
@@ -593,7 +771,10 @@ func TestK14_BankBUnavailableMessageReferencesBankB(t *testing.T) {
 	if !errors.As(err, &adapterErr) {
 		t.Fatalf("K14: error type = %T, want *bank.AdapterError", err)
 	}
-	if strings.Contains(adapterErr.Message, "bank A") || strings.Contains(adapterErr.Message, "bank a") {
+	if adapterErr.Code != bank.ErrCodeBankUnavailable {
+		t.Fatalf("K14: BANK-B code = %v, want BANK_UNAVAILABLE", adapterErr.Code)
+	}
+	if strings.Contains(strings.ToLower(adapterErr.Message), "bank a") || strings.Contains(adapterErr.Message, "BANK-A") {
 		t.Errorf("K14: BANK-B message references bank A: %q", adapterErr.Message)
 	}
 	if !strings.Contains(adapterErr.Message, "BANK-B") {
@@ -603,7 +784,7 @@ func TestK14_BankBUnavailableMessageReferencesBankB(t *testing.T) {
 
 func TestK14_BankAUnavailableMessageDoesNotReferenceBankB(t *testing.T) {
 	data := newRepositoryTestData(t)
-	defer data.pool.Close()
+	defer data.close(t)
 
 	bankASvc := bankservice.NewService(data.pool)
 	bankASvc.SetAvailable(false)
@@ -615,7 +796,13 @@ func TestK14_BankAUnavailableMessageDoesNotReferenceBankB(t *testing.T) {
 	if !errors.As(err, &adapterErr) {
 		t.Fatalf("K14: error type = %T, want *bank.AdapterError", err)
 	}
-	if strings.Contains(adapterErr.Message, "BANK-B") || strings.Contains(adapterErr.Message, "bank B") {
+	if adapterErr.Code != bank.ErrCodeBankUnavailable {
+		t.Fatalf("K14: BANK-A code = %v, want BANK_UNAVAILABLE", adapterErr.Code)
+	}
+	if !strings.Contains(adapterErr.Message, "BANK-A") {
+		t.Errorf("K14: BANK-A message does not reference BANK-A: %q", adapterErr.Message)
+	}
+	if strings.Contains(adapterErr.Message, "BANK-B") || strings.Contains(strings.ToLower(adapterErr.Message), "bank b") {
 		t.Errorf("K14: BANK-A message references BANK-B: %q", adapterErr.Message)
 	}
 }
@@ -665,6 +852,7 @@ func TestK15_CustomerSafeReasonMapsDistinctCodesDistinctly(t *testing.T) {
 		{bank.ErrCodeInactiveAccount, "Account is inactive."},
 		{bank.ErrCodeBankUnavailable, "Bank service is temporarily unavailable."},
 		{bank.ErrCodeTransientFailure, "Payment is still being confirmed."},
+		{bank.ErrCodePermanentFailure, "Payment could not be completed."},
 	}
 	seen := make(map[string]bank.ErrorCode)
 	for _, c := range cases {

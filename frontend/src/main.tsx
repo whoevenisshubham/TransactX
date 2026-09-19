@@ -2,8 +2,11 @@ import { FormEvent, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, ApiError } from "./api";
 import { Amount, Avatar, BrandMark, Button, EmptyState, formatDate, Icon, PageHeader, PaymentRow, paymentResultCopy, Skeleton, StatusBadge } from "./components";
+import { parsePaise } from "./money";
 import type { Account, Payment, Recipient, User, View } from "./types";
 import "./styles.css";
+
+export { parsePaise } from "./money";
 
 function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem("transactx.token"));
@@ -36,15 +39,6 @@ function Sidebar({ view, user, onNavigate, onLogout }: { view: View; user: User 
 function NavItem({ view, active, label, icon, onClick }: { view: View; active: boolean; label: string; icon: "home" | "send" | "activity"; onClick: (view: View) => void }) { return <button className={`nav-item ${active ? "is-active" : ""}`} onClick={() => onClick(view)}><Icon name={icon} /><span>{label}</span></button>; }
 function MobileHeader({ user, onLogout }: { user: User | null; onLogout: () => void }) { return <header className="mobile-header"><div className="mobile-brand"><BrandMark /><span>TransactX</span></div><button className="mobile-user" onClick={onLogout} aria-label={`Log out ${user?.name ?? ""}`}><Avatar name={user?.name ?? "Customer"} /></button></header>; }
 function HomeView({ user, account, payments, onNavigate }: { user: User | null; account?: Account; payments: Payment[]; onNavigate: (view: View, paymentID?: string) => void }) { return <><PageHeader eyebrow="Overview" title={`Good morning, ${firstName(user?.name)}`} description="Your account at a glance." action={<Button onClick={() => onNavigate("pay")}><Icon name="send" />Send money</Button>} /><section className="overview-grid"><div className="balance-panel"><div className="section-kicker">Available balance</div><Amount paise={account?.balancePaise ?? 0} prominent /><div className="balance-foot"><span>{account?.accountNumber ?? "Account unavailable"}</span><span className="account-status"><span className="status-dot" />{account?.status === "ACTIVE" ? "Active" : account?.status ?? "Unavailable"}</span></div></div><div className="account-note"><span className="note-index">01</span><div><strong>Ready when you are</strong><p>Send a payment using a TransactX ID. You will review the recipient, amount, and note before anything is submitted.</p><button className="text-link" onClick={() => onNavigate("pay")}>Start a payment <Icon name="arrow" size={15} /></button></div></div></section><section className="section-block"><div className="section-heading"><div><p className="eyebrow">Activity</p><h2>Recent transactions</h2></div>{payments.length > 0 && <button className="text-link" onClick={() => onNavigate("transactions")}>View all <Icon name="arrow" size={15} /></button>}</div>{payments.length === 0 ? <EmptyState title="No transactions yet" description="Your payments will appear here after your first transfer." action={<Button variant="secondary" onClick={() => onNavigate("pay")}>Send money</Button>} /> : <div className="payment-list">{payments.slice(0, 5).map((payment) => <PaymentRow key={payment.id} payment={payment} onClick={() => onNavigate("details", payment.id)} />)}</div>}</section><section className="account-summary"><div><p className="eyebrow">Account details</p><h2>Your TransactX identity</h2></div><div className="summary-detail"><span>Payment ID</span><strong>{user?.paymentIdentifier}</strong></div><div className="summary-detail"><span>Account number</span><strong>{account?.accountNumber ?? "—"}</strong></div></section></>; }
-
-export function parsePaise(input: string): number | null {
-  const value = input.trim();
-  if (!/^(0|[1-9]\d*)(?:\.(\d{1,2}))?$/.test(value)) return null;
-  const [whole, fraction = ""] = value.split(".");
-  const paise = BigInt(whole) * 100n + BigInt((fraction + "00").slice(0, 2));
-  if (paise <= 0n || paise > BigInt(Number.MAX_SAFE_INTEGER)) return null;
-  return Number(paise);
-}
 
 function PayView({ account, token, onComplete, onNavigate }: { account?: Account; token: string; onComplete: (payment: Payment) => void; onNavigate: (view: View) => void }) {
   const [stage, setStage] = useState<"form" | "confirm" | "processing" | "result" | "uncertain">("form"); const [recipientInput, setRecipientInput] = useState(""); const [recipient, setRecipient] = useState<Recipient | null>(null); const [amount, setAmount] = useState(""); const [note, setNote] = useState(""); const [lookupBusy, setLookupBusy] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [payment, setPayment] = useState<Payment | null>(null); const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null); const submitLock = useRef(false);

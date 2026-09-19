@@ -58,7 +58,7 @@ go run ./cmd/bank-b
 cd backend
 $env:DATABASE_URL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
 $env:JWT_SECRET = "replace-with-at-least-32-random-bytes"
-$env:DEFAULT_BANK_CODE = "BANK-DEV"
+$env:DEFAULT_BANK_CODE = "BANK-DEV-001"
 $env:BANK_A_URL = "http://localhost:8081"
 $env:BANK_B_URL = "http://localhost:8082"
 go run ./cmd/api

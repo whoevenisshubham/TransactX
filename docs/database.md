@@ -36,4 +36,4 @@ The API and Bank A process do not run migrations automatically at startup.
 
 ## Deterministic participant ledger
 
-Bank A ledger entries include operation ID, payment ID, account ID, entry type, amount, currency, and occurrence time. `GetLedgerSnapshot` orders records by timestamp and row ID, providing stable correlation data for a later reconciliation/Merkle phase without implementing that algorithm in Phase 6.
+Bank A ledger entries include operation ID, payment ID, account ID, entry type, amount, currency, and occurrence time. `GetLedgerSnapshot` orders records by timestamp and row ID, providing stable correlation data for a later reconciliation/Merkle phase (official Phase 5) without implementing that algorithm in M1.

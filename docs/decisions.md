@@ -59,9 +59,9 @@ M1-3B's intent boundary was completed by M1-3C: new valid requests now settle sy
 
 Status: **IMPLEMENTED**
 
-`POST /api/payments` performs synchronous settlement for a new valid payment in one PostgreSQL transaction. The transaction inserts the payment, debits the active sender only when sufficient funds exist, credits the active receiver, creates one ledger transaction with one debit and one credit entry, transitions the payment through the centralized state machine to `COMPLETED`, and inserts the idempotency record. Any error rolls back all monetary and payment state. `accounts.opening_balance_paise` preserves the baseline needed for balance reconstruction; registration and development provisioning continue to initialize it to zero.
+`POST /api/payments` performs synchronous settlement for a new valid payment in one PostgreSQL transaction when no matching bank adapters are configured for both participant banks. The transaction inserts the payment, debits the active sender only when sufficient funds exist, credits the active receiver, creates one ledger transaction with one debit and one credit entry, transitions the payment through the centralized state machine to `COMPLETED`, and inserts the idempotency record. Any error rolls back all monetary and payment state. `accounts.opening_balance_paise` preserves the baseline needed for balance reconstruction; registration and development provisioning continue to initialize it to zero.
 
-M1-3C uses the explicit `CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED` path. `LOCAL_SETTLEMENT` identifies authoritative local PostgreSQL settlement without claiming that a bank route was selected or that bank processing occurred. The existing `ROUTING -> PROCESSING` path remains available for future BankAdapter-backed flows.
+M1-3C uses the explicit `CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED` path. `LOCAL_SETTLEMENT` identifies authoritative local PostgreSQL settlement without claiming that a bank route was selected. When both source and destination bank IDs have configured adapters, the payment uses the routed saga (`ROUTING -> PROCESSING`) instead.
 
 ## ADR-011: M1-3D Concurrency Verification
 
@@ -73,9 +73,13 @@ M1-3D keeps the existing conditional account debit update as the concurrency con
 
 Status: **IMPLEMENTED**
 
-M1-4 adds `backend/internal/bank.BankAdapter` as an injected domain-only boundary for future bank participants. The contract covers account validation, debit, credit, and health, and uses typed results plus error codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and later status or reconciliation mechanisms.
+M1-4 freezes `backend/internal/bank.BankAdapter` as the injected domain-only boundary for bank participants. The contract covers:
 
-The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD`; raw debit is retained only as a legacy primitive and is not part of routed execution. Operation status lookup is part of the frozen contract. Operation results must correlate to the requested payment and operation IDs; unknown or malformed statuses remain pending and never count as success. Bank HTTP errors use typed safe codes/messages.
+`GetHealth`, `ResolveAccount`, `HoldFunds`, `ProvisionalCredit`, `ConfirmHold`, `ReleaseHold`, `ReverseProvisionalCredit`, `GetOperationStatus`, `GetLedgerSnapshot`.
+
+Typed results and error codes cover insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and `GetOperationStatus`.
+
+The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD -> finalize credit`; raw debit/credit helpers may remain for compatibility tests but are not the routed protocol. Operation results must correlate to the requested payment and operation IDs; unknown or malformed statuses remain pending and never count as success. Bank HTTP errors use typed safe codes/messages.
 
 ## ADR-013: M1-5 Simulated Bank A
 

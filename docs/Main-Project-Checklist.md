@@ -91,12 +91,12 @@ Duration: Week 3   Objective: Implement the financially correct heart of Transac
 \[x] M1 — Add database transaction boundaries.
 \[x] M1 — Add row locking / equivalent concurrency control.
 \[x] M1 — Add payment service tests.
-\[ ] M1 — Build pay form.
-\[ ] M1 — Build confirm-payment screen.
-\[ ] M1 — Build processing screen.
-\[ ] M1 — Build success/failure state screens.
-\[ ] M1 — Build transaction-details screen.
-\[ ] M1 — Build transaction-history screen.
+\[x] M1 — Build pay form.
+\[x] M1 — Build confirm-payment screen.
+\[x] M1 — Build processing screen.
+\[x] M1 — Build success/failure state screens.
+\[x] M1 — Build transaction-details screen.
+\[x] M1 — Build transaction-history screen.
 \[ ] ALL — Manually review every line of the payment/ledger/idempotency critical path.
 \[x] ALL — Run duplicate-request tests.
 \[x] ALL — Run same-key/different-payload conflict tests.

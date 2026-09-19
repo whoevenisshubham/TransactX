@@ -807,26 +807,28 @@ idempotency key
 
 # 12\. Bank Adapter — Typed Result Contract
 
-M1-4 implements the injected domain contract in `backend/internal/bank/adapter.go`. M1-5 adds `backend/internal/bank.BankA` as its first concrete implementation. `BankAdapter` and Bank A expose account validation, debit, credit, and health operations without HTTP or PostgreSQL types. The current handler injects `nil`, so the payment flow does not invoke Bank A. Debit and credit results carry the payment ID, bank-operation ID, bank reference, and a success or unresolved-pending status.
+M1-4 implements the frozen domain contract in `backend/internal/bank/adapter.go`:
+`GetHealth`, `ResolveAccount`, `HoldFunds`, `ProvisionalCredit`, `ConfirmHold`, `ReleaseHold`, `ReverseProvisionalCredit`, `GetOperationStatus`, `GetLedgerSnapshot`.
+M1-5/M1-6 deploy Bank A and Bank B as separate HTTP participant processes (`cmd/bank-a`, `cmd/bank-b`) with independent schemas. The API injects adapters when `BANK_A_URL` / `BANK_B_URL` are configured. Routed settlement uses the durable hold/provisional/confirm/finalize saga; local `LOCAL_SETTLEMENT` remains for accounts whose bank mapping has no configured adapter.
 
-`PENDING` means the bank operation outcome is unknown or unresolved: the bank may have accepted or committed it, so the caller must not blindly repeat the monetary operation. The payment layer must use the operation/payment correlation metadata and later status or reconciliation mechanisms before deciding whether a retry is safe. This is distinct from definite success and definite business failure.
+`PENDING` means the bank operation outcome is unknown or unresolved: the bank may have accepted or committed it, so the caller must not blindly repeat the monetary operation. The payment layer must use the operation/payment correlation metadata and `GetOperationStatus` before deciding whether a retry is safe. This is distinct from definite success and definite business failure.
 
-Adapter errors use explicit codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failure, and permanent business failure. Bank A uses integer paise and a deterministic local account simulation; it is not a real financial institution and does not provide real external-bank connectivity. Its simulated state is not authoritative and does not replace PostgreSQL. The current payment flow still uses authoritative PostgreSQL `LOCAL_SETTLEMENT`; Bank B and routed settlement remain future work.
+Adapter errors use explicit codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failure, and permanent business failure. Bank A/B use integer paise and are not real financial institutions.
 
 # 13\. Customer Frontend — Network State Integration
 
-const paymentLabels = {
-PROCESSING: "Processing",
-COMPLETED: "Payment successful",
-FAILED: "Payment failed",
-PENDING\_RECONCILIATION: "Awaiting confirmation",
-OFFLINE\_QUEUED: "Payment queued offline"
-};
-\[ ] Customer sees a final success badge only for server-confirmed completion.
-\[ ] PROCESSING and PENDING\_RECONCILIATION remain visually distinct from failure.
-\[ ] Offline queue is visibly local/pending.
-\[ ] Payment details are refreshed from the server after reconnect.
-\[ ] Client never writes authoritative balance.
+Customer UI copy (implemented) never equates timeout/unknown with failure:
+COMPLETED → “Payment complete”
+FAILED/REVERSED → “Payment not completed”
+PROCESSING → “Payment being processed”
+other non-terminal → “Payment still being confirmed”
+network loss → uncertain screen with safe retry using the same idempotency key
+
+\[x] Customer sees a final success badge only for server-confirmed completion.
+\[x] PROCESSING and PENDING\_RECONCILIATION remain visually distinct from failure.
+\[ ] Offline queue is visibly local/pending. (Phase 6 — future)
+\[x] Payment details are refreshed from the server via status check.
+\[x] Client never writes authoritative balance.
 
 # 14\. API Test Cases — Concrete Examples
 
