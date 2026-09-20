@@ -13,19 +13,21 @@ import (
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/common"
+	"github.com/transactx/backend/internal/health"
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/users"
 )
 
 type Handler struct {
-	db           *pgxpool.Pool
-	logger       *slog.Logger
-	auth         *auth.Service
-	users        *users.Repository
-	accountsRepo *accounts.Repository
-	recipients   *recipients.Repository
-	payments     *payments.Service
+	db            *pgxpool.Pool
+	logger        *slog.Logger
+	auth          *auth.Service
+	users         *users.Repository
+	accountsRepo  *accounts.Repository
+	recipients    *recipients.Repository
+	payments      *payments.Service
+	healthService *health.Service
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -37,21 +39,30 @@ func NewHandlerWithBankAdapter(db *pgxpool.Pool, logger *slog.Logger, authServic
 }
 
 func NewHandlerWithBankAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter) http.Handler {
-	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters)
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, nil)
+}
+
+func NewHandlerWithHealth(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, healthService *health.Service) http.Handler {
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, nil, healthService)
+}
+
+func NewHandlerWithBankAdaptersAndHealth(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthService *health.Service) http.Handler {
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthService)
 }
 
 func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
-	return newHandlerWithAdapters(db, logger, authService, jwtManager, adapter, nil)
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, adapter, nil, nil)
 }
 
-func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter) http.Handler {
+func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthService *health.Service) http.Handler {
 	handler := &Handler{
-		db:           db,
-		logger:       logger,
-		auth:         authService,
-		users:        users.NewRepository(db),
-		accountsRepo: accounts.NewRepository(db),
-		recipients:   recipients.NewRepository(db),
+		db:            db,
+		logger:        logger,
+		auth:          authService,
+		users:         users.NewRepository(db),
+		accountsRepo:  accounts.NewRepository(db),
+		recipients:    recipients.NewRepository(db),
+		healthService: healthService,
 	}
 	if adapters != nil {
 		handler.payments = payments.NewServiceWithAdapters(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapters)
@@ -61,6 +72,9 @@ func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)
+	if healthService != nil {
+		mux.Handle("GET /api/ops/health/{targetID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.healthSnapshot))))
+	}
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))

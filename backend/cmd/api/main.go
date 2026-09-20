@@ -16,6 +16,7 @@ import (
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/config"
 	"github.com/transactx/backend/internal/database"
+	"github.com/transactx/backend/internal/health"
 	apihttp "github.com/transactx/backend/internal/http"
 )
 
@@ -40,6 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
+	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
 
 	adapters := make(map[uuid.UUID]bank.BankAdapter)
 	configureBank := func(url, code string) {
@@ -63,9 +65,9 @@ func main() {
 
 	var handler http.Handler
 	if len(adapters) == 0 {
-		handler = apihttp.NewHandler(db, logger, authService, jwtManager)
+		handler = apihttp.NewHandlerWithHealth(db, logger, authService, jwtManager, healthService)
 	} else {
-		handler = apihttp.NewHandlerWithBankAdapters(db, logger, authService, jwtManager, adapters)
+		handler = apihttp.NewHandlerWithBankAdaptersAndHealth(db, logger, authService, jwtManager, adapters, healthService)
 	}
 	server := &http.Server{
 		Addr:              cfg.Address,

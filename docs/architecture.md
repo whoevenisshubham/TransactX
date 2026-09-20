@@ -36,6 +36,25 @@ If bank-side settlement succeeds but central persistence fails, the payment is `
 
 There is no transaction spanning Bank A and central PostgreSQL, and the system makes no distributed-ACID claim.
 
+## Health monitoring
+
+M2-3 records explicit observational samples for stable execution-target identifiers such as `BANK-A` and `BANK-B`. Health samples are not account, balance, ledger, or payment state, and payment outcomes do not create health samples automatically. Raw samples are retained in central PostgreSQL; a bounded rolling window is used to calculate read-only snapshots.
+
+The default 15-minute snapshot uses at most 500 samples and requires one sample. Its deterministic score is:
+
+```text
+availabilityScore = successfulChecks / totalChecks
+successScore = successfulCalls / totalCalls
+latencyPenalty = clamp((p95Latency - 10ms) / (1000ms - 10ms), 0, 1)
+timeoutPenalty = timeoutRate
+score = clamp(0.35*availabilityScore + 0.35*successScore
+              - 0.20*latencyPenalty - 0.10*timeoutPenalty, 0, 1)
+```
+
+P95 uses nearest-rank over latency values sorted ascending. Samples at the window start are included; older samples are excluded. Equal future route-health scores can use the stable target ID as a tie-break. Circuit state and routing remain outside this monitor.
+
+The default probe timeout threshold is 2 seconds. A probe at or above that measured duration is classified as `TIMEOUT`; otherwise the explicit availability result distinguishes `SUCCESS` from `FAILURE`.
+
 ## Boundaries and future work
 
 The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Adaptive routing, circuit breakers, Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases.
