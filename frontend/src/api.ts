@@ -41,6 +41,10 @@ function safeErrorMessage(code: string | undefined, fallback: string): string {
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  return (await apiRequestWithStatus<T>(path, options, token)).data;
+}
+
+export async function apiRequestWithStatus<T>(path: string, options: RequestInit = {}, token?: string): Promise<{ data: T; status: number }> {
   let response: Response;
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
@@ -63,7 +67,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
     const message = safeErrorMessage(code, "The request could not be completed.");
     throw new ApiError(message, code, response.status);
   }
-  return (body as ApiResponse<T>).data;
+  return { data: (body as ApiResponse<T>).data, status: response.status };
 }
 
 export const api = {
@@ -74,5 +78,6 @@ export const api = {
   resolveRecipient: (identifier: string, token: string) => apiRequest<Recipient>(`/api/recipients/${encodeURIComponent(identifier)}`, {}, token),
   payments: (token: string) => apiRequest<Payment[]>("/api/payments?limit=50", {}, token),
   payment: (id: string, token: string) => apiRequest<Payment>(`/api/payments/${encodeURIComponent(id)}`, {}, token),
-  createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }, token),
+  createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
+  createPaymentWithStatus: async (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequestWithStatus<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
 };

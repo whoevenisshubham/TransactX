@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
     "test:money": "node scripts/verify-money.mjs",
-    "test:offline-queue": "node --import tsx --test src/offlineQueue.test.ts"
+    "test:offline-queue": "node --import tsx --test src/offlineQueue.test.ts",
+    "test:offline-replay": "node --import tsx --test src/offlineReplay.test.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

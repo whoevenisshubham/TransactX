@@ -25,6 +25,14 @@ export type RetryMetadata = {
   lastError?: string;
 };
 
+export type ReplayMetadata = {
+  resolution?: "PENDING";
+  paymentId?: string;
+  paymentState?: string;
+  lastHttpStatus?: number;
+  lastResponseAt?: string;
+};
+
 export type OfflineIntent = {
   clientRequestId: string;
   idempotencyKey: string;
@@ -33,6 +41,7 @@ export type OfflineIntent = {
   createdAt: string;
   updatedAt: string;
   retry: RetryMetadata;
+  replay?: ReplayMetadata;
   state: OfflineIntentState;
   leaseOwner?: string;
   leaseExpiresAt?: string;
@@ -202,17 +211,69 @@ export class OfflineIntentQueue {
     });
   }
 
-  async recordRetry(clientRequestId: string, error: string, nextAttemptAt: Date, now = new Date()): Promise<OfflineIntent> {
+  async recordRetry(clientRequestId: string, error: string, nextAttemptAt: Date, now = new Date(), metadata: ReplayMetadata = {}): Promise<OfflineIntent> {
     return this.update(clientRequestId, (intent) => {
       if (!canTransition(intent.state, "RETRYABLE")) throw new Error(`Invalid offline intent transition: ${intent.state} -> RETRYABLE`);
       intent.state = "RETRYABLE";
       intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, lastResponseAt: now.toISOString() };
       intent.retry = {
         attemptCount: intent.retry.attemptCount + 1,
         lastAttemptAt: now.toISOString(),
         nextAttemptAt: nextAttemptAt.toISOString(),
         lastError: error,
       };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    });
+  }
+
+  async recordPending(clientRequestId: string, metadata: ReplayMetadata, error: string | undefined, nextAttemptAt: Date, now = new Date()): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "RETRYABLE")) throw new Error(`Invalid offline intent transition: ${intent.state} -> RETRYABLE`);
+      intent.state = "RETRYABLE";
+      intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, resolution: "PENDING", lastResponseAt: now.toISOString() };
+      intent.retry = {
+        attemptCount: intent.retry.attemptCount + 1,
+        lastAttemptAt: now.toISOString(),
+        nextAttemptAt: nextAttemptAt.toISOString(),
+        ...(error ? { lastError: error } : {}),
+      };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    });
+  }
+
+  async recordFailure(clientRequestId: string, error: string, metadata: ReplayMetadata = {}, now = new Date()): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "FAILED")) throw new Error(`Invalid offline intent transition: ${intent.state} -> FAILED`);
+      intent.state = "FAILED";
+      intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, lastResponseAt: now.toISOString() };
+      intent.retry = { ...intent.retry, lastAttemptAt: now.toISOString(), lastError: error };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    });
+  }
+
+  async recordSynced(clientRequestId: string, metadata: ReplayMetadata, now = new Date()): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "SYNCED")) throw new Error(`Invalid offline intent transition: ${intent.state} -> SYNCED`);
+      intent.state = "SYNCED";
+      intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, lastResponseAt: now.toISOString() };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    });
+  }
+
+  async retryFailed(clientRequestId: string, now = new Date()): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "RETRYABLE")) throw new Error(`Only failed intents can be retried: ${intent.state}`);
+      intent.state = "RETRYABLE";
+      intent.updatedAt = now.toISOString();
+      intent.retry = { ...intent.retry, nextAttemptAt: now.toISOString(), lastError: undefined };
       delete intent.leaseOwner;
       delete intent.leaseExpiresAt;
     });
