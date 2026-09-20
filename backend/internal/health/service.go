@@ -4,20 +4,55 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/common"
 )
 
 var ErrInvalidTarget = errors.New("health target is invalid")
 
 type Service struct {
-	repository *Repository
+	repository repository
 	config     Config
 }
 
-func NewService(repository *Repository, config Config) *Service {
+type repository interface {
+	Record(context.Context, HealthSample) error
+	ListRecent(context.Context, string, time.Time, time.Time, int) ([]HealthSample, error)
+}
+
+type HealthChecker interface {
+	GetHealth(context.Context) (bank.HealthResult, error)
+}
+
+func NewService(repository repository, config Config) *Service {
 	if !config.valid() {
 		panic("invalid health configuration")
 	}
 	return &Service{repository: repository, config: config}
+}
+
+func (service *Service) Sample(ctx context.Context, targetID string, checker HealthChecker) (HealthSample, error) {
+	if targetID == "" || checker == nil {
+		return HealthSample{}, ErrInvalidTarget
+	}
+	startedAt := time.Now()
+	checkContext, cancel := context.WithTimeout(ctx, service.config.TimeoutThreshold)
+	result, err := checker.GetHealth(checkContext)
+	cancel()
+	sample := HealthSample{TargetID: targetID, SampledAt: startedAt, Latency: time.Since(startedAt), CorrelationID: common.RequestIDFromContext(ctx)}
+	if errors.Is(checkContext.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		sample.Outcome = OutcomeTimeout
+	} else if err != nil || !result.Available {
+		sample.Outcome = OutcomeFailure
+	} else {
+		sample.Available = true
+		sample.Outcome = OutcomeSuccess
+	}
+	if err := service.RecordSample(context.WithoutCancel(ctx), sample); err != nil {
+		return HealthSample{}, err
+	}
+	return sample, nil
 }
 
 func (service *Service) RecordSample(ctx context.Context, sample HealthSample) error {

@@ -28,6 +28,7 @@ type Handler struct {
 	recipients    *recipients.Repository
 	payments      *payments.Service
 	healthService *health.Service
+	healthTargets map[string]health.HealthChecker
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -39,22 +40,26 @@ func NewHandlerWithBankAdapter(db *pgxpool.Pool, logger *slog.Logger, authServic
 }
 
 func NewHandlerWithBankAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter) http.Handler {
-	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, nil)
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, nil, nil)
 }
 
 func NewHandlerWithHealth(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, healthService *health.Service) http.Handler {
-	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, nil, healthService)
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, nil, nil, healthService)
 }
 
 func NewHandlerWithBankAdaptersAndHealth(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthService *health.Service) http.Handler {
-	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthService)
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, nil, healthService)
+}
+
+func NewHandlerWithBankAdaptersAndHealthTargets(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, healthService *health.Service) http.Handler {
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthTargets, healthService)
 }
 
 func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
-	return newHandlerWithAdapters(db, logger, authService, jwtManager, adapter, nil, nil)
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, adapter, nil, nil, nil)
 }
 
-func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthService *health.Service) http.Handler {
+func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, healthService *health.Service) http.Handler {
 	handler := &Handler{
 		db:            db,
 		logger:        logger,
@@ -63,6 +68,7 @@ func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *
 		accountsRepo:  accounts.NewRepository(db),
 		recipients:    recipients.NewRepository(db),
 		healthService: healthService,
+		healthTargets: healthTargets,
 	}
 	if adapters != nil {
 		handler.payments = payments.NewServiceWithAdapters(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapters)
@@ -74,6 +80,7 @@ func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)
 	if healthService != nil {
 		mux.Handle("GET /api/ops/health/{targetID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.healthSnapshot))))
+		mux.Handle("POST /api/ops/health/{targetID}/sample", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.healthSample))))
 	}
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)

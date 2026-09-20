@@ -44,6 +44,7 @@ func main() {
 	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
 
 	adapters := make(map[uuid.UUID]bank.BankAdapter)
+	healthTargets := make(map[string]health.HealthChecker)
 	configureBank := func(url, code string) {
 		if url == "" {
 			return
@@ -59,6 +60,7 @@ func main() {
 			os.Exit(1)
 		}
 		adapters[bankID] = adapter
+		healthTargets[code] = adapter
 	}
 	configureBank(os.Getenv("BANK_A_URL"), getEnv("BANK_A_CODE", "BANK-A"))
 	configureBank(os.Getenv("BANK_B_URL"), getEnv("BANK_B_CODE", "BANK-B"))
@@ -67,7 +69,7 @@ func main() {
 	if len(adapters) == 0 {
 		handler = apihttp.NewHandlerWithHealth(db, logger, authService, jwtManager, healthService)
 	} else {
-		handler = apihttp.NewHandlerWithBankAdaptersAndHealth(db, logger, authService, jwtManager, adapters, healthService)
+		handler = apihttp.NewHandlerWithBankAdaptersAndHealthTargets(db, logger, authService, jwtManager, adapters, healthTargets, healthService)
 	}
 	server := &http.Server{
 		Addr:              cfg.Address,
