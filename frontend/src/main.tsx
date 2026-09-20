@@ -66,6 +66,6 @@ function DetailsSkeleton() { return <div className="details-page"><Skeleton clas
 function firstName(name?: string) { return name?.trim().split(" ")[0] || "there"; }
 function readView(): View { const path = window.location.pathname; if (path.startsWith("/pay")) return "pay"; if (path.startsWith("/transactions/")) return "details"; if (path.startsWith("/transactions")) return "transactions"; return "home"; }
 function readPaymentID() { const match = window.location.pathname.match(/^\/transactions\/([^/]+)/); return match?.[1] ?? null; }
-function paymentError(caught: unknown) { if (!(caught instanceof ApiError)) return "We couldn't complete the payment. Please try again."; if (caught.code === "INSUFFICIENT_FUNDS") return "Your balance is too low for this payment."; if (caught.code === "RECIPIENT_NOT_FOUND") return "That payment ID could not be found."; if (caught.code === "BANK_UNAVAILABLE") return "Payments are temporarily unavailable. Try again shortly."; return caught.message; }
+function paymentError(caught: unknown) { if (!(caught instanceof ApiError)) return "We couldn't complete the payment. Please try again."; if (caught.code === "INSUFFICIENT_FUNDS") return "Your balance is too low for this payment."; if (caught.code === "RECIPIENT_NOT_FOUND") return "That payment ID could not be found."; if (caught.code === "BANK_UNAVAILABLE") return "Payments are temporarily unavailable. Try again shortly."; return "We couldn't complete the payment. Please try again."; }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

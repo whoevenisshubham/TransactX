@@ -17,6 +17,29 @@ export class ApiError extends Error {
 type ApiResponse<T> = { requestId: string; data: T };
 type ErrorResponse = { requestId?: string; error?: { code?: string; message?: string } };
 
+function safeErrorMessage(code: string | undefined, fallback: string): string {
+  switch (code) {
+    case "INVALID_CREDENTIALS":
+      return "Your username or password is incorrect.";
+    case "INVALID_REQUEST":
+      return "Please check your details and try again.";
+    case "USER_ALREADY_EXISTS":
+      return "An account with that payment ID already exists.";
+    case "UNAUTHORIZED":
+      return "Please sign in again.";
+    case "RECIPIENT_NOT_FOUND":
+      return "That payment ID could not be found.";
+    case "INSUFFICIENT_FUNDS":
+      return "Your balance is too low for this payment.";
+    case "BANK_UNAVAILABLE":
+      return "Payments are temporarily unavailable. Try again shortly.";
+    case "NETWORK_ERROR":
+      return "We couldn't reach TransactX. Check your connection and try again.";
+    default:
+      return fallback;
+  }
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   let response: Response;
   try {
@@ -30,13 +53,15 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
       },
     });
   } catch {
-    throw new ApiError("We couldn't reach TransactX. Check your connection and try again.", "NETWORK_ERROR", 0);
+    throw new ApiError(safeErrorMessage("NETWORK_ERROR", "The request could not be completed."), "NETWORK_ERROR", 0);
   }
 
   const body = (await response.json().catch(() => ({}))) as ApiResponse<T> | ErrorResponse;
   if (!response.ok) {
     const error = body as ErrorResponse;
-    throw new ApiError(error.error?.message ?? "The request could not be completed.", error.error?.code, response.status);
+    const code = error.error?.code ?? "REQUEST_FAILED";
+    const message = safeErrorMessage(code, "The request could not be completed.");
+    throw new ApiError(message, code, response.status);
   }
   return (body as ApiResponse<T>).data;
 }
