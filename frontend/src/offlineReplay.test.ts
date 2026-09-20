@@ -19,6 +19,16 @@ async function withQueue(run: (queue: OfflineIntentQueue) => Promise<void>): Pro
 
 after(() => undefined);
 
+class LeaseLossQueue extends OfflineIntentQueue {
+  override async renewLease(): Promise<boolean> {
+    return false;
+  }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 test("successful replay uses the original identities and converges to SYNCED", async () => {
   await withQueue(async (queue) => {
     const intent = await queue.enqueue({ recipient: "receiver@transactx", amountPaise: 1200, currency: "INR" }, { clientRequestId: "client-success", idempotencyKey: "idem-success", now: new Date("2026-01-01T00:00:00.000Z") });
@@ -146,4 +156,97 @@ test("a long replay renews its lease and stops the heartbeat after completion", 
     assert.equal(firstQueue.renewals, renewalsAfterCompletion);
     assert.equal((await firstQueue.get(intent.clientRequestId))?.state, "SYNCED");
   } finally { await firstQueue.close(); await secondQueue.close(); }
+});
+
+test("create replay fails closed when its lease is lost during the request", async () => {
+  const name = `transactx-lease-loss-create-${crypto.randomUUID()}`;
+  const queue = new LeaseLossQueue(name, "user-a", indexedDBFactory);
+  const recoveryQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  try {
+    const intent = await queue.enqueue({ recipient: "lease-loss@transactx", amountPaise: 100, currency: "INR" }, { idempotencyKey: "lease-loss-idem" });
+    let release!: () => void;
+    const request = new Promise<void>((resolve) => { release = resolve; });
+    const client: ReplayClient = { createPayment: async (_payload, key, clientRequestId) => { assert.equal(key, intent.idempotencyKey); assert.equal(clientRequestId, intent.clientRequestId); await request; return { payment: payment("late-payment", "COMPLETED"), status: 201 }; }, getPayment: async () => payment("unused", "COMPLETED") };
+    const run = new OfflineReplayWorker(queue, client, "worker-a", 20).run();
+    await delay(15);
+    release();
+    const result = await run;
+    const stored = await queue.get(intent.clientRequestId);
+    assert.equal(result[0].outcome, "PENDING");
+    assert.equal(stored?.state, "SYNCING");
+    assert.notEqual(stored?.state, "FAILED");
+    assert.equal(stored?.idempotencyKey, intent.idempotencyKey);
+    assert.equal(stored?.clientRequestId, intent.clientRequestId);
+    assert.equal((await recoveryQueue.claimEligible("worker-b", new Date(Date.now() + 30)))?.clientRequestId, intent.clientRequestId);
+  } finally { await queue.close(); await recoveryQueue.close(); indexedDBFactory.deleteDatabase(name); }
+});
+
+test("status lookup lease loss is also non-final and never FAILED", async () => {
+  const name = `transactx-lease-loss-status-${crypto.randomUUID()}`;
+  const seedQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  const queue = new LeaseLossQueue(name, "user-a", indexedDBFactory);
+  try {
+    const intent = await seedQueue.enqueue({ recipient: "status-loss@transactx", amountPaise: 100, currency: "INR" }, { idempotencyKey: "status-loss-idem" });
+    const seedTime = new Date();
+    await seedQueue.claimEligible("seed", seedTime, 1_000);
+    await seedQueue.recordPending(intent.clientRequestId, { paymentId: "authoritative-payment", paymentState: "PROCESSING" }, undefined, new Date(seedTime.getTime() + 60_000), seedTime, "seed");
+    let release!: () => void;
+    const request = new Promise<void>((resolve) => { release = resolve; });
+    const client: ReplayClient = { createPayment: async () => { throw new Error("must use status lookup"); }, getPayment: async () => { await request; return payment("authoritative-payment", "COMPLETED"); } };
+    const run = new OfflineReplayWorker(queue, client, "worker-a", 20).run(new Date(seedTime.getTime() + 60_000));
+    await delay(15);
+    release();
+    const result = await run;
+    const stored = await queue.get(intent.clientRequestId);
+    assert.equal(result[0].outcome, "PENDING");
+    assert.equal(stored?.state, "SYNCING");
+    assert.notEqual(stored?.state, "FAILED");
+    assert.equal(stored?.idempotencyKey, intent.idempotencyKey);
+    assert.equal(stored?.clientRequestId, intent.clientRequestId);
+  } finally { await seedQueue.close(); await queue.close(); indexedDBFactory.deleteDatabase(name); }
+});
+
+test("stopping a worker during an active request leaves the intent recoverable", async () => {
+  const name = `transactx-lease-loss-stop-${crypto.randomUUID()}`;
+  const queue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  const recoveryQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  try {
+    const intent = await queue.enqueue({ recipient: "stop-loss@transactx", amountPaise: 100, currency: "INR" });
+    let release!: () => void;
+    const request = new Promise<void>((resolve) => { release = resolve; });
+    const client: ReplayClient = { createPayment: async () => { await request; return { payment: payment("stopped-payment", "COMPLETED"), status: 201 }; }, getPayment: async () => payment("unused", "COMPLETED") };
+    const worker = new OfflineReplayWorker(queue, client, "worker-stop", 20);
+    const run = worker.run();
+    await delay(5);
+    worker.stop();
+    release();
+    const result = await run;
+    assert.equal(result[0].outcome, "PENDING");
+    assert.equal((await queue.get(intent.clientRequestId))?.state, "SYNCING");
+    await delay(25);
+    assert.equal((await recoveryQueue.claimEligible("worker-recovery", new Date(Date.now() + 30)))?.clientRequestId, intent.clientRequestId);
+  } finally { await queue.close(); await recoveryQueue.close(); indexedDBFactory.deleteDatabase(name); }
+});
+
+test("stale worker cannot overwrite a newer worker after lease reclaim", async () => {
+  const name = `transactx-lease-loss-race-${crypto.randomUUID()}`;
+  const staleQueue = new LeaseLossQueue(name, "user-a", indexedDBFactory);
+  const recoveryQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  try {
+    const intent = await staleQueue.enqueue({ recipient: "race-loss@transactx", amountPaise: 100, currency: "INR" });
+    let release!: () => void;
+    const request = new Promise<void>((resolve) => { release = resolve; });
+    const client: ReplayClient = { createPayment: async () => { await request; return { payment: payment("stale-payment", "COMPLETED"), status: 201 }; }, getPayment: async () => payment("unused", "COMPLETED") };
+    const staleRun = new OfflineReplayWorker(staleQueue, client, "worker-stale", 20).run();
+    await delay(30);
+    const reclaimed = await recoveryQueue.claimEligible("worker-new", new Date(Date.now() + 30), 1_000);
+    assert.equal(reclaimed?.leaseOwner, "worker-new");
+    release();
+    const result = await staleRun;
+    assert.equal(result[0].outcome, "PENDING");
+    const stored = await recoveryQueue.get(intent.clientRequestId);
+    assert.equal(stored?.leaseOwner, "worker-new");
+    assert.equal(stored?.state, "SYNCING");
+    assert.notEqual(stored?.state, "FAILED");
+  } finally { await staleQueue.close(); await recoveryQueue.close(); indexedDBFactory.deleteDatabase(name); }
 });

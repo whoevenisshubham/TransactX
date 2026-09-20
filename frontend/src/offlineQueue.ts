@@ -2,6 +2,7 @@ export const OFFLINE_QUEUE_DATABASE = "transactx-offline-queue";
 // Version 2 adds owner indexing without assigning legacy ownerless records.
 export const OFFLINE_QUEUE_VERSION = 2;
 export const OFFLINE_INTENTS_STORE = "offline-intents";
+export const OFFLINE_REPLAY_LEASE_LOST = "offline replay lease was lost";
 
 export type OfflineIntentState = "QUEUED" | "SYNCING" | "SYNCED" | "RETRYABLE" | "FAILED";
 
@@ -396,6 +397,7 @@ export class OfflineIntentQueue {
     const store = transaction.objectStore(OFFLINE_INTENTS_STORE);
     return new Promise((resolve, reject) => {
       let updated: OfflineIntent | undefined;
+      let leaseLost = false;
       const request = store.get(clientRequestId);
       request.onerror = () => reject(request.error ?? new Error("Unable to read offline intent"));
       request.onsuccess = () => {
@@ -405,6 +407,7 @@ export class OfflineIntentQueue {
           return;
         }
         if (leaseOwner && (updated.state !== "SYNCING" || updated.leaseOwner !== leaseOwner)) {
+          leaseLost = true;
           transaction.abort();
           return;
         }
@@ -416,7 +419,7 @@ export class OfflineIntentQueue {
         else reject(new Error(`Offline intent not found: ${clientRequestId}`));
       };
       transaction.onerror = () => reject(transaction.error ?? new Error("Unable to update offline intent"));
-      transaction.onabort = () => reject(transaction.error ?? new Error(`Offline intent not found: ${clientRequestId}`));
+      transaction.onabort = () => reject(new Error(leaseLost ? OFFLINE_REPLAY_LEASE_LOST : transaction.error?.message ?? `Offline intent not found: ${clientRequestId}`));
     });
   }
 }

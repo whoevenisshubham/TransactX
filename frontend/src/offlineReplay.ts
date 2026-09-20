@@ -1,5 +1,5 @@
 import type { ApiError } from "./api";
-import type { OfflineIntent, OfflineIntentQueue, ReplayMetadata } from "./offlineQueue";
+import { OFFLINE_REPLAY_LEASE_LOST, type OfflineIntent, type OfflineIntentQueue, type ReplayMetadata } from "./offlineQueue";
 import type { Payment } from "./types";
 
 export type ReplayClient = {
@@ -69,7 +69,7 @@ export class OfflineReplayWorker {
         const payment = await this.withLeaseHeartbeat(intent, () => this.client.getPayment(intent.replay!.paymentId!));
         return this.persistPayment(intent, payment, 200, now);
       } catch (error) {
-        return this.persistFailureOrRetry(intent, error, now);
+        return this.handleReplayError(intent, error, now);
       }
     }
 
@@ -77,9 +77,17 @@ export class OfflineReplayWorker {
       const response = await this.withLeaseHeartbeat(intent, () => this.client.createPayment(intent.payload, intent.idempotencyKey, intent.clientRequestId));
       return this.persistPayment(intent, response.payment, response.status, now);
     } catch (error) {
-      if (error instanceof Error && error.message === "offline replay lease was lost") return { clientRequestId: intent.clientRequestId, state: "SYNCING", outcome: "PENDING" };
-      if (error instanceof Error && error.message === "offline replay lease was lost") return { clientRequestId: intent.clientRequestId, state: "SYNCING", outcome: "PENDING" };
-      return this.persistFailureOrRetry(intent, error, now);
+      return this.handleReplayError(intent, error, now);
+    }
+  }
+
+  private async handleReplayError(intent: OfflineIntent, error: unknown, now: Date): Promise<ReplayResult> {
+    if (isLeaseLost(error)) return { clientRequestId: intent.clientRequestId, state: "SYNCING", outcome: "PENDING" };
+    try {
+      return await this.persistFailureOrRetry(intent, error, now);
+    } catch (persistenceError) {
+      if (isLeaseLost(persistenceError)) return { clientRequestId: intent.clientRequestId, state: "SYNCING", outcome: "PENDING" };
+      throw persistenceError;
     }
   }
 
@@ -123,4 +131,8 @@ export class OfflineReplayWorker {
       clearInterval(heartbeat);
     }
   }
+}
+
+function isLeaseLost(error: unknown): boolean {
+  return error instanceof Error && error.message === OFFLINE_REPLAY_LEASE_LOST;
 }
