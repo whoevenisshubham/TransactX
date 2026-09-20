@@ -106,3 +106,9 @@ An adapter timeout or lost response is not treated as proof of failure. A duplic
 Status: **IMPLEMENTED**
 
 Bank A owns its accounts, balances, operation records, and ledger entries. Bank operation idempotency validates payment, operation identity, idempotency key, operation type, account, amount, currency, and related operation IDs. A retry with a conflicting payload is rejected.
+
+## ADR-017: Deterministic Health Observation
+
+Status: **IMPLEMENTED**
+
+M2-3 stores explicit `SUCCESS`, `FAILURE`, or `TIMEOUT` samples for stable execution-target IDs. The default rolling window is 15 minutes with at most 500 samples, one sample minimum, a 2-second timeout threshold, weights availability `0.35`, success `0.35`, latency `0.20`, and timeout `0.10`; latency is normalized between 10ms and 1000ms using nearest-rank p95. Scores clamp to `[0,1]`. Health is observational only: it cannot mutate payment state, balances, participant financial state, or the ledger. The read-only snapshot contract is `GET /api/ops/health/{targetID}` and is restricted to `OPS_ADMIN`; customer and merchant roles are denied. Legacy or future routing/circuit decisions must consume stable target IDs rather than account ownership.

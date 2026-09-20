@@ -183,9 +183,9 @@ PHASE EXIT GATE: Offline requests persist across refresh/reconnect, replay safel
 
 Duration: Week 8   Objective: Make the network resilient to degraded or failed bank participants.
 
-\[ ] M2 — Implement bank health sampling.
-\[ ] M2 — Define normalized health signals.
-\[ ] M2 — Implement deterministic routing score.
+\[x] M2 — Implement bank health sampling.
+\[x] M2 — Define normalized health signals.
+\[x] M2 — Implement deterministic health score.
 \[ ] M2 — Implement bank selection using the routing score.
 \[ ] M2 — Record routing decisions and reasons.
 \[ ] M2 — Implement failure counters.

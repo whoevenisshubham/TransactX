@@ -21,6 +21,9 @@ Apply the explicit SQL migrations in order:
 7. `000007_phase4_bank_b` — independent Bank B participant schema with the same durable boundary.
 
 8. `000008_m1_customer_payment_contract` — payment note/origin fields, history lookup index, and customer contract support.
+9. `000009_m2_health_samples` — raw observational health samples and recent-window indexes.
+
+Health samples retain stable execution-target identity, sampled time, availability, measured latency in milliseconds, outcome, and optional correlation metadata. The monitor reads a bounded 15-minute/500-sample window; old raw history remains queryable and is not mixed into the active score.
 
 The API and Bank A process do not run migrations automatically at startup.
 
