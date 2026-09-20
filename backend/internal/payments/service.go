@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -39,12 +40,15 @@ type CreateInput struct {
 }
 
 type Service struct {
-	accounts   *accounts.Repository
-	recipients *recipients.Repository
-	payments   *Repository
-	ledger     *ledger.Repository
-	adapter    bank.BankAdapter
-	adapters   map[uuid.UUID]bank.BankAdapter
+	accounts      *accounts.Repository
+	recipients    *recipients.Repository
+	payments      *Repository
+	ledger        *ledger.Repository
+	adapter       bank.BankAdapter
+	adapters      map[uuid.UUID]bank.BankAdapter
+	routeTargets  map[uuid.UUID]string
+	health        HealthSnapshotProvider
+	selectionMode SelectionMode
 }
 
 func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapter bank.BankAdapter) *Service {
@@ -53,6 +57,10 @@ func NewService(accountsRepository *accounts.Repository, recipientsRepository *r
 
 func NewServiceWithAdapters(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter) *Service {
 	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters}
+}
+
+func NewServiceWithAdaptiveRouting(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter, routeTargets map[uuid.UUID]string, healthService HealthSnapshotProvider) *Service {
+	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters, routeTargets: routeTargets, health: healthService, selectionMode: SelectionModeAdaptive}
 }
 
 func (service *Service) Create(ctx context.Context, input CreateInput) (Payment, error) {
@@ -133,6 +141,16 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 			destinationAdapter, destinationOK = service.adapters[recipient.BankID]
 		}
 		if sourceOK && destinationOK {
+			if service.routeTargets != nil {
+				candidate := RouteCandidate{CandidateID: source.BankID.String() + ":" + recipient.BankID.String(), SourceBankID: source.BankID, DestinationBankID: recipient.BankID, ExecutionTargetID: service.routeTargets[source.BankID], SourceAdapter: sourceAdapter, DestinationAdapter: destinationAdapter}
+				decision, selectionErr := SelectRoute(ctx, []RouteCandidate{candidate}, service.selectionMode, service.health, nil, time.Now())
+				if selectionErr != nil {
+					return Payment{}, false, ErrBankRouteUnavailable
+				}
+				return service.payments.CreateRoutedWithDecisionIdempotent(ctx, Payment{
+					ID: uuid.New(), InitiatedByUserID: input.UserID, SenderAccountID: input.SourceAccountID, ReceiverAccountID: recipient.AccountID, AmountPaise: input.AmountPaise, Currency: "INR", Note: optionalNote(note), Origin: "ONLINE", State: StateCreated, SourceBankAccountID: uuidPointer(source.BankAccountID), DestinationBankAccountID: uuidPointer(recipient.BankAccountID),
+				}, key, requestHash, decision)
+			}
 			return service.payments.CreateRoutedIdempotent(ctx, Payment{
 				ID:                       uuid.New(),
 				InitiatedByUserID:        input.UserID,

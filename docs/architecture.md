@@ -51,7 +51,11 @@ score = clamp(0.35*availabilityScore + 0.35*successScore
               - 0.20*latencyPenalty - 0.10*timeoutPenalty, 0, 1)
 ```
 
-P95 uses nearest-rank over latency values sorted ascending. Samples at the window start are included; older samples are excluded. Equal future route-health scores can use the stable target ID as a tie-break. Circuit state and routing remain outside this monitor.
+P95 uses nearest-rank over latency values sorted ascending. Samples at the window start are included; older samples are excluded.
+
+## Deterministic routing
+
+M2-4 selects immutable switch-level route candidates. A candidate keeps source and destination bank ownership separate from its execution target and adapters; selection never rewrites account ownership. The current registry provides one legitimate candidate for a configured source/destination pair, using the source participant's stable health target as its execution endpoint. `STATIC` chooses a fixed candidate ID; `ADAPTIVE` excludes observed-unavailable candidates, prefers the highest existing health score, and breaks ties by execution target ID then candidate ID. Each selection persists a `PAYMENT_ROUTED` route-decision fact. Circuit eligibility is an optional hook only; M2-5 owns circuit state and transitions.
 
 The default probe timeout threshold is 2 seconds. A probe at or above that measured duration is classified as `TIMEOUT`; otherwise the explicit availability result distinguishes `SUCCESS` from `FAILURE`.
 

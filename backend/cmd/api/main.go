@@ -45,6 +45,7 @@ func main() {
 
 	adapters := make(map[uuid.UUID]bank.BankAdapter)
 	healthTargets := make(map[string]health.HealthChecker)
+	routeTargets := make(map[uuid.UUID]string)
 	configureBank := func(url, code string) {
 		if url == "" {
 			return
@@ -61,6 +62,7 @@ func main() {
 		}
 		adapters[bankID] = adapter
 		healthTargets[code] = adapter
+		routeTargets[bankID] = code
 	}
 	configureBank(os.Getenv("BANK_A_URL"), getEnv("BANK_A_CODE", "BANK-A"))
 	configureBank(os.Getenv("BANK_B_URL"), getEnv("BANK_B_CODE", "BANK-B"))
@@ -69,7 +71,7 @@ func main() {
 	if len(adapters) == 0 {
 		handler = apihttp.NewHandlerWithHealth(db, logger, authService, jwtManager, healthService)
 	} else {
-		handler = apihttp.NewHandlerWithBankAdaptersAndHealthTargets(db, logger, authService, jwtManager, adapters, healthTargets, healthService)
+		handler = apihttp.NewHandlerWithBankAdaptersHealthRouting(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService)
 	}
 	server := &http.Server{
 		Addr:              cfg.Address,
