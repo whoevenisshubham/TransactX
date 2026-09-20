@@ -558,12 +558,15 @@ type IncrementalCommitmentState struct {
 	CanonicalVersion string
 	AlgorithmVersion string
 	Scope            Scope
-	Buckets          []BucketCommitment
-	BucketRecords    [][]CanonicalRecord
-	Levels           [][][]byte
-	Root             []byte
-	RecordCount      int
-	RebuildCount     uint64
+	// CapturedAt is derived snapshot metadata. It is never part of canonical
+	// record bytes or any Merkle hash input.
+	CapturedAt    time.Time
+	Buckets       []BucketCommitment
+	BucketRecords [][]CanonicalRecord
+	Levels        [][][]byte
+	Root          []byte
+	RecordCount   int
+	RebuildCount  uint64
 }
 
 // IncrementalCommitmentStore persists the global and bucket-level derived

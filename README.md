@@ -13,7 +13,7 @@ Implemented through the current routed-payment milestone:
 - Customer payment frontend and API contract: exact decimal-to-paise input, stable idempotency attempts, safe account/payment DTOs, notes, incoming/outgoing history, explicit pending status checks, and transaction details.
 - Unit, PostgreSQL-backed integration, and race-detector coverage for the critical payment and bank paths.
 
-Adaptive routing, circuit breakers, Merkle reconciliation, chaos orchestration, and offline queue UX remain future work.
+Adaptive routing, circuit breakers, reconciliation orchestration, chaos orchestration, and offline queue UX remain future work. The canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are implemented for research use; they are not a production reconciliation service.
 
 ## Local development
 
@@ -81,3 +81,14 @@ Normal API runs default to `APP_DEVELOPMENT=false`; enable development provision
 - Bank A and Bank B independently own participant accounts, balances, holds, operations, participant ledger records, and operation status.
 - Routed settlement is a durable saga, not a distributed ACID transaction. Unknown outcomes are resolved with the original operation ID; unresolved effects stay pending reconciliation.
 - Monetary values are integer paise (`BIGINT`). Docker, Redis, Kafka, Kubernetes, real banking integrations, AI/ML, blockchain, and real-money movement are intentionally excluded.
+
+## Reconciliation participant boundary
+
+The reconciliation package exposes a separate `ReconciliationParticipant` read boundary. `BankAdapter` remains frozen as the payment-switch contract and is not extended with reconciliation methods.
+
+- A `Scope` is a normalized UTC half-open interval `[From, To)`. Node references carry a participant identifier, deterministic scope identity, and a path (`empty` or `L<level>/<index>`); bucket references carry the versioned `BucketID.String()` key.
+- `MemoryParticipant` is a deterministic fixture over logical `CanonicalRecord` values. `RepositoryParticipant` reads the existing participant ledger through `bankservice.Service.GetLedgerSnapshot`; the participant ledger remains authoritative and commitment state is derived, read-only data.
+- A participant captures one derived commitment per scope and reuses it across root, child, record, and metadata reads so one boundary read is coherent and does not rebuild the tree repeatedly. Repository-backed commitments must be explicitly initialized (or recovered with `Refresh`); only that path bootstraps from the authoritative ledger. Normal reads load maintained derived state through `IncrementalCommitmentStore` and never call `Bootstrap`.
+- Root, node, and bucket references include a process-local commitment generation. `Refresh` creates a new generation and invalidates old references, preventing a child or bucket request from mixing commitment snapshots. Generation values never enter canonical records or Merkle hash inputs. This is a process-local snapshot rule, not distributed transactionality.
+- Roots, child nodes, and bucket records use the existing canonical v1 and Merkle v1 implementations. Results are ordered deterministically and exclude snapshot IDs, capture times, and physical database row IDs from canonical content.
+- Missing or malformed references return typed reconciliation errors (`ErrNodeNotFound`, `ErrBucketNotFound`, and their invalid-reference counterparts). Participant mismatches are explicit. Every participant method checks and propagates context cancellation and source errors.
