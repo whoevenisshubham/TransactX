@@ -1,7 +1,8 @@
 # Canonical reconciliation model
 
 M3-1 defines the research-facing participant boundary and canonical ledger
-record format. It does not build a Merkle tree or perform reconciliation.
+record format. M3-2 adds pure bucketed Merkle commitments; reconciliation
+traversal and APIs remain out of scope.
 
 `ReconciliationParticipant` is separate from the frozen `bank.BankAdapter` and
 provides `GetRoot`, `GetChildren`, `GetRecords`, and `GetMetadata` for later
@@ -27,5 +28,11 @@ Records are ordered by UTC occurrence time, operation UUID, entry type, account
 UUID, payment UUID, amount, and currency. `LeafHash` computes
 `SHA-256("TXLEAF|v1|" || CanonicalBytes(record))`.
 
-Empty record collections sort to a non-nil empty slice. Tree-level empty-root
-and bucket rules are deferred to M3-2.
+Empty record collections sort to a non-nil empty slice. M3-2 uses
+`SHA-256("TXEMPTY|v1")` for empty buckets and bucket sets. Internal nodes use
+`SHA-256("TXNODE|v1|" || left_hash || right_hash)`; an odd final child is
+promoted unchanged. Bucket identities are UTC start time + explicit width +
+logical partition, serialized under `TXBUCKET|v1|`. Bucket roots are sorted by
+UTC start, partition, width, then serialized identity before the upper root is
+computed. Commitment metadata records canonical/algorithm versions, bucket,
+scope, root, and record count; the in-memory store is test/development only.
