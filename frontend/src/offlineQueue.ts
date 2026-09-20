@@ -1,6 +1,8 @@
 export const OFFLINE_QUEUE_DATABASE = "transactx-offline-queue";
-export const OFFLINE_QUEUE_VERSION = 1;
+// Version 2 adds owner indexing without assigning legacy ownerless records.
+export const OFFLINE_QUEUE_VERSION = 2;
 export const OFFLINE_INTENTS_STORE = "offline-intents";
+export const OFFLINE_REPLAY_LEASE_LOST = "offline replay lease was lost";
 
 export type OfflineIntentState = "QUEUED" | "SYNCING" | "SYNCED" | "RETRYABLE" | "FAILED";
 
@@ -25,7 +27,17 @@ export type RetryMetadata = {
   lastError?: string;
 };
 
+export type ReplayMetadata = {
+  resolution?: "PENDING";
+  paymentId?: string;
+  paymentState?: string;
+  lastHttpStatus?: number;
+  lastResponseAt?: string;
+};
+
 export type OfflineIntent = {
+  // Undefined is reserved for preserved v1 records and is never replayable.
+  ownerUserId?: string;
   clientRequestId: string;
   idempotencyKey: string;
   payload: NormalizedOfflinePaymentPayload;
@@ -33,6 +45,7 @@ export type OfflineIntent = {
   createdAt: string;
   updatedAt: string;
   retry: RetryMetadata;
+  replay?: ReplayMetadata;
   state: OfflineIntentState;
   leaseOwner?: string;
   leaseExpiresAt?: string;
@@ -108,6 +121,7 @@ function createSchema(database: IDBDatabase): void {
   store.createIndex("updatedAt", "updatedAt", { unique: false });
   store.createIndex("nextAttemptAt", "retry.nextAttemptAt", { unique: false });
   store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+  store.createIndex("ownerUserId", "ownerUserId", { unique: false });
 }
 
 function upgradeSchema(database: IDBDatabase, transaction: IDBTransaction): void {
@@ -120,15 +134,19 @@ function upgradeSchema(database: IDBDatabase, transaction: IDBTransaction): void
   if (!store.indexNames.contains("updatedAt")) store.createIndex("updatedAt", "updatedAt", { unique: false });
   if (!store.indexNames.contains("nextAttemptAt")) store.createIndex("nextAttemptAt", "retry.nextAttemptAt", { unique: false });
   if (!store.indexNames.contains("idempotencyKey")) store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+  if (!store.indexNames.contains("ownerUserId")) store.createIndex("ownerUserId", "ownerUserId", { unique: false });
 }
 
 export class OfflineIntentQueue {
   private readonly databaseName: string;
   private readonly indexedDBFactory: IndexedDBFactory;
+  readonly ownerUserId: string;
   private databasePromise: Promise<IDBDatabase> | null = null;
 
-  constructor(databaseName = OFFLINE_QUEUE_DATABASE, indexedDBFactory = globalThis.indexedDB) {
+  constructor(databaseName = OFFLINE_QUEUE_DATABASE, ownerUserId: string, indexedDBFactory = globalThis.indexedDB) {
+    if (!ownerUserId.trim()) throw new Error("Offline queue requires an authenticated owner");
     this.databaseName = databaseName;
+    this.ownerUserId = ownerUserId;
     this.indexedDBFactory = indexedDBFactory;
   }
 
@@ -154,6 +172,7 @@ export class OfflineIntentQueue {
     const payload = normalizePaymentPayload(input);
     const now = (options.now ?? new Date()).toISOString();
     const intent: OfflineIntent = {
+      ownerUserId: this.ownerUserId,
       clientRequestId: options.clientRequestId ?? createID(),
       idempotencyKey: options.idempotencyKey ?? createID(),
       payload,
@@ -173,13 +192,15 @@ export class OfflineIntentQueue {
   async get(clientRequestId: string): Promise<OfflineIntent | undefined> {
     const database = await this.open();
     const transaction = database.transaction(OFFLINE_INTENTS_STORE, "readonly");
-    return requestResult(transaction.objectStore(OFFLINE_INTENTS_STORE).get(clientRequestId));
+    const intent = await requestResult(transaction.objectStore(OFFLINE_INTENTS_STORE).get(clientRequestId));
+    return intent?.ownerUserId === this.ownerUserId ? intent : undefined;
   }
 
   async listByState(state: OfflineIntentState): Promise<OfflineIntent[]> {
     const database = await this.open();
     const transaction = database.transaction(OFFLINE_INTENTS_STORE, "readonly");
-    return requestResult(transaction.objectStore(OFFLINE_INTENTS_STORE).index("state").getAll(state));
+    const intents = await requestResult(transaction.objectStore(OFFLINE_INTENTS_STORE).index("state").getAll(state));
+    return intents.filter((intent) => intent.ownerUserId === this.ownerUserId);
   }
 
   async listEligible(now = new Date()): Promise<OfflineIntent[]> {
@@ -202,17 +223,69 @@ export class OfflineIntentQueue {
     });
   }
 
-  async recordRetry(clientRequestId: string, error: string, nextAttemptAt: Date, now = new Date()): Promise<OfflineIntent> {
+  async recordRetry(clientRequestId: string, error: string, nextAttemptAt: Date, now = new Date(), metadata: ReplayMetadata = {}, leaseOwner?: string): Promise<OfflineIntent> {
     return this.update(clientRequestId, (intent) => {
       if (!canTransition(intent.state, "RETRYABLE")) throw new Error(`Invalid offline intent transition: ${intent.state} -> RETRYABLE`);
       intent.state = "RETRYABLE";
       intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, lastResponseAt: now.toISOString() };
       intent.retry = {
         attemptCount: intent.retry.attemptCount + 1,
         lastAttemptAt: now.toISOString(),
         nextAttemptAt: nextAttemptAt.toISOString(),
         lastError: error,
       };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    }, leaseOwner);
+  }
+
+  async recordPending(clientRequestId: string, metadata: ReplayMetadata, error: string | undefined, nextAttemptAt: Date, now = new Date(), leaseOwner?: string): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "RETRYABLE")) throw new Error(`Invalid offline intent transition: ${intent.state} -> RETRYABLE`);
+      intent.state = "RETRYABLE";
+      intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, resolution: "PENDING", lastResponseAt: now.toISOString() };
+      intent.retry = {
+        attemptCount: intent.retry.attemptCount + 1,
+        lastAttemptAt: now.toISOString(),
+        nextAttemptAt: nextAttemptAt.toISOString(),
+        ...(error ? { lastError: error } : {}),
+      };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    }, leaseOwner);
+  }
+
+  async recordFailure(clientRequestId: string, error: string, metadata: ReplayMetadata = {}, now = new Date(), leaseOwner?: string): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "FAILED")) throw new Error(`Invalid offline intent transition: ${intent.state} -> FAILED`);
+      intent.state = "FAILED";
+      intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, lastResponseAt: now.toISOString() };
+      intent.retry = { ...intent.retry, lastAttemptAt: now.toISOString(), lastError: error };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    }, leaseOwner);
+  }
+
+  async recordSynced(clientRequestId: string, metadata: ReplayMetadata, now = new Date(), leaseOwner?: string): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "SYNCED")) throw new Error(`Invalid offline intent transition: ${intent.state} -> SYNCED`);
+      intent.state = "SYNCED";
+      intent.updatedAt = now.toISOString();
+      intent.replay = { ...intent.replay, ...metadata, lastResponseAt: now.toISOString() };
+      delete intent.leaseOwner;
+      delete intent.leaseExpiresAt;
+    }, leaseOwner);
+  }
+
+  async retryFailed(clientRequestId: string, now = new Date()): Promise<OfflineIntent> {
+    return this.update(clientRequestId, (intent) => {
+      if (!canTransition(intent.state, "RETRYABLE")) throw new Error(`Only failed intents can be retried: ${intent.state}`);
+      intent.state = "RETRYABLE";
+      intent.updatedAt = now.toISOString();
+      intent.retry = { ...intent.retry, nextAttemptAt: now.toISOString(), lastError: undefined };
       delete intent.leaseOwner;
       delete intent.leaseExpiresAt;
     });
@@ -232,7 +305,7 @@ export class OfflineIntentQueue {
           .filter((candidate) => {
             const retryReady = !candidate.retry.nextAttemptAt || Date.parse(candidate.retry.nextAttemptAt) <= timestamp;
             const leaseExpired = !candidate.leaseExpiresAt || Date.parse(candidate.leaseExpiresAt) <= timestamp;
-            return (candidate.state === "QUEUED" || candidate.state === "RETRYABLE") && retryReady && leaseExpired || candidate.state === "SYNCING" && leaseExpired;
+            return candidate.ownerUserId === this.ownerUserId && ((candidate.state === "QUEUED" || candidate.state === "RETRYABLE") && retryReady && leaseExpired || candidate.state === "SYNCING" && leaseExpired);
           })
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
         if (!claimed) return;
@@ -245,6 +318,28 @@ export class OfflineIntentQueue {
       transaction.oncomplete = () => resolve(claimed);
       transaction.onerror = () => reject(transaction.error ?? new Error("Unable to claim offline intent"));
       transaction.onabort = () => reject(transaction.error ?? new Error("Offline intent claim aborted"));
+    });
+  }
+
+  async renewLease(clientRequestId: string, leaseOwner: string, now = new Date(), leaseMilliseconds = 30_000): Promise<boolean> {
+    const database = await this.open();
+    const transaction = database.transaction(OFFLINE_INTENTS_STORE, "readwrite");
+    const store = transaction.objectStore(OFFLINE_INTENTS_STORE);
+    return new Promise((resolve, reject) => {
+      let renewed = false;
+      const request = store.get(clientRequestId);
+      request.onerror = () => reject(request.error ?? new Error("Unable to read offline intent lease"));
+      request.onsuccess = () => {
+        const intent = request.result;
+        if (!intent || intent.ownerUserId !== this.ownerUserId || intent.state !== "SYNCING" || intent.leaseOwner !== leaseOwner || !intent.leaseExpiresAt || Date.parse(intent.leaseExpiresAt) <= now.getTime()) return;
+        intent.updatedAt = now.toISOString();
+        intent.leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds).toISOString();
+        renewed = true;
+        store.put(intent);
+      };
+      transaction.oncomplete = () => resolve(renewed);
+      transaction.onerror = () => reject(transaction.error ?? new Error("Unable to renew offline intent lease"));
+      transaction.onabort = () => reject(transaction.error ?? new Error("Offline intent lease renewal aborted"));
     });
   }
 
@@ -265,7 +360,7 @@ export class OfflineIntentQueue {
       request.onerror = () => fail(request.error ?? new Error("Unable to read offline intent"));
       request.onsuccess = () => {
         const intent = request.result;
-        if (!intent) {
+        if (!intent || intent.ownerUserId !== this.ownerUserId) {
           fail(new Error(`Offline intent not found: ${clientRequestId}`));
           return;
         }
@@ -296,17 +391,23 @@ export class OfflineIntentQueue {
     });
   }
 
-  private async update(clientRequestId: string, mutate: (intent: OfflineIntent) => void): Promise<OfflineIntent> {
+  private async update(clientRequestId: string, mutate: (intent: OfflineIntent) => void, leaseOwner?: string): Promise<OfflineIntent> {
     const database = await this.open();
     const transaction = database.transaction(OFFLINE_INTENTS_STORE, "readwrite");
     const store = transaction.objectStore(OFFLINE_INTENTS_STORE);
     return new Promise((resolve, reject) => {
       let updated: OfflineIntent | undefined;
+      let leaseLost = false;
       const request = store.get(clientRequestId);
       request.onerror = () => reject(request.error ?? new Error("Unable to read offline intent"));
       request.onsuccess = () => {
         updated = request.result;
-        if (!updated) {
+        if (!updated || updated.ownerUserId !== this.ownerUserId) {
+          transaction.abort();
+          return;
+        }
+        if (leaseOwner && (updated.state !== "SYNCING" || updated.leaseOwner !== leaseOwner)) {
+          leaseLost = true;
           transaction.abort();
           return;
         }
@@ -318,7 +419,7 @@ export class OfflineIntentQueue {
         else reject(new Error(`Offline intent not found: ${clientRequestId}`));
       };
       transaction.onerror = () => reject(transaction.error ?? new Error("Unable to update offline intent"));
-      transaction.onabort = () => reject(transaction.error ?? new Error(`Offline intent not found: ${clientRequestId}`));
+      transaction.onabort = () => reject(new Error(leaseLost ? OFFLINE_REPLAY_LEASE_LOST : transaction.error?.message ?? `Offline intent not found: ${clientRequestId}`));
     });
   }
 }
