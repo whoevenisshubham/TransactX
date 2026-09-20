@@ -222,6 +222,128 @@ func TestIncrementalAppendAcrossBucketCountsMatchesGlobalRoot(t *testing.T) {
 	}
 }
 
+func TestIncrementalPersistLoadRestoreAndContinue(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	original := newIncrementalTestLedger(t, 0, 8)
+	initial := []CanonicalRecord{
+		incrementalRecord(1, base),
+		incrementalRecord(2, base.Add(time.Hour)),
+		incrementalRecord(3, base.Add(2*time.Hour)),
+	}
+	if _, err := original.Bootstrap(context.Background(), initial); err != nil {
+		t.Fatal(err)
+	}
+	store := NewMemoryIncrementalCommitmentStore()
+	if err := original.Persist(context.Background(), store); err != nil {
+		t.Fatal(err)
+	}
+	persisted, ok, err := store.LoadState(context.Background(), "ledger", time.Hour, original.Snapshot().Scope)
+	if err != nil || !ok {
+		t.Fatalf("persisted load ok=%v err=%v", ok, err)
+	}
+	restored, err := NewIncrementalMerkleLedgerFromState("ledger", time.Hour, persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(original.Root(), restored.Root()) {
+		t.Fatalf("restored root = %x, original = %x", restored.Root(), original.Root())
+	}
+	if restored.FullRebuildCount() != original.FullRebuildCount() {
+		t.Fatalf("restored rebuild count = %d, want %d", restored.FullRebuildCount(), original.FullRebuildCount())
+	}
+
+	if _, err := restored.AppendRecord(context.Background(), incrementalRecord(4, base.Add(3*time.Hour))); err != nil {
+		t.Fatalf("restored append: %v", err)
+	}
+	updated := initial[1]
+	updated.AmountPaise++
+	if _, err := restored.UpsertRecord(context.Background(), updated); err != nil {
+		t.Fatalf("restored same-bucket upsert: %v", err)
+	}
+	if restored.FullRebuildCount() != original.FullRebuildCount() {
+		t.Fatal("restored incremental operations changed rebuild count")
+	}
+	assertGlobalRootMatchesSnapshot(t, restored.Snapshot())
+}
+
+func TestIncrementalRestoreRejectsCorruptedState(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	source := newIncrementalTestLedger(t, 0, 8)
+	if _, err := source.AppendRecord(context.Background(), incrementalRecord(1, base)); err != nil {
+		t.Fatal(err)
+	}
+	state := source.Snapshot()
+	tests := []struct {
+		name string
+		edit func(*IncrementalCommitmentState)
+		want error
+	}{
+		{name: "canonical version", edit: func(s *IncrementalCommitmentState) { s.CanonicalVersion = "v0" }, want: ErrIncompatibleCommitmentVersion},
+		{name: "algorithm version", edit: func(s *IncrementalCommitmentState) { s.AlgorithmVersion = "merkle-v0" }, want: ErrIncompatibleCommitmentVersion},
+		{name: "scope", edit: func(s *IncrementalCommitmentState) { s.Scope.To = s.Scope.From.Add(-time.Hour) }},
+		{name: "tree width", edit: func(s *IncrementalCommitmentState) { s.Levels = s.Levels[:len(s.Levels)-1] }},
+		{name: "bucket order", edit: func(s *IncrementalCommitmentState) { s.Buckets[0].ID.Partition = "other" }},
+		{name: "metadata", edit: func(s *IncrementalCommitmentState) { s.Buckets[0].Metadata.RecordCount++ }},
+		{name: "final root", edit: func(s *IncrementalCommitmentState) { s.Root[0] ^= 0xff }},
+		{name: "bucket root", edit: func(s *IncrementalCommitmentState) { s.Buckets[0].Root[0] ^= 0xff }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			corrupt := cloneIncrementalState(state)
+			test.edit(&corrupt)
+			ledger, err := NewIncrementalMerkleLedgerFromState("ledger", time.Hour, corrupt)
+			if test.want != nil {
+				if !errors.Is(err, test.want) {
+					t.Fatalf("restore error = %v, want %v", err, test.want)
+				}
+			} else if err == nil {
+				t.Fatal("corrupted state was accepted")
+			}
+			if ledger != nil {
+				t.Fatal("corrupted state returned a ledger")
+			}
+		})
+	}
+}
+
+func TestIncrementalBootstrapSerializesAgainstAppend(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	ledger := newIncrementalTestLedger(t, 0, 8)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	ledger.beforeBootstrapCommit = func() {
+		close(started)
+		<-release
+	}
+
+	bootstrapDone := make(chan error, 1)
+	go func() {
+		_, err := ledger.Bootstrap(context.Background(), []CanonicalRecord{incrementalRecord(1, base)})
+		bootstrapDone <- err
+	}()
+	<-started
+	appendDone := make(chan error, 1)
+	go func() {
+		_, err := ledger.AppendRecord(context.Background(), incrementalRecord(2, base.Add(10*time.Minute)))
+		appendDone <- err
+	}()
+	select {
+	case err := <-appendDone:
+		t.Fatalf("append completed while bootstrap held operation lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if err := <-bootstrapDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-appendDone; err != nil {
+		t.Fatal(err)
+	}
+	if got := ledger.Snapshot().RecordCount; got != 2 {
+		t.Fatalf("serialized bootstrap lost append: record count = %d", got)
+	}
+}
+
 func TestIncrementalCommitmentStoreScopeAndVersionIsolation(t *testing.T) {
 	ledger := newIncrementalTestLedger(t, 0, 8)
 	if _, err := ledger.AppendRecord(context.Background(), incrementalRecord(1, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))); err != nil {
@@ -232,7 +354,7 @@ func TestIncrementalCommitmentStoreScopeAndVersionIsolation(t *testing.T) {
 	if err := store.SaveState(context.Background(), state); err != nil {
 		t.Fatal(err)
 	}
-	loaded, ok, err := store.LoadState(context.Background(), state.Scope)
+	loaded, ok, err := store.LoadState(context.Background(), state.Partition, state.BucketWidth, state.Scope)
 	if err != nil || !ok || !bytes.Equal(loaded.Root, state.Root) {
 		t.Fatalf("same-scope load ok=%v err=%v", ok, err)
 	}
@@ -242,8 +364,20 @@ func TestIncrementalCommitmentStoreScopeAndVersionIsolation(t *testing.T) {
 	otherScope := state.Scope
 	otherScope.From = otherScope.From.Add(24 * time.Hour)
 	otherScope.To = otherScope.To.Add(24 * time.Hour)
-	if _, ok, err := store.LoadState(context.Background(), otherScope); err != nil || ok {
+	if _, ok, err := store.LoadState(context.Background(), state.Partition, state.BucketWidth, otherScope); err != nil || ok {
 		t.Fatalf("different scope reused state ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := store.LoadState(context.Background(), "other-ledger", state.BucketWidth, state.Scope); err != nil || ok {
+		t.Fatalf("different partition reused state ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := store.LoadState(context.Background(), state.Partition, 2*time.Hour, state.Scope); err != nil || ok {
+		t.Fatalf("different width reused state ok=%v err=%v", ok, err)
+	}
+	if _, err := NewIncrementalMerkleLedgerFromState("other-ledger", state.BucketWidth, state); !errors.Is(err, ErrIncrementalConfigMismatch) {
+		t.Fatalf("different partition restore error = %v", err)
+	}
+	if _, err := NewIncrementalMerkleLedgerFromState(state.Partition, 2*time.Hour, state); !errors.Is(err, ErrIncrementalConfigMismatch) {
+		t.Fatalf("different width restore error = %v", err)
 	}
 	wrongCanonical := state
 	wrongCanonical.CanonicalVersion = "v0"
@@ -254,6 +388,12 @@ func TestIncrementalCommitmentStoreScopeAndVersionIsolation(t *testing.T) {
 	wrongAlgorithm.AlgorithmVersion = "merkle-v0"
 	if err := store.SaveState(context.Background(), wrongAlgorithm); !errors.Is(err, ErrIncompatibleCommitmentVersion) {
 		t.Fatalf("wrong algorithm save error = %v", err)
+	}
+	corrupt := cloneIncrementalState(state)
+	corrupt.Root[0] ^= 0xff
+	store.entries[commitmentStateKey(state.Partition, state.BucketWidth, state.Scope)] = corrupt
+	if _, ok, err := store.LoadState(context.Background(), state.Partition, state.BucketWidth, state.Scope); ok || err == nil {
+		t.Fatalf("corrupt persisted state load ok=%v err=%v", ok, err)
 	}
 }
 
@@ -303,7 +443,8 @@ func TestIncrementalStoreConcurrentAccess(t *testing.T) {
 			if err := store.SaveState(context.Background(), ledger.Snapshot()); err != nil {
 				t.Errorf("save: %v", err)
 			}
-			_, _, _ = store.LoadState(context.Background(), ledger.Snapshot().Scope)
+			current := ledger.Snapshot()
+			_, _, _ = store.LoadState(context.Background(), current.Partition, current.BucketWidth, current.Scope)
 			if _, err := ledger.AppendRecord(context.Background(), incrementalRecord(i, base.Add(10*time.Minute))); err != nil {
 				t.Errorf("append: %v", err)
 			}

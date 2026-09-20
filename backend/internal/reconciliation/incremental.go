@@ -1,11 +1,13 @@
 package reconciliation
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,11 +15,12 @@ import (
 )
 
 var (
-	ErrInvalidIncrementalConfig = errors.New("invalid incremental merkle configuration")
-	ErrDuplicateRecord          = errors.New("record already exists in incremental ledger")
-	ErrBucketOutOfOrder         = errors.New("new bucket is before the append frontier")
-	ErrRecordBucketMove         = errors.New("upsert cannot move a record between buckets")
-	ErrRecordOutsideScope       = errors.New("record is outside the incremental scope")
+	ErrInvalidIncrementalConfig  = errors.New("invalid incremental merkle configuration")
+	ErrDuplicateRecord           = errors.New("record already exists in incremental ledger")
+	ErrBucketOutOfOrder          = errors.New("new bucket is before the append frontier")
+	ErrRecordBucketMove          = errors.New("upsert cannot move a record between buckets")
+	ErrRecordOutsideScope        = errors.New("record is outside the incremental scope")
+	ErrIncrementalConfigMismatch = errors.New("incremental commitment configuration mismatch")
 )
 
 // BucketForRecord deterministically maps a record timestamp to a UTC bucket.
@@ -84,6 +87,7 @@ type incrementalBucket struct {
 // frontier; existing buckets may receive same-bucket upserts.
 type IncrementalMerkleLedger struct {
 	mu           sync.RWMutex
+	operationMu  sync.Mutex
 	partition    string
 	bucketWidth  time.Duration
 	scope        Scope
@@ -93,6 +97,9 @@ type IncrementalMerkleLedger struct {
 	levels       [][][]byte
 	totalRecords int
 	fullRebuilds uint64
+	// beforeBootstrapCommit is a package-local synchronization hook used by
+	// deterministic concurrency tests; normal callers leave it nil.
+	beforeBootstrapCommit func()
 }
 
 func NewIncrementalMerkleLedger(partition string, width time.Duration, scope Scope) (*IncrementalMerkleLedger, error) {
@@ -126,6 +133,8 @@ func (ledger *IncrementalMerkleLedger) UpsertRecord(ctx context.Context, record 
 }
 
 func (ledger *IncrementalMerkleLedger) applyRecord(ctx context.Context, record CanonicalRecord, upsert bool) (IncrementalUpdate, error) {
+	ledger.operationMu.Lock()
+	defer ledger.operationMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return IncrementalUpdate{}, err
 	}
@@ -216,6 +225,8 @@ func (ledger *IncrementalMerkleLedger) applyRecord(ctx context.Context, record C
 // It is explicitly separated from normal incremental operations for initial
 // population and recovery only.
 func (ledger *IncrementalMerkleLedger) Bootstrap(ctx context.Context, records []CanonicalRecord) (IncrementalRebuildResult, error) {
+	ledger.operationMu.Lock()
+	defer ledger.operationMu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return IncrementalRebuildResult{}, err
 	}
@@ -269,6 +280,9 @@ func (ledger *IncrementalMerkleLedger) Bootstrap(ctx context.Context, records []
 	}
 	newLevels := buildLevels(roots)
 
+	if ledger.beforeBootstrapCommit != nil {
+		ledger.beforeBootstrapCommit()
+	}
 	ledger.mu.Lock()
 	ledger.buckets = newBuckets
 	ledger.bucketIndex = newIndex
@@ -284,6 +298,58 @@ func (ledger *IncrementalMerkleLedger) Bootstrap(ctx context.Context, records []
 	}
 	ledger.mu.Unlock()
 	return result, nil
+}
+
+// NewIncrementalMerkleLedgerFromState creates a ledger configured from and
+// restored from persisted derived state. It does not call Bootstrap.
+func NewIncrementalMerkleLedgerFromState(partition string, width time.Duration, state IncrementalCommitmentState) (*IncrementalMerkleLedger, error) {
+	ledger, err := NewIncrementalMerkleLedger(partition, width, state.Scope)
+	if err != nil {
+		return nil, err
+	}
+	if err := ledger.Restore(state); err != nil {
+		return nil, err
+	}
+	return ledger, nil
+}
+
+// Restore imports validated derived state and reconstructs only commitment
+// indexes. It never reconstructs or mutates authoritative participant state.
+func (ledger *IncrementalMerkleLedger) Restore(state IncrementalCommitmentState) error {
+	ledger.operationMu.Lock()
+	defer ledger.operationMu.Unlock()
+	if err := validateIncrementalState(state); err != nil {
+		return err
+	}
+	if state.Partition != ledger.partition || state.BucketWidth != ledger.bucketWidth || !scopeEqual(state.Scope, ledger.scope) {
+		return fmt.Errorf("%w: ledger partition=%q width=%s scope=%s..%s, state partition=%q width=%s scope=%s..%s", ErrIncrementalConfigMismatch, ledger.partition, ledger.bucketWidth, ledger.scope.From, ledger.scope.To, state.Partition, state.BucketWidth, state.Scope.From, state.Scope.To)
+	}
+
+	buckets := make([]incrementalBucket, len(state.Buckets))
+	bucketIndex := make(map[string]int, len(state.Buckets))
+	records := make(map[recordIdentity]string, state.RecordCount)
+	for i, commitment := range state.Buckets {
+		bucketRecords := append([]CanonicalRecord(nil), state.BucketRecords[i]...)
+		buckets[i] = incrementalBucket{ID: commitment.ID, Records: bucketRecords, Root: hashCopy(commitment.Root)}
+		bucketIndex[commitment.ID.String()] = i
+		for _, record := range bucketRecords {
+			identity := identityForRecord(record)
+			if _, exists := records[identity]; exists {
+				return fmt.Errorf("%w: duplicate restored record identity", ErrDuplicateRecord)
+			}
+			records[identity] = commitment.ID.String()
+		}
+	}
+
+	ledger.mu.Lock()
+	ledger.buckets = buckets
+	ledger.bucketIndex = bucketIndex
+	ledger.records = records
+	ledger.levels = cloneLevels(state.Levels)
+	ledger.totalRecords = state.RecordCount
+	ledger.fullRebuilds = state.RebuildCount
+	ledger.mu.Unlock()
+	return nil
 }
 
 // FullRebuildCount is a testable proof that normal updates do not call
@@ -344,14 +410,26 @@ func (ledger *IncrementalMerkleLedger) snapshotLocked() IncrementalCommitmentSta
 		})
 	}
 	return IncrementalCommitmentState{
+		Partition:        ledger.partition,
+		BucketWidth:      ledger.bucketWidth,
 		CanonicalVersion: CanonicalVersion,
 		AlgorithmVersion: MerkleAlgorithmVersion,
 		Scope:            ledger.scope,
 		Buckets:          buckets,
+		BucketRecords:    cloneBucketRecords(ledger.buckets),
 		Levels:           cloneLevels(ledger.levels),
 		Root:             ledger.rootLocked(),
 		RecordCount:      ledger.totalRecords,
+		RebuildCount:     ledger.fullRebuilds,
 	}
+}
+
+func cloneBucketRecords(buckets []incrementalBucket) [][]CanonicalRecord {
+	clone := make([][]CanonicalRecord, len(buckets))
+	for i, bucket := range buckets {
+		clone[i] = append([]CanonicalRecord(nil), bucket.Records...)
+	}
+	return clone
 }
 
 func cloneLevels(levels [][][]byte) [][][]byte {
@@ -475,20 +553,24 @@ func scopeContains(scope Scope, instant time.Time) bool {
 // IncrementalCommitmentState is the persistence-facing derived state. It
 // contains no authoritative participant-ledger mutations.
 type IncrementalCommitmentState struct {
+	Partition        string
+	BucketWidth      time.Duration
 	CanonicalVersion string
 	AlgorithmVersion string
 	Scope            Scope
 	Buckets          []BucketCommitment
+	BucketRecords    [][]CanonicalRecord
 	Levels           [][][]byte
 	Root             []byte
 	RecordCount      int
+	RebuildCount     uint64
 }
 
 // IncrementalCommitmentStore persists the global and bucket-level derived
 // state independently from participant ledger storage.
 type IncrementalCommitmentStore interface {
 	SaveState(context.Context, IncrementalCommitmentState) error
-	LoadState(context.Context, Scope) (IncrementalCommitmentState, bool, error)
+	LoadState(context.Context, string, time.Duration, Scope) (IncrementalCommitmentState, bool, error)
 }
 
 // MemoryIncrementalCommitmentStore is a concurrency-safe development store.
@@ -513,21 +595,24 @@ func (store *MemoryIncrementalCommitmentStore) SaveState(ctx context.Context, st
 	if store.entries == nil {
 		store.entries = make(map[string]IncrementalCommitmentState)
 	}
-	store.entries[scopeKey(state.Scope)] = state
+	store.entries[commitmentStateKey(state.Partition, state.BucketWidth, state.Scope)] = state
 	store.mu.Unlock()
 	return nil
 }
 
-func (store *MemoryIncrementalCommitmentStore) LoadState(ctx context.Context, scope Scope) (IncrementalCommitmentState, bool, error) {
+func (store *MemoryIncrementalCommitmentStore) LoadState(ctx context.Context, partition string, width time.Duration, scope Scope) (IncrementalCommitmentState, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return IncrementalCommitmentState{}, false, err
+	}
+	if partition == "" || width <= 0 {
+		return IncrementalCommitmentState{}, false, fmt.Errorf("%w: partition and positive width are required", ErrInvalidIncrementalConfig)
 	}
 	scope = normalizeScope(scope)
 	if err := validateScope(scope); err != nil {
 		return IncrementalCommitmentState{}, false, err
 	}
 	store.mu.RLock()
-	state, ok := store.entries[scopeKey(scope)]
+	state, ok := store.entries[commitmentStateKey(partition, width, scope)]
 	store.mu.RUnlock()
 	if !ok {
 		return IncrementalCommitmentState{}, false, nil
@@ -535,10 +620,16 @@ func (store *MemoryIncrementalCommitmentStore) LoadState(ctx context.Context, sc
 	if err := validateIncrementalState(state); err != nil {
 		return IncrementalCommitmentState{}, false, err
 	}
+	if state.Partition != partition || state.BucketWidth != width || !scopeEqual(state.Scope, scope) {
+		return IncrementalCommitmentState{}, false, fmt.Errorf("%w: requested partition=%q width=%s, stored partition=%q width=%s", ErrIncrementalConfigMismatch, partition, width, state.Partition, state.BucketWidth)
+	}
 	return cloneIncrementalState(state), true, nil
 }
 
 func validateIncrementalState(state IncrementalCommitmentState) error {
+	if state.Partition == "" || state.BucketWidth <= 0 {
+		return fmt.Errorf("%w: persisted partition and positive bucket width are required", ErrInvalidIncrementalConfig)
+	}
 	if err := ValidateCommitmentVersions(state.CanonicalVersion, state.AlgorithmVersion); err != nil {
 		return err
 	}
@@ -548,6 +639,9 @@ func validateIncrementalState(state IncrementalCommitmentState) error {
 	}
 	if len(state.Root) != sha256.Size {
 		return errors.New("incremental commitment root must be a SHA-256 digest")
+	}
+	if len(state.BucketRecords) != len(state.Buckets) {
+		return errors.New("incremental bucket records do not match buckets")
 	}
 	if len(state.Buckets) == 0 {
 		if len(state.Levels) != 0 {
@@ -599,9 +693,13 @@ func validateIncrementalState(state IncrementalCommitmentState) error {
 		}
 	}
 	previousCount := 0
+	identities := make(map[recordIdentity]struct{}, state.RecordCount)
 	for i, bucket := range state.Buckets {
 		if err := bucket.ID.Validate(); err != nil {
 			return err
+		}
+		if bucket.ID.Partition != state.Partition || bucket.ID.Width != state.BucketWidth {
+			return fmt.Errorf("bucket %s does not match persisted partition/width", bucket.ID)
 		}
 		if len(bucket.Root) != sha256.Size || bucket.Records < 0 {
 			return fmt.Errorf("invalid commitment bucket %s", bucket.ID)
@@ -615,6 +713,34 @@ func validateIncrementalState(state IncrementalCommitmentState) error {
 		if !bucket.Metadata.Bucket.Equal(bucket.ID) || !scopeEqual(bucket.Metadata.Scope, state.Scope) || !EqualBytes(bucket.Metadata.Root, bucket.Root) || bucket.Metadata.RecordCount != bucket.Records {
 			return fmt.Errorf("bucket metadata does not match commitment %s", bucket.ID)
 		}
+		bucketRecords := state.BucketRecords[i]
+		if len(bucketRecords) != bucket.Records {
+			return fmt.Errorf("bucket %s record count does not match persisted records", bucket.ID)
+		}
+		for recordIndex, record := range bucketRecords {
+			identity := identityForRecord(record)
+			if _, exists := identities[identity]; exists {
+				return fmt.Errorf("duplicate persisted record identity in bucket %s", bucket.ID)
+			}
+			identities[identity] = struct{}{}
+			if !scopeContains(state.Scope, record.OccurredAt) {
+				return fmt.Errorf("bucket %s contains a record outside scope", bucket.ID)
+			}
+			mapped, err := BucketForRecord(record, state.Partition, state.BucketWidth)
+			if err != nil || !mapped.Equal(bucket.ID) {
+				return fmt.Errorf("bucket %s record %d maps to a different bucket", bucket.ID, recordIndex)
+			}
+			if recordIndex > 0 {
+				orderedPair := SortRecords([]CanonicalRecord{bucketRecords[recordIndex-1], record})
+				if !bytesEqualCanonical(orderedPair[0], bucketRecords[recordIndex-1]) {
+					return fmt.Errorf("bucket %s records are not canonically ordered", bucket.ID)
+				}
+			}
+		}
+		_, expectedBucketRoot, err := orderedBucketCommitment(bucketRecords)
+		if err != nil || !EqualBytes(expectedBucketRoot, bucket.Root) {
+			return fmt.Errorf("bucket %s root does not match persisted records", bucket.ID)
+		}
 		previousCount += bucket.Records
 	}
 	if previousCount != state.RecordCount {
@@ -626,6 +752,10 @@ func validateIncrementalState(state IncrementalCommitmentState) error {
 func cloneIncrementalState(state IncrementalCommitmentState) IncrementalCommitmentState {
 	clone := state
 	clone.Scope = normalizeScope(state.Scope)
+	clone.BucketRecords = make([][]CanonicalRecord, len(state.BucketRecords))
+	for i, records := range state.BucketRecords {
+		clone.BucketRecords[i] = append([]CanonicalRecord(nil), records...)
+	}
 	clone.Root = hashCopy(state.Root)
 	clone.Levels = make([][][]byte, len(state.Levels))
 	for level, nodes := range state.Levels {
@@ -647,7 +777,17 @@ func scopeEqual(left, right Scope) bool {
 	return left.From.UTC().Equal(right.From.UTC()) && left.To.UTC().Equal(right.To.UTC())
 }
 
+func bytesEqualCanonical(left, right CanonicalRecord) bool {
+	leftBytes, leftErr := CanonicalBytes(left)
+	rightBytes, rightErr := CanonicalBytes(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftBytes, rightBytes)
+}
+
 func scopeKey(scope Scope) string {
 	scope = normalizeScope(scope)
 	return scope.From.Format(time.RFC3339Nano) + "|" + scope.To.Format(time.RFC3339Nano)
+}
+
+func commitmentStateKey(partition string, width time.Duration, scope Scope) string {
+	return strconv.Itoa(len(partition)) + ":" + partition + "|" + strconv.FormatInt(int64(width), 10) + "|" + scopeKey(scope)
 }

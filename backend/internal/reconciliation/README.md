@@ -64,6 +64,16 @@ and sibling nodes are reused byte-for-byte. The returned instrumentation means:
 recovery. It is never called by normal append/upsert operations; its rebuild
 count and full-scan counters are exposed so tests can prove that separation.
 `IncrementalCommitmentStore` persists only derived ordered bucket roots,
-ancestor levels, global root, scope, versions, and counts. It does not mutate
-authoritative participant ledger state and does not claim financial transaction
-atomicity.
+ancestor levels, canonical bucket records needed to continue derived updates,
+global root, scope, logical partition, bucket width, versions, rebuild count,
+and counts. `NewIncrementalMerkleLedgerFromState` / `Restore` validate all of
+those fields, reconstruct bucket and record indexes plus the append frontier,
+and never call `Bootstrap` or mutate authoritative participant ledger state.
+State lookup is keyed by the complete `(partition, width, scope)` identity, so
+commitments cannot be silently reused across configurations.
+
+`Bootstrap` is serialized with `AppendRecord` and `UpsertRecord` by the
+ledger's operation lock. A bootstrap therefore either completes before an
+update begins or the update runs afterward; it cannot overwrite a concurrent
+committed update. This is local in-memory synchronization, not distributed
+transactionality.
