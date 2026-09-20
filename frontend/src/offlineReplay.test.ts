@@ -13,7 +13,7 @@ function payment(id: string, state: string): Payment {
 
 async function withQueue(run: (queue: OfflineIntentQueue) => Promise<void>): Promise<void> {
   const name = `transactx-replay-test-${crypto.randomUUID()}`;
-  const queue = new OfflineIntentQueue(name, indexedDBFactory);
+  const queue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
   try { await run(queue); } finally { await queue.close(); indexedDBFactory.deleteDatabase(name); }
 }
 
@@ -22,6 +22,7 @@ after(() => undefined);
 test("successful replay uses the original identities and converges to SYNCED", async () => {
   await withQueue(async (queue) => {
     const intent = await queue.enqueue({ recipient: "receiver@transactx", amountPaise: 1200, currency: "INR" }, { clientRequestId: "client-success", idempotencyKey: "idem-success", now: new Date("2026-01-01T00:00:00.000Z") });
+    assert.equal(intent.ownerUserId, "user-a");
     const calls: Array<[string, string]> = [];
     const client: ReplayClient = { createPayment: async (_payload, key, clientRequestId) => { calls.push([key, clientRequestId]); return { payment: payment("payment-success", "COMPLETED"), status: 201 }; }, getPayment: async () => payment("unused", "COMPLETED") };
     const result = await new OfflineReplayWorker(queue, client, "worker-success").run(new Date("2026-01-01T00:00:01.000Z"));
@@ -101,4 +102,48 @@ test("retry backoff is deterministic and bounded", () => {
   assert.equal(retryDelayMs(1), 30_000);
   assert.equal(retryDelayMs(2), 60_000);
   assert.equal(retryDelayMs(20), 30 * 60 * 1000);
+});
+
+test("a different user replay worker cannot claim or submit another user's intent", async () => {
+  const name = `transactx-replay-owner-${crypto.randomUUID()}`;
+  const ownerQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  const otherQueue = new OfflineIntentQueue(name, "user-b", indexedDBFactory);
+  try {
+    const intent = await ownerQueue.enqueue({ recipient: "owner@transactx", amountPaise: 100, currency: "INR" });
+    let submitted = false;
+    const client: ReplayClient = { createPayment: async () => { submitted = true; return { payment: payment("payment-owner", "COMPLETED"), status: 201 }; }, getPayment: async () => payment("unused", "COMPLETED") };
+    const result = await new OfflineReplayWorker(otherQueue, client, "worker-b").run();
+    assert.deepEqual(result, []);
+    assert.equal(submitted, false);
+    assert.equal((await ownerQueue.get(intent.clientRequestId))?.state, "QUEUED");
+  } finally { await ownerQueue.close(); await otherQueue.close(); }
+});
+
+test("a long replay renews its lease and stops the heartbeat after completion", async () => {
+  const name = `transactx-replay-heartbeat-${crypto.randomUUID()}`;
+  class CountingQueue extends OfflineIntentQueue {
+    renewals = 0;
+    override async renewLease(clientRequestId: string, leaseOwner: string, now = new Date(), leaseMilliseconds = 30_000): Promise<boolean> { this.renewals += 1; return super.renewLease(clientRequestId, leaseOwner, now, leaseMilliseconds); }
+  }
+  const firstQueue = new CountingQueue(name, "user-a", indexedDBFactory);
+  const secondQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  try {
+    const intent = await firstQueue.enqueue({ recipient: "slow@transactx", amountPaise: 100, currency: "INR" });
+    let releaseRequest!: () => void;
+    const requestReleased = new Promise<void>((resolve) => { releaseRequest = resolve; });
+    let calls = 0;
+    const client: ReplayClient = { createPayment: async () => { calls += 1; await requestReleased; return { payment: payment("payment-slow", "COMPLETED"), status: 201 }; }, getPayment: async () => payment("unused", "COMPLETED") };
+    const workerPromise = new OfflineReplayWorker(firstQueue, client, "worker-a", 30).run(new Date());
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    assert.equal(await secondQueue.claimEligible("worker-b", new Date(), 30), undefined);
+    releaseRequest();
+    await workerPromise;
+    assert.equal(calls, 1);
+    assert.ok(firstQueue.renewals > 0);
+    assert.equal((await firstQueue.get(intent.clientRequestId))?.state, "SYNCED");
+    const renewalsAfterCompletion = firstQueue.renewals;
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    assert.equal(firstQueue.renewals, renewalsAfterCompletion);
+    assert.equal((await firstQueue.get(intent.clientRequestId))?.state, "SYNCED");
+  } finally { await firstQueue.close(); await secondQueue.close(); }
 });

@@ -8,7 +8,7 @@ const indexedDBFactory = new IDBFactory();
 const payload = { recipient: " receiver@transactx ", amountPaise: 1250, currency: "inr", note: "  lunch  " };
 let queue: OfflineIntentQueue;
 
-before(() => { queue = new OfflineIntentQueue(databaseName, indexedDBFactory); });
+before(() => { queue = new OfflineIntentQueue(databaseName, "user-a", indexedDBFactory); });
 after(async () => { await queue.close(); indexedDBFactory.deleteDatabase(databaseName); });
 
 test("normalizes payloads and produces deterministic hashes", async () => {
@@ -20,7 +20,7 @@ test("normalizes payloads and produces deterministic hashes", async () => {
 test("enqueue persists an intent and preserves generated identities after reopening", async () => {
   const intent = await queue.enqueue(payload, { now: new Date("2026-01-01T00:00:00.000Z") });
   await queue.close();
-  queue = new OfflineIntentQueue(databaseName, indexedDBFactory);
+  queue = new OfflineIntentQueue(databaseName, "user-a", indexedDBFactory);
   const reopened = await queue.get(intent.clientRequestId);
   assert.ok(reopened);
   if (!reopened) throw new Error("expected persisted intent");
@@ -37,7 +37,8 @@ test("schema version and indexes are explicit", async () => {
   });
   const store = database.transaction("offline-intents", "readonly").objectStore("offline-intents");
   assert.equal(database.version, OFFLINE_QUEUE_VERSION);
-  assert.deepEqual([...store.indexNames].sort(), ["idempotencyKey", "nextAttemptAt", "state", "updatedAt"]);
+  assert.equal(database.version, OFFLINE_QUEUE_VERSION);
+  assert.deepEqual([...store.indexNames].sort(), ["idempotencyKey", "nextAttemptAt", "ownerUserId", "state", "updatedAt"]);
   database.close();
 });
 
@@ -75,7 +76,7 @@ test("duplicate idempotency keys are rejected without changing the original inte
 
 test("expired syncing leases are reclaimable but active leases cannot be stolen", async () => {
   const leaseQueueName = `transactx-lease-test-${crypto.randomUUID()}`;
-  const leaseQueue = new OfflineIntentQueue(leaseQueueName, indexedDBFactory);
+  const leaseQueue = new OfflineIntentQueue(leaseQueueName, "user-a", indexedDBFactory);
   try {
     const intent = await leaseQueue.enqueue({ recipient: "claim@transactx", amountPaise: 900, currency: "INR" });
     const initialTime = new Date("2026-01-03T00:00:00.000Z");
@@ -99,7 +100,7 @@ test("expired syncing leases are reclaimable but active leases cannot be stolen"
 
 test("public queue operations complete and persist their results", async () => {
   const operationQueueName = `transactx-operation-test-${crypto.randomUUID()}`;
-  const operationQueue = new OfflineIntentQueue(operationQueueName, indexedDBFactory);
+  const operationQueue = new OfflineIntentQueue(operationQueueName, "user-a", indexedDBFactory);
   try {
     const intent = await operationQueue.enqueue({ recipient: "operations@transactx", amountPaise: 1_100, currency: "INR" });
     const syncing = await operationQueue.updateState(intent.clientRequestId, "SYNCING");
@@ -116,4 +117,69 @@ test("public queue operations complete and persist their results", async () => {
     await operationQueue.close();
     indexedDBFactory.deleteDatabase(operationQueueName);
   }
+});
+
+test("queue ownership prevents cross-user reads, claims, retries, and deletion", async () => {
+  const name = `transactx-owner-${crypto.randomUUID()}`;
+  const ownerQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  const otherQueue = new OfflineIntentQueue(name, "user-b", indexedDBFactory);
+  try {
+    const intent = await ownerQueue.enqueue({ recipient: "owner@transactx", amountPaise: 100, currency: "INR" });
+    assert.equal(await otherQueue.get(intent.clientRequestId), undefined);
+    assert.equal((await otherQueue.listByState("QUEUED")).length, 0);
+    assert.equal(await otherQueue.claimEligible("worker-b"), undefined);
+    await ownerQueue.updateState(intent.clientRequestId, "FAILED");
+    await assert.rejects(() => otherQueue.retryFailed(intent.clientRequestId));
+    await ownerQueue.updateState(intent.clientRequestId, "RETRYABLE");
+    await ownerQueue.updateState(intent.clientRequestId, "SYNCING");
+    await ownerQueue.updateState(intent.clientRequestId, "SYNCED");
+    await assert.rejects(() => otherQueue.removeIntent(intent.clientRequestId));
+    assert.ok(await ownerQueue.get(intent.clientRequestId));
+  } finally {
+    await ownerQueue.close();
+    await otherQueue.close();
+  }
+});
+
+test("v1 ownerless intents survive v2 upgrade but are never visible or eligible", async () => {
+  const name = `transactx-legacy-${crypto.randomUUID()}`;
+  const legacyDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDBFactory.open(name, 1);
+    request.onupgradeneeded = () => {
+      const store = request.result.createObjectStore("offline-intents", { keyPath: "clientRequestId" });
+      store.createIndex("state", "state", { unique: false });
+      store.createIndex("updatedAt", "updatedAt", { unique: false });
+      store.createIndex("nextAttemptAt", "retry.nextAttemptAt", { unique: false });
+      store.createIndex("idempotencyKey", "idempotencyKey", { unique: true });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const legacyIntent = { clientRequestId: "legacy-client", idempotencyKey: "legacy-idem", payload: { recipient: "legacy@transactx", amountPaise: 100, currency: "INR" }, payloadHash: "legacy-hash", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), retry: { attemptCount: 0 }, state: "QUEUED" };
+  await new Promise<void>((resolve, reject) => { const transaction = legacyDatabase.transaction("offline-intents", "readwrite"); transaction.objectStore("offline-intents").add(legacyIntent); transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); });
+  legacyDatabase.close();
+  const queue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  try {
+    assert.equal(await queue.get("legacy-client"), undefined);
+    assert.equal((await queue.listEligible()).length, 0);
+    assert.equal(await queue.claimEligible("worker-a"), undefined);
+    const upgraded = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDBFactory.open(name); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    assert.equal(upgraded.version, OFFLINE_QUEUE_VERSION);
+    assert.ok(await new Promise((resolve, reject) => { const request = upgraded.transaction("offline-intents", "readonly").objectStore("offline-intents").get("legacy-client"); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }));
+    upgraded.close();
+  } finally { await queue.close(); indexedDBFactory.deleteDatabase(name); }
+});
+
+test("leases renew only for the owner and active leases remain protected", async () => {
+  const name = `transactx-lease-renew-${crypto.randomUUID()}`;
+  const ownerQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  const otherQueue = new OfflineIntentQueue(name, "user-a", indexedDBFactory);
+  try {
+    const intent = await ownerQueue.enqueue({ recipient: "lease@transactx", amountPaise: 100, currency: "INR" }, { now: new Date("2026-01-01T00:00:00.000Z") });
+    await ownerQueue.claimEligible("worker-a", new Date("2026-01-01T00:00:00.000Z"), 1_000);
+    assert.equal(await ownerQueue.renewLease(intent.clientRequestId, "worker-a", new Date("2026-01-01T00:00:00.500Z"), 1_000), true);
+    assert.equal(await otherQueue.renewLease(intent.clientRequestId, "worker-b", new Date("2026-01-01T00:00:00.600Z"), 1_000), false);
+    assert.equal(await otherQueue.claimEligible("worker-b", new Date("2026-01-01T00:00:01.400Z")), undefined);
+    assert.equal((await ownerQueue.get(intent.clientRequestId))?.leaseOwner, "worker-a");
+  } finally { await ownerQueue.close(); await otherQueue.close(); }
 });

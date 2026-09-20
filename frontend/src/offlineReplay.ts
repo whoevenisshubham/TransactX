@@ -40,8 +40,13 @@ function isRetryableError(error: unknown): boolean {
 
 export class OfflineReplayWorker {
   private running: Promise<ReplayResult[]> | null = null;
+  private stopped = false;
 
-  constructor(private readonly queue: OfflineIntentQueue, private readonly client: ReplayClient, private readonly owner = `replay-worker-${crypto.randomUUID()}`) {}
+  constructor(private readonly queue: OfflineIntentQueue, private readonly client: ReplayClient, private readonly owner = `replay-worker-${crypto.randomUUID()}`, private readonly leaseMilliseconds = 30_000) {}
+
+  stop(): void {
+    this.stopped = true;
+  }
 
   run(now = new Date()): Promise<ReplayResult[]> {
     if (!this.running) this.running = this.replayAll(now).finally(() => { this.running = null; });
@@ -51,7 +56,8 @@ export class OfflineReplayWorker {
   private async replayAll(now: Date): Promise<ReplayResult[]> {
     const results: ReplayResult[] = [];
     while (true) {
-      const intent = await this.queue.claimEligible(this.owner, now);
+      if (this.stopped) return results;
+      const intent = await this.queue.claimEligible(this.owner, now, this.leaseMilliseconds);
       if (!intent) return results;
       results.push(await this.replayOne(intent, now));
     }
@@ -60,7 +66,7 @@ export class OfflineReplayWorker {
   private async replayOne(intent: OfflineIntent, now: Date): Promise<ReplayResult> {
     if (intent.replay?.paymentId) {
       try {
-        const payment = await this.client.getPayment(intent.replay.paymentId);
+        const payment = await this.withLeaseHeartbeat(intent, () => this.client.getPayment(intent.replay!.paymentId!));
         return this.persistPayment(intent, payment, 200, now);
       } catch (error) {
         return this.persistFailureOrRetry(intent, error, now);
@@ -68,9 +74,11 @@ export class OfflineReplayWorker {
     }
 
     try {
-      const response = await this.client.createPayment(intent.payload, intent.idempotencyKey, intent.clientRequestId);
+      const response = await this.withLeaseHeartbeat(intent, () => this.client.createPayment(intent.payload, intent.idempotencyKey, intent.clientRequestId));
       return this.persistPayment(intent, response.payment, response.status, now);
     } catch (error) {
+      if (error instanceof Error && error.message === "offline replay lease was lost") return { clientRequestId: intent.clientRequestId, state: "SYNCING", outcome: "PENDING" };
+      if (error instanceof Error && error.message === "offline replay lease was lost") return { clientRequestId: intent.clientRequestId, state: "SYNCING", outcome: "PENDING" };
       return this.persistFailureOrRetry(intent, error, now);
     }
   }
@@ -78,14 +86,14 @@ export class OfflineReplayWorker {
   private async persistPayment(intent: OfflineIntent, payment: Payment, status: number, now: Date): Promise<ReplayResult> {
     const metadata: ReplayMetadata = { paymentId: payment.id, paymentState: payment.state, lastHttpStatus: status };
     if (paymentIsSuccessful(payment) && status !== 202) {
-      const updated = await this.queue.recordSynced(intent.clientRequestId, metadata, now);
+      const updated = await this.queue.recordSynced(intent.clientRequestId, metadata, now, this.owner);
       return { clientRequestId: updated.clientRequestId, state: updated.state, outcome: "SYNCED" };
     }
     if (paymentIsFinal(payment) && !paymentIsSuccessful(payment)) {
-      const updated = await this.queue.recordFailure(intent.clientRequestId, payment.failureReason ?? "The authoritative payment was not completed", metadata, now);
+      const updated = await this.queue.recordFailure(intent.clientRequestId, payment.failureReason ?? "The authoritative payment was not completed", metadata, now, this.owner);
       return { clientRequestId: updated.clientRequestId, state: updated.state, outcome: "FAILED" };
     }
-    const updated = await this.queue.recordPending(intent.clientRequestId, metadata, undefined, new Date(now.getTime() + retryDelayMs(intent.retry.attemptCount + 1)), now);
+    const updated = await this.queue.recordPending(intent.clientRequestId, metadata, undefined, new Date(now.getTime() + retryDelayMs(intent.retry.attemptCount + 1)), now, this.owner);
     return { clientRequestId: updated.clientRequestId, state: updated.state, outcome: "PENDING" };
   }
 
@@ -93,11 +101,26 @@ export class OfflineReplayWorker {
     const message = errorMessage(error);
     if (isRetryableError(error)) {
       const updated = error instanceof Error && (error as Partial<ApiError>).status === 0
-        ? await this.queue.recordPending(intent.clientRequestId, {}, message, new Date(now.getTime() + retryDelayMs(intent.retry.attemptCount + 1)), now)
-        : await this.queue.recordRetry(intent.clientRequestId, message, new Date(now.getTime() + retryDelayMs(intent.retry.attemptCount + 1)), now);
+        ? await this.queue.recordPending(intent.clientRequestId, {}, message, new Date(now.getTime() + retryDelayMs(intent.retry.attemptCount + 1)), now, this.owner)
+        : await this.queue.recordRetry(intent.clientRequestId, message, new Date(now.getTime() + retryDelayMs(intent.retry.attemptCount + 1)), now, {}, this.owner);
       return { clientRequestId: updated.clientRequestId, state: updated.state, outcome: error instanceof Error && (error as Partial<ApiError>).status === 0 ? "PENDING" : "RETRYABLE" };
     }
-    const updated = await this.queue.recordFailure(intent.clientRequestId, message, {}, now);
+    const updated = await this.queue.recordFailure(intent.clientRequestId, message, {}, now, this.owner);
     return { clientRequestId: updated.clientRequestId, state: updated.state, outcome: "FAILED" };
+  }
+
+  private async withLeaseHeartbeat<T>(intent: OfflineIntent, operation: () => Promise<T>): Promise<T> {
+    const intervalMilliseconds = Math.max(1, Math.floor(this.leaseMilliseconds / 3));
+    let lost = false;
+    const heartbeat = setInterval(() => {
+      void this.queue.renewLease(intent.clientRequestId, this.owner, new Date(), this.leaseMilliseconds).then((renewed) => { if (!renewed) lost = true; }).catch(() => { lost = true; });
+    }, intervalMilliseconds);
+    try {
+      const result = await operation();
+      if (this.stopped || lost) throw new Error("offline replay lease was lost");
+      return result;
+    } finally {
+      clearInterval(heartbeat);
+    }
   }
 }
