@@ -11,6 +11,7 @@ import (
 
 var ErrNotFound = errors.New("account not found")
 var ErrInsufficientFunds = errors.New("insufficient funds")
+var ErrAmbiguousPrimary = errors.New("multiple active primary accounts")
 
 type Repository struct{ db *pgxpool.Pool }
 
@@ -65,6 +66,32 @@ func (repository *Repository) ListOwned(ctx context.Context, userID uuid.UUID) (
 
 func (repository *Repository) GetOwned(ctx context.Context, userID, accountID uuid.UUID) (Account, error) {
 	return scanAccount(repository.db.QueryRow(ctx, `SELECT `+accountColumns+` FROM accounts WHERE id = $1 AND user_id = $2`, accountID, userID))
+}
+
+func (repository *Repository) GetPrimaryOwned(ctx context.Context, userID uuid.UUID) (Account, error) {
+	rows, err := repository.db.Query(ctx, `SELECT `+accountColumns+` FROM accounts WHERE user_id = $1 AND status = 'ACTIVE' ORDER BY created_at ASC, id ASC LIMIT 2`, userID)
+	if err != nil {
+		return Account{}, err
+	}
+	defer rows.Close()
+	var result []Account
+	for rows.Next() {
+		account, scanErr := scanAccount(rows)
+		if scanErr != nil {
+			return Account{}, scanErr
+		}
+		result = append(result, account)
+	}
+	if err := rows.Err(); err != nil {
+		return Account{}, err
+	}
+	if len(result) == 0 {
+		return Account{}, ErrNotFound
+	}
+	if len(result) > 1 {
+		return Account{}, ErrAmbiguousPrimary
+	}
+	return result[0], nil
 }
 
 func scanAccount(row pgx.Row) (Account, error) {

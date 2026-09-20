@@ -40,6 +40,8 @@ type Payment struct {
 	ReceiverAccountID        uuid.UUID  `json:"receiverAccountId"`
 	AmountPaise              int64      `json:"amountPaise"`
 	Currency                 string     `json:"currency"`
+	Note                     *string    `json:"note,omitempty"`
+	Origin                   string     `json:"origin"`
 	State                    string     `json:"state"`
 	RouteBankID              *uuid.UUID `json:"routeBankId,omitempty"`
 	FailureReason            *string    `json:"failureReason,omitempty"`
@@ -50,6 +52,30 @@ type Payment struct {
 	DestinationBankID        *uuid.UUID `json:"destinationBankId,omitempty"`
 	SourceBankAccountID      *uuid.UUID `json:"sourceBankAccountId,omitempty"`
 	DestinationBankAccountID *uuid.UUID `json:"destinationBankAccountId,omitempty"`
+}
+
+// CustomerPayment is the deliberately small, customer-facing payment view.
+// Internal bank-operation and routing fields stay behind the API boundary.
+type CustomerPayment struct {
+	ID                  uuid.UUID  `json:"id"`
+	AmountPaise         int64      `json:"amountPaise"`
+	Currency            string     `json:"currency"`
+	Note                *string    `json:"note,omitempty"`
+	Origin              string     `json:"origin"`
+	State               string     `json:"state"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	CompletedAt         *time.Time `json:"completedAt,omitempty"`
+	FailureReason       *string    `json:"failureReason,omitempty"`
+	SenderName          string     `json:"senderName"`
+	SenderPaymentID     string     `json:"senderPaymentIdentifier"`
+	ReceiverName        string     `json:"receiverName"`
+	ReceiverPaymentID   string     `json:"receiverPaymentIdentifier"`
+	Direction           string     `json:"direction"`
+	SourceBankName      *string    `json:"sourceBankName,omitempty"`
+	SourceBankCode      *string    `json:"sourceBankCode,omitempty"`
+	DestinationBankName *string    `json:"destinationBankName,omitempty"`
+	DestinationBankCode *string    `json:"destinationBankCode,omitempty"`
+	DurationMs          *int64     `json:"durationMs,omitempty"`
 }
 
 var validTransitions = map[string]map[string]bool{
@@ -83,7 +109,8 @@ var validTransitions = map[string]map[string]bool{
 		StateCompleted: true,
 	},
 	StatePendingReconciliation: {
-		StateCompleted: true,
+		StateCommitted: true,
+		StateFailed:    true,
 		StateReversed:  true,
 	},
 	StateOfflineCaptured: {

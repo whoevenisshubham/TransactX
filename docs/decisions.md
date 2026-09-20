@@ -33,7 +33,7 @@ Status: **IMPLEMENTED**
 
 Status: **IMPLEMENTED**
 
-Idempotency storage uniqueness is enforced by `(user_id, key)`. M1-3B hashes the canonical logical request fields (source account, normalized recipient identifier, amount in paise, and currency), creates the payment and idempotency record in one PostgreSQL transaction, returns the original payment for an exact retry, and returns `409 Conflict` for a different hash. The database uniqueness constraint resolves concurrent duplicate requests.
+Idempotency storage uniqueness is enforced by `(user_id, key)`. The canonical logical request includes the server-selected source account, normalized recipient identifier, integer paise amount, currency, and optional note. Exact retries replay the original payment; a different payload returns `409 Conflict`. Routed operation IDs are deterministic per payment and logical bank step, and a concurrent idempotency winner is recovered from the durable record before any bank call is repeated.
 
 ## ADR-007: Phase 1B Authentication
 
@@ -59,9 +59,9 @@ M1-3B's intent boundary was completed by M1-3C: new valid requests now settle sy
 
 Status: **IMPLEMENTED**
 
-`POST /api/payments` performs synchronous settlement for a new valid payment in one PostgreSQL transaction. The transaction inserts the payment, debits the active sender only when sufficient funds exist, credits the active receiver, creates one ledger transaction with one debit and one credit entry, transitions the payment through the centralized state machine to `COMPLETED`, and inserts the idempotency record. Any error rolls back all monetary and payment state. `accounts.opening_balance_paise` preserves the baseline needed for balance reconstruction; registration and development provisioning continue to initialize it to zero.
+`POST /api/payments` performs synchronous settlement for a new valid payment in one PostgreSQL transaction when no matching bank adapters are configured for both participant banks. The transaction inserts the payment, debits the active sender only when sufficient funds exist, credits the active receiver, creates one ledger transaction with one debit and one credit entry, transitions the payment through the centralized state machine to `COMPLETED`, and inserts the idempotency record. Any error rolls back all monetary and payment state. `accounts.opening_balance_paise` preserves the baseline needed for balance reconstruction; registration and development provisioning continue to initialize it to zero.
 
-M1-3C uses the explicit `CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED` path. `LOCAL_SETTLEMENT` identifies authoritative local PostgreSQL settlement without claiming that a bank route was selected or that bank processing occurred. The existing `ROUTING -> PROCESSING` path remains available for future BankAdapter-backed flows.
+M1-3C uses the explicit `CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED` path. `LOCAL_SETTLEMENT` identifies authoritative local PostgreSQL settlement without claiming that a bank route was selected. When both source and destination bank IDs have configured adapters, the payment uses the routed saga (`ROUTING -> PROCESSING`) instead.
 
 ## ADR-011: M1-3D Concurrency Verification
 
@@ -73,9 +73,13 @@ M1-3D keeps the existing conditional account debit update as the concurrency con
 
 Status: **IMPLEMENTED**
 
-M1-4 adds `backend/internal/bank.BankAdapter` as an injected domain-only boundary for future bank participants. The contract covers account validation, debit, credit, and health, and uses typed results plus error codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and later status or reconciliation mechanisms.
+M1-4 freezes `backend/internal/bank.BankAdapter` as the injected domain-only boundary for bank participants. The contract covers:
 
-The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD`; raw debit is retained only as a legacy primitive and is not part of routed execution. Operation status lookup is part of the frozen contract.
+`GetHealth`, `ResolveAccount`, `HoldFunds`, `ProvisionalCredit`, `ConfirmHold`, `ReleaseHold`, `ReverseProvisionalCredit`, `GetOperationStatus`, `GetLedgerSnapshot`.
+
+Typed results and error codes cover insufficient funds, invalid or inactive accounts, bank unavailability, transient failures, and permanent business failures. Operation results carry payment and bank-operation correlation metadata. `PENDING` explicitly means the operation outcome is unknown or unresolved; it may have been accepted or committed, so the payment layer must not blindly repeat it before using correlation metadata and `GetOperationStatus`.
+
+The adapter does not expose SQL, PostgreSQL transactions, or HTTP types. Routed orchestration uses `HOLD -> PROVISIONAL_CREDIT -> CONFIRM_HOLD -> finalize credit`; raw debit/credit helpers may remain for compatibility tests but are not the routed protocol. Operation results must correlate to the requested payment and operation IDs; unknown or malformed statuses remain pending and never count as success. Bank HTTP errors use typed safe codes/messages.
 
 ## ADR-013: M1-5 Simulated Bank A
 
@@ -102,3 +106,43 @@ An adapter timeout or lost response is not treated as proof of failure. A duplic
 Status: **IMPLEMENTED**
 
 Bank A owns its accounts, balances, operation records, and ledger entries. Bank operation idempotency validates payment, operation identity, idempotency key, operation type, account, amount, currency, and related operation IDs. A retry with a conflicting payload is rejected.
+
+## ADR-017: M3-1 Canonical Reconciliation Record
+
+Status: **IMPLEMENTED**
+
+M3-1 freezes canonical reconciliation records at version `v1`. A canonical
+record contains exactly these logical fields, in this serialization order:
+
+1. operation UUID
+2. payment UUID
+3. account UUID
+4. entry type
+5. signed integer amount in paise
+6. currency
+7. occurred-at timestamp
+
+The serializer emits the ASCII header `TXCANON|v1`, followed by each field as
+a uint32 big-endian byte length and UTF-8 bytes. UUIDs use their standard
+lowercase string form. Amounts use base-10 `int64` text with no padding or
+floating-point representation. Currency and entry type are preserved as the
+logical participant values, including case; no locale or implicit formatting
+is applied. Timestamps are converted to UTC and formatted with
+`time.RFC3339Nano`.
+
+Leaf hashing is domain-separated and exact:
+
+`SHA-256("TXLEAF|v1|" || canonical_bytes)`
+
+Before future Merkle construction, records are ordered by UTC occurrence time,
+operation UUID, entry type, account UUID, payment UUID, amount, and currency.
+This total logical ordering does not use database row IDs or other physical
+storage metadata. Snapshot IDs, snapshot capture timestamps, and physical row
+IDs are excluded from canonical content and cannot affect a leaf hash.
+
+Bank participants must produce byte-for-byte identical canonical bytes and leaf
+hashes for logically identical records, regardless of participant, database,
+snapshot, or time-zone representation. Any incompatible change to fields,
+ordering, encoding, normalization, or the domain separator requires a new
+canonical version and an explicit compatibility decision; version `v1` remains
+readable and verifiable for existing commitments.

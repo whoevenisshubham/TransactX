@@ -7,7 +7,7 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 ## Current repository checkpoint
 
-The current branch completes the Member-1 routed-payment checkpoint (M1-6): durable Bank A, the frozen adapter contract, routed saga persistence, operation status, compensation, and deterministic pending recovery. The roadmap's later **Phase 6 — Offline-First Client & Safe Replay** remains intentionally unchecked; it is a separate later project phase and is outside this takeover's exit scope.
+The current branch completes the Member-1 routed-payment checkpoint and the customer payment frontend/API hardening: durable bank operation identity, routed saga persistence, operation status, compensation, deterministic pending recovery, safe customer DTOs, exact paise input, notes, incoming/outgoing history, and rendered responsive screens. The roadmap's later **Phase 6 — Offline-First Client & Safe Replay** remains intentionally unchecked and is outside this takeover's exit scope.
 
 \[ ] Work strictly in phase order unless a dependency explicitly allows parallel work.
 \[ ] Tick an item only when it is implemented, tested, and verified — not merely coded.
@@ -64,10 +64,10 @@ Duration: Week 2   Objective: Make the application usable before adding complex 
 \[ ] M1 — Implement server-side role authorization.
 \[ ] M1 — Implement user profile and payment-identifier resolution.
 \[ ] M1 — Implement account lookup and balance read.
-\[ ] M1 — Build login screen.
-\[ ] M1 — Build registration screen.
-\[ ] M1 — Build customer home screen.
-\[ ] M1 — Build customer navigation shell.
+\[x] M1 — Build login screen.
+\[x] M1 — Build registration screen.
+\[x] M1 — Build customer home screen.
+\[x] M1 — Build customer navigation shell.
 \[ ] M2 — Build merchant navigation shell and merchant identity flow.
 \[ ] M3 — Build initial network-console shell with placeholder states only.
 \[ ] ALL — Add unit and integration tests for authentication and authorization.
@@ -91,12 +91,12 @@ Duration: Week 3   Objective: Implement the financially correct heart of Transac
 \[x] M1 — Add database transaction boundaries.
 \[x] M1 — Add row locking / equivalent concurrency control.
 \[x] M1 — Add payment service tests.
-\[ ] M1 — Build pay form.
-\[ ] M1 — Build confirm-payment screen.
-\[ ] M1 — Build processing screen.
-\[ ] M1 — Build success/failure state screens.
-\[ ] M1 — Build transaction-details screen.
-\[ ] M1 — Build transaction-history screen.
+\[x] M1 — Build pay form.
+\[x] M1 — Build confirm-payment screen.
+\[x] M1 — Build processing screen.
+\[x] M1 — Build success/failure state screens.
+\[x] M1 — Build transaction-details screen.
+\[x] M1 — Build transaction-history screen.
 \[ ] ALL — Manually review every line of the payment/ledger/idempotency critical path.
 \[x] ALL — Run duplicate-request tests.
 \[x] ALL — Run same-key/different-payload conflict tests.
@@ -109,7 +109,7 @@ PHASE EXIT GATE: Normal payments are correct under retries and concurrency; no n
 Duration: Week 4   Objective: Introduce actual independent simulated bank participants and routing boundaries.
 
 \[x] M2 — Implement Bank A service.
-\[ ] M2 — Implement Bank B service.
+\[x] M2 — Implement Bank B service.
 \[x] M2 — Implement bank account lookup.
 \[x] M2 — Implement bank debit operation.
 \[x] M2 — Implement bank credit operation.
@@ -262,14 +262,14 @@ Duration: Week 10–11   Objective: Complete the application so it feels like a 
 \[ ] M2 — Build incoming-payment feed.
 \[ ] M2 — Build settlement-status view.
 \[ ] M2 — Build merchant transaction search.
-\[ ] M1 — Add customer scan/pay flow.
-\[ ] M1 — Improve customer transaction timeline.
-\[ ] M1 — Add loading, success, failure, and empty states.
-\[ ] ALL — Make customer and merchant surfaces visually consistent.
+\[x] M1 — Add customer scan/pay flow.
+\[x] M1 — Improve customer transaction timeline.
+\[x] M1 — Add loading, success, failure, pending, and empty states.
+\[x] ALL — Make customer and merchant surfaces visually consistent.
 \[ ] ALL — Make Network Console visually distinct from the consumer product.
 \[ ] ALL — Remove placeholder text and dead routes.
-\[ ] ALL — Verify responsive behavior at common desktop/mobile widths.
-\[ ] ALL — Add meaningful error messages that do not leak internal details.
+\[x] ALL — Verify responsive behavior at common desktop/mobile widths.
+\[x] ALL — Add meaningful error messages that do not leak internal details.
 \[ ] ALL — Add demo seed/reset controls outside the customer experience.
 PHASE EXIT GATE: Customer, merchant, and network-console journeys are all usable end-to-end and no major screen is visibly unfinished.
 
@@ -394,4 +394,3 @@ PHASE EXIT GATE: Fresh-clone build passes, critical tests pass, benchmark eviden
 |M2|Resilience|Offline queue, bank adapters, health, routing, circuit breaker, chaos, merchant frontend|
 |M3|Research / Console|Merkle engine, reconciliation, integrity, benchmarks, network console|
 |ALL|Shared|Architecture, reviews, integration, testing, documentation, paper, demo|
-

@@ -4,15 +4,16 @@ TransactX is a simulated payment infrastructure research prototype. It does not 
 
 ## Current status
 
-Implemented through the routed Phase-6 boundary:
+Implemented through the current routed-payment milestone:
 
 - Go HTTP API, React + TypeScript frontend shell, JWT authentication, accounts, recipients, and user-scoped idempotency.
 - Atomic local PostgreSQL settlement with integer paise, double-entry ledger entries, and concurrency protection.
-- A typed `BankAdapter` contract and durable Bank A process with its own PostgreSQL schema, HTTP boundary, holds, provisional/final credits, operation status, ledger, and restart-safe operation identity.
+- A typed `BankAdapter` contract and durable Bank A/Bank B participant processes with independent PostgreSQL schemas, HTTP boundaries, holds, provisional/final credits, operation status, ledgers, and restart-safe operation identity.
 - Routed saga persistence for source/destination bank identity and bank operations, deterministic retries, compensation, pending-operation recovery, and central-only recovery after bank settlement.
+- Customer payment frontend and API contract: exact decimal-to-paise input, stable idempotency attempts, safe account/payment DTOs, notes, incoming/outgoing history, explicit pending status checks, and transaction details.
 - Unit, PostgreSQL-backed integration, and race-detector coverage for the critical payment and bank paths.
 
-Phase-7 routing intelligence, circuit breakers, Bank B, Merkle reconciliation, chaos orchestration, and offline queue UX remain future work.
+Adaptive routing, circuit breakers, Merkle reconciliation, chaos orchestration, and offline queue UX remain future work.
 
 ## Local development
 
@@ -32,9 +33,11 @@ psql $env:DATABASE_URL -f backend/migrations/000003_local_settlement_state.up.sq
 psql $env:DATABASE_URL -f backend/migrations/000004_m1_6_routed_payment_boundary.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000005_m1_6_account_identity_hardening.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000006_m1_6_bank_operation_identity.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000007_phase4_bank_b.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000008_m1_customer_payment_contract.up.sql
 ```
 
-Start Bank A and the API in separate terminals. `BANK_A_DATABASE_URL` may point to the same PostgreSQL server because the participant uses the separate `bank_a` schema.
+Start Bank A, Bank B, and the API in separate terminals. Both participants may use the same PostgreSQL server because they use separate `bank_a` and `bank_b` schemas.
 
 ```powershell
 cd backend
@@ -46,10 +49,18 @@ go run ./cmd/bank-a
 
 ```powershell
 cd backend
+$env:BANK_B_DATABASE_URL = $env:DATABASE_URL
+$env:BANK_B_ADDR = ":8082"
+go run ./cmd/bank-b
+```
+
+```powershell
+cd backend
 $env:DATABASE_URL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
 $env:JWT_SECRET = "replace-with-at-least-32-random-bytes"
-$env:DEFAULT_BANK_CODE = "BANK-DEV"
+$env:DEFAULT_BANK_CODE = "BANK-DEV-001"
 $env:BANK_A_URL = "http://localhost:8081"
+$env:BANK_B_URL = "http://localhost:8082"
 go run ./cmd/api
 ```
 
@@ -62,10 +73,11 @@ npm run dev
 ```
 
 For development seed data, set `APP_DEVELOPMENT=true` and `DEV_ADMIN_PASSWORD`, then run `go run ./cmd/devseed` from `backend`.
+Normal API runs default to `APP_DEVELOPMENT=false`; enable development provisioning explicitly only when running the seed command.
 
 ## Design boundaries
 
 - Central PostgreSQL owns payment state, idempotency, central accounts, central ledger, and recovery state.
-- Bank A owns participant accounts, balances, holds, operations, participant ledger records, and operation status.
+- Bank A and Bank B independently own participant accounts, balances, holds, operations, participant ledger records, and operation status.
 - Routed settlement is a durable saga, not a distributed ACID transaction. Unknown outcomes are resolved with the original operation ID; unresolved effects stay pending reconciliation.
 - Monetary values are integer paise (`BIGINT`). Docker, Redis, Kafka, Kubernetes, real banking integrations, AI/ML, blockchain, and real-money movement are intentionally excluded.

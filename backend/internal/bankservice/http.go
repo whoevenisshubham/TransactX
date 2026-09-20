@@ -106,7 +106,7 @@ func decode(writer http.ResponseWriter, request *http.Request, target any) bool 
 
 func writeResult(writer http.ResponseWriter, result any, err error) {
 	if err != nil {
-		writeError(writer, statusForError(err), err.Error())
+		writeAdapterError(writer, statusForError(err), err)
 		return
 	}
 	writer.Header().Set("Content-Type", "application/json")
@@ -115,9 +115,21 @@ func writeResult(writer http.ResponseWriter, result any, err error) {
 }
 
 func writeError(writer http.ResponseWriter, status int, message string) {
+	writeAdapterError(writer, status, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: message})
+}
+
+func writeAdapterError(writer http.ResponseWriter, status int, err error) {
+	code := bank.ErrCodeTransientFailure
+	message := "bank operation could not be completed"
+	if adapterErr, ok := err.(*bank.AdapterError); ok {
+		code = adapterErr.Code
+		if adapterErr.Message != "" {
+			message = adapterErr.Message
+		}
+	}
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(status)
-	_ = json.NewEncoder(writer).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(writer).Encode(map[string]any{"error": map[string]string{"code": string(code), "message": message}})
 }
 
 func statusForError(err error) int {

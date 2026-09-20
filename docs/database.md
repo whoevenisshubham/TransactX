@@ -2,11 +2,11 @@
 
 ## Ownership
 
-The central database and Bank A schema are separate authority domains even when they run on the same local PostgreSQL server.
+The central database and Bank A/Bank B schemas are separate authority domains even when they run on the same local PostgreSQL server.
 
 Central PostgreSQL owns `users`, `banks`, central `accounts`, `payments`, `idempotency_records`, `ledger_transactions`, `ledger_entries`, and `payment_bank_operations`. Central `accounts.bank_account_id` maps a logical central account to its participant account; existing rows are backfilled to the same UUID for compatibility.
 
-Bank A owns `bank_a.accounts`, `bank_a.operations`, and `bank_a.ledger_entries`. Participant balances are never updated by the central ledger transaction. Bank-side operation records contain bank ID, payment ID, stable operation ID, idempotency key, operation type, participant account ID, amount, currency, related operation IDs, status, and bank reference.
+Each participant owns its own `accounts`, `operations`, and `ledger_entries` tables in its schema. Participant balances are never updated by the central ledger transaction. Bank-side operation records contain bank ID, payment ID, stable operation ID, idempotency key, operation type, participant account ID, amount, currency, related operation IDs, status, and bank reference.
 
 ## Migrations
 
@@ -18,6 +18,9 @@ Apply the explicit SQL migrations in order:
 4. `000004_m1_6_routed_payment_boundary` — route identity, central operation tracking, and Bank A schema.
 5. `000005_m1_6_account_identity_hardening` — participant account mapping and operation tracking payload fields.
 6. `000006_m1_6_bank_operation_identity` — explicit Bank A identity on every durable operation row.
+7. `000007_phase4_bank_b` — independent Bank B participant schema with the same durable boundary.
+
+8. `000008_m1_customer_payment_contract` — payment note/origin fields, history lookup index, and customer contract support.
 
 The API and Bank A process do not run migrations automatically at startup.
 
@@ -28,8 +31,9 @@ The API and Bank A process do not run migrations automatically at startup.
 - A completed central transfer has one debit and one credit for the same amount.
 - A provisional Bank A credit is durable and ledger-visible but does not change spendable balance. Finalization adds the spendable balance; reversal is a separate durable compensation operation.
 - Idempotency is scoped to `(user_id, key)` centrally and to `(operation_id, idempotency_key)` at Bank A. Equivalent retries replay the original result; payload conflicts are rejected.
+- Customer payment history is scoped to payments where the authenticated customer owns either side of the transfer; the API derives explicit `SENT`/`RECEIVED` direction and does not expose internal account, bank, or operation identifiers. Notes are limited to 280 characters and are included in the idempotency request hash.
 - Central settlement is atomic within central PostgreSQL. Bank calls and central settlement are separate commits coordinated by the durable saga.
 
 ## Deterministic participant ledger
 
-Bank A ledger entries include operation ID, payment ID, account ID, entry type, amount, currency, and occurrence time. `GetLedgerSnapshot` orders records by timestamp and row ID, providing stable correlation data for a later reconciliation/Merkle phase without implementing that algorithm in Phase 6.
+Bank A ledger entries include operation ID, payment ID, account ID, entry type, amount, currency, and occurrence time. `GetLedgerSnapshot` orders records by timestamp and row ID, providing stable correlation data for a later reconciliation/Merkle phase (official Phase 5) without implementing that algorithm in M1.

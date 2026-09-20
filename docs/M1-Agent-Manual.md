@@ -184,7 +184,7 @@ CREATED -> VALIDATING -> LOCAL_SETTLEMENT -> COMMITTED -> COMPLETED
 VALIDATING -> ROUTING -> PROCESSING -> COMMITTED -> COMPLETED
 PROCESSING -> FAILED
 PROCESSING -> PENDING\_RECONCILIATION
-PENDING\_RECONCILIATION -> COMPLETED | REVERSED
+PENDING\_RECONCILIATION -> COMMITTED | COMPLETED | FAILED | REVERSED
 
 OFFLINE\_CAPTURED -> QUEUED -> SYNCING
 SYNCING -> COMPLETED | REPLAY\_FAILED
@@ -204,23 +204,25 @@ Idempotency-Key: <UUID>
 "note": "Lunch"
 }
 
+The customer request does not carry a source account ID. The server selects exactly one active primary account; zero accounts is a safe not-found response and more than one active candidate is an explicit account-setup conflict. Customer account DTOs contain only account number, balance, and status. Customer payment DTOs contain payment ID, integer paise amount, currency, optional note, origin, state/timestamps, failure reason, sender/receiver names and payment identifiers, explicit `SENT`/`RECEIVED` direction, safe bank names/codes, and duration; internal account, bank, and operation IDs never cross this boundary.
+
 ## 8.1 Server sequence
 
-\[ ] Authenticate.
-\[ ] Validate amount as a positive smallest-unit integer.
-\[ ] Resolve/validate recipient.
-\[ ] Check idempotency key for this user/scope.
-\[ ] Compare request hash if key exists.
-\[ ] Return prior result on identical key + identical request.
-\[ ] Reject same key + different request.
-\[ ] Create payment and transition state.
-\[ ] Select bank through adapter/routing contract.
-\[ ] Begin authoritative PostgreSQL transaction.
-\[ ] Lock/revalidate sender balance.
-\[ ] Perform required balance mutations and ledger writes atomically.
-\[ ] Commit.
-\[ ] Advance state and emit event.
-\[ ] Return final or intermediate status honestly.
+\[x] Authenticate.
+\[x] Validate amount as a positive smallest-unit integer.
+\[x] Resolve/validate recipient.
+\[x] Check idempotency key for this user/scope.
+\[x] Compare request hash, including note, if key exists.
+\[x] Return prior result on identical key + identical request.
+\[x] Reject same key + different request.
+\[x] Create payment and transition state.
+\[x] Select bank through adapter/routing contract.
+\[x] Begin authoritative PostgreSQL transaction.
+\[x] Lock/revalidate sender balance.
+\[x] Perform required balance mutations and ledger writes atomically.
+\[x] Commit.
+\[x] Advance state and emit event.
+\[x] Return final or intermediate status honestly.
 
 # 9\. Idempotency Deep Dive
 
@@ -313,57 +315,57 @@ Every step has one deterministic operation ID derived from the payment and step 
 
 ## Login
 
-\[ ] Identifier/password
-\[ ] Loading/error states
-\[ ] Successful navigation
+\[x] Identifier/password
+\[x] Loading/error states
+\[x] Successful navigation
 
 ## Register
 
-\[ ] Fields/validation
-\[ ] Password rules
-\[ ] Success navigation
+\[x] Fields/validation
+\[x] Password rules
+\[x] Success navigation
 
 ## Home
 
-\[ ] Payment identifier
-\[ ] Balance
-\[ ] Recent transactions
-\[ ] Send/scan CTAs
+\[x] Payment identifier
+\[x] Balance
+\[x] Recent transactions
+\[x] Send/scan CTAs
 \[ ] Online/offline state
 \[ ] Pending sync count
 
 ## Pay
 
-\[ ] Recipient
-\[ ] Amount
-\[ ] Note
-\[ ] Validation
-\[ ] Submit
+\[x] Recipient
+\[x] Amount
+\[x] Note
+\[x] Validation
+\[x] Submit
 
 ## Confirm
 
-\[ ] Recipient/amount confirmation
-\[ ] Explicit final action
+\[x] Recipient/amount/note confirmation
+\[x] Explicit final action
 
 ## Processing
 
-\[ ] Payment ID
-\[ ] Current server state
-\[ ] Honest pending state
+\[x] Payment ID
+\[x] Current server state
+\[x] Honest pending state
 
 ## Success/Failure
 
-\[ ] Reference ID
-\[ ] Amount
-\[ ] Status
-\[ ] Safe retry where applicable
+\[x] Reference ID
+\[x] Amount
+\[x] Status
+\[x] Safe retry where applicable
 
 ## Transaction Details
 
-\[ ] Sender
-\[ ] Receiver
-\[ ] Amount
-\[ ] Time
+\[x] Sender
+\[x] Receiver
+\[x] Amount
+\[x] Time
 \[ ] Status
 \[ ] Routing bank
 \[ ] Duration
@@ -805,26 +807,28 @@ idempotency key
 
 # 12\. Bank Adapter — Typed Result Contract
 
-M1-4 implements the injected domain contract in `backend/internal/bank/adapter.go`. M1-5 adds `backend/internal/bank.BankA` as its first concrete implementation. `BankAdapter` and Bank A expose account validation, debit, credit, and health operations without HTTP or PostgreSQL types. The current handler injects `nil`, so the payment flow does not invoke Bank A. Debit and credit results carry the payment ID, bank-operation ID, bank reference, and a success or unresolved-pending status.
+M1-4 implements the frozen domain contract in `backend/internal/bank/adapter.go`:
+`GetHealth`, `ResolveAccount`, `HoldFunds`, `ProvisionalCredit`, `ConfirmHold`, `ReleaseHold`, `ReverseProvisionalCredit`, `GetOperationStatus`, `GetLedgerSnapshot`.
+M1-5/M1-6 deploy Bank A and Bank B as separate HTTP participant processes (`cmd/bank-a`, `cmd/bank-b`) with independent schemas. The API injects adapters when `BANK_A_URL` / `BANK_B_URL` are configured. Routed settlement uses the durable hold/provisional/confirm/finalize saga; local `LOCAL_SETTLEMENT` remains for accounts whose bank mapping has no configured adapter.
 
-`PENDING` means the bank operation outcome is unknown or unresolved: the bank may have accepted or committed it, so the caller must not blindly repeat the monetary operation. The payment layer must use the operation/payment correlation metadata and later status or reconciliation mechanisms before deciding whether a retry is safe. This is distinct from definite success and definite business failure.
+`PENDING` means the bank operation outcome is unknown or unresolved: the bank may have accepted or committed it, so the caller must not blindly repeat the monetary operation. The payment layer must use the operation/payment correlation metadata and `GetOperationStatus` before deciding whether a retry is safe. This is distinct from definite success and definite business failure.
 
-Adapter errors use explicit codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failure, and permanent business failure. Bank A uses integer paise and a deterministic local account simulation; it is not a real financial institution and does not provide real external-bank connectivity. Its simulated state is not authoritative and does not replace PostgreSQL. The current payment flow still uses authoritative PostgreSQL `LOCAL_SETTLEMENT`; Bank B and routed settlement remain future work.
+Adapter errors use explicit codes for insufficient funds, invalid or inactive accounts, bank unavailability, transient failure, and permanent business failure. Bank A/B use integer paise and are not real financial institutions.
 
 # 13\. Customer Frontend — Network State Integration
 
-const paymentLabels = {
-PROCESSING: "Processing",
-COMPLETED: "Payment successful",
-FAILED: "Payment failed",
-PENDING\_RECONCILIATION: "Awaiting confirmation",
-OFFLINE\_QUEUED: "Payment queued offline"
-};
-\[ ] Customer sees a final success badge only for server-confirmed completion.
-\[ ] PROCESSING and PENDING\_RECONCILIATION remain visually distinct from failure.
-\[ ] Offline queue is visibly local/pending.
-\[ ] Payment details are refreshed from the server after reconnect.
-\[ ] Client never writes authoritative balance.
+Customer UI copy (implemented) never equates timeout/unknown with failure:
+COMPLETED → “Payment complete”
+FAILED/REVERSED → “Payment not completed”
+PROCESSING → “Payment being processed”
+other non-terminal → “Payment still being confirmed”
+network loss → uncertain screen with safe retry using the same idempotency key
+
+\[x] Customer sees a final success badge only for server-confirmed completion.
+\[x] PROCESSING and PENDING\_RECONCILIATION remain visually distinct from failure.
+\[ ] Offline queue is visibly local/pending. (Phase 6 — future)
+\[x] Payment details are refreshed from the server via status check.
+\[x] Client never writes authoritative balance.
 
 # 14\. API Test Cases — Concrete Examples
 
@@ -1140,4 +1144,3 @@ Q. Which parts of the implementation would change when scaling horizontally?
 |M1-E Concurrency|Hot-account stress produces no negative balance|
 |M1-F Bank Adapter|Payment switch calls Bank A through interface|
 |M1-G Customer UI|Browser payment journey is complete|
-

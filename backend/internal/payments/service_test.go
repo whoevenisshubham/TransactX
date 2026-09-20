@@ -46,4 +46,7 @@ func TestPaymentRequestHashIsCanonicalForLogicalRequest(t *testing.T) {
 	if first == paymentRequestHash(uuid.New(), "bob@transactx", 100, "INR") {
 		t.Fatal("different source account produced the same request hash")
 	}
+	if first == paymentRequestHash(source, "bob@transactx", 100, "INR", "Lunch") {
+		t.Fatal("different note produced the same request hash")
+	}
 }

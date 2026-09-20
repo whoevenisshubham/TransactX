@@ -1,19 +1,21 @@
 # Architecture
 
-## Phase-6 status
+## Current routed-payment status
 
 TransactX has two explicit execution paths:
 
 ```text
 Customer -> Go API -> Payment Service -> central PostgreSQL
-                                  \-> BankAdapter -> Bank A HTTP service -> bank_a schema
+                                  \-> BankAdapter registry -> Bank A/B HTTP services -> bank_a / bank_b schemas
 ```
 
 The local path remains the synchronous `LOCAL_SETTLEMENT` PostgreSQL transaction. When adapters are configured, the routed path creates the central payment intent and executes a durable saga across the selected source and destination participants.
 
 Central PostgreSQL owns users, central accounts and account-to-bank-account mapping, payment state, user-scoped idempotency, the central double-entry ledger, route metadata, bank-operation tracking, and recovery state. It is not a second live copy of a participant's balance for routed settlement.
 
-Bank A is a separate Go process. Its `bank_a` schema owns participant accounts, balances, account status, holds, provisional/final credits, participant operations, participant ledger entries, and status lookup. The service boundary is HTTP; `internal/bank.HTTPClient` implements the domain-only `BankAdapter` contract.
+Customer payment creation selects the single active primary account on the server. A fresh central account uses local settlement unless both persisted source and destination bank IDs have configured adapters. Customer DTOs expose only payment references, names, direction, safe bank names/codes, state, timing, note, origin, and failure information.
+
+Bank A and Bank B are separate Go processes. Each bank schema owns participant accounts, balances, account status, holds, provisional/final credits, participant operations, participant ledger entries, and status lookup. The service boundary is HTTP; `internal/bank.HTTPClient` implements the domain-only `BankAdapter` contract.
 
 ## Routed protocol
 
@@ -36,4 +38,4 @@ There is no transaction spanning Bank A and central PostgreSQL, and the system m
 
 ## Boundaries and future work
 
-The adapter is keyed by bank ID and contains no Bank-A-specific orchestration logic. Bank B, adaptive routing, circuit breakers, Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases and are not claimed as implemented here.
+The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Adaptive routing, circuit breakers, Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases.

@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/accounts"
@@ -34,7 +36,15 @@ func NewHandlerWithBankAdapter(db *pgxpool.Pool, logger *slog.Logger, authServic
 	return newHandler(db, logger, authService, jwtManager, adapter)
 }
 
+func NewHandlerWithBankAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter) http.Handler {
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters)
+}
+
 func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, adapter, nil)
+}
+
+func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter) http.Handler {
 	handler := &Handler{
 		db:           db,
 		logger:       logger,
@@ -43,7 +53,11 @@ func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service
 		accountsRepo: accounts.NewRepository(db),
 		recipients:   recipients.NewRepository(db),
 	}
-	handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapter)
+	if adapters != nil {
+		handler.payments = payments.NewServiceWithAdapters(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapters)
+	} else {
+		handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapter)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)
@@ -54,6 +68,8 @@ func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service
 	mux.Handle("GET /api/accounts/{accountID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.account))))
 	mux.Handle("GET /api/recipients/{paymentIdentifier}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.recipient))))
 	mux.Handle("POST /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.createPayment))))
+	mux.Handle("GET /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentsList))))
+	mux.Handle("GET /api/payments/{paymentID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentDetails))))
 	return common.RequestIDMiddleware(cors(mux))
 }
 

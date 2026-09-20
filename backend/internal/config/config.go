@@ -19,7 +19,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	developmentMode, err := strconv.ParseBool(getEnv("APP_DEVELOPMENT", "true"))
+	developmentMode, err := strconv.ParseBool(getEnv("APP_DEVELOPMENT", "false"))
 	if err != nil {
 		return Config{}, fmt.Errorf("APP_DEVELOPMENT must be true or false: %w", err)
 	}

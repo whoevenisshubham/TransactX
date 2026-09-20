@@ -5,9 +5,20 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/common"
 )
+
+type customerAccountResponse struct {
+	AccountNumber string `json:"accountNumber"`
+	BalancePaise  int64  `json:"balancePaise"`
+	Status        string `json:"status"`
+}
+
+func safeAccount(account accounts.Account) customerAccountResponse {
+	return customerAccountResponse{AccountNumber: account.AccountNumber, BalancePaise: account.BalancePaise, Status: account.Status}
+}
 
 func (h *Handler) me(writer http.ResponseWriter, request *http.Request) {
 	identity, _ := auth.IdentityFromRequest(request)
@@ -36,7 +47,11 @@ func (h *Handler) accounts(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "internal server error", http.StatusInternalServerError))
 		return
 	}
-	writeData(writer, http.StatusOK, request, result)
+	safe := make([]customerAccountResponse, 0, len(result))
+	for _, account := range result {
+		safe = append(safe, safeAccount(account))
+	}
+	writeData(writer, http.StatusOK, request, safe)
 }
 
 func (h *Handler) account(writer http.ResponseWriter, request *http.Request) {
@@ -52,5 +67,5 @@ func (h *Handler) account(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, common.NewAPIError("ACCOUNT_NOT_FOUND", "account not found", http.StatusNotFound))
 		return
 	}
-	writeData(writer, http.StatusOK, request, account)
+	writeData(writer, http.StatusOK, request, safeAccount(account))
 }
