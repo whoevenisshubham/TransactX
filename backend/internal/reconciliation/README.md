@@ -36,3 +36,44 @@ logical partition, serialized under `TXBUCKET|v1|`. Bucket roots are sorted by
 UTC start, partition, width, then serialized identity before the upper root is
 computed. Commitment metadata records canonical/algorithm versions, bucket,
 scope, root, and record count; the in-memory store is test/development only.
+
+## Incremental maintenance
+
+`BucketForRecord` maps `CanonicalRecord.OccurredAt` to the UTC bucket whose
+start is `floor(unix_nanos / width) * width`. The interval is half-open: an
+instant exactly at a bucket start belongs to that bucket, while an instant at
+the scope end is excluded. The mapping is independent of the source timezone
+and uses floor division for pre-epoch timestamps. A ledger fixes one logical
+partition and width at construction time.
+
+`IncrementalMerkleLedger.AppendRecord` adds a new logical record and
+`UpsertRecord` replaces an existing logical record only within its current
+bucket. A new bucket must arrive after the current ordered bucket frontier;
+moving an existing record across buckets is rejected instead of triggering a
+hidden global rebuild. Each normal operation sorts and hashes only the affected
+bucket, then recomputes the corresponding parent path. Unaffected bucket roots
+and sibling nodes are reused byte-for-byte. The returned instrumentation means:
+
+- `BucketsRecomputed`: touched bucket roots recalculated (one per operation)
+- `AncestorNodesRecomputed`: SHA-256 internal nodes recomputed on the path
+- `BucketsReused`: existing buckets not touched by the operation
+- `TotalRecordsConsidered`: records sorted/hashed in the affected bucket
+- `ResultingRoot`: the resulting global commitment
+
+`Bootstrap` is the separately named full rebuild for initial population or
+recovery. It is never called by normal append/upsert operations; its rebuild
+count and full-scan counters are exposed so tests can prove that separation.
+`IncrementalCommitmentStore` persists only derived ordered bucket roots,
+ancestor levels, canonical bucket records needed to continue derived updates,
+global root, scope, logical partition, bucket width, versions, rebuild count,
+and counts. `NewIncrementalMerkleLedgerFromState` / `Restore` validate all of
+those fields, reconstruct bucket and record indexes plus the append frontier,
+and never call `Bootstrap` or mutate authoritative participant ledger state.
+State lookup is keyed by the complete `(partition, width, scope)` identity, so
+commitments cannot be silently reused across configurations.
+
+`Bootstrap` is serialized with `AppendRecord` and `UpsertRecord` by the
+ledger's operation lock. A bootstrap therefore either completes before an
+update begins or the update runs afterward; it cannot overwrite a concurrent
+committed update. This is local in-memory synchronization, not distributed
+transactionality.
