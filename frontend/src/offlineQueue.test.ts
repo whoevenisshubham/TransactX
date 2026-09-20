@@ -60,14 +60,39 @@ test("failed intents are retained and explicit deletion requires convergence sta
   await queue.updateState(intent.clientRequestId, "FAILED");
   await assert.rejects(() => queue.removeIntent(intent.clientRequestId));
   assert.ok(await queue.get(intent.clientRequestId));
-  await queue.removeIntent(intent.clientRequestId, "FAILED");
-  assert.equal(await queue.get(intent.clientRequestId), undefined);
+  const synced = await queue.enqueue({ recipient: "synced@transactx", amountPaise: 800, currency: "INR" });
+  await queue.updateState(synced.clientRequestId, "SYNCING");
+  await queue.updateState(synced.clientRequestId, "SYNCED");
+  await queue.removeIntent(synced.clientRequestId);
+  assert.equal(await queue.get(synced.clientRequestId), undefined);
 });
 
-test("atomic claims prevent concurrent workers from claiming the same intent", async () => {
-  const intent = await queue.enqueue({ recipient: "claim@transactx", amountPaise: 900, currency: "INR" });
-  const claims = await Promise.all([queue.claimEligible("worker-a"), queue.claimEligible("worker-b")]);
-  const claimed = claims.filter((candidate) => candidate?.clientRequestId === intent.clientRequestId);
-  assert.equal(claimed.length, 1);
-  assert.equal((await queue.get(intent.clientRequestId))?.state, "SYNCING");
+test("duplicate idempotency keys are rejected without changing the original intent", async () => {
+  const original = await queue.enqueue({ recipient: "original@transactx", amountPaise: 900, currency: "INR" }, { idempotencyKey: "idem-duplicate-test" });
+  await assert.rejects(() => queue.enqueue({ recipient: "duplicate@transactx", amountPaise: 901, currency: "INR" }, { idempotencyKey: original.idempotencyKey }));
+  assert.deepEqual(await queue.get(original.clientRequestId), original);
+});
+
+test("expired syncing leases are reclaimable but active leases cannot be stolen", async () => {
+  const leaseQueueName = `transactx-lease-test-${crypto.randomUUID()}`;
+  const leaseQueue = new OfflineIntentQueue(leaseQueueName, indexedDBFactory);
+  try {
+    const intent = await leaseQueue.enqueue({ recipient: "claim@transactx", amountPaise: 900, currency: "INR" });
+    const initialTime = new Date("2026-01-03T00:00:00.000Z");
+    const firstClaim = await leaseQueue.claimEligible("worker-a", initialTime, 1_000);
+    assert.equal(firstClaim?.state, "SYNCING");
+    assert.equal(firstClaim?.leaseOwner, "worker-a");
+    const activeClaim = await leaseQueue.claimEligible("worker-b", new Date("2026-01-03T00:00:00.999Z"), 1_000);
+    assert.equal(activeClaim, undefined);
+    const reclaimed = await leaseQueue.claimEligible("worker-b", new Date("2026-01-03T00:00:01.001Z"), 1_000);
+    assert.equal(reclaimed?.clientRequestId, intent.clientRequestId);
+    assert.equal(reclaimed?.state, "SYNCING");
+    assert.equal(reclaimed?.leaseOwner, "worker-b");
+    const stored = await leaseQueue.get(intent.clientRequestId);
+    assert.equal(stored?.leaseOwner, "worker-b");
+    assert.equal(stored?.state, "SYNCING");
+  } finally {
+    await leaseQueue.close();
+    indexedDBFactory.deleteDatabase(leaseQueueName);
+  }
 });

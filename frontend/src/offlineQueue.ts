@@ -225,7 +225,11 @@ export class OfflineIntentQueue {
     const intents = await requestResult(store.getAll());
     const timestamp = now.getTime();
     const intent = intents
-      .filter((candidate) => (candidate.state === "QUEUED" || candidate.state === "RETRYABLE") && (!candidate.retry.nextAttemptAt || Date.parse(candidate.retry.nextAttemptAt) <= timestamp) && (!candidate.leaseExpiresAt || Date.parse(candidate.leaseExpiresAt) <= timestamp))
+      .filter((candidate) => {
+        const retryReady = !candidate.retry.nextAttemptAt || Date.parse(candidate.retry.nextAttemptAt) <= timestamp;
+        const leaseExpired = !candidate.leaseExpiresAt || Date.parse(candidate.leaseExpiresAt) <= timestamp;
+        return (candidate.state === "QUEUED" || candidate.state === "RETRYABLE") && retryReady && leaseExpired || candidate.state === "SYNCING" && leaseExpired;
+      })
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
     if (!intent) {
       await transactionComplete(transaction);
@@ -240,14 +244,52 @@ export class OfflineIntentQueue {
     return intent;
   }
 
-  async removeIntent(clientRequestId: string, expectedState: OfflineIntentState = "SYNCED"): Promise<void> {
-    const intent = await this.get(clientRequestId);
-    if (!intent) return;
-    if (intent.state !== expectedState) throw new Error(`Cannot remove offline intent in state ${intent.state}`);
+  async removeIntent(clientRequestId: string): Promise<void> {
     const database = await this.open();
     const transaction = database.transaction(OFFLINE_INTENTS_STORE, "readwrite");
-    transaction.objectStore(OFFLINE_INTENTS_STORE).delete(clientRequestId);
-    await transactionComplete(transaction);
+    const store = transaction.objectStore(OFFLINE_INTENTS_STORE);
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const fail = (error: Error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+        transaction.abort();
+      };
+      const request = store.get(clientRequestId);
+      request.onerror = () => fail(request.error ?? new Error("Unable to read offline intent"));
+      request.onsuccess = () => {
+        const intent = request.result;
+        if (!intent) {
+          fail(new Error(`Offline intent not found: ${clientRequestId}`));
+          return;
+        }
+        if (intent.state !== "SYNCED") {
+          fail(new Error(`Cannot remove offline intent in state ${intent.state}`));
+          return;
+        }
+        store.delete(clientRequestId);
+      };
+      transaction.oncomplete = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+      transaction.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(transaction.error ?? new Error("Unable to remove offline intent"));
+        }
+      };
+      transaction.onabort = () => {
+        if (!settled) {
+          settled = true;
+          reject(transaction.error ?? new Error("Offline intent removal aborted"));
+        }
+      };
+    });
   }
 
   private async update(clientRequestId: string, mutate: (intent: OfflineIntent) => void): Promise<OfflineIntent> {
