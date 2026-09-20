@@ -7,17 +7,21 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
-    "test:money": "node scripts/verify-money.mjs"
+    "test:money": "node scripts/verify-money.mjs",
+    "test:offline-queue": "node --import tsx --test src/offlineQueue.test.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
+    "@types/node": "^26.6.2",
     "@types/react": "latest",
-    "@types/react-dom": "latest"
+    "@types/react-dom": "latest",
+    "fake-indexeddb": "^6.2.5",
+    "tsx": "^4.23.15"
   }
 }
