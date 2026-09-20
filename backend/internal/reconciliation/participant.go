@@ -18,6 +18,8 @@ var (
 	ErrInvalidBucketReference = errors.New("invalid reconciliation bucket reference")
 	ErrBucketNotFound         = errors.New("reconciliation bucket not found")
 	ErrParticipantMismatch    = errors.New("reconciliation participant mismatch")
+	ErrCommitmentUnavailable  = errors.New("reconciliation commitment is not initialized")
+	ErrStaleReference         = errors.New("stale reconciliation commitment reference")
 )
 
 // Scope identifies the logical ledger interval requested from a participant.
@@ -95,6 +97,7 @@ type RootResult struct {
 type NodeRef struct {
 	ParticipantID string
 	ScopeID       string
+	Generation    string
 	Path          string
 }
 
@@ -109,6 +112,7 @@ type NodeResult struct {
 type BucketRef struct {
 	ParticipantID string
 	ScopeID       string
+	Generation    string
 	Key           string
 }
 

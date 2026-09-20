@@ -71,11 +71,11 @@ func TestMemoryParticipantsHaveBilateralDeterminismAndIdentityIndependence(t *te
 		t.Fatalf("root metadata = %+v / %+v", leftRoot, rightRoot)
 	}
 
-	leftRecords, err := left.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: leftRoot.Ref.ScopeID, Key: bucketKeyForRecord(t, records[0])})
+	leftRecords, err := left.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: leftRoot.Ref.ScopeID, Generation: leftRoot.Ref.Generation, Key: bucketKeyForRecord(t, records[0])})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rightRecords, err := right.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-B", ScopeID: rightRoot.Ref.ScopeID, Key: bucketKeyForRecord(t, records[0])})
+	rightRecords, err := right.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-B", ScopeID: rightRoot.Ref.ScopeID, Generation: rightRoot.Ref.Generation, Key: bucketKeyForRecord(t, records[0])})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestParticipantChildrenAndRecordsAreDeterministicallyOrdered(t *testing.T) 
 	}
 
 	bucketKey := bucketKeyForRecord(t, participantRecords()[0])
-	records, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Key: bucketKey})
+	records, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Generation: root.Ref.Generation, Key: bucketKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,16 +170,16 @@ func TestParticipantEmptyAndInvalidReferences(t *testing.T) {
 	if err != nil || children == nil || len(children) != 0 {
 		t.Fatalf("empty children = %#v, err=%v", children, err)
 	}
-	if _, err := participant.GetChildren(context.Background(), NodeRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Path: "L0/99"}); !errors.Is(err, ErrNodeNotFound) {
+	if _, err := participant.GetChildren(context.Background(), NodeRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Generation: root.Ref.Generation, Path: "L0/99"}); !errors.Is(err, ErrNodeNotFound) {
 		t.Fatalf("missing node error = %v", err)
 	}
 	if _, err := participant.GetChildren(context.Background(), NodeRef{ParticipantID: "BANK-A", ScopeID: "bad", Path: rootNodePath}); !errors.Is(err, ErrInvalidNodeReference) {
 		t.Fatalf("malformed node error = %v", err)
 	}
-	if _, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Key: "not-a-bucket"}); !errors.Is(err, ErrInvalidBucketReference) {
+	if _, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Generation: root.Ref.Generation, Key: "not-a-bucket"}); !errors.Is(err, ErrInvalidBucketReference) {
 		t.Fatalf("malformed bucket error = %v", err)
 	}
-	if _, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Key: bucketHeader + "missing"}); !errors.Is(err, ErrBucketNotFound) {
+	if _, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: root.Ref.ScopeID, Generation: root.Ref.Generation, Key: bucketHeader + "missing"}); !errors.Is(err, ErrBucketNotFound) {
 		t.Fatalf("missing bucket error = %v", err)
 	}
 	if _, err := participant.GetRoot(context.Background(), Scope{From: emptyScope.To, To: emptyScope.From}); !errors.Is(err, ErrInvalidScope) {
@@ -204,7 +204,7 @@ func TestParticipantContextAndSnapshotErrorsPropagate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.GetRoot(context.Background(), participantScope()); !errors.Is(err, sentinel) {
+	if err := repository.Initialize(context.Background(), participantScope()); !errors.Is(err, sentinel) {
 		t.Fatalf("repository source error = %v", err)
 	}
 }
@@ -226,6 +226,9 @@ func TestRepositoryParticipantMatchesMemoryFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := participantScope()
+	if err := repository.Initialize(context.Background(), scope); err != nil {
+		t.Fatal(err)
+	}
 	repositoryRoot, err := repository.GetRoot(context.Background(), scope)
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +243,7 @@ func TestRepositoryParticipantMatchesMemoryFixture(t *testing.T) {
 	if _, err := repository.GetChildren(context.Background(), repositoryRoot.Ref); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: repositoryRoot.Ref.ScopeID, Key: bucketKeyForRecord(t, records[0])}); err != nil {
+	if _, err := repository.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: repositoryRoot.Ref.ScopeID, Generation: repositoryRoot.Ref.Generation, Key: bucketKeyForRecord(t, records[0])}); err != nil {
 		t.Fatal(err)
 	}
 	metadata, err := repository.GetMetadata(context.Background(), scope)
@@ -249,6 +252,89 @@ func TestRepositoryParticipantMatchesMemoryFixture(t *testing.T) {
 	}
 	if sourceCalls != 1 {
 		t.Fatalf("participant rebuilt the authoritative snapshot %d times for one read snapshot", sourceCalls)
+	}
+}
+
+func TestRepositoryParticipantUsesMaintainedStateAndPinsGeneration(t *testing.T) {
+	records := participantRecords()
+	entries := make([]bank.LedgerEntry, 0, len(records))
+	for _, record := range records {
+		entries = append(entries, bank.LedgerEntry{OperationID: record.OperationID, PaymentID: record.PaymentID, AccountID: record.AccountID, EntryType: record.EntryType, AmountPaise: record.AmountPaise, Currency: record.Currency, OccurredAt: record.OccurredAt})
+	}
+	snapshot := bank.LedgerSnapshot{BankID: "BANK-A", CapturedAt: time.Date(2026, 1, 2, 2, 0, 0, 0, time.UTC), Entries: entries}
+	sourceCalls := 0
+	source := &fakeSnapshotSource{snapshot: snapshot, calls: &sourceCalls}
+	store := NewMemoryIncrementalCommitmentStore()
+	participant, err := NewRepositoryParticipantWithCommitmentStore(source, "BANK-A", "ledger", time.Hour, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := participantScope()
+	if err := participant.Initialize(context.Background(), scope); err != nil {
+		t.Fatal(err)
+	}
+	rootA, err := participant.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childrenA, err := participant.GetChildren(context.Background(), rootA.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(childrenA) == 0 {
+		t.Fatal("initialized commitment returned no children")
+	}
+	if _, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: childrenA[0].Ref.ScopeID, Generation: childrenA[0].Ref.Generation, Key: bucketKeyForRecord(t, records[0])}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Normal reads consume the maintained state and do not call the ledger
+	// source again, so they cannot silently invoke Bootstrap.
+	source.err = errors.New("source must not be consulted by normal reads")
+	rootAgain, err := participant.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rootA.Root, rootAgain.Root) || rootA.Ref.Generation != rootAgain.Ref.Generation || sourceCalls != 1 {
+		t.Fatalf("maintained read changed commitment or consulted source: rootA=%+v rootAgain=%+v calls=%d", rootA, rootAgain, sourceCalls)
+	}
+	reloaded, err := NewRepositoryParticipantWithCommitmentStore(source, "BANK-A", "ledger", time.Hour, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedRoot, err := reloaded.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(rootA.Root, persistedRoot.Root) || sourceCalls != 1 {
+		t.Fatalf("persisted commitment was not reused: root=%+v persisted=%+v calls=%d", rootA, persistedRoot, sourceCalls)
+	}
+
+	// Refresh is explicit recovery. It installs a new generation and makes all
+	// references from the prior generation stale.
+	source.err = nil
+	source.snapshot.CapturedAt = snapshot.CapturedAt.Add(time.Minute)
+	if err := participant.Refresh(context.Background(), scope); err != nil {
+		t.Fatal(err)
+	}
+	rootB, err := participant.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootA.Ref.Generation == rootB.Ref.Generation {
+		t.Fatal("refresh reused the prior commitment generation")
+	}
+	if _, err := participant.GetChildren(context.Background(), rootA.Ref); !errors.Is(err, ErrStaleReference) {
+		t.Fatalf("old node reference error = %v", err)
+	}
+	if _, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: rootA.Ref.ScopeID, Generation: rootA.Ref.Generation, Key: bucketKeyForRecord(t, records[0])}); !errors.Is(err, ErrStaleReference) {
+		t.Fatalf("old bucket reference error = %v", err)
+	}
+	if _, err := participant.GetChildren(context.Background(), rootB.Ref); err != nil {
+		t.Fatalf("new root reference rejected: %v", err)
+	}
+	if _, err := participant.GetRecords(context.Background(), BucketRef{ParticipantID: "BANK-A", ScopeID: rootB.Ref.ScopeID, Generation: rootB.Ref.Generation, Key: bucketKeyForRecord(t, records[0])}); err != nil {
+		t.Fatalf("new bucket reference rejected: %v", err)
 	}
 }
 

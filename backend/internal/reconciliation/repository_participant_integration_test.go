@@ -64,6 +64,9 @@ func TestRepositoryParticipantUsesPersistedParticipantLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := Scope{From: occurredAt.Add(-time.Hour), To: occurredAt.Add(time.Hour)}
+	if err := repository.Initialize(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
 	root, err := repository.GetRoot(ctx, scope)
 	if err != nil {
 		t.Fatal(err)

@@ -27,13 +27,20 @@ type LedgerSnapshotSource interface {
 // caller-provided logical ledger data; no random identifiers or metrics are
 // generated. Every commitment uses the shared canonical/Merkle implementation.
 type MemoryParticipant struct {
-	mu            sync.RWMutex
-	participantID string
-	partition     string
-	bucketWidth   time.Duration
-	capturedAt    time.Time
-	records       []CanonicalRecord
-	states        map[string]IncrementalCommitmentState
+	mu             sync.RWMutex
+	participantID  string
+	partition      string
+	bucketWidth    time.Duration
+	capturedAt     time.Time
+	records        []CanonicalRecord
+	snapshots      map[string]participantSnapshot
+	current        map[string]string
+	nextGeneration uint64
+}
+
+type participantSnapshot struct {
+	state      IncrementalCommitmentState
+	capturedAt time.Time
 }
 
 func NewMemoryParticipant(participantID, partition string, bucketWidth time.Duration, records []CanonicalRecord) (*MemoryParticipant, error) {
@@ -53,81 +60,100 @@ func NewMemoryParticipantWithCapture(participantID, partition string, bucketWidt
 		bucketWidth:   bucketWidth,
 		capturedAt:    capturedAt.UTC(),
 		records:       cloneCanonicalRecords(records),
-		states:        make(map[string]IncrementalCommitmentState),
+		snapshots:     make(map[string]participantSnapshot),
+		current:       make(map[string]string),
 	}, nil
 }
 
-// Refresh rebuilds one derived commitment from the fixture's logical records.
-// Normal reads reuse the last commitment for the scope; callers that replace a
-// fixture must refresh explicitly so a stale commitment is never mistaken for
-// a newly captured ledger.
+// Refresh rebuilds one derived fixture commitment explicitly. It creates a
+// new process-local generation and invalidates references to the old one.
 func (participant *MemoryParticipant) Refresh(ctx context.Context, scope Scope) error {
-	_, err := participant.buildState(ctx, scope)
-	return err
+	scope = scope.Normalize()
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	state, err := participant.buildState(ctx, scope)
+	if err != nil {
+		return err
+	}
+	participant.installSnapshot(scope, state, participant.capturedAt)
+	return nil
 }
 
 func (participant *MemoryParticipant) GetRoot(ctx context.Context, scope Scope) (RootResult, error) {
-	state, err := participant.state(ctx, scope)
+	state, generation, normalized, err := participant.state(ctx, scope)
 	if err != nil {
 		return RootResult{}, err
 	}
-	return rootResult(participant.participantID, scope, state), nil
+	return rootResult(participant.participantID, normalized, generation, state), nil
 }
 
 func (participant *MemoryParticipant) GetChildren(ctx context.Context, ref NodeRef) ([]NodeResult, error) {
 	if err := participant.validateParticipant(ref.ParticipantID); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	scope, err := parseScopeIdentity(ref.ScopeID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
 	}
-	state, err := participant.state(ctx, scope)
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
 	if err != nil {
 		return nil, err
 	}
-	return childrenFromState(participant.participantID, scope, state, ref)
+	return childrenFromState(participant.participantID, scope, ref.Generation, state, ref)
 }
 
 func (participant *MemoryParticipant) GetRecords(ctx context.Context, ref BucketRef) ([]CanonicalRecord, error) {
 	if err := participant.validateParticipant(ref.ParticipantID); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	scope, err := parseScopeIdentity(ref.ScopeID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidBucketReference, err)
 	}
-	state, err := participant.state(ctx, scope)
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidBucketReference)
 	if err != nil {
 		return nil, err
 	}
-	return recordsFromState(scope, state, ref)
+	return recordsFromState(scope, ref.Generation, state, ref)
 }
 
 func (participant *MemoryParticipant) GetMetadata(ctx context.Context, scope Scope) (ParticipantMetadata, error) {
-	state, err := participant.state(ctx, scope)
+	state, _, _, err := participant.state(ctx, scope)
 	if err != nil {
 		return ParticipantMetadata{}, err
 	}
 	return ParticipantMetadata{ParticipantID: participant.participantID, CapturedAt: participant.capturedAt, RecordCount: int64(state.RecordCount)}, nil
 }
 
-func (participant *MemoryParticipant) state(ctx context.Context, scope Scope) (IncrementalCommitmentState, error) {
+func (participant *MemoryParticipant) state(ctx context.Context, scope Scope) (IncrementalCommitmentState, string, Scope, error) {
 	if err := ctx.Err(); err != nil {
-		return IncrementalCommitmentState{}, err
+		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
 	scope = scope.Normalize()
 	if err := scope.Validate(); err != nil {
-		return IncrementalCommitmentState{}, err
+		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
 	key := ScopeIdentity(scope)
 	participant.mu.RLock()
-	cached, ok := participant.states[key]
+	generation, ok := participant.current[key]
+	cached := participant.snapshots[generation]
 	participant.mu.RUnlock()
 	if ok {
-		return cloneIncrementalState(cached), nil
+		return cloneIncrementalState(cached.state), generation, scope, nil
 	}
-	return participant.buildState(ctx, scope)
+	state, err := participant.buildState(ctx, scope)
+	if err != nil {
+		return IncrementalCommitmentState{}, "", Scope{}, err
+	}
+	generation = participant.installSnapshot(scope, state, participant.capturedAt)
+	return state, generation, scope, nil
 }
 
 func (participant *MemoryParticipant) buildState(ctx context.Context, scope Scope) (IncrementalCommitmentState, error) {
@@ -152,10 +178,37 @@ func (participant *MemoryParticipant) buildState(ctx context.Context, scope Scop
 		return IncrementalCommitmentState{}, err
 	}
 	state := ledger.Snapshot()
-	participant.mu.Lock()
-	participant.states[ScopeIdentity(scope)] = cloneIncrementalState(state)
-	participant.mu.Unlock()
+	state.CapturedAt = participant.capturedAt
 	return state, nil
+}
+
+func (participant *MemoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) string {
+	key := ScopeIdentity(scope)
+	participant.mu.Lock()
+	defer participant.mu.Unlock()
+	if old, ok := participant.current[key]; ok {
+		delete(participant.snapshots, old)
+	}
+	participant.nextGeneration++
+	generation := fmt.Sprintf("g%d", participant.nextGeneration)
+	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
+	participant.current[key] = generation
+	return generation
+}
+
+func (participant *MemoryParticipant) referenceState(generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {
+	if generation == "" {
+		return IncrementalCommitmentState{}, fmt.Errorf("%w: generation is required", invalid)
+	}
+	key := ScopeIdentity(scope)
+	participant.mu.RLock()
+	snapshot, ok := participant.snapshots[generation]
+	current := participant.current[key]
+	participant.mu.RUnlock()
+	if !ok || current != generation {
+		return IncrementalCommitmentState{}, fmt.Errorf("%w: generation %q is no longer current", ErrStaleReference, generation)
+	}
+	return cloneIncrementalState(snapshot.state), nil
 }
 
 func (participant *MemoryParticipant) validateParticipant(requested string) error {
@@ -167,24 +220,34 @@ func (participant *MemoryParticipant) validateParticipant(requested string) erro
 
 // RepositoryParticipant reads the existing participant ledger through a
 // repository/service snapshot source. It does not duplicate money movement or
-// write participant state. The source remains authoritative for each read.
+// write participant state. The source remains authoritative for initialization
+// and explicit refresh; normal reads consume maintained derived state only.
 type RepositoryParticipant struct {
-	mu            sync.RWMutex
-	source        LedgerSnapshotSource
-	participantID string
-	partition     string
-	bucketWidth   time.Duration
-	snapshots     map[string]repositorySnapshot
-}
-
-type repositorySnapshot struct {
-	state      IncrementalCommitmentState
-	capturedAt time.Time
+	mu             sync.RWMutex
+	source         LedgerSnapshotSource
+	commitments    IncrementalCommitmentStore
+	participantID  string
+	partition      string
+	bucketWidth    time.Duration
+	snapshots      map[string]participantSnapshot
+	current        map[string]string
+	nextGeneration uint64
 }
 
 func NewRepositoryParticipant(source LedgerSnapshotSource, participantID, partition string, bucketWidth time.Duration) (*RepositoryParticipant, error) {
+	return NewRepositoryParticipantWithCommitmentStore(source, participantID, partition, bucketWidth, NewMemoryIncrementalCommitmentStore())
+}
+
+// NewRepositoryParticipantWithCommitmentStore injects the derived commitment
+// persistence boundary. The default constructor uses a process-local store;
+// callers that need restart persistence provide a durable implementation of
+// IncrementalCommitmentStore without changing participant-ledger authority.
+func NewRepositoryParticipantWithCommitmentStore(source LedgerSnapshotSource, participantID, partition string, bucketWidth time.Duration, commitments IncrementalCommitmentStore) (*RepositoryParticipant, error) {
 	if source == nil {
 		return nil, fmt.Errorf("%w: snapshot source is required", ErrInvalidIncrementalConfig)
+	}
+	if commitments == nil {
+		return nil, fmt.Errorf("%w: commitment store is required", ErrInvalidIncrementalConfig)
 	}
 	if participantID == "" {
 		return nil, fmt.Errorf("%w: participant identity is required", ErrParticipantMismatch)
@@ -192,94 +255,117 @@ func NewRepositoryParticipant(source LedgerSnapshotSource, participantID, partit
 	if partition == "" || bucketWidth <= 0 {
 		return nil, fmt.Errorf("%w: partition and positive bucket width are required", ErrInvalidIncrementalConfig)
 	}
-	return &RepositoryParticipant{source: source, participantID: participantID, partition: partition, bucketWidth: bucketWidth, snapshots: make(map[string]repositorySnapshot)}, nil
+	return &RepositoryParticipant{source: source, commitments: commitments, participantID: participantID, partition: partition, bucketWidth: bucketWidth, snapshots: make(map[string]participantSnapshot), current: make(map[string]string)}, nil
 }
 
-// Refresh captures the authoritative participant ledger again and replaces
-// the derived commitment for the scope. Reads otherwise reuse the captured
-// commitment so child and bucket calls observe one coherent snapshot.
+// Initialize explicitly materializes a commitment from the authoritative
+// participant ledger. This is the only normal API path that may call
+// Bootstrap; it is intended for initial population or recovery.
+func (participant *RepositoryParticipant) Initialize(ctx context.Context, scope Scope) error {
+	state, capturedAt, normalized, err := participant.materialize(ctx, scope)
+	if err != nil {
+		return err
+	}
+	if err := participant.commitments.SaveState(ctx, state); err != nil {
+		return err
+	}
+	participant.installSnapshot(normalized, state, capturedAt)
+	return nil
+}
+
+// Refresh is an explicit recovery/reinitialization operation. It always
+// creates a new commitment generation and invalidates references to the prior
+// generation for the same scope.
 func (participant *RepositoryParticipant) Refresh(ctx context.Context, scope Scope) error {
-	_, _, _, err := participant.buildState(ctx, scope)
-	return err
+	return participant.Initialize(ctx, scope)
 }
 
 func (participant *RepositoryParticipant) GetRoot(ctx context.Context, scope Scope) (RootResult, error) {
-	state, _, normalized, err := participant.state(ctx, scope)
+	state, generation, normalized, err := participant.state(ctx, scope)
 	if err != nil {
 		return RootResult{}, err
 	}
-	return rootResult(participant.participantID, normalized, state), nil
+	return rootResult(participant.participantID, normalized, generation, state), nil
 }
 
 func (participant *RepositoryParticipant) GetChildren(ctx context.Context, ref NodeRef) ([]NodeResult, error) {
 	if ref.ParticipantID != "" && ref.ParticipantID != participant.participantID {
 		return nil, fmt.Errorf("%w: requested=%q actual=%q", ErrParticipantMismatch, ref.ParticipantID, participant.participantID)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	scope, err := parseScopeIdentity(ref.ScopeID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
 	}
-	state, _, normalized, err := participant.state(ctx, scope)
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
 	if err != nil {
 		return nil, err
 	}
-	return childrenFromState(participant.participantID, normalized, state, ref)
+	return childrenFromState(participant.participantID, scope, ref.Generation, state, ref)
 }
 
 func (participant *RepositoryParticipant) GetRecords(ctx context.Context, ref BucketRef) ([]CanonicalRecord, error) {
 	if ref.ParticipantID != "" && ref.ParticipantID != participant.participantID {
 		return nil, fmt.Errorf("%w: requested=%q actual=%q", ErrParticipantMismatch, ref.ParticipantID, participant.participantID)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	scope, err := parseScopeIdentity(ref.ScopeID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidBucketReference, err)
 	}
-	state, _, normalized, err := participant.state(ctx, scope)
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidBucketReference)
 	if err != nil {
 		return nil, err
 	}
-	return recordsFromState(normalized, state, ref)
+	return recordsFromState(scope, ref.Generation, state, ref)
 }
 
 func (participant *RepositoryParticipant) GetMetadata(ctx context.Context, scope Scope) (ParticipantMetadata, error) {
-	state, capturedAt, _, err := participant.state(ctx, scope)
+	state, _, _, err := participant.state(ctx, scope)
 	if err != nil {
 		return ParticipantMetadata{}, err
 	}
-	return ParticipantMetadata{ParticipantID: participant.participantID, CapturedAt: capturedAt.UTC(), RecordCount: int64(state.RecordCount)}, nil
+	return ParticipantMetadata{ParticipantID: participant.participantID, CapturedAt: state.CapturedAt.UTC(), RecordCount: int64(state.RecordCount)}, nil
 }
 
-func (participant *RepositoryParticipant) state(ctx context.Context, scope Scope) (IncrementalCommitmentState, time.Time, Scope, error) {
+func (participant *RepositoryParticipant) state(ctx context.Context, scope Scope) (IncrementalCommitmentState, string, Scope, error) {
 	if err := ctx.Err(); err != nil {
-		return IncrementalCommitmentState{}, time.Time{}, Scope{}, err
+		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
 	scope = scope.Normalize()
-	if err := scope.Validate(); err != nil {
-		return IncrementalCommitmentState{}, time.Time{}, Scope{}, err
-	}
-	if scope.From.IsZero() || scope.To.IsZero() {
-		return IncrementalCommitmentState{}, time.Time{}, Scope{}, fmt.Errorf("%w: repository reads require explicit scope endpoints", ErrInvalidScope)
+	if err := validateRepositoryScope(scope); err != nil {
+		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
 	key := ScopeIdentity(scope)
 	participant.mu.RLock()
-	cached, ok := participant.snapshots[key]
+	generation, ok := participant.current[key]
+	cached := participant.snapshots[generation]
 	participant.mu.RUnlock()
 	if ok {
-		return cloneIncrementalState(cached.state), cached.capturedAt, scope, nil
+		return cloneIncrementalState(cached.state), generation, scope, nil
 	}
-	return participant.buildState(ctx, scope)
+	state, found, err := participant.commitments.LoadState(ctx, participant.partition, participant.bucketWidth, scope)
+	if err != nil {
+		return IncrementalCommitmentState{}, "", Scope{}, err
+	}
+	if !found {
+		return IncrementalCommitmentState{}, "", Scope{}, fmt.Errorf("%w: call Initialize or Refresh for scope %s", ErrCommitmentUnavailable, ScopeIdentity(scope))
+	}
+	generation = participant.installSnapshot(scope, state, state.CapturedAt)
+	return state, generation, scope, nil
 }
 
-func (participant *RepositoryParticipant) buildState(ctx context.Context, scope Scope) (IncrementalCommitmentState, time.Time, Scope, error) {
+func (participant *RepositoryParticipant) materialize(ctx context.Context, scope Scope) (IncrementalCommitmentState, time.Time, Scope, error) {
 	if err := ctx.Err(); err != nil {
 		return IncrementalCommitmentState{}, time.Time{}, Scope{}, err
 	}
 	scope = scope.Normalize()
-	if err := scope.Validate(); err != nil {
+	if err := validateRepositoryScope(scope); err != nil {
 		return IncrementalCommitmentState{}, time.Time{}, Scope{}, err
-	}
-	if scope.From.IsZero() || scope.To.IsZero() {
-		return IncrementalCommitmentState{}, time.Time{}, Scope{}, fmt.Errorf("%w: repository reads require explicit scope endpoints", ErrInvalidScope)
 	}
 	snapshot, err := participant.source.GetLedgerSnapshot(ctx, bank.LedgerScope{From: scope.From, To: scope.To})
 	if err != nil {
@@ -302,23 +388,60 @@ func (participant *RepositoryParticipant) buildState(ctx context.Context, scope 
 		return IncrementalCommitmentState{}, time.Time{}, Scope{}, err
 	}
 	state := ledger.Snapshot()
-	participant.mu.Lock()
-	participant.snapshots[ScopeIdentity(scope)] = repositorySnapshot{state: cloneIncrementalState(state), capturedAt: snapshot.CapturedAt.UTC()}
-	participant.mu.Unlock()
-	return state, snapshot.CapturedAt.UTC(), scope, nil
+	state.CapturedAt = snapshot.CapturedAt.UTC()
+	return state, state.CapturedAt, scope, nil
 }
 
-func rootResult(participantID string, scope Scope, state IncrementalCommitmentState) RootResult {
+func (participant *RepositoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) string {
+	key := ScopeIdentity(scope)
+	participant.mu.Lock()
+	defer participant.mu.Unlock()
+	if old, ok := participant.current[key]; ok {
+		delete(participant.snapshots, old)
+	}
+	participant.nextGeneration++
+	generation := fmt.Sprintf("g%d", participant.nextGeneration)
+	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
+	participant.current[key] = generation
+	return generation
+}
+
+func (participant *RepositoryParticipant) referenceState(generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {
+	if generation == "" {
+		return IncrementalCommitmentState{}, fmt.Errorf("%w: generation is required", invalid)
+	}
+	key := ScopeIdentity(scope)
+	participant.mu.RLock()
+	snapshot, ok := participant.snapshots[generation]
+	current := participant.current[key]
+	participant.mu.RUnlock()
+	if !ok || current != generation {
+		return IncrementalCommitmentState{}, fmt.Errorf("%w: generation %q is no longer current", ErrStaleReference, generation)
+	}
+	return cloneIncrementalState(snapshot.state), nil
+}
+
+func validateRepositoryScope(scope Scope) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if scope.From.IsZero() || scope.To.IsZero() {
+		return fmt.Errorf("%w: repository reads require explicit scope endpoints", ErrInvalidScope)
+	}
+	return nil
+}
+
+func rootResult(participantID string, scope Scope, generation string, state IncrementalCommitmentState) RootResult {
 	path := emptyNodePath
 	if len(state.Levels) > 0 {
 		path = fmt.Sprintf("L%d/0", len(state.Levels)-1)
 	}
-	return RootResult{Root: hashCopy(state.Root), Algorithm: state.AlgorithmVersion, Version: state.CanonicalVersion, Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Path: path}}
+	return RootResult{Root: hashCopy(state.Root), Algorithm: state.AlgorithmVersion, Version: state.CanonicalVersion, Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Generation: generation, Path: path}}
 }
 
-func childrenFromState(participantID string, scope Scope, state IncrementalCommitmentState, ref NodeRef) ([]NodeResult, error) {
-	if ref.ScopeID != ScopeIdentity(scope) {
-		return nil, fmt.Errorf("%w: reference scope does not match requested scope", ErrParticipantMismatch)
+func childrenFromState(participantID string, scope Scope, generation string, state IncrementalCommitmentState, ref NodeRef) ([]NodeResult, error) {
+	if ref.ScopeID != ScopeIdentity(scope) || ref.Generation != generation {
+		return nil, fmt.Errorf("%w: reference commitment does not match requested generation", ErrStaleReference)
 	}
 	if ref.Path == emptyNodePath {
 		if len(state.Levels) != 0 {
@@ -340,14 +463,14 @@ func childrenFromState(participantID string, scope Scope, state IncrementalCommi
 	first := index * 2
 	children := make([]NodeResult, 0, 2)
 	for childIndex := first; childIndex < first+2 && childIndex < len(state.Levels[childLevel]); childIndex++ {
-		children = append(children, NodeResult{Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Path: fmt.Sprintf("L%d/%d", childLevel, childIndex)}, Hash: hashCopy(state.Levels[childLevel][childIndex])})
+		children = append(children, NodeResult{Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Generation: generation, Path: fmt.Sprintf("L%d/%d", childLevel, childIndex)}, Hash: hashCopy(state.Levels[childLevel][childIndex])})
 	}
 	return children, nil
 }
 
-func recordsFromState(scope Scope, state IncrementalCommitmentState, ref BucketRef) ([]CanonicalRecord, error) {
-	if ref.ScopeID != ScopeIdentity(scope) {
-		return nil, fmt.Errorf("%w: reference scope does not match requested scope", ErrParticipantMismatch)
+func recordsFromState(scope Scope, generation string, state IncrementalCommitmentState, ref BucketRef) ([]CanonicalRecord, error) {
+	if ref.ScopeID != ScopeIdentity(scope) || ref.Generation != generation {
+		return nil, fmt.Errorf("%w: reference commitment does not match requested generation", ErrStaleReference)
 	}
 	if !strings.HasPrefix(ref.Key, bucketHeader) {
 		return nil, ErrInvalidBucketReference
