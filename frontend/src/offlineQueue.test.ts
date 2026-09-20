@@ -96,3 +96,24 @@ test("expired syncing leases are reclaimable but active leases cannot be stolen"
     indexedDBFactory.deleteDatabase(leaseQueueName);
   }
 });
+
+test("public queue operations complete and persist their results", async () => {
+  const operationQueueName = `transactx-operation-test-${crypto.randomUUID()}`;
+  const operationQueue = new OfflineIntentQueue(operationQueueName, indexedDBFactory);
+  try {
+    const intent = await operationQueue.enqueue({ recipient: "operations@transactx", amountPaise: 1_100, currency: "INR" });
+    const syncing = await operationQueue.updateState(intent.clientRequestId, "SYNCING");
+    assert.equal((await operationQueue.get(intent.clientRequestId))?.state, "SYNCING");
+    const retryable = await operationQueue.recordRetry(intent.clientRequestId, "temporary failure", new Date("2026-01-04T00:00:10.000Z"), new Date("2026-01-04T00:00:00.000Z"));
+    assert.equal(retryable.state, "RETRYABLE");
+    const claimed = await operationQueue.claimEligible("operation-worker", new Date("2026-01-04T00:00:11.000Z"));
+    assert.equal(claimed?.clientRequestId, syncing.clientRequestId);
+    const synced = await operationQueue.updateState(intent.clientRequestId, "SYNCED");
+    assert.equal(synced.state, "SYNCED");
+    await operationQueue.removeIntent(intent.clientRequestId);
+    assert.equal(await operationQueue.get(intent.clientRequestId), undefined);
+  } finally {
+    await operationQueue.close();
+    indexedDBFactory.deleteDatabase(operationQueueName);
+  }
+});

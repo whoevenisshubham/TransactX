@@ -222,26 +222,30 @@ export class OfflineIntentQueue {
     const database = await this.open();
     const transaction = database.transaction(OFFLINE_INTENTS_STORE, "readwrite");
     const store = transaction.objectStore(OFFLINE_INTENTS_STORE);
-    const intents = await requestResult(store.getAll());
-    const timestamp = now.getTime();
-    const intent = intents
-      .filter((candidate) => {
-        const retryReady = !candidate.retry.nextAttemptAt || Date.parse(candidate.retry.nextAttemptAt) <= timestamp;
-        const leaseExpired = !candidate.leaseExpiresAt || Date.parse(candidate.leaseExpiresAt) <= timestamp;
-        return (candidate.state === "QUEUED" || candidate.state === "RETRYABLE") && retryReady && leaseExpired || candidate.state === "SYNCING" && leaseExpired;
-      })
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
-    if (!intent) {
-      await transactionComplete(transaction);
-      return undefined;
-    }
-    intent.state = "SYNCING";
-    intent.updatedAt = now.toISOString();
-    intent.leaseOwner = owner;
-    intent.leaseExpiresAt = new Date(timestamp + leaseMilliseconds).toISOString();
-    store.put(intent);
-    await transactionComplete(transaction);
-    return intent;
+    return new Promise((resolve, reject) => {
+      let claimed: OfflineIntent | undefined;
+      const request = store.getAll();
+      request.onerror = () => reject(request.error ?? new Error("Unable to read eligible offline intents"));
+      request.onsuccess = () => {
+        const timestamp = now.getTime();
+        claimed = request.result
+          .filter((candidate) => {
+            const retryReady = !candidate.retry.nextAttemptAt || Date.parse(candidate.retry.nextAttemptAt) <= timestamp;
+            const leaseExpired = !candidate.leaseExpiresAt || Date.parse(candidate.leaseExpiresAt) <= timestamp;
+            return (candidate.state === "QUEUED" || candidate.state === "RETRYABLE") && retryReady && leaseExpired || candidate.state === "SYNCING" && leaseExpired;
+          })
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+        if (!claimed) return;
+        claimed.state = "SYNCING";
+        claimed.updatedAt = now.toISOString();
+        claimed.leaseOwner = owner;
+        claimed.leaseExpiresAt = new Date(timestamp + leaseMilliseconds).toISOString();
+        store.put(claimed);
+      };
+      transaction.oncomplete = () => resolve(claimed);
+      transaction.onerror = () => reject(transaction.error ?? new Error("Unable to claim offline intent"));
+      transaction.onabort = () => reject(transaction.error ?? new Error("Offline intent claim aborted"));
+    });
   }
 
   async removeIntent(clientRequestId: string): Promise<void> {
@@ -296,11 +300,25 @@ export class OfflineIntentQueue {
     const database = await this.open();
     const transaction = database.transaction(OFFLINE_INTENTS_STORE, "readwrite");
     const store = transaction.objectStore(OFFLINE_INTENTS_STORE);
-    const intent = await requestResult(store.get(clientRequestId));
-    if (!intent) throw new Error(`Offline intent not found: ${clientRequestId}`);
-    mutate(intent);
-    store.put(intent);
-    await transactionComplete(transaction);
-    return intent;
+    return new Promise((resolve, reject) => {
+      let updated: OfflineIntent | undefined;
+      const request = store.get(clientRequestId);
+      request.onerror = () => reject(request.error ?? new Error("Unable to read offline intent"));
+      request.onsuccess = () => {
+        updated = request.result;
+        if (!updated) {
+          transaction.abort();
+          return;
+        }
+        mutate(updated);
+        store.put(updated);
+      };
+      transaction.oncomplete = () => {
+        if (updated) resolve(updated);
+        else reject(new Error(`Offline intent not found: ${clientRequestId}`));
+      };
+      transaction.onerror = () => reject(transaction.error ?? new Error("Unable to update offline intent"));
+      transaction.onabort = () => reject(transaction.error ?? new Error(`Offline intent not found: ${clientRequestId}`));
+    });
   }
 }
