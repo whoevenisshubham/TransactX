@@ -3,6 +3,8 @@ package reconciliation
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"testing"
 	"time"
 
@@ -174,6 +176,26 @@ func TestDomainSeparatedLeafNodeAndEmptyCommitments(t *testing.T) {
 	}
 }
 
+func TestEmptyHashGoldenVector(t *testing.T) {
+	const want = "8f8a3f35a5a6d7bab4457c0662f408255cb33929f5fcd48cda835f26d98328e7"
+	if got := hex.EncodeToString(EmptyHash()); got != want {
+		t.Fatalf("empty hash = %s, want %s", got, want)
+	}
+}
+
+func TestInternalNodeHashGoldenVector(t *testing.T) {
+	left := make([]byte, sha256.Size)
+	right := make([]byte, sha256.Size)
+	for i := range left {
+		left[i] = byte(i)
+		right[i] = byte(i + sha256.Size)
+	}
+	const want = "eb29568f3be5dc67c859055f8fcd76b89c38ecf912c9ad75980e10222b18c0e2"
+	if got := hex.EncodeToString(InternalNodeHash(left, right)); got != want {
+		t.Fatalf("internal node hash = %s, want %s", got, want)
+	}
+}
+
 func TestSmallDeterministicDatasetCoverage(t *testing.T) {
 	for count := 0; count <= 10; count++ {
 		records := testRecords(count)
@@ -239,6 +261,99 @@ func TestCommitmentMetadataStoreRoundTrip(t *testing.T) {
 	again, _, err := store.Load(context.Background(), bucket.ID)
 	if err != nil || EqualBytes(loaded.Root, again.Root) {
 		t.Fatal("metadata store exposed mutable root storage")
+	}
+}
+
+func TestCommitmentMetadataVersionsAcceptCurrentValues(t *testing.T) {
+	metadata := validCommitmentMetadata(t)
+	if err := ValidateCommitmentMetadata(metadata); err != nil {
+		t.Fatalf("current versions rejected: %v", err)
+	}
+	store := NewMemoryCommitmentStore()
+	if err := store.Save(context.Background(), metadata); err != nil {
+		t.Fatalf("save current versions: %v", err)
+	}
+	loaded, ok, err := store.Load(context.Background(), metadata.Bucket)
+	if err != nil || !ok {
+		t.Fatalf("load current versions ok=%v err=%v", ok, err)
+	}
+	if loaded.CanonicalVersion != CanonicalVersion || loaded.AlgorithmVersion != MerkleAlgorithmVersion {
+		t.Fatalf("loaded versions = %q/%q", loaded.CanonicalVersion, loaded.AlgorithmVersion)
+	}
+}
+
+func TestCommitmentMetadataVersionsRejectWrongCanonical(t *testing.T) {
+	metadata := validCommitmentMetadata(t)
+	metadata.CanonicalVersion = "v0"
+	assertVersionRejected(t, metadata, "canonical", CanonicalVersion, "v0")
+}
+
+func TestCommitmentMetadataVersionsRejectWrongAlgorithm(t *testing.T) {
+	metadata := validCommitmentMetadata(t)
+	metadata.AlgorithmVersion = "merkle-v0"
+	assertVersionRejected(t, metadata, "algorithm", MerkleAlgorithmVersion, "merkle-v0")
+}
+
+func TestCommitmentMetadataVersionsRejectBothAndLoad(t *testing.T) {
+	metadata := validCommitmentMetadata(t)
+	metadata.CanonicalVersion = "v0"
+	metadata.AlgorithmVersion = "merkle-v0"
+	store := NewMemoryCommitmentStore()
+	err := store.Save(context.Background(), metadata)
+	if err == nil || !errors.Is(err, ErrIncompatibleCommitmentVersion) {
+		t.Fatalf("save error = %v, want incompatible version", err)
+	}
+	var saveVersionErr *IncompatibleCommitmentVersionError
+	if !errors.As(err, &saveVersionErr) || len(saveVersionErr.Mismatches) != 2 {
+		t.Fatalf("save error = %T %v, want two version mismatches", err, err)
+	}
+	store.entries[metadata.Bucket.String()] = metadata
+
+	_, ok, err := store.Load(context.Background(), metadata.Bucket)
+	if ok || err == nil || !errors.Is(err, ErrIncompatibleCommitmentVersion) {
+		t.Fatalf("load incompatible metadata ok=%v err=%v", ok, err)
+	}
+	var versionErr *IncompatibleCommitmentVersionError
+	if !errors.As(err, &versionErr) || len(versionErr.Mismatches) != 2 {
+		t.Fatalf("load error = %T %v, want two version mismatches", err, err)
+	}
+	if !hasVersionMismatch(versionErr, "canonical", CanonicalVersion, "v0") || !hasVersionMismatch(versionErr, "algorithm", MerkleAlgorithmVersion, "merkle-v0") {
+		t.Fatalf("load mismatches = %+v", versionErr.Mismatches)
+	}
+}
+
+func assertVersionRejected(t *testing.T, metadata CommitmentMetadata, kind, expected, actual string) {
+	t.Helper()
+	store := NewMemoryCommitmentStore()
+	err := store.Save(context.Background(), metadata)
+	if err == nil || !errors.Is(err, ErrIncompatibleCommitmentVersion) {
+		t.Fatalf("save error = %v, want incompatible version", err)
+	}
+	var versionErr *IncompatibleCommitmentVersionError
+	if !errors.As(err, &versionErr) || !hasVersionMismatch(versionErr, kind, expected, actual) {
+		t.Fatalf("save error = %T %v, want %s %q (want %q)", err, err, kind, actual, expected)
+	}
+}
+
+func hasVersionMismatch(err *IncompatibleCommitmentVersionError, kind, expected, actual string) bool {
+	for _, mismatch := range err.Mismatches {
+		if mismatch.Kind == kind && mismatch.Expected == expected && mismatch.Actual == actual {
+			return true
+		}
+	}
+	return false
+}
+
+func validCommitmentMetadata(t *testing.T) CommitmentMetadata {
+	t.Helper()
+	bucket := testBuckets(1)[0]
+	return CommitmentMetadata{
+		CanonicalVersion: CanonicalVersion,
+		AlgorithmVersion: MerkleAlgorithmVersion,
+		Bucket:           bucket.ID,
+		Scope:            Scope{From: bucket.ID.Start, To: bucket.ID.Start.Add(bucket.ID.Width)},
+		Root:             bucket.Root,
+		RecordCount:      bucket.Records,
 	}
 }
 

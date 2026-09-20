@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -14,6 +15,59 @@ const (
 	nodeDomain             = "TXNODE|v1|"
 	emptyDomain            = "TXEMPTY|v1"
 )
+
+// ErrIncompatibleCommitmentVersion marks commitment metadata that cannot be
+// interpreted by this implementation without silently changing its meaning.
+var ErrIncompatibleCommitmentVersion = errors.New("incompatible commitment version")
+
+// VersionMismatch identifies one unsupported version field in commitment
+// metadata. Kind is either "canonical" or "algorithm".
+type VersionMismatch struct {
+	Kind     string
+	Expected string
+	Actual   string
+}
+
+// IncompatibleCommitmentVersionError reports every incompatible version in a
+// metadata record and unwraps to ErrIncompatibleCommitmentVersion.
+type IncompatibleCommitmentVersionError struct {
+	Mismatches []VersionMismatch
+}
+
+func (err *IncompatibleCommitmentVersionError) Error() string {
+	parts := make([]string, 0, len(err.Mismatches))
+	for _, mismatch := range err.Mismatches {
+		parts = append(parts, fmt.Sprintf("%s version %q (want %q)", mismatch.Kind, mismatch.Actual, mismatch.Expected))
+	}
+	return fmt.Sprintf("%s: %s", ErrIncompatibleCommitmentVersion, strings.Join(parts, "; "))
+}
+
+func (err *IncompatibleCommitmentVersionError) Unwrap() error {
+	return ErrIncompatibleCommitmentVersion
+}
+
+// ValidateCommitmentVersions enforces the only commitment versions currently
+// supported by M3-2. Future versions require an explicit compatibility change;
+// they are never silently downgraded or reinterpreted.
+func ValidateCommitmentVersions(canonicalVersion, algorithmVersion string) error {
+	mismatches := make([]VersionMismatch, 0, 2)
+	if canonicalVersion != CanonicalVersion {
+		mismatches = append(mismatches, VersionMismatch{Kind: "canonical", Expected: CanonicalVersion, Actual: canonicalVersion})
+	}
+	if algorithmVersion != MerkleAlgorithmVersion {
+		mismatches = append(mismatches, VersionMismatch{Kind: "algorithm", Expected: MerkleAlgorithmVersion, Actual: algorithmVersion})
+	}
+	if len(mismatches) == 0 {
+		return nil
+	}
+	return &IncompatibleCommitmentVersionError{Mismatches: mismatches}
+}
+
+// ValidateCommitmentMetadata validates the version fields of persisted
+// commitment metadata before it is accepted by a store.
+func ValidateCommitmentMetadata(metadata CommitmentMetadata) error {
+	return ValidateCommitmentVersions(metadata.CanonicalVersion, metadata.AlgorithmVersion)
+}
 
 // LeafHashes normalizes and orders records with the frozen M3-1 ordering,
 // then hashes each record with the frozen canonical v1 serializer.
@@ -143,6 +197,9 @@ func (store *MemoryCommitmentStore) Save(ctx context.Context, metadata Commitmen
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := ValidateCommitmentMetadata(metadata); err != nil {
+		return err
+	}
 	if err := metadata.Bucket.Validate(); err != nil {
 		return err
 	}
@@ -168,6 +225,9 @@ func (store *MemoryCommitmentStore) Load(ctx context.Context, bucket BucketID) (
 	store.mu.RUnlock()
 	if !ok {
 		return CommitmentMetadata{}, false, nil
+	}
+	if err := ValidateCommitmentMetadata(metadata); err != nil {
+		return CommitmentMetadata{}, false, err
 	}
 	metadata.Root = hashCopy(metadata.Root)
 	return metadata, true, nil
