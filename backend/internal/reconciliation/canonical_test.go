@@ -89,6 +89,64 @@ func TestSnapshotMetadataDoesNotAffectCanonicalRecord(t *testing.T) {
 	}
 }
 
+func TestBilateralParticipantsProduceIdenticalCanonicalBytesAndHash(t *testing.T) {
+	operationID := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+	paymentID := uuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+	accountID := uuid.MustParse("cccccccc-cccc-4ccc-8ccc-cccccccccccc")
+	bankAEntry := bank.LedgerEntry{
+		OperationID: operationID,
+		PaymentID:   paymentID,
+		AccountID:   accountID,
+		EntryType:   "FINAL_CREDIT",
+		AmountPaise: 9001,
+		Currency:    "INR",
+		OccurredAt:  time.Date(2026, 9, 20, 12, 0, 0, 123456789, time.FixedZone("IST", 5*60*60)),
+	}
+	bankBEntry := bank.LedgerEntry{
+		OperationID: operationID,
+		PaymentID:   paymentID,
+		AccountID:   accountID,
+		EntryType:   "FINAL_CREDIT",
+		AmountPaise: 9001,
+		Currency:    "INR",
+		OccurredAt:  time.Date(2026, 9, 20, 6, 30, 0, 123456789, time.FixedZone("UTC_MINUS_30", -30*60)),
+	}
+	bankASnapshot := bank.LedgerSnapshot{BankID: "BANK-A", SnapshotID: uuid.New(), CapturedAt: time.Now(), Entries: []bank.LedgerEntry{bankAEntry}}
+	bankBSnapshot := bank.LedgerSnapshot{BankID: "BANK-B", SnapshotID: uuid.New(), CapturedAt: time.Now().Add(24 * time.Hour), Entries: []bank.LedgerEntry{bankBEntry}}
+	bankARecord := FromLedgerEntry(bankASnapshot.Entries[0])
+	bankBRecord := CanonicalRecord{
+		OperationID: bankBSnapshot.Entries[0].OperationID,
+		PaymentID:   bankBSnapshot.Entries[0].PaymentID,
+		AccountID:   bankBSnapshot.Entries[0].AccountID,
+		EntryType:   bankBSnapshot.Entries[0].EntryType,
+		AmountPaise: bankBSnapshot.Entries[0].AmountPaise,
+		Currency:    bankBSnapshot.Entries[0].Currency,
+		OccurredAt:  bankBSnapshot.Entries[0].OccurredAt,
+	}
+	bytesA, err := CanonicalBytes(bankARecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytesB, err := CanonicalBytes(bankBRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(bytesA, bytesB) {
+		t.Fatalf("bilateral canonical bytes differ: A=%x B=%x", bytesA, bytesB)
+	}
+	hashA, err := LeafHash(bankARecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashB, err := LeafHash(bankBRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(hashA, hashB) {
+		t.Fatalf("bilateral leaf hashes differ: A=%x B=%x", hashA, hashB)
+	}
+}
+
 func TestTimestampNormalization(t *testing.T) {
 	local := goldenRecord
 	local.OccurredAt = time.Date(2026, 9, 20, 12, 34, 56, 123456789, time.FixedZone("OTHER", 5*60*60))
@@ -118,6 +176,8 @@ func TestLogicalChangesChangeCanonicalBytesAndHash(t *testing.T) {
 	}
 	mutations := []CanonicalRecord{
 		func() CanonicalRecord { v := goldenRecord; v.OperationID = uuid.New(); return v }(),
+		func() CanonicalRecord { v := goldenRecord; v.PaymentID = uuid.New(); return v }(),
+		func() CanonicalRecord { v := goldenRecord; v.AccountID = uuid.New(); return v }(),
 		func() CanonicalRecord { v := goldenRecord; v.AmountPaise++; return v }(),
 		func() CanonicalRecord { v := goldenRecord; v.EntryType = "RELEASE"; return v }(),
 		func() CanonicalRecord { v := goldenRecord; v.Currency = "USD"; return v }(),
@@ -137,6 +197,35 @@ func TestLogicalChangesChangeCanonicalBytesAndHash(t *testing.T) {
 		}
 		if bytes.Equal(baseHash, hash) {
 			t.Fatalf("mutation %d did not change leaf hash", i)
+		}
+	}
+}
+
+func TestSortRecordsUsesAllLogicalTieBreakers(t *testing.T) {
+	when := time.Date(2026, 9, 20, 7, 0, 0, 0, time.UTC)
+	operationID := uuid.MustParse("55555555-5555-4555-8555-555555555555")
+	accountLow := uuid.MustParse("00000000-0000-4000-8000-000000000001")
+	accountHigh := uuid.MustParse("ffffffff-ffff-4fff-8fff-ffffffffffff")
+	paymentLow := uuid.MustParse("00000000-0000-4000-8000-000000000002")
+	paymentHigh := uuid.MustParse("ffffffff-ffff-4fff-8fff-fffffffffff0")
+	records := []CanonicalRecord{
+		{OperationID: operationID, AccountID: accountHigh, PaymentID: paymentHigh, EntryType: "ENTRY", AmountPaise: 20, Currency: "ZAR", OccurredAt: when},
+		{OperationID: operationID, AccountID: accountLow, PaymentID: paymentHigh, EntryType: "ENTRY", AmountPaise: 20, Currency: "ZAR", OccurredAt: when},
+		{OperationID: operationID, AccountID: accountLow, PaymentID: paymentLow, EntryType: "ENTRY", AmountPaise: 20, Currency: "ZAR", OccurredAt: when},
+		{OperationID: operationID, AccountID: accountLow, PaymentID: paymentLow, EntryType: "ENTRY", AmountPaise: 10, Currency: "ZAR", OccurredAt: when},
+		{OperationID: operationID, AccountID: accountLow, PaymentID: paymentLow, EntryType: "ENTRY", AmountPaise: 10, Currency: "INR", OccurredAt: when},
+	}
+	ordered := SortRecords([]CanonicalRecord{records[0], records[1], records[2], records[3], records[4]})
+	want := []CanonicalRecord{records[4], records[3], records[2], records[1], records[0]}
+	for i := range want {
+		if !bytes.Equal(mustCanonicalBytes(t, ordered[i]), mustCanonicalBytes(t, want[i])) {
+			t.Fatalf("tie-break order at index %d = %+v, want %+v", i, ordered[i], want[i])
+		}
+	}
+	reversed := SortRecords([]CanonicalRecord{records[4], records[3], records[2], records[1], records[0]})
+	for i := range ordered {
+		if !bytes.Equal(mustCanonicalBytes(t, ordered[i]), mustCanonicalBytes(t, reversed[i])) {
+			t.Fatalf("input order changed full tie-break ordering at index %d", i)
 		}
 	}
 }
