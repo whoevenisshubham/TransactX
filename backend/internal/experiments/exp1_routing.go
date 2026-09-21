@@ -76,8 +76,8 @@ func RunExperiment1(ctx context.Context, seed int64, totalRequests int) (*Experi
 func runRoutingSimulation(ctx context.Context, seed int64, totalRequests int, mode payments.SelectionMode) (*ExperimentSummary, []ExperimentSample) {
 	rng := rand.New(rand.NewSource(seed))
 
-	sourceBankID := uuid.New()
-	destBankID := uuid.New()
+	sourceBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp1-src-%d", seed)))
+	destBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp1-dst-%d", seed)))
 
 	adapterA := NewMockBankAdapter("BANK-A-RAIL-A")
 	adapterB := NewMockBankAdapter("BANK-A-RAIL-B")

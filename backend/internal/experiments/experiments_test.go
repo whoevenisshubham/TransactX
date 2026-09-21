@@ -5,6 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/chaos"
+	"github.com/transactx/backend/internal/circuit"
+	"github.com/transactx/backend/internal/payments"
 )
 
 func TestExperiment1_RoutingComparison(t *testing.T) {
@@ -130,3 +138,135 @@ func TestArtifactSerialization(t *testing.T) {
 		t.Errorf("unexpected file extensions: %s, %s", jsonPath, csvPath)
 	}
 }
+
+func TestExperiment3_RegressionLatencyInjection(t *testing.T) {
+	ctx := context.Background()
+	baseAdapter := NewMockBankAdapter("BANK-A-RAIL-A")
+	baseAdapter.SetLatency(1 * time.Millisecond)
+
+	repo := newMemoryChaosRepo()
+	controller := chaos.NewController(repo)
+	controller.SetTargetValidator(func(target string) bool { return target == "RAIL-A" })
+	chaosAdapter := chaos.NewChaosAdapter("RAIL-A", baseAdapter, controller)
+
+	req := bank.HoldFundsRequest{
+		OperationRequest: bank.OperationRequest{
+			PaymentID:      uuid.New(),
+			OperationID:    uuid.New(),
+			IdempotencyKey: "test-latency-key-1",
+			AmountPaise:    1000,
+			Currency:       "INR",
+		},
+	}
+
+	// 1. Without scenario active: elapsed time should be small (< 15ms)
+	start1 := time.Now()
+	_, err := chaosAdapter.HoldFunds(ctx, req)
+	elapsed1 := time.Since(start1)
+	if err != nil {
+		t.Fatalf("HoldFunds failed: %v", err)
+	}
+	if elapsed1 >= 15*time.Millisecond {
+		t.Errorf("expected baseline elapsed < 15ms, got %v", elapsed1)
+	}
+
+	// 2. Start M2-6 latency scenario with LatencyMs = 25
+	now := time.Now()
+	controller.SetNowFunc(func() time.Time { return now })
+	sc, err := controller.Start(ctx, chaos.StartRequest{
+		ScenarioID: "test-latency-scenario",
+		TargetID:   "RAIL-A",
+		Type:       chaos.ScenarioTypeLatency,
+		Parameters: chaos.ScenarioParameters{
+			DurationMs: 5000,
+			LatencyMs:  25,
+		},
+	}, "test-admin", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("chaos start failed: %v", err)
+	}
+
+	// 3. With scenario active: elapsed time must be >= 25ms
+	req.OperationID = uuid.New()
+	req.IdempotencyKey = "test-latency-key-2"
+	start2 := time.Now()
+	_, err = chaosAdapter.HoldFunds(ctx, req)
+	elapsed2 := time.Since(start2)
+	if err != nil {
+		t.Fatalf("HoldFunds with latency failed: %v", err)
+	}
+	if elapsed2 < 25*time.Millisecond {
+		t.Errorf("expected elapsed >= 25ms with active chaos latency, got %v", elapsed2)
+	}
+
+	// 4. Stop scenario: elapsed time returns to baseline (< 15ms)
+	_, _ = controller.Stop(ctx, sc.ScenarioID, "test-admin", "OPS_ADMIN")
+	req.OperationID = uuid.New()
+	req.IdempotencyKey = "test-latency-key-3"
+	start3 := time.Now()
+	_, err = chaosAdapter.HoldFunds(ctx, req)
+	elapsed3 := time.Since(start3)
+	if err != nil {
+		t.Fatalf("HoldFunds after stop failed: %v", err)
+	}
+	if elapsed3 >= 15*time.Millisecond {
+		t.Errorf("expected elapsed < 15ms after scenario stopped, got %v", elapsed3)
+	}
+}
+
+func TestExperiment5_CircuitInvariantValidation(t *testing.T) {
+	cbConfig := circuit.DefaultConfig()
+	cbConfig.FailureThreshold = 2
+	cb, _ := circuit.NewBreaker(cbConfig)
+
+	now := time.Now()
+	cb.RecordFailure("RAIL-A", "error 1", now)
+	cb.RecordFailure("RAIL-A", "error 2", now)
+
+	state := cb.GetState("RAIL-A", now)
+	if state != circuit.StateOpen {
+		t.Fatalf("expected state OPEN, got %v", state)
+	}
+
+	candidate := payments.RouteCandidate{
+		CandidateID:       "CANDIDATE-A",
+		ExecutionTargetID: "RAIL-A",
+	}
+	isEligible := cb.EligibilityHook()(context.Background(), candidate)
+	if isEligible {
+		t.Error("expected candidate RAIL-A to be ineligible while OPEN")
+	}
+
+	var violations int
+	if state == circuit.StateOpen || !isEligible {
+		violations++
+	}
+	passed := violations == 0
+	if passed {
+		t.Error("expected invariant passed to be false when ineligible target is selected")
+	}
+}
+
+func TestExperiment5_DuplicateFinancialExecutionDetected(t *testing.T) {
+	tracker := NewExecutionTracker()
+	key := "test-duplicate-key"
+
+	tracker.RecordHold(key)
+	unique, maxExecs, dups := tracker.Stats()
+	if unique != 1 || maxExecs != 1 || dups != 0 {
+		t.Fatalf("unexpected stats after 1 execution: unique=%d, max=%d, dups=%d", unique, maxExecs, dups)
+	}
+
+	// Deliberate duplicate execution of same logical key
+	tracker.RecordHold(key)
+	unique, maxExecs, dups = tracker.Stats()
+	if dups != 1 || maxExecs != 2 {
+		t.Fatalf("expected dups=1 and maxExecs=2, got dups=%d, maxExecs=%d", dups, maxExecs)
+	}
+
+	invariantPassed := dups == 0 && maxExecs <= 1
+	if invariantPassed {
+		t.Error("expected invariant to fail when duplicate financial execution occurred")
+	}
+}
+

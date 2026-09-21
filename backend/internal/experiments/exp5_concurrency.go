@@ -15,20 +15,21 @@ import (
 	"github.com/transactx/backend/internal/payments"
 )
 
-// RunExperiment5 runs Experiment 5: Concurrency storm and invariant validation.
-func RunExperiment5(ctx context.Context, seed int64, totalOperations int, concurrency int) (*ExperimentResult, error) {
+// RunExperiment5 runs Experiment 5: Concurrency storm with financial and circuit invariants.
+func RunExperiment5(ctx context.Context, seed int64, totalOperations, concurrency int) (*ExperimentResult, error) {
 	if totalOperations <= 0 {
-		totalOperations = 400
+		totalOperations = 300
 	}
 	if concurrency <= 0 {
-		concurrency = 16
+		concurrency = 10
 	}
 
 	scenarioParams := map[string]string{
 		"totalOperations": fmt.Sprintf("%d", totalOperations),
-		"concurrency":     fmt.Sprintf("%d", concurrency),
-		"duplicateRate":   "20% duplicate idempotency key submissions",
-		"contendedPayer":  "Shared source account balance",
+		"concurrency":     fmt.Sprintf("%d goroutines", concurrency),
+		"workloadType":    "concurrent payment submissions with duplicate idempotency keys",
+		"targetA":         "RAIL-A",
+		"targetB":         "RAIL-B",
 	}
 	env := CaptureEnvironmentMetadata(seed, totalOperations, scenarioParams)
 
@@ -51,14 +52,25 @@ type trackedPayment struct {
 	TargetID       string
 }
 
+type idempotencyGate struct {
+	mu       sync.Mutex
+	inFlight map[string]*sync.WaitGroup
+	results  map[string]*trackedPayment
+}
+
 func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, concurrency int) (*ExperimentSummary, []ExperimentSample) {
 	rng := rand.New(rand.NewSource(seed))
 
-	sourceBankID := uuid.New()
-	destBankID := uuid.New()
+	sourceBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp5-src-%d", seed)))
+	destBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp5-dst-%d", seed)))
 
 	adapterA := NewMockBankAdapter("BANK-A-RAIL-A")
 	adapterB := NewMockBankAdapter("BANK-A-RAIL-B")
+
+	// Adapter-seam execution tracker
+	tracker := NewExecutionTracker()
+	adapterA.SetTracker(tracker)
+	adapterB.SetTracker(tracker)
 
 	cbConfig := circuit.DefaultConfig()
 	cbConfig.FailureThreshold = 5
@@ -83,14 +95,14 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 		},
 	}
 
-	// Pre-generate pool of idempotency keys (some will be reused)
-	uniqueKeyCount := int(float64(totalOperations) * 0.8)
+	// Pre-generate pool of deterministic idempotency keys (some will be reused)
+	uniqueKeyCount := int(float64(totalOperations) * 0.6)
 	if uniqueKeyCount < 10 {
 		uniqueKeyCount = 10
 	}
 	idempPool := make([]string, uniqueKeyCount)
 	for i := 0; i < uniqueKeyCount; i++ {
-		idempPool[i] = fmt.Sprintf("storm-idemp-%d-%s", i, uuid.New().String()[:8])
+		idempPool[i] = fmt.Sprintf("storm-idemp-s%d-%04d", seed, i)
 	}
 
 	type task struct {
@@ -110,10 +122,19 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 	var completedOps atomic.Int64
 	var failedOps atomic.Int64
 	var pendingOps atomic.Int64
+	var duplicateSubmissions atomic.Int64
 
-	var mu sync.Mutex
-	paymentsByIdempKey := make(map[string]uuid.UUID)
-	paymentRecords := make(map[uuid.UUID]trackedPayment)
+	var checkedDecisions atomic.Int64
+	var circuitViolations atomic.Int64
+	var firstViolationDetails string
+	var firstViolationOnce sync.Once
+
+	gate := &idempotencyGate{
+		inFlight: make(map[string]*sync.WaitGroup),
+		results:  make(map[string]*trackedPayment),
+	}
+
+	var samplesMu sync.Mutex
 	samples := make([]ExperimentSample, 0, totalOperations)
 	decisionReasons := make(map[string]int)
 
@@ -125,7 +146,6 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 	close(taskChan)
 
 	var wg sync.WaitGroup
-	startTime := time.Now()
 
 	for w := 0; w < concurrency; w++ {
 		wg.Add(1)
@@ -135,12 +155,12 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 			for t := range taskChan {
 				reqTime := time.Now()
 
-				// Evaluate circuit eligibility hook
+				// Evaluate circuit eligibility hook directly
 				decision, err := payments.SelectRoute(ctx, candidates, payments.SelectionModeAdaptive, nil, cb.EligibilityHook(), reqTime)
 
-				mu.Lock()
 				if err != nil {
 					failedOps.Add(1)
+					samplesMu.Lock()
 					decisionReasons[payments.ReasonNoEligibleTarget]++
 					samples = append(samples, ExperimentSample{
 						Index:          t.Index,
@@ -151,52 +171,90 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 						DecisionReason: payments.ReasonNoEligibleTarget,
 						ErrorMessage:   err.Error(),
 					})
-					mu.Unlock()
+					samplesMu.Unlock()
 					continue
 				}
 
 				selectedTarget := decision.Candidate.ExecutionTargetID
-				decisionReasons[decision.Reason]++
 
-				// Check idempotency store
-				if existingPaymentID, exists := paymentsByIdempKey[t.IdempotencyKey]; exists {
-					// Duplicate submission: return existing payment without re-execution
+				// Strictly evaluate circuit eligibility invariant for EVERY decision
+				checkedDecisions.Add(1)
+				cState := cb.GetState(selectedTarget, reqTime)
+				isEligible := cb.EligibilityHook()(ctx, decision.Candidate)
+				if cState == circuit.StateOpen || !isEligible {
+					circuitViolations.Add(1)
+					firstViolationOnce.Do(func() {
+						firstViolationDetails = fmt.Sprintf("target=%s state=%s eligible=%t index=%d", selectedTarget, cState, isEligible, t.Index)
+					})
+				}
+
+				samplesMu.Lock()
+				decisionReasons[decision.Reason]++
+				samplesMu.Unlock()
+
+				// Idempotency Coordinator Gate:
+				// Ensures multiple concurrent arrivals of the exact same key do not double-invoke the financial adapter seam
+				gate.mu.Lock()
+				if existing, exists := gate.results[t.IdempotencyKey]; exists {
+					duplicateSubmissions.Add(1)
 					completedOps.Add(1)
+					gate.mu.Unlock()
+
+					samplesMu.Lock()
+					samples = append(samples, ExperimentSample{
+						Index:          t.Index,
+						Timestamp:      reqTime,
+						Mode:           "ADAPTIVE",
+						TargetID:       existing.TargetID,
+						Success:        existing.State == "COMPLETED",
+						DecisionReason: "IDEMPOTENT_DUPLICATE_REUSE",
+					})
+					samplesMu.Unlock()
+					continue
+				}
+
+				if waitGroup, inFlight := gate.inFlight[t.IdempotencyKey]; inFlight {
+					duplicateSubmissions.Add(1)
+					gate.mu.Unlock()
+
+					// Wait for the in-flight primary execution to finish
+					waitGroup.Wait()
+
+					gate.mu.Lock()
+					result := gate.results[t.IdempotencyKey]
+					gate.mu.Unlock()
+
+					completedOps.Add(1)
+					samplesMu.Lock()
 					samples = append(samples, ExperimentSample{
 						Index:          t.Index,
 						Timestamp:      reqTime,
 						Mode:           "ADAPTIVE",
 						TargetID:       selectedTarget,
-						Success:        true,
-						DecisionReason: "IDEMPOTENT_DUPLICATE_REUSE",
+						Success:        result != nil && result.State == "COMPLETED",
+						DecisionReason: "IDEMPOTENT_CONCURRENT_REUSE",
 					})
-					_ = existingPaymentID
-					mu.Unlock()
+					samplesMu.Unlock()
 					continue
 				}
 
-				// New payment execution
-				paymentID := uuid.New()
-				paymentsByIdempKey[t.IdempotencyKey] = paymentID
+				// Primary executor for this key: register in-flight waitgroup
+				pWg := &sync.WaitGroup{}
+				pWg.Add(1)
+				gate.inFlight[t.IdempotencyKey] = pWg
+				gate.mu.Unlock()
 
-				paymentRecord := trackedPayment{
-					PaymentID:      paymentID,
-					IdempotencyKey: t.IdempotencyKey,
-					State:          "PROCESSING",
-					AmountPaise:    1000,
-					TargetID:       selectedTarget,
-				}
-				paymentRecords[paymentID] = paymentRecord
-				mu.Unlock()
+				// Primary execution at domain adapter seam
+				paymentID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("pay-s%d-%s", seed, t.IdempotencyKey)))
+				opID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("hold-s%d-%s", seed, t.IdempotencyKey)))
+				accountID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("acc-s%d-%s", seed, t.IdempotencyKey)))
 
-				// Execute simulated bank hold and confirm
-				opID := uuid.New()
 				holdRes, holdErr := decision.Candidate.SourceAdapter.HoldFunds(ctx, bank.HoldFundsRequest{
 					OperationRequest: bank.OperationRequest{
 						PaymentID:      paymentID,
 						OperationID:    opID,
 						IdempotencyKey: t.IdempotencyKey,
-						AccountID:      uuid.New(),
+						AccountID:      accountID,
 						AmountPaise:    1000,
 						Currency:       "INR",
 					},
@@ -205,11 +263,11 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 				var finalState string
 				var success bool
 				if holdErr == nil && holdRes.Status == bank.OperationSucceeded {
-					confirmOpID := uuid.New()
+					confirmOpID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("conf-s%d-%s", seed, t.IdempotencyKey)))
 					confRes, capErr := decision.Candidate.SourceAdapter.ConfirmHold(ctx, bank.ConfirmHoldRequest{
 						PaymentID:      paymentID,
 						OperationID:    confirmOpID,
-						IdempotencyKey: t.IdempotencyKey + "-confirm",
+						IdempotencyKey: t.IdempotencyKey,
 						HoldID:         holdRes.HoldID,
 					})
 					if capErr == nil && confRes.Status == bank.OperationSucceeded {
@@ -228,11 +286,21 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 					cb.RecordFailure(selectedTarget, "hold failed", reqTime)
 				}
 
-				mu.Lock()
-				rec := paymentRecords[paymentID]
-				rec.State = finalState
-				paymentRecords[paymentID] = rec
+				record := &trackedPayment{
+					PaymentID:      paymentID,
+					IdempotencyKey: t.IdempotencyKey,
+					State:          finalState,
+					AmountPaise:    1000,
+					TargetID:       selectedTarget,
+				}
 
+				gate.mu.Lock()
+				gate.results[t.IdempotencyKey] = record
+				delete(gate.inFlight, t.IdempotencyKey)
+				gate.mu.Unlock()
+				pWg.Done()
+
+				samplesMu.Lock()
 				samples = append(samples, ExperimentSample{
 					Index:          t.Index,
 					Timestamp:      reqTime,
@@ -241,69 +309,78 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 					Success:        success,
 					DecisionReason: decision.Reason,
 				})
-				mu.Unlock()
+				samplesMu.Unlock()
 			}
 		}(w)
 	}
 
 	wg.Wait()
-	duration := time.Since(startTime)
-	_ = duration
 
-	// Invariant Checks
-	var invariants []InvariantResult
+	// Verify adapter-seam execution invariants
+	uniqueFinancialExecs, maxExecsPerKey, duplicateFinancialExecs := tracker.Stats()
 
-	// Invariant 1: Idempotency uniqueness
-	idempViolations := 0
-	seenPayments := make(map[uuid.UUID]string)
-	for idemp, pID := range paymentsByIdempKey {
-		if otherIdemp, exists := seenPayments[pID]; exists && otherIdemp != idemp {
-			idempViolations++
-		}
-		seenPayments[pID] = idemp
-	}
-	invariants = append(invariants, InvariantResult{
-		InvariantName: "No duplicate successful processing for one logical idempotency key",
-		Passed:        idempViolations == 0,
-		Details:       fmt.Sprintf("%d idempotency keys tracked, %d duplicate violations", len(paymentsByIdempKey), idempViolations),
-	})
-
-	// Invariant 2: No impossible money-state transitions
+	// Verify state validity across all recorded payments
+	gate.mu.Lock()
 	stateViolations := 0
-	for _, rec := range paymentRecords {
-		if rec.State != "COMPLETED" && rec.State != "FAILED" && rec.State != "PENDING" {
+	for _, p := range gate.results {
+		if p.State != "COMPLETED" && p.State != "FAILED" && p.State != "PENDING" {
 			stateViolations++
 		}
 	}
-	invariants = append(invariants, InvariantResult{
-		InvariantName: "No impossible money-state transitions (states strictly terminal or pending)",
-		Passed:        stateViolations == 0,
-		Details:       fmt.Sprintf("%d payments evaluated, %d invalid states", len(paymentRecords), stateViolations),
-	})
+	gate.mu.Unlock()
 
-	// Invariant 3: Accounting completeness
-	totalAccounted := int(completedOps.Load() + failedOps.Load() + pendingOps.Load())
-	invariants = append(invariants, InvariantResult{
-		InvariantName: "Accounting conservation (completed + failed + pending = requested)",
-		Passed:        totalAccounted == totalOperations,
-		Details:       fmt.Sprintf("requested=%d, completed=%d, failed=%d, pending=%d", totalOperations, completedOps.Load(), failedOps.Load(), pendingOps.Load()),
-	})
+	circuitViolationCount := circuitViolations.Load()
+	circuitDetails := fmt.Sprintf("checked decisions=%d, circuit violations=%d", checkedDecisions.Load(), circuitViolationCount)
+	if firstViolationDetails != "" {
+		circuitDetails += fmt.Sprintf(", first: %s", firstViolationDetails)
+	}
 
-	// Invariant 4: Circuit eligibility compliance
-	invariants = append(invariants, InvariantResult{
-		InvariantName: "No route decision violated circuit eligibility",
-		Passed:        true,
-		Details:       "Eligibility hook strictly enforced across all concurrent routing evaluations",
-	})
+	invariants := []InvariantResult{
+		{
+			InvariantName: "Adapter seam: max financial execution count per logical idempotency key == 1",
+			Passed:        duplicateFinancialExecs == 0 && maxExecsPerKey <= 1,
+			Details: fmt.Sprintf("unique keys=%d, max execs/key=%d, duplicate financial executions=%d",
+				uniqueFinancialExecs, maxExecsPerKey, duplicateFinancialExecs),
+		},
+		{
+			InvariantName: "No impossible money-state transitions (states strictly terminal or pending)",
+			Passed:        stateViolations == 0,
+			Details:       fmt.Sprintf("%d payments evaluated, %d invalid states", len(gate.results), stateViolations),
+		},
+		{
+			InvariantName: "Accounting conservation (completed + failed + pending = requested)",
+			Passed:        int(completedOps.Load()+failedOps.Load()+pendingOps.Load()) == totalOperations,
+			Details: fmt.Sprintf("requested=%d, completed=%d, failed=%d, pending=%d",
+				totalOperations, completedOps.Load(), failedOps.Load(), pendingOps.Load()),
+		},
+		{
+			InvariantName: "No route decision violated circuit eligibility",
+			Passed:        circuitViolationCount == 0,
+			Details:       circuitDetails,
+		},
+	}
 
-	allInv := true
+	allPassed := true
 	for _, inv := range invariants {
 		if !inv.Passed {
-			allInv = false
+			allPassed = false
+			break
 		}
 	}
 
-	summary := &ExperimentSummary{
+	additional := map[string]any{
+		"concurrency":                  concurrency,
+		"uniqueLogicalKeys":            uniqueKeyCount,
+		"duplicateSubmissions":         duplicateSubmissions.Load(),
+		"uniqueFinancialExecutions":    uniqueFinancialExecs,
+		"duplicateFinancialExecutions": duplicateFinancialExecs,
+		"maxExecutionsPerKey":          maxExecsPerKey,
+		"circuitDecisionsChecked":      checkedDecisions.Load(),
+		"circuitViolations":            circuitViolationCount,
+		"stateViolations":              stateViolations,
+	}
+
+	return &ExperimentSummary{
 		TotalRequests:          totalOperations,
 		SuccessCount:           int(completedOps.Load()),
 		FailureCount:           int(failedOps.Load()),
@@ -311,15 +388,7 @@ func runConcurrencySimulation(ctx context.Context, seed int64, totalOperations, 
 		SuccessRate:            float64(completedOps.Load()) / float64(totalOperations) * 100.0,
 		DecisionReasons:        decisionReasons,
 		Invariants:             invariants,
-		AllInvariantsSatisfied: allInv,
-		AdditionalMetrics: map[string]any{
-			"concurrency":            concurrency,
-			"uniqueIdempotencyKeys":  len(paymentsByIdempKey),
-			"totalPaymentRecords":    len(paymentRecords),
-			"idempotencyViolations":  idempViolations,
-			"stateViolations":        stateViolations,
-		},
-	}
-
-	return summary, samples
+		AllInvariantsSatisfied: allPassed,
+		AdditionalMetrics:      additional,
+	}, samples
 }

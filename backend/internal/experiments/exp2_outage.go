@@ -141,8 +141,8 @@ func RunExperiment2(ctx context.Context, seed int64, totalRequests int) (*Experi
 }
 
 func runOutageSimulation(ctx context.Context, seed int64, totalRequests int, enableCircuitBreaker bool) (*ExperimentSummary, []ExperimentSample) {
-	sourceBankID := uuid.New()
-	destBankID := uuid.New()
+	sourceBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp2-src-%d", seed)))
+	destBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp2-dst-%d", seed)))
 
 	baseAdapterA := NewMockBankAdapter("BANK-A-RAIL-A")
 	adapterB := NewMockBankAdapter("BANK-A-RAIL-B")
@@ -276,10 +276,10 @@ func runOutageSimulation(ctx context.Context, seed int64, totalRequests int, ena
 		// Execute operation through adapter (which goes through ChaosAdapter for Rail A)
 		holdReq := bank.HoldFundsRequest{
 			OperationRequest: bank.OperationRequest{
-				PaymentID:      uuid.New(),
-				OperationID:    uuid.New(),
-				IdempotencyKey: fmt.Sprintf("exp2-hold-%d", i),
-				AccountID:      uuid.New(),
+				PaymentID:      uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp2-pay-s%d-%d", seed, i))),
+				OperationID:    uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp2-op-s%d-%d", seed, i))),
+				IdempotencyKey: fmt.Sprintf("exp2-hold-s%d-%04d", seed, i),
+				AccountID:      uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp2-acc-s%d-%d", seed, i))),
 				AmountPaise:    1000,
 				Currency:       "INR",
 			},

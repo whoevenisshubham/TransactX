@@ -3,12 +3,12 @@ package experiments
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/chaos"
 	"github.com/transactx/backend/internal/health"
 	"github.com/transactx/backend/internal/payments"
@@ -23,10 +23,10 @@ func RunExperiment3(ctx context.Context, seed int64, totalRequests int) (*Experi
 	scenarioParams := map[string]string{
 		"totalRequests":  fmt.Sprintf("%d", totalRequests),
 		"chaosType":      string(chaos.ScenarioTypeLatency),
-		"injectedDelay":  "180ms on RAIL-A",
+		"injectedDelay":  "15ms via ChaosAdapter on RAIL-A",
 		"targetA":        "RAIL-A",
 		"targetB":        "RAIL-B",
-		"latencyWindow":  "Requests 100 to 200",
+		"latencyWindow":  "Requests 100 to 200 (middle 33% of workload)",
 		"selectionModes": "STATIC vs ADAPTIVE",
 	}
 	env := CaptureEnvironmentMetadata(seed, totalRequests, scenarioParams)
@@ -49,13 +49,13 @@ func RunExperiment3(ctx context.Context, seed int64, totalRequests int) (*Experi
 }
 
 func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mode payments.SelectionMode) (*ExperimentSummary, []ExperimentSample) {
-	rng := rand.New(rand.NewSource(seed))
-
-	sourceBankID := uuid.New()
-	destBankID := uuid.New()
+	sourceBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp3-src-%d", seed)))
+	destBankID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp3-dst-%d", seed)))
 
 	adapterA := NewMockBankAdapter("BANK-A-RAIL-A")
 	adapterB := NewMockBankAdapter("BANK-A-RAIL-B")
+	adapterA.SetLatency(1 * time.Millisecond)
+	adapterB.SetLatency(2 * time.Millisecond)
 
 	chaosRepo := newMemoryChaosRepo()
 	chaosController := chaos.NewController(chaosRepo)
@@ -83,11 +83,11 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 
 	hRepo := &memoryHealthRepo{}
 	cfg := health.DefaultConfig()
-	cfg.LatencyLowerBound = 10 * time.Millisecond
-	cfg.LatencyUpperBound = 150 * time.Millisecond
-	cfg.LatencyWeight = 0.50
-	cfg.AvailabilityWeight = 0.25
-	cfg.SuccessWeight = 0.25
+	cfg.LatencyLowerBound = 1 * time.Millisecond
+	cfg.LatencyUpperBound = 10 * time.Millisecond
+	cfg.LatencyWeight = 0.60
+	cfg.AvailabilityWeight = 0.20
+	cfg.SuccessWeight = 0.20
 	cfg.MinSamples = 1
 	hService := health.NewService(hRepo, cfg)
 
@@ -121,7 +121,7 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 				Type:       chaos.ScenarioTypeLatency,
 				Parameters: chaos.ScenarioParameters{
 					DurationMs: int64(degradeEnd-degradeStart) * 100,
-					LatencyMs:  180,
+					LatencyMs:  15,
 				},
 			}, "test-admin", "OPS_ADMIN")
 			if err == nil {
@@ -132,25 +132,26 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 			_, _ = chaosController.Stop(ctx, scenarioID, "test-admin", "OPS_ADMIN")
 		}
 
-		// Update health service with background observations
-		latA := 10*time.Millisecond + time.Duration(rng.Intn(4))*time.Millisecond
-		if i >= degradeStart && i < degradeEnd {
-			latA += 180 * time.Millisecond
-		}
+		// Update health service through actual adapter probe seam
+		probeStartA := time.Now()
+		resA, errA := chaosAdapterA.GetHealth(ctx)
+		probeLatA := time.Since(probeStartA)
 		_ = hService.RecordSample(ctx, health.HealthSample{
 			TargetID:  "RAIL-A",
 			SampledAt: now,
-			Available: true,
-			Latency:   latA,
+			Available: errA == nil && resA.Available,
+			Latency:   probeLatA,
 			Outcome:   health.OutcomeSuccess,
 		})
 
-		latB := 15*time.Millisecond + time.Duration(rng.Intn(4))*time.Millisecond
+		probeStartB := time.Now()
+		resB, errB := adapterB.GetHealth(ctx)
+		probeLatB := time.Since(probeStartB)
 		_ = hService.RecordSample(ctx, health.HealthSample{
 			TargetID:  "RAIL-B",
 			SampledAt: now,
-			Available: true,
-			Latency:   latB,
+			Available: errB == nil && resB.Available,
+			Latency:   probeLatB,
 			Outcome:   health.OutcomeSuccess,
 		})
 
@@ -179,15 +180,27 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 		decisionReasons[decision.Reason]++
 		trafficCounts[selectedTarget]++
 
-		// Track simulated execution latency
-		var actualLat time.Duration
-		if selectedTarget == "RAIL-A" {
-			actualLat = latA
-		} else {
-			actualLat = latB
+		// EXECUTE directly through the selected candidate's adapter seam and measure real elapsed latency
+		holdReq := bank.HoldFundsRequest{
+			OperationRequest: bank.OperationRequest{
+				PaymentID:      uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp3-pay-s%d-%d", seed, i))),
+				OperationID:    uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp3-op-s%d-%d", seed, i))),
+				IdempotencyKey: fmt.Sprintf("exp3-idemp-s%d-%04d", seed, i),
+				AccountID:      uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("exp3-acc-s%d-%d", seed, i))),
+				AmountPaise:    1000,
+				Currency:       "INR",
+			},
 		}
 
-		successes++
+		execStart := time.Now()
+		_, opErr := decision.Candidate.SourceAdapter.HoldFunds(ctx, holdReq)
+		actualLat := time.Since(execStart)
+
+		if opErr == nil {
+			successes++
+		} else {
+			failures++
+		}
 		latencies = append(latencies, actualLat)
 
 		if !recoveryStartTime.IsZero() && selectedTarget == "RAIL-A" && recoveryTimeMs == 0 {
@@ -199,7 +212,7 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 			Timestamp:      now,
 			Mode:           string(mode),
 			TargetID:       selectedTarget,
-			Success:        true,
+			Success:        opErr == nil,
 			Latency:        actualLat,
 			LatencyMs:      float64(actualLat.Microseconds()) / 1000.0,
 			DecisionReason: decision.Reason,
@@ -225,19 +238,20 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 			Details:       fmt.Sprintf("successes=%d/%d", successes, totalRequests),
 		},
 	}
-
 	if mode == payments.SelectionModeAdaptive {
+		shifted := trafficCounts["RAIL-B"] > 0
 		invariants = append(invariants, InvariantResult{
 			InvariantName: "Traffic shifted away from degraded target during latency period",
-			Passed:        trafficCounts["RAIL-B"] > 0,
+			Passed:        shifted,
 			Details:       fmt.Sprintf("Rail B served %d requests when Rail A suffered latency", trafficCounts["RAIL-B"]),
 		})
 	}
 
-	allInv := true
+	allPassed := true
 	for _, inv := range invariants {
 		if !inv.Passed {
-			allInv = false
+			allPassed = false
+			break
 		}
 	}
 
@@ -245,13 +259,12 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 		TotalRequests:          totalRequests,
 		SuccessCount:           successes,
 		FailureCount:           failures,
-		PendingCount:           0,
-		SuccessRate:            100.0,
+		SuccessRate:            float64(successes) / float64(totalRequests) * 100.0,
 		Latency:                latencyMetrics,
 		RecoveryTimeMs:         recoveryTimeMs,
 		TrafficShare:           trafficShares,
 		DecisionReasons:        decisionReasons,
 		Invariants:             invariants,
-		AllInvariantsSatisfied: allInv,
+		AllInvariantsSatisfied: allPassed,
 	}, samples
 }

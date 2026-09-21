@@ -2,7 +2,7 @@
   "experimentId": "routing",
   "title": "Experiment 1: Static Routing vs Health-Aware Routing",
   "environment": {
-    "gitCommit": "4311d641846780b6c94bffea400a263901702809",
+    "gitCommit": "356b04312a611441a5d40cecac221f2c4485d7c1",
     "platform": "windows/amd64",
     "os": "windows",
     "arch": "amd64",
@@ -10,8 +10,8 @@
     "nodeVersion": "v24.14.0",
     "deterministicSeed": 42,
     "datasetSize": 300,
-    "runTimestamp": "2026-09-21T16:00:28.5615647Z",
-    "runId": "run-1790006428-windows",
+    "runTimestamp": "2026-09-21T16:13:17.1479075Z",
+    "runId": "run-1790007197-windows",
     "scenarioParams": {
       "phase1": "25% healthy",
       "phase2": "50% primary degraded (80% failure)",

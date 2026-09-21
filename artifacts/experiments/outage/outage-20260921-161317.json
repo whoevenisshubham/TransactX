@@ -2,7 +2,7 @@
   "experimentId": "outage",
   "title": "Experiment 2: Bank Outage and Circuit Isolation",
   "environment": {
-    "gitCommit": "4311d641846780b6c94bffea400a263901702809",
+    "gitCommit": "356b04312a611441a5d40cecac221f2c4485d7c1",
     "platform": "windows/amd64",
     "os": "windows",
     "arch": "amd64",
@@ -10,8 +10,8 @@
     "nodeVersion": "v24.14.0",
     "deterministicSeed": 42,
     "datasetSize": 300,
-    "runTimestamp": "2026-09-21T16:00:28.6332555Z",
-    "runId": "run-1790006428-windows",
+    "runTimestamp": "2026-09-21T16:13:17.223583Z",
+    "runId": "run-1790007197-windows",
     "scenarioParams": {
       "chaosType": "BANK_OUTAGE",
       "circuitConfig": "failureThreshold=3, cooldown=5s",

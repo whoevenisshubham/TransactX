@@ -1,21 +1,39 @@
 # TransactX M2-8: Resilience Experiments and Raw Benchmark Outputs
 
-This document details the reproducibility harness, methodology, parameters, and verified raw outputs for the TransactX M2 resilience experiments.
+This document details the reproducibility harness, methodology, configurations, and verified raw outputs for the TransactX M2 resilience experiments.
 
-All experiments are deterministic, execute over the production-grade M2 domain implementations (`internal/payments`, `internal/health`, `internal/circuit`, `internal/chaos`, `frontend/src/offlineQueue.ts`, `frontend/src/offlineReplay.ts`), and output raw machine-readable JSON and CSV files under `artifacts/experiments/`.
-
-No benchmark numbers are fabricated or estimated. Every metric reported below is directly derived from executed benchmark runs.
+All reported numbers are strictly derived from executed benchmark runs. No numbers were estimated, hand-written, or invented.
 
 ---
 
-## Architecture and Safety Rules
+## Architectural Distinctions: Domain Components vs. Test Doubles
 
-1. **Central Financial Authority**: The payment switch remains the single authoritative decision-maker for financial status and ledger invariants.
-2. **BankAdapter Contract Unchanged**: All bank interactions use the frozen `bank.BankAdapter` domain interface. No mock or experiment alters method signatures or bypasses adapter boundaries.
-3. **Identity & Ownership**: Sender and receiver bank ownership is never forged or mutated to achieve rerouting. Routing decisions choose among valid `RouteCandidate` execution targets (`ExecutionTargetID`) for fixed bank identities.
-4. **Idempotency & Replay Semantics**: Retries of the same logical intent preserve the original `idempotencyKey` and `clientRequestId`. Duplicate executions on the authoritative adapter are tracked and strictly verified to be zero.
+To maintain absolute transparency, the test harness clearly distinguishes between genuine domain components under evaluation and the deterministic test doubles used to isolate operational failure conditions:
+
+### Real M2 Domain Components Evaluated
+- **`internal/payments`**: Dynamic candidate evaluation, selection modes (`SelectionModeStatic`, `SelectionModeAdaptive`), route-decision auditing, and circuit-eligibility hook enforcement.
+- **`internal/health`**: Real-time health scoring algorithm (`Score = 0.60*Latency + 0.20*Availability + 0.20*Success`), sliding-window sample retention, and penalty curves.
+- **`internal/circuit`**: State machine transitions (`CLOSED`, `OPEN`, `HALF_OPEN`), failure/success thresholds, cooldown expiration, probe limiting, and gradual restoration.
+- **`internal/chaos`**: Controlled fault-injection controller, target validation, scenario lifecycle (start, stop, expiry), and `ChaosAdapter` proxy seam.
+- **`frontend/src/offlineQueue.ts`**: Client-side IndexedDB persistence, owner user isolation, atomic state transitions, lease locking, and idempotency key persistence.
+- **`frontend/src/offlineReplay.ts`**: Replay worker execution, heartbeat lease renewal, exponential backoff with deterministic jitter bounds, status-resolution before retry, and terminal state resolution.
+
+### Deterministic Test Doubles Utilized
+- **`MockBankAdapter`** (`backend/internal/experiments/adapters.go`): In-memory adapter implementing the frozen `bank.BankAdapter` contract with an `ExecutionTracker` at the adapter seam.
+- **`memoryChaosRepo`** (`backend/internal/experiments/exp2_outage.go`): Thread-safe in-memory store for chaos scenarios and audit events, avoiding external PostgreSQL dependencies.
+- **`fake-indexeddb`**: In-memory W3C IndexedDB implementation executing the real queue schema, indexes, transactions, and cursors.
+- **`DeterministicReplayClientDouble`** (`frontend/scripts/run-offline-experiment.ts`): Local mock fulfilling the `ReplayClient` interface simulating payment API responses (201 `COMPLETED`, 202 `PROCESSING`, 503 `BANK_UNAVAILABLE`, 400 `INVALID_ACCOUNT`). **Note:** Experiment 4 validates client-side queueing, leasing, backoff, and replay ordering; it does **not** measure server-side database or network latency.
+
+---
+
+## Architecture & Safety Rules
+
+1. **Central Financial Authority**: The payment switch remains the authoritative arbiter of transaction states and ledger balance invariants.
+2. **BankAdapter Contract Unchanged**: All bank operations use the frozen `bank.BankAdapter` interface. No method signature was modified.
+3. **Identity & Ownership**: Sender and receiver bank ownership is never forged or mutated to achieve rerouting. Routing decisions select among valid `RouteCandidate` targets for fixed bank participants.
+4. **Idempotency & Replay Semantics**: Retries of the same logical intent preserve the original `idempotencyKey` and `clientRequestId`. Financial execution counts per logical idempotency key at the adapter seam are strictly verified (`maxExecutionsPerKey <= 1`).
 5. **Unknown Outcome Preservation**: Unknown outcomes remain `PENDING`/reconciliation. They are never converted into simulated successes for benchmarks.
-6. **No External Infrastructure**: Experiments run without Docker, Kafka, Redis, or Kubernetes.
+6. **Zero External Infrastructure**: No Docker, Kafka, Redis, or Kubernetes required.
 
 ---
 
@@ -23,8 +41,8 @@ No benchmark numbers are fabricated or estimated. Every metric reported below is
 
 Every benchmark run captures environmental metadata embedded directly into each JSON output:
 
-- **Git Commit**: Full HEAD commit SHA
-- **Platform / OS**: `windows/amd64` (or host platform)
+- **Git Commit**: `356b04312a611441a5d40cecac221f2c4485d7c1`
+- **Platform / OS**: `windows/amd64` (backend), `win32/x64` (frontend)
 - **Go Version**: `go1.27.1`
 - **Node.js Version**: `v24.14.0`
 - **Deterministic Seed**: Default `42`
@@ -46,7 +64,7 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
   - Phase 2 (Requests 75–224): Primary target `RAIL-A` degraded (80% failure rate, 150 ms latency). Backup `RAIL-B` healthy.
   - Phase 3 (Requests 225–299): Both targets healthy.
 
-### Measured Results (Run `routing-20260921-160028`)
+### Measured Results (Run `routing-20260921-161317`)
 
 | Metric | Baseline (Static) | Proposed (Adaptive) | Difference / Impact |
 | :--- | :--- | :--- | :--- |
@@ -62,8 +80,8 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
 | **Invariants Satisfied** | Yes | Yes | Zero accounting drift |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/routing/routing-20260921-160028.json`
-- CSV: `artifacts/experiments/routing/routing-20260921-160028.csv`
+- JSON: `artifacts/experiments/routing/routing-20260921-161317.json`
+- CSV: `artifacts/experiments/routing/routing-20260921-161317.csv`
 
 ---
 
@@ -83,7 +101,7 @@ Evaluate how circuit breaker integration (`internal/circuit`) detects a complete
 - **Baseline**: Static routing without circuit breaker, repeatedly attempting `RAIL-A`.
 - **Proposed**: Adaptive routing with circuit eligibility hook (`cb.EligibilityHook`).
 
-### Measured Results (Run `outage-20260921-160028`)
+### Measured Results (Run `outage-20260921-161317`)
 
 | Metric | Baseline (Static) | Proposed (Circuit-Aware) | Notes |
 | :--- | :--- | :--- | :--- |
@@ -103,48 +121,49 @@ Evaluate how circuit breaker integration (`internal/circuit`) detects a complete
 - `Eligibility Conformance`: Zero requests routed to OPEN circuit target (Verified)
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/outage/outage-20260921-160028.json`
-- CSV: `artifacts/experiments/outage/outage-20260921-160028.csv`
+- JSON: `artifacts/experiments/outage/outage-20260921-161317.json`
+- CSV: `artifacts/experiments/outage/outage-20260921-161317.csv`
 
 ---
 
 ## Experiment 3 — Latency Degradation and Traffic Shift
 
 ### Objective
-Measure route selector responsiveness to transient latency degradation injected via M2-6 `LATENCY` chaos scenario on `RAIL-A` (+180ms delay), comparing static routing vs. health-aware adaptive scoring.
+Measure route selector responsiveness to transient latency degradation injected via M2-6 `LATENCY` chaos scenario on `RAIL-A` (+15ms delay), comparing static routing vs. health-aware adaptive scoring. All latency samples are measured directly as the elapsed execution time through the `ChaosAdapter` -> `BankAdapter` call seam.
 
 ### Configuration
 - **Workload**: 300 requests.
-  - Phase 1 (0–99): Healthy baseline (`RAIL-A`: 10–14ms, `RAIL-B`: 15–19ms).
-  - Phase 2 (100–199): Injected latency on `RAIL-A` (+180ms -> 190–194ms).
+  - Phase 1 (0–99): Healthy baseline (`RAIL-A`: 1ms, `RAIL-B`: 2ms).
+  - Phase 2 (100–199): Injected latency on `RAIL-A` (+15ms -> ~16–17ms total).
   - Phase 3 (200–299): Recovery back to healthy baseline.
-- **Health Configuration**: `LatencyLowerBound=10ms`, `LatencyUpperBound=150ms`, `LatencyWeight=0.50`.
+- **Health Configuration**: `LatencyLowerBound=1ms`, `LatencyUpperBound=10ms`, `LatencyWeight=0.60`.
+- **Execution Seam**: Every selected candidate executes `SourceAdapter.HoldFunds(ctx, holdReq)` with measured elapsed time `actualLat := time.Since(execStart)`.
 
-### Measured Results (Run `latency-20260921-160028`)
+### Measured Results (Run `latency-20260921-161317`)
 
 | Metric | Baseline (Static) | Proposed (Health-Aware) | Impact |
 | :--- | :--- | :--- | :--- |
 | **Total Requests** | 300 | 300 | |
 | **Success Rate** | 100.00% | 100.00% | Both succeed |
-| **P50 Latency** | 12.00 ms | 15.00 ms | Shift to RAIL-B baseline |
-| **P95 Latency** | 193.00 ms | 18.00 ms | -175.00 ms (-90.7%) |
-| **P99 Latency** | 193.00 ms | 191.00 ms | Initial detection window |
-| **Max Latency** | 193.00 ms | 193.00 ms | First degraded sample |
-| **Traffic Share** | RAIL-A: 300 (100.0%) | RAIL-A: 105 (35.0%), RAIL-B: 195 (65.0%) | 65% shifted to RAIL-B |
+| **P50 Latency** | 1.68 ms | 2.51 ms | Shift to RAIL-B baseline |
+| **P95 Latency** | 17.19 ms | 3.54 ms | -13.65 ms (-79.4%) |
+| **P99 Latency** | 17.55 ms | 7.27 ms | Shift completed |
+| **Max Latency** | 17.95 ms | 17.31 ms | First degraded sample before shift |
+| **Traffic Share** | RAIL-A: 300 (100.0%) | RAIL-A: 98 (32.7%), RAIL-B: 202 (67.3%) | 67.3% shifted to RAIL-B |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/latency/latency-20260921-160028.json`
-- CSV: `artifacts/experiments/latency/latency-20260921-160028.csv`
+- JSON: `artifacts/experiments/latency/latency-20260921-161317.json`
+- CSV: `artifacts/experiments/latency/latency-20260921-161317.csv`
 
 ---
 
 ## Experiment 4 — Offline Queue and Deterministic Replay
 
 ### Objective
-Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-indexeddb`) and `OfflineReplayWorker` across network restoration, transient failures, pending statuses, and permanent rejection.
+Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-indexeddb`) and `OfflineReplayWorker` across network restoration, transient failures, pending statuses, and permanent rejection against a deterministic ReplayClient test double.
 
 ### Configuration
-- **Workload**: 50 durable offline payment intents.
+- **Workload**: 50 durable offline payment intents with deterministic IDs (`exp4-client-s42-succ-0000`, `exp4-idemp-s42-succ-0000`).
   - 30 Immediate Successes: Return 201 `COMPLETED` on first replay pass.
   - 10 Transient Retries: Fail with HTTP 503 `BANK_UNAVAILABLE` on pass 1; succeed with 201 on pass 2.
   - 5 Pending Statuses: Return HTTP 202 `PROCESSING` on pass 1; resolved to `COMPLETED` via `getPayment` status poll on pass 2.
@@ -154,12 +173,12 @@ Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-index
   - Pass 2: `T + 45s` (Clock advanced by 35s to expire backoff timers).
   - Pass 3: `T + 80s` (Final convergence verification).
 
-### Measured Results (Run `offline-20260921160147`)
+### Measured Results (Run `offline-20260921161344`)
 
 | Metric | Measured Value | Target / Requirement |
 | :--- | :--- | :--- |
 | **Total Queued** | 50 | 50 |
-| **Replay Attempts** | 65 | Authoritative API exercised |
+| **Replay Attempts** | 65 | Replay client double exercised |
 | **Successful Syncs** | 45 | 30 immediate + 10 retried + 5 polled |
 | **Permanent Failures** | 5 | 5 validation errors |
 | **Duplicate Processing Count** | **0** | **Strict Invariant: 0 duplicates** |
@@ -170,22 +189,22 @@ Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-index
 | **Invariants Satisfied** | **true (4/4)** | Complete pass |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/offline/offline-20260921160147.json`
-- CSV: `artifacts/experiments/offline/offline-20260921160147.csv`
+- JSON: `artifacts/experiments/offline/offline-20260921161344.json`
+- CSV: `artifacts/experiments/offline/offline-20260921161344.csv`
 
 ---
 
 ## Experiment 5 — Concurrency Storm and Financial Invariants
 
 ### Objective
-Subject the adaptive routing and payment execution pipeline to a heavy concurrent workload, verifying that financial integrity, idempotency, and circuit state invariants hold under concurrent contention.
+Subject adaptive routing and payment execution to a concurrent workload across 10 goroutines, verifying financial execution invariants directly at the adapter seam via `ExecutionTracker`.
 
 ### Configuration
 - **Workload**: 300 requested operations across 10 concurrent worker goroutines.
-- **Idempotency Pool**: 179 unique keys (with deliberate duplicate submissions to test concurrent duplicate deduplication).
-- **Execution Pipeline**: `payments.SelectRoute` with circuit eligibility hook -> `HoldFunds` -> `ConfirmHold` -> `cb.RecordSuccess`.
+- **Idempotency Pool**: 180 unique deterministic keys (`storm-idemp-s42-0000`).
+- **Execution Pipeline**: `payments.SelectRoute` -> circuit eligibility evaluation -> idempotency coordinator -> `HoldFunds` -> `ConfirmHold` -> `cb.RecordSuccess`.
 
-### Measured Results (Run `concurrency-20260921-160028`)
+### Measured Results (Run `concurrency-20260921-161325`)
 
 | Metric | Measured Value | Invariant Condition |
 | :--- | :--- | :--- |
@@ -194,15 +213,18 @@ Subject the adaptive routing and payment execution pipeline to a heavy concurren
 | **Completed Operations** | 300 | No dropped operations |
 | **Failed Operations** | 0 | |
 | **Pending Operations** | 0 | |
-| **Unique Idempotency Keys** | 179 | |
-| **Duplicate Submissions Deduplicated** | 121 | Idempotent duplicate reuse |
-| **Duplicate Financial Processing** | **0** | **Invariant: Exactly zero duplicate executions** |
-| **Money-State Violations** | **0** | **Invariant: Only valid terminal states** |
+| **Unique Logical Keys** | 180 | Input key pool |
+| **Duplicate Submissions Deduplicated** | 153 | Concurrent arrivals deduplicated |
+| **Unique Financial Executions** | 147 | Unique executed payments |
+| **Duplicate Financial Executions** | **0** | **Invariant: max executions per key == 1** |
+| **Max Executions Per Key** | **1** | **Strict financial single-execution invariant** |
+| **Circuit Decisions Checked** | 300 | 100% of routing decisions audited |
 | **Circuit Violations** | **0** | **Invariant: Zero ineligible routes selected** |
+| **Money-State Violations** | **0** | **Invariant: Only valid terminal states** |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/concurrency/concurrency-20260921-160028.json`
-- CSV: `artifacts/experiments/concurrency/concurrency-20260921-160028.csv`
+- JSON: `artifacts/experiments/concurrency/concurrency-20260921-161325.json`
+- CSV: `artifacts/experiments/concurrency/concurrency-20260921-161325.csv`
 
 ---
 
@@ -224,7 +246,7 @@ go run ./cmd/experiments -experiment=outage
 go run ./cmd/experiments -experiment=latency
 go run ./cmd/experiments -experiment=concurrency
 
-# Run automated tests
+# Run automated test suite
 go test -v -count=1 ./internal/experiments/...
 ```
 
@@ -247,5 +269,8 @@ npm run test:offline-replay
 
 ## Infrastructure and Environment Limitations
 
-- **Race Detector on Windows**: Running `go test -race` in this Windows environment produces `cc1.exe: sorry, unimplemented: 64-bit mode not compiled in` due to the local 32-bit MinGW Cgo compiler. Standard execution without race detection (`go test -count=1 ./...` and `go build ./...`) builds and passes 100% of tests.
-- **Durable Storage Simulation**: In-memory database repositories (`memoryChaosRepo`, `fake-indexeddb`) were used to isolate resilience mechanics from external database setup while faithfully executing all domain contracts.
+- **Go Race Detector on Windows (`go test -race`)**:
+  - Exact command: `go test -race ./internal/experiments/...`
+  - Exact failure: `# runtime/cgo \n cc1.exe: sorry, unimplemented: 64-bit mode not compiled in`
+  - Cause: Local host MinGW Cgo toolchain is 32-bit and cannot compile the 64-bit runtime race instrumentation.
+  - Verification: Standard compilation and tests (`go test -count=1 ./...` and `go build ./...`) pass 100%. Concurrency thread safety was empirically verified in Experiment 5 across 300 concurrent requests over 10 worker goroutines with atomic accounting, mutex synchronization, and zero duplicate executions.

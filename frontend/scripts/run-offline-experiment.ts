@@ -40,17 +40,20 @@ interface OfflineSample {
   errorMessage?: string;
 }
 
-async function runExperiment4(totalIntents = 50) {
+async function runExperiment4(totalIntents = 50, seed = 42) {
   console.log("================================================================================");
   console.log("  TransactX M2-8: Experiment 4 — Offline Queue and Deterministic Replay");
   console.log("================================================================================");
-  console.log(`Workload Size: ${totalIntents} offline payment intents`);
+  console.log(`Workload Size: ${totalIntents} offline payment intents (Deterministic Seed: ${seed})`);
+  console.log("Scope: Client-side durable IndexedDB queueing and replay mechanics.");
+  console.log("Note: ReplayClient is a deterministic test double simulating payment API contract shapes;");
+  console.log("      it does NOT measure backend database or network processing latency.");
 
   const indexedDBFactory = new IDBFactory();
-  const dbName = `transactx-exp4-${Date.now()}`;
+  const dbName = `transactx-exp4-s${seed}`;
   const queue = new OfflineIntentQueue(dbName, "exp-merchant-user", indexedDBFactory);
 
-  // Authoritative Mock Payment API tracking
+  // Deterministic ReplayClient test double simulating payment API responses (201, 202, 503, 400)
   const backendProcessedKeys = new Map<string, number>(); // key -> count of completed processing
   const paymentsStore = new Map<string, Payment>();
   let duplicateProcessingCount = 0;
@@ -58,8 +61,7 @@ async function runExperiment4(totalIntents = 50) {
   let sameKeyReplayCount = 0;
   const keyToClientRequestId = new Map<string, string>();
 
-  // Mock ReplayClient
-  const client: ReplayClient = {
+  const deterministicReplayClientDouble: ReplayClient = {
     createPayment: async (payload, idempotencyKey, clientRequestId) => {
       totalReplayAttempts++;
 
@@ -71,7 +73,7 @@ async function runExperiment4(totalIntents = 50) {
       }
 
       // 1. Permanent Failure category (last 10% of workload)
-      if (clientRequestId.startsWith("fail-")) {
+      if (clientRequestId.includes("-fail-")) {
         const error = new Error("Invalid account number");
         (error as any).status = 400;
         (error as any).code = "INVALID_ACCOUNT";
@@ -79,10 +81,10 @@ async function runExperiment4(totalIntents = 50) {
       }
 
       // 2. Transient 503 failure category (retried)
-      if (clientRequestId.startsWith("transient-")) {
+      if (clientRequestId.includes("-transient-")) {
         const count = backendProcessedKeys.get(idempotencyKey) || 0;
         if (count === 0) {
-          backendProcessedKeys.set(idempotencyKey, 1); // recorded attempt
+          backendProcessedKeys.set(idempotencyKey, 1); // record first attempt
           const err = new Error("Bank temporarily unavailable");
           (err as any).status = 503;
           (err as any).code = "BANK_UNAVAILABLE";
@@ -91,7 +93,7 @@ async function runExperiment4(totalIntents = 50) {
       }
 
       // 3. 202 Pending category (needs subsequent GET status resolution)
-      if (clientRequestId.startsWith("pending-")) {
+      if (clientRequestId.includes("-pending-")) {
         const count = backendProcessedKeys.get(idempotencyKey) || 0;
         if (count === 0) {
           backendProcessedKeys.set(idempotencyKey, 1);
@@ -113,7 +115,7 @@ async function runExperiment4(totalIntents = 50) {
         }
       }
 
-      // Check duplicate processing on backend
+      // Check duplicate processing on simulated backend
       const prev = backendProcessedKeys.get(idempotencyKey) || 0;
       if (prev >= 2) {
         duplicateProcessingCount++;
@@ -149,29 +151,29 @@ async function runExperiment4(totalIntents = 50) {
     },
   };
 
-  // Enqueue Workload
+  // Enqueue Workload with Deterministic Identifiers derived from seed + index
   const baseTime = new Date("2026-09-21T12:00:00.000Z");
   const queuedIntents: Array<{ intent: OfflineIntent; category: OfflineSample["category"] }> = [];
 
   for (let i = 0; i < totalIntents; i++) {
     let category: OfflineSample["category"] = "IMMEDIATE_SUCCESS";
-    let prefix = "succ-";
+    let prefix = "succ";
     if (i < 30) {
       category = "IMMEDIATE_SUCCESS";
-      prefix = "succ-";
+      prefix = "succ";
     } else if (i < 40) {
       category = "TRANSIENT_RETRY";
-      prefix = "transient-";
+      prefix = "transient";
     } else if (i < 45) {
       category = "PENDING_STATUS";
-      prefix = "pending-";
+      prefix = "pending";
     } else {
       category = "PERMANENT_FAILURE";
-      prefix = "fail-";
+      prefix = "fail";
     }
 
-    const clientReqId = `${prefix}${i}-${crypto.randomUUID().slice(0, 8)}`;
-    const idempotencyKey = `idemp-${prefix}${i}-${crypto.randomUUID().slice(0, 8)}`;
+    const clientReqId = `exp4-client-s${seed}-${prefix}-${i.toString().padStart(4, "0")}`;
+    const idempotencyKey = `exp4-idemp-s${seed}-${prefix}-${i.toString().padStart(4, "0")}`;
     const enqTime = new Date(baseTime.getTime() + i * 100);
 
     const intent = await queue.enqueue(
@@ -193,25 +195,25 @@ async function runExperiment4(totalIntents = 50) {
   console.log(`Enqueued ${queuedIntents.length} durable intents into IndexedDB.`);
 
   // Execute Replay Worker Across Multiple Passes
-  const worker = new OfflineReplayWorker(queue, client, "exp4-replay-worker", 30000);
+  const worker = new OfflineReplayWorker(queue, deterministicReplayClientDouble, `exp4-worker-s${seed}`, 30000);
 
   // Pass 1: Initial replay (replays all claims eligible at baseTime + 10s)
   let currentTime = new Date(baseTime.getTime() + 10_000);
-  const pass1Results = await worker.run(currentTime);
+  await worker.run(currentTime);
 
   // Pass 2: Advance clock by 35s to expire backoff timers for retryable intents
   currentTime = new Date(currentTime.getTime() + 35_000);
-  const pass2Results = await worker.run(currentTime);
+  await worker.run(currentTime);
 
   // Pass 3: Final sweep to verify convergence
   currentTime = new Date(currentTime.getTime() + 35_000);
-  const pass3Results = await worker.run(currentTime);
+  await worker.run(currentTime);
 
   // Collect final states and compute metrics
   const samples: OfflineSample[] = [];
   let successfulSyncCount = 0;
   let permanentFailures = 0;
-  let syncDelays: number[] = [];
+  const syncDelays: number[] = [];
 
   for (let i = 0; i < queuedIntents.length; i++) {
     const { intent, category } = queuedIntents[i];
@@ -266,9 +268,9 @@ async function runExperiment4(totalIntents = 50) {
       details: `synced=${successfulSyncCount}, failed=${permanentFailures}, total=${totalIntents}`,
     },
     {
-      invariantName: "Authoritative payment API not bypassed",
+      invariantName: "All intents replayed through ReplayClient contract seam",
       passed: totalReplayAttempts >= totalIntents,
-      details: `total replay API calls made = ${totalReplayAttempts}`,
+      details: `total ReplayClient test double invocations = ${totalReplayAttempts}`,
     },
   ];
 
@@ -281,7 +283,7 @@ async function runExperiment4(totalIntents = 50) {
     arch: process.arch,
     nodeVersion: process.version,
     goVersion: getGoVersion(),
-    deterministicSeed: 42,
+    deterministicSeed: seed,
     datasetSize: totalIntents,
     runTimestamp: new Date().toISOString(),
     runId: `run-${Date.now()}-${process.platform}`,
@@ -291,6 +293,8 @@ async function runExperiment4(totalIntents = 50) {
       transientRetries: "10",
       pendingStatusChecks: "5",
       permanentFailures: "5",
+      replayClientType: "Deterministic ReplayClient Test Double (Option B)",
+      measuredScope: "Client-side IndexedDB persistence, worker leasing, backoff timers, idempotency preservation",
     },
   };
 

@@ -2,7 +2,7 @@
   "experimentId": "latency",
   "title": "Experiment 3: Latency Degradation and Traffic Shift",
   "environment": {
-    "gitCommit": "4311d641846780b6c94bffea400a263901702809",
+    "gitCommit": "356b04312a611441a5d40cecac221f2c4485d7c1",
     "platform": "windows/amd64",
     "os": "windows",
     "arch": "amd64",
@@ -10,12 +10,12 @@
     "nodeVersion": "v24.14.0",
     "deterministicSeed": 42,
     "datasetSize": 300,
-    "runTimestamp": "2026-09-21T16:00:28.689222Z",
-    "runId": "run-1790006428-windows",
+    "runTimestamp": "2026-09-21T16:13:17.276444Z",
+    "runId": "run-1790007197-windows",
     "scenarioParams": {
       "chaosType": "LATENCY",
-      "injectedDelay": "180ms on RAIL-A",
-      "latencyWindow": "Requests 100 to 200",
+      "injectedDelay": "15ms via ChaosAdapter on RAIL-A",
+      "latencyWindow": "Requests 100 to 200 (middle 33% of workload)",
       "selectionModes": "STATIC vs ADAPTIVE",
       "targetA": "RAIL-A",
       "targetB": "RAIL-B",
@@ -29,11 +29,11 @@
     "pendingCount": 0,
     "successRate": 100,
     "latency": {
-      "meanMs": 71.48333333333333,
-      "p50Ms": 12,
-      "p95Ms": 193,
-      "p99Ms": 193,
-      "maxMs": 193
+      "meanMs": 6.737303333333333,
+      "p50Ms": 1.679,
+      "p95Ms": 17.191,
+      "p99Ms": 17.546,
+      "maxMs": 17.949
     },
     "recoveryTimeMs": 100,
     "trafficShare": [
@@ -62,23 +62,23 @@
     "pendingCount": 0,
     "successRate": 100,
     "latency": {
-      "meanMs": 17.666666666666668,
-      "p50Ms": 15,
-      "p95Ms": 18,
-      "p99Ms": 191,
-      "maxMs": 193
+      "meanMs": 2.527906666666667,
+      "p50Ms": 2.51,
+      "p95Ms": 3.544,
+      "p99Ms": 7.27,
+      "maxMs": 17.308
     },
     "recoveryTimeMs": 0,
     "trafficShare": [
       {
         "targetId": "RAIL-A",
-        "count": 105,
-        "percentage": 35
+        "count": 98,
+        "percentage": 32.666666666666664
       },
       {
         "targetId": "RAIL-B",
-        "count": 195,
-        "percentage": 65
+        "count": 202,
+        "percentage": 67.33333333333333
       }
     ],
     "decisionReasons": {
@@ -93,7 +93,7 @@
       {
         "invariantName": "Traffic shifted away from degraded target during latency period",
         "passed": true,
-        "details": "Rail B served 195 requests when Rail A suffered latency"
+        "details": "Rail B served 202 requests when Rail A suffered latency"
       }
     ],
     "allInvariantsSatisfied": true
@@ -105,8 +105,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1532900,
+      "latencyMs": 1.532,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -115,8 +115,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1659300,
+      "latencyMs": 1.659,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -125,8 +125,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1574300,
+      "latencyMs": 1.574,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -135,8 +135,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1651800,
+      "latencyMs": 1.651,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -145,8 +145,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 2387700,
+      "latencyMs": 2.387,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -155,8 +155,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1615300,
+      "latencyMs": 1.615,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -165,8 +165,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1527000,
+      "latencyMs": 1.527,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -175,8 +175,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1530000,
+      "latencyMs": 1.53,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -185,8 +185,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1695200,
+      "latencyMs": 1.695,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -195,8 +195,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1517700,
+      "latencyMs": 1.517,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -205,8 +205,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1552700,
+      "latencyMs": 1.552,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -215,8 +215,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1095800,
+      "latencyMs": 1.095,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -225,8 +225,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1683900,
+      "latencyMs": 1.683,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -235,8 +235,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1566500,
+      "latencyMs": 1.566,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -245,8 +245,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1644900,
+      "latencyMs": 1.644,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -255,8 +255,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1543000,
+      "latencyMs": 1.543,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -265,8 +265,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1520600,
+      "latencyMs": 1.52,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -275,8 +275,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1614600,
+      "latencyMs": 1.614,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -285,8 +285,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1526100,
+      "latencyMs": 1.526,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -295,8 +295,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1453500,
+      "latencyMs": 1.453,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -305,8 +305,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1709200,
+      "latencyMs": 1.709,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -315,8 +315,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1619600,
+      "latencyMs": 1.619,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -325,8 +325,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1510600,
+      "latencyMs": 1.51,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -335,8 +335,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1639600,
+      "latencyMs": 1.639,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -345,8 +345,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1327000,
+      "latencyMs": 1.327,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -355,8 +355,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1531900,
+      "latencyMs": 1.531,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -365,8 +365,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1571800,
+      "latencyMs": 1.571,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -375,8 +375,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1560400,
+      "latencyMs": 1.56,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -385,8 +385,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1638600,
+      "latencyMs": 1.638,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -395,8 +395,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1522500,
+      "latencyMs": 1.522,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -405,8 +405,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1559300,
+      "latencyMs": 1.559,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -415,8 +415,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1380500,
+      "latencyMs": 1.38,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -425,8 +425,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1571600,
+      "latencyMs": 1.571,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -435,8 +435,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1541400,
+      "latencyMs": 1.541,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -445,8 +445,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1611900,
+      "latencyMs": 1.611,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -455,8 +455,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1563700,
+      "latencyMs": 1.563,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -465,8 +465,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1566700,
+      "latencyMs": 1.566,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -475,8 +475,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1606700,
+      "latencyMs": 1.606,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -485,8 +485,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1526400,
+      "latencyMs": 1.526,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -495,8 +495,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1133900,
+      "latencyMs": 1.133,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -505,8 +505,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1271100,
+      "latencyMs": 1.271,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -515,8 +515,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1603600,
+      "latencyMs": 1.603,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -525,8 +525,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1532300,
+      "latencyMs": 1.532,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -535,8 +535,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1591300,
+      "latencyMs": 1.591,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -545,8 +545,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1443000,
+      "latencyMs": 1.443,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -555,8 +555,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1233800,
+      "latencyMs": 1.233,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -565,8 +565,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1436400,
+      "latencyMs": 1.436,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -575,8 +575,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1602900,
+      "latencyMs": 1.602,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -585,8 +585,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1572800,
+      "latencyMs": 1.572,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -595,8 +595,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1570100,
+      "latencyMs": 1.57,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -605,8 +605,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1557500,
+      "latencyMs": 1.557,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -615,8 +615,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1906300,
+      "latencyMs": 1.906,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -625,8 +625,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1612200,
+      "latencyMs": 1.612,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -635,8 +635,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1336500,
+      "latencyMs": 1.336,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -645,8 +645,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1100000,
+      "latencyMs": 1.1,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -655,8 +655,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1520400,
+      "latencyMs": 1.52,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -665,8 +665,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1718200,
+      "latencyMs": 1.718,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -675,8 +675,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1508700,
+      "latencyMs": 1.508,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -685,8 +685,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1543900,
+      "latencyMs": 1.543,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -695,8 +695,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1582400,
+      "latencyMs": 1.582,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -705,8 +705,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1560300,
+      "latencyMs": 1.56,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -715,8 +715,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1529700,
+      "latencyMs": 1.529,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -725,8 +725,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1509000,
+      "latencyMs": 1.509,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -735,8 +735,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1676400,
+      "latencyMs": 1.676,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -745,8 +745,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1541800,
+      "latencyMs": 1.541,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -755,8 +755,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1647800,
+      "latencyMs": 1.647,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -765,8 +765,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1537300,
+      "latencyMs": 1.537,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -775,8 +775,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1490000,
+      "latencyMs": 1.49,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -785,8 +785,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1506400,
+      "latencyMs": 1.506,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -795,8 +795,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1624400,
+      "latencyMs": 1.624,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -805,8 +805,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1153200,
+      "latencyMs": 1.153,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -815,8 +815,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1561000,
+      "latencyMs": 1.561,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -825,8 +825,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1457300,
+      "latencyMs": 1.457,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -835,8 +835,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1110100,
+      "latencyMs": 1.11,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -845,8 +845,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1699200,
+      "latencyMs": 1.699,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -855,8 +855,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1554100,
+      "latencyMs": 1.554,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -865,8 +865,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1161000,
+      "latencyMs": 1.161,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -875,8 +875,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1844900,
+      "latencyMs": 1.844,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -885,8 +885,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1566000,
+      "latencyMs": 1.566,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -895,8 +895,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1584200,
+      "latencyMs": 1.584,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -905,8 +905,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1531800,
+      "latencyMs": 1.531,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -915,8 +915,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1373900,
+      "latencyMs": 1.373,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -925,8 +925,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1100700,
+      "latencyMs": 1.1,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -935,8 +935,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1593900,
+      "latencyMs": 1.593,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -945,8 +945,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1683300,
+      "latencyMs": 1.683,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -955,8 +955,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1517900,
+      "latencyMs": 1.517,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -965,8 +965,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1572800,
+      "latencyMs": 1.572,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -975,8 +975,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1691300,
+      "latencyMs": 1.691,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -985,8 +985,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1531500,
+      "latencyMs": 1.531,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -995,8 +995,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1633400,
+      "latencyMs": 1.633,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1005,8 +1005,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1432100,
+      "latencyMs": 1.432,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1015,8 +1015,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1605900,
+      "latencyMs": 1.605,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1025,8 +1025,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1508200,
+      "latencyMs": 1.508,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1035,8 +1035,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1679200,
+      "latencyMs": 1.679,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1045,8 +1045,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1667100,
+      "latencyMs": 1.667,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1055,8 +1055,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1517300,
+      "latencyMs": 1.517,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1065,8 +1065,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1622700,
+      "latencyMs": 1.622,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1075,8 +1075,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1510800,
+      "latencyMs": 1.51,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1085,8 +1085,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1533500,
+      "latencyMs": 1.533,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1095,8 +1095,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1622000,
+      "latencyMs": 1.622,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1105,8 +1105,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17047500,
+      "latencyMs": 17.047,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1115,8 +1115,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16681800,
+      "latencyMs": 16.681,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1125,8 +1125,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16904400,
+      "latencyMs": 16.904,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1135,8 +1135,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16773600,
+      "latencyMs": 16.773,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1145,8 +1145,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16958100,
+      "latencyMs": 16.958,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1155,8 +1155,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16965800,
+      "latencyMs": 16.965,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1165,8 +1165,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17395200,
+      "latencyMs": 17.395,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1175,8 +1175,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17203100,
+      "latencyMs": 17.203,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1185,8 +1185,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 17166500,
+      "latencyMs": 17.166,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1195,8 +1195,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 17080300,
+      "latencyMs": 17.08,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1205,8 +1205,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16863600,
+      "latencyMs": 16.863,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1215,8 +1215,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16743100,
+      "latencyMs": 16.743,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1225,8 +1225,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16940200,
+      "latencyMs": 16.94,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1235,8 +1235,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16722700,
+      "latencyMs": 16.722,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1245,8 +1245,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17546600,
+      "latencyMs": 17.546,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1255,8 +1255,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16261800,
+      "latencyMs": 16.261,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1265,8 +1265,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 17047500,
+      "latencyMs": 17.047,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1275,8 +1275,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16931300,
+      "latencyMs": 16.931,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1285,8 +1285,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17174900,
+      "latencyMs": 17.174,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1295,8 +1295,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16673000,
+      "latencyMs": 16.673,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1305,8 +1305,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17101900,
+      "latencyMs": 17.101,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1315,8 +1315,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16246400,
+      "latencyMs": 16.246,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1325,8 +1325,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16650300,
+      "latencyMs": 16.65,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1335,8 +1335,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 17039200,
+      "latencyMs": 17.039,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1345,8 +1345,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16854100,
+      "latencyMs": 16.854,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1355,8 +1355,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16781700,
+      "latencyMs": 16.781,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1365,8 +1365,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16343600,
+      "latencyMs": 16.343,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1375,8 +1375,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16926800,
+      "latencyMs": 16.926,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1385,8 +1385,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17166300,
+      "latencyMs": 17.166,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1395,8 +1395,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16731900,
+      "latencyMs": 16.731,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1405,8 +1405,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16605300,
+      "latencyMs": 16.605,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1415,8 +1415,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16545200,
+      "latencyMs": 16.545,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1425,8 +1425,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16993300,
+      "latencyMs": 16.993,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1435,8 +1435,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16783600,
+      "latencyMs": 16.783,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1445,8 +1445,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16506400,
+      "latencyMs": 16.506,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1455,8 +1455,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16343200,
+      "latencyMs": 16.343,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1465,8 +1465,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16331600,
+      "latencyMs": 16.331,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1475,8 +1475,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16977600,
+      "latencyMs": 16.977,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1485,8 +1485,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16634800,
+      "latencyMs": 16.634,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1495,8 +1495,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16756300,
+      "latencyMs": 16.756,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1505,8 +1505,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16671900,
+      "latencyMs": 16.671,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1515,8 +1515,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16890300,
+      "latencyMs": 16.89,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1525,8 +1525,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 17186100,
+      "latencyMs": 17.186,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1535,8 +1535,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16399500,
+      "latencyMs": 16.399,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1545,8 +1545,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16928100,
+      "latencyMs": 16.928,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1555,8 +1555,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16961900,
+      "latencyMs": 16.961,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1565,8 +1565,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16693800,
+      "latencyMs": 16.693,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1575,8 +1575,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16698900,
+      "latencyMs": 16.698,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1585,8 +1585,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17025800,
+      "latencyMs": 17.025,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1595,8 +1595,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16564900,
+      "latencyMs": 16.564,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1605,8 +1605,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16776200,
+      "latencyMs": 16.776,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1615,8 +1615,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 17061700,
+      "latencyMs": 17.061,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1625,8 +1625,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16895800,
+      "latencyMs": 16.895,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1635,8 +1635,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16712800,
+      "latencyMs": 16.712,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1645,8 +1645,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16985700,
+      "latencyMs": 16.985,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1655,8 +1655,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16983000,
+      "latencyMs": 16.983,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1665,8 +1665,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16601500,
+      "latencyMs": 16.601,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1675,8 +1675,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17167500,
+      "latencyMs": 17.167,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1685,8 +1685,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17070900,
+      "latencyMs": 17.07,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1695,8 +1695,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16616900,
+      "latencyMs": 16.616,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1705,8 +1705,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17092800,
+      "latencyMs": 17.092,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1715,8 +1715,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16862200,
+      "latencyMs": 16.862,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1725,8 +1725,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 17041400,
+      "latencyMs": 17.041,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1735,8 +1735,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17449000,
+      "latencyMs": 17.449,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1745,8 +1745,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16457600,
+      "latencyMs": 16.457,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1755,8 +1755,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16546900,
+      "latencyMs": 16.546,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1765,8 +1765,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17278300,
+      "latencyMs": 17.278,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1775,8 +1775,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 17512700,
+      "latencyMs": 17.512,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1785,8 +1785,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17191200,
+      "latencyMs": 17.191,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1795,8 +1795,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17614500,
+      "latencyMs": 17.614,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1805,8 +1805,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17171700,
+      "latencyMs": 17.171,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1815,8 +1815,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 17533600,
+      "latencyMs": 17.533,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1825,8 +1825,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 17128600,
+      "latencyMs": 17.128,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1835,8 +1835,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17172200,
+      "latencyMs": 17.172,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1845,8 +1845,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16975200,
+      "latencyMs": 16.975,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1855,8 +1855,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17930100,
+      "latencyMs": 17.93,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1865,8 +1865,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16863500,
+      "latencyMs": 16.863,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1875,8 +1875,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16995700,
+      "latencyMs": 16.995,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1885,8 +1885,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 17102400,
+      "latencyMs": 17.102,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1895,8 +1895,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16797300,
+      "latencyMs": 16.797,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1905,8 +1905,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17157900,
+      "latencyMs": 17.157,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1915,8 +1915,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17267400,
+      "latencyMs": 17.267,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1925,8 +1925,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16861700,
+      "latencyMs": 16.861,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1935,8 +1935,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16816200,
+      "latencyMs": 16.816,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1945,8 +1945,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17340100,
+      "latencyMs": 17.34,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1955,8 +1955,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17357800,
+      "latencyMs": 17.357,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1965,8 +1965,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16695800,
+      "latencyMs": 16.695,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1975,8 +1975,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17052400,
+      "latencyMs": 17.052,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1985,8 +1985,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16623600,
+      "latencyMs": 16.623,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -1995,8 +1995,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 17364200,
+      "latencyMs": 17.364,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2005,8 +2005,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16903700,
+      "latencyMs": 16.903,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2015,8 +2015,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17949400,
+      "latencyMs": 17.949,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2025,8 +2025,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 17359700,
+      "latencyMs": 17.359,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2035,8 +2035,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16700800,
+      "latencyMs": 16.7,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2045,8 +2045,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 190000000,
-      "latencyMs": 190,
+      "latencyNs": 16880200,
+      "latencyMs": 16.88,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2055,8 +2055,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16677900,
+      "latencyMs": 16.677,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2065,8 +2065,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16984100,
+      "latencyMs": 16.984,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2075,8 +2075,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 16951000,
+      "latencyMs": 16.951,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2085,8 +2085,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 16946500,
+      "latencyMs": 16.946,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2095,8 +2095,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 17010300,
+      "latencyMs": 17.01,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2105,8 +2105,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1429900,
+      "latencyMs": 1.429,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2115,8 +2115,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1680700,
+      "latencyMs": 1.68,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2125,8 +2125,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1759100,
+      "latencyMs": 1.759,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2135,8 +2135,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1391500,
+      "latencyMs": 1.391,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2145,8 +2145,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1554600,
+      "latencyMs": 1.554,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2155,8 +2155,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1586300,
+      "latencyMs": 1.586,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2165,8 +2165,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1667300,
+      "latencyMs": 1.667,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2175,8 +2175,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1359200,
+      "latencyMs": 1.359,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2185,8 +2185,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1528900,
+      "latencyMs": 1.528,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2195,8 +2195,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1724700,
+      "latencyMs": 1.724,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2205,8 +2205,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1552800,
+      "latencyMs": 1.552,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2215,8 +2215,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1669100,
+      "latencyMs": 1.669,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2225,8 +2225,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1577400,
+      "latencyMs": 1.577,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2235,8 +2235,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1807000,
+      "latencyMs": 1.807,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2245,8 +2245,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1823900,
+      "latencyMs": 1.823,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2255,8 +2255,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1694500,
+      "latencyMs": 1.694,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2265,8 +2265,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1597500,
+      "latencyMs": 1.597,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2275,8 +2275,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1556400,
+      "latencyMs": 1.556,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2285,8 +2285,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1612500,
+      "latencyMs": 1.612,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2295,8 +2295,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1671500,
+      "latencyMs": 1.671,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2305,8 +2305,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1543900,
+      "latencyMs": 1.543,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2315,8 +2315,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1083900,
+      "latencyMs": 1.083,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2325,8 +2325,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1592400,
+      "latencyMs": 1.592,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2335,8 +2335,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 2003300,
+      "latencyMs": 2.003,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2345,8 +2345,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1693000,
+      "latencyMs": 1.693,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2355,8 +2355,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1511500,
+      "latencyMs": 1.511,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2365,8 +2365,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1710500,
+      "latencyMs": 1.71,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2375,8 +2375,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1638000,
+      "latencyMs": 1.638,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2385,8 +2385,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1714600,
+      "latencyMs": 1.714,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2395,8 +2395,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1758300,
+      "latencyMs": 1.758,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2405,8 +2405,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1744900,
+      "latencyMs": 1.744,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2415,8 +2415,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1086700,
+      "latencyMs": 1.086,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2425,8 +2425,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1098600,
+      "latencyMs": 1.098,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2435,8 +2435,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1533200,
+      "latencyMs": 1.533,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2445,8 +2445,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1510400,
+      "latencyMs": 1.51,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2455,8 +2455,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1514100,
+      "latencyMs": 1.514,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2465,8 +2465,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1807000,
+      "latencyMs": 1.807,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2475,8 +2475,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1734400,
+      "latencyMs": 1.734,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2485,8 +2485,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1258600,
+      "latencyMs": 1.258,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2495,8 +2495,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 2639700,
+      "latencyMs": 2.639,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2505,8 +2505,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 2710800,
+      "latencyMs": 2.71,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2515,8 +2515,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 2615000,
+      "latencyMs": 2.615,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2525,8 +2525,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1471200,
+      "latencyMs": 1.471,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2535,8 +2535,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 2659400,
+      "latencyMs": 2.659,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2545,8 +2545,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1683700,
+      "latencyMs": 1.683,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2555,8 +2555,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 2100500,
+      "latencyMs": 2.1,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2565,8 +2565,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1397000,
+      "latencyMs": 1.397,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2575,8 +2575,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1779300,
+      "latencyMs": 1.779,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2585,8 +2585,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 3407200,
+      "latencyMs": 3.407,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2595,8 +2595,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 2080600,
+      "latencyMs": 2.08,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2605,8 +2605,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 5874500,
+      "latencyMs": 5.874,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2615,8 +2615,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1131000,
+      "latencyMs": 1.131,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2625,8 +2625,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1538100,
+      "latencyMs": 1.538,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2635,8 +2635,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1579100,
+      "latencyMs": 1.579,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2645,8 +2645,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1589900,
+      "latencyMs": 1.589,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2655,8 +2655,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1521400,
+      "latencyMs": 1.521,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2665,8 +2665,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1115700,
+      "latencyMs": 1.115,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2675,8 +2675,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1515200,
+      "latencyMs": 1.515,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2685,8 +2685,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1568000,
+      "latencyMs": 1.568,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2695,8 +2695,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1552600,
+      "latencyMs": 1.552,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2705,8 +2705,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1607300,
+      "latencyMs": 1.607,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2715,8 +2715,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1500300,
+      "latencyMs": 1.5,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2725,8 +2725,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1770800,
+      "latencyMs": 1.77,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2735,8 +2735,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1768100,
+      "latencyMs": 1.768,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2745,8 +2745,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1853500,
+      "latencyMs": 1.853,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2755,8 +2755,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1671600,
+      "latencyMs": 1.671,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2765,8 +2765,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1786400,
+      "latencyMs": 1.786,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2775,8 +2775,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1775400,
+      "latencyMs": 1.775,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2785,8 +2785,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1337700,
+      "latencyMs": 1.337,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2795,8 +2795,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1696000,
+      "latencyMs": 1.696,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2805,8 +2805,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1652000,
+      "latencyMs": 1.652,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2815,8 +2815,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1666800,
+      "latencyMs": 1.666,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2825,8 +2825,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1640300,
+      "latencyMs": 1.64,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2835,8 +2835,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1635600,
+      "latencyMs": 1.635,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2845,8 +2845,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1799500,
+      "latencyMs": 1.799,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2855,8 +2855,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1571600,
+      "latencyMs": 1.571,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2865,8 +2865,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1598700,
+      "latencyMs": 1.598,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2875,8 +2875,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1637200,
+      "latencyMs": 1.637,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2885,8 +2885,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1669400,
+      "latencyMs": 1.669,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2895,8 +2895,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1579300,
+      "latencyMs": 1.579,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2905,8 +2905,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1620900,
+      "latencyMs": 1.62,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2915,8 +2915,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1630800,
+      "latencyMs": 1.63,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2925,8 +2925,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1215400,
+      "latencyMs": 1.215,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2935,8 +2935,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1628400,
+      "latencyMs": 1.628,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2945,8 +2945,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1534000,
+      "latencyMs": 1.534,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2955,8 +2955,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1614100,
+      "latencyMs": 1.614,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2965,8 +2965,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1654100,
+      "latencyMs": 1.654,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2975,8 +2975,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1867500,
+      "latencyMs": 1.867,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2985,8 +2985,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1743800,
+      "latencyMs": 1.743,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -2995,8 +2995,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 2079200,
+      "latencyMs": 2.079,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3005,8 +3005,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 2041600,
+      "latencyMs": 2.041,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3015,8 +3015,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1744600,
+      "latencyMs": 1.744,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3025,8 +3025,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 2584500,
+      "latencyMs": 2.584,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3035,8 +3035,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1193800,
+      "latencyMs": 1.193,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3045,8 +3045,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1595300,
+      "latencyMs": 1.595,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3055,8 +3055,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1618100,
+      "latencyMs": 1.618,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3065,8 +3065,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1647100,
+      "latencyMs": 1.647,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3075,8 +3075,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1840100,
+      "latencyMs": 1.84,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3085,8 +3085,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 2297200,
+      "latencyMs": 2.297,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3095,8 +3095,8 @@
       "mode": "STATIC",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1664200,
+      "latencyMs": 1.664,
       "decisionReason": "STATIC_CANDIDATE"
     },
     {
@@ -3105,8 +3105,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1957300,
+      "latencyMs": 1.957,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3115,8 +3115,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1622700,
+      "latencyMs": 1.622,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3125,8 +3125,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1782200,
+      "latencyMs": 1.782,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3135,8 +3135,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1248400,
+      "latencyMs": 1.248,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3145,8 +3145,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1899800,
+      "latencyMs": 1.899,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3155,8 +3155,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1203500,
+      "latencyMs": 1.203,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3165,8 +3165,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1722000,
+      "latencyMs": 1.722,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3175,8 +3175,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 2402200,
+      "latencyMs": 2.402,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3185,8 +3185,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1596200,
+      "latencyMs": 1.596,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3195,8 +3195,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1445000,
+      "latencyMs": 1.445,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3205,8 +3205,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1527000,
+      "latencyMs": 1.527,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3215,8 +3215,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1624100,
+      "latencyMs": 1.624,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3225,8 +3225,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1662300,
+      "latencyMs": 1.662,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3235,8 +3235,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1891000,
+      "latencyMs": 1.891,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3245,8 +3245,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1737100,
+      "latencyMs": 1.737,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3255,8 +3255,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1520800,
+      "latencyMs": 1.52,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3265,8 +3265,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1316500,
+      "latencyMs": 1.316,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3275,8 +3275,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 2197500,
+      "latencyMs": 2.197,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3285,8 +3285,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1480900,
+      "latencyMs": 1.48,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3295,8 +3295,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1896700,
+      "latencyMs": 1.896,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3305,8 +3305,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1478300,
+      "latencyMs": 1.478,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3315,8 +3315,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1772000,
+      "latencyMs": 1.772,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3325,8 +3325,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 2318700,
+      "latencyMs": 2.318,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3335,8 +3335,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1448300,
+      "latencyMs": 1.448,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3345,8 +3345,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 2308000,
+      "latencyMs": 2.308,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3355,8 +3355,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1543200,
+      "latencyMs": 1.543,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3365,8 +3365,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1614500,
+      "latencyMs": 1.614,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3375,8 +3375,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1448600,
+      "latencyMs": 1.448,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3385,8 +3385,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1650000,
+      "latencyMs": 1.65,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3395,8 +3395,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1750100,
+      "latencyMs": 1.75,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3405,8 +3405,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1517900,
+      "latencyMs": 1.517,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3415,8 +3415,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1858000,
+      "latencyMs": 1.858,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3425,8 +3425,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1208500,
+      "latencyMs": 1.208,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3435,58 +3435,58 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1535300,
+      "latencyMs": 1.535,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
       "index": 34,
       "timestamp": "2026-09-21T14:00:03.5Z",
       "mode": "ADAPTIVE",
-      "targetId": "RAIL-A",
+      "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 2518800,
+      "latencyMs": 2.518,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
       "index": 35,
       "timestamp": "2026-09-21T14:00:03.6Z",
       "mode": "ADAPTIVE",
-      "targetId": "RAIL-A",
+      "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 3678600,
+      "latencyMs": 3.678,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
       "index": 36,
       "timestamp": "2026-09-21T14:00:03.7Z",
       "mode": "ADAPTIVE",
-      "targetId": "RAIL-A",
+      "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 3522300,
+      "latencyMs": 3.522,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
       "index": 37,
       "timestamp": "2026-09-21T14:00:03.8Z",
       "mode": "ADAPTIVE",
-      "targetId": "RAIL-A",
+      "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 2560600,
+      "latencyMs": 2.56,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
       "index": 38,
       "timestamp": "2026-09-21T14:00:03.9Z",
       "mode": "ADAPTIVE",
-      "targetId": "RAIL-A",
+      "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 2513200,
+      "latencyMs": 2.513,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3495,8 +3495,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1931200,
+      "latencyMs": 1.931,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3505,8 +3505,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1523100,
+      "latencyMs": 1.523,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3515,8 +3515,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1999600,
+      "latencyMs": 1.999,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3525,8 +3525,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1102100,
+      "latencyMs": 1.102,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3535,8 +3535,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1524600,
+      "latencyMs": 1.524,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3545,8 +3545,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1702600,
+      "latencyMs": 1.702,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3555,8 +3555,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 2701700,
+      "latencyMs": 2.701,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3565,8 +3565,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1736200,
+      "latencyMs": 1.736,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3575,8 +3575,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1720200,
+      "latencyMs": 1.72,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3585,8 +3585,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1762300,
+      "latencyMs": 1.762,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3595,8 +3595,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1532400,
+      "latencyMs": 1.532,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3605,8 +3605,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1642000,
+      "latencyMs": 1.642,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3615,8 +3615,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1648000,
+      "latencyMs": 1.648,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3625,8 +3625,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 2512700,
+      "latencyMs": 2.512,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3635,8 +3635,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1979600,
+      "latencyMs": 1.979,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3645,8 +3645,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1790800,
+      "latencyMs": 1.79,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3655,8 +3655,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1790100,
+      "latencyMs": 1.79,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3665,8 +3665,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1694000,
+      "latencyMs": 1.694,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3675,8 +3675,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1372600,
+      "latencyMs": 1.372,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3685,8 +3685,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1719400,
+      "latencyMs": 1.719,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3695,8 +3695,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1657900,
+      "latencyMs": 1.657,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3705,8 +3705,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1671600,
+      "latencyMs": 1.671,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3715,8 +3715,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1442300,
+      "latencyMs": 1.442,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3725,8 +3725,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1594700,
+      "latencyMs": 1.594,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3735,8 +3735,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1344900,
+      "latencyMs": 1.344,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3745,8 +3745,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1579600,
+      "latencyMs": 1.579,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3755,8 +3755,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1641700,
+      "latencyMs": 1.641,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3765,8 +3765,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1314600,
+      "latencyMs": 1.314,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3775,8 +3775,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1763500,
+      "latencyMs": 1.763,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3785,8 +3785,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1795700,
+      "latencyMs": 1.795,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3795,8 +3795,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1526800,
+      "latencyMs": 1.526,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3805,8 +3805,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1728900,
+      "latencyMs": 1.728,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3815,8 +3815,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1772700,
+      "latencyMs": 1.772,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3825,8 +3825,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1574100,
+      "latencyMs": 1.574,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3835,8 +3835,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1158800,
+      "latencyMs": 1.158,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3845,8 +3845,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1665000,
+      "latencyMs": 1.665,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3855,8 +3855,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1198900,
+      "latencyMs": 1.198,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3865,8 +3865,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1339400,
+      "latencyMs": 1.339,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3875,8 +3875,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1648700,
+      "latencyMs": 1.648,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3885,8 +3885,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1564300,
+      "latencyMs": 1.564,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3895,8 +3895,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1646500,
+      "latencyMs": 1.646,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3905,8 +3905,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1322100,
+      "latencyMs": 1.322,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3915,8 +3915,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1705200,
+      "latencyMs": 1.705,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3925,8 +3925,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1544300,
+      "latencyMs": 1.544,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3935,8 +3935,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1674500,
+      "latencyMs": 1.674,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3945,8 +3945,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1556800,
+      "latencyMs": 1.556,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3955,8 +3955,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1820300,
+      "latencyMs": 1.82,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3965,8 +3965,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1676300,
+      "latencyMs": 1.676,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3975,8 +3975,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1676400,
+      "latencyMs": 1.676,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3985,8 +3985,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1277700,
+      "latencyMs": 1.277,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -3995,8 +3995,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1673100,
+      "latencyMs": 1.673,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4005,8 +4005,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1726700,
+      "latencyMs": 1.726,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4015,8 +4015,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1669100,
+      "latencyMs": 1.669,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4025,8 +4025,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1639300,
+      "latencyMs": 1.639,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4035,8 +4035,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1778200,
+      "latencyMs": 1.778,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4045,8 +4045,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 12000000,
-      "latencyMs": 12,
+      "latencyNs": 1761800,
+      "latencyMs": 1.761,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4055,8 +4055,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 3341000,
+      "latencyMs": 3.341,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4065,8 +4065,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 3155800,
+      "latencyMs": 3.155,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4075,8 +4075,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 11000000,
-      "latencyMs": 11,
+      "latencyNs": 1709400,
+      "latencyMs": 1.709,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4085,8 +4085,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 13000000,
-      "latencyMs": 13,
+      "latencyNs": 1674400,
+      "latencyMs": 1.674,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4095,8 +4095,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 10000000,
-      "latencyMs": 10,
+      "latencyNs": 1735900,
+      "latencyMs": 1.735,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4105,8 +4105,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 193000000,
-      "latencyMs": 193,
+      "latencyNs": 17308100,
+      "latencyMs": 17.308,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4115,8 +4115,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16533600,
+      "latencyMs": 16.533,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4125,28 +4125,28 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-A",
       "success": true,
-      "latencyNs": 192000000,
-      "latencyMs": 192,
+      "latencyNs": 16427100,
+      "latencyMs": 16.427,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
       "index": 103,
       "timestamp": "2026-09-21T14:00:10.4Z",
       "mode": "ADAPTIVE",
-      "targetId": "RAIL-A",
+      "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 2510300,
+      "latencyMs": 2.51,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
       "index": 104,
       "timestamp": "2026-09-21T14:00:10.5Z",
       "mode": "ADAPTIVE",
-      "targetId": "RAIL-A",
+      "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 191000000,
-      "latencyMs": 191,
+      "latencyNs": 2244300,
+      "latencyMs": 2.244,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4155,8 +4155,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2522100,
+      "latencyMs": 2.522,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4165,8 +4165,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2547600,
+      "latencyMs": 2.547,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4175,8 +4175,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2302700,
+      "latencyMs": 2.302,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4185,8 +4185,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2968500,
+      "latencyMs": 2.968,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4195,8 +4195,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2439100,
+      "latencyMs": 2.439,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4205,8 +4205,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2509600,
+      "latencyMs": 2.509,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4215,8 +4215,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2545400,
+      "latencyMs": 2.545,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4225,8 +4225,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2452900,
+      "latencyMs": 2.452,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4235,8 +4235,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2535800,
+      "latencyMs": 2.535,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4245,8 +4245,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2528800,
+      "latencyMs": 2.528,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4255,8 +4255,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2535600,
+      "latencyMs": 2.535,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4265,8 +4265,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2534300,
+      "latencyMs": 2.534,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4275,8 +4275,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2787100,
+      "latencyMs": 2.787,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4285,8 +4285,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2782100,
+      "latencyMs": 2.782,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4295,8 +4295,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2432400,
+      "latencyMs": 2.432,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4305,8 +4305,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2515200,
+      "latencyMs": 2.515,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4315,8 +4315,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2843500,
+      "latencyMs": 2.843,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4325,8 +4325,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2232900,
+      "latencyMs": 2.232,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4335,8 +4335,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2644100,
+      "latencyMs": 2.644,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4345,8 +4345,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2573600,
+      "latencyMs": 2.573,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4355,8 +4355,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2612900,
+      "latencyMs": 2.612,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4365,8 +4365,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2856200,
+      "latencyMs": 2.856,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4375,8 +4375,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2685300,
+      "latencyMs": 2.685,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4385,8 +4385,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2649100,
+      "latencyMs": 2.649,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4395,8 +4395,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2419300,
+      "latencyMs": 2.419,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4405,8 +4405,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2284800,
+      "latencyMs": 2.284,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4415,8 +4415,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2508700,
+      "latencyMs": 2.508,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4425,8 +4425,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2519700,
+      "latencyMs": 2.519,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4435,8 +4435,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2152800,
+      "latencyMs": 2.152,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4445,8 +4445,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2796000,
+      "latencyMs": 2.796,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4455,8 +4455,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2540900,
+      "latencyMs": 2.54,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4465,8 +4465,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2515800,
+      "latencyMs": 2.515,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4475,8 +4475,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2779800,
+      "latencyMs": 2.779,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4485,8 +4485,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3122700,
+      "latencyMs": 3.122,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4495,8 +4495,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2566200,
+      "latencyMs": 2.566,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4505,8 +4505,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 5489600,
+      "latencyMs": 5.489,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4515,8 +4515,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2220300,
+      "latencyMs": 2.22,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4525,8 +4525,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 4068000,
+      "latencyMs": 4.068,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4535,8 +4535,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2257700,
+      "latencyMs": 2.257,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4545,8 +4545,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3068400,
+      "latencyMs": 3.068,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4555,8 +4555,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2754300,
+      "latencyMs": 2.754,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4565,8 +4565,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2703400,
+      "latencyMs": 2.703,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4575,8 +4575,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2765400,
+      "latencyMs": 2.765,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4585,8 +4585,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 4468000,
+      "latencyMs": 4.468,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4595,8 +4595,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2532700,
+      "latencyMs": 2.532,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4605,8 +4605,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 4281900,
+      "latencyMs": 4.281,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4615,8 +4615,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 3823200,
+      "latencyMs": 3.823,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4625,8 +4625,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2907200,
+      "latencyMs": 2.907,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4635,8 +4635,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2457400,
+      "latencyMs": 2.457,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4645,8 +4645,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 3949600,
+      "latencyMs": 3.949,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4655,8 +4655,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2357300,
+      "latencyMs": 2.357,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4665,8 +4665,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2515800,
+      "latencyMs": 2.515,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4675,8 +4675,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2518200,
+      "latencyMs": 2.518,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4685,8 +4685,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2118600,
+      "latencyMs": 2.118,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4695,8 +4695,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2509200,
+      "latencyMs": 2.509,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4705,8 +4705,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2615700,
+      "latencyMs": 2.615,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4715,8 +4715,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2515700,
+      "latencyMs": 2.515,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4725,8 +4725,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2514200,
+      "latencyMs": 2.514,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4735,8 +4735,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2413100,
+      "latencyMs": 2.413,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4745,8 +4745,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2499800,
+      "latencyMs": 2.499,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4755,8 +4755,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 3749400,
+      "latencyMs": 3.749,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4765,8 +4765,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2389200,
+      "latencyMs": 2.389,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4775,8 +4775,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2435500,
+      "latencyMs": 2.435,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4785,8 +4785,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2636400,
+      "latencyMs": 2.636,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4795,8 +4795,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2533500,
+      "latencyMs": 2.533,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4805,8 +4805,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2514900,
+      "latencyMs": 2.514,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4815,8 +4815,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2130700,
+      "latencyMs": 2.13,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4825,8 +4825,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2578400,
+      "latencyMs": 2.578,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4835,8 +4835,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2612200,
+      "latencyMs": 2.612,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4845,8 +4845,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 5513800,
+      "latencyMs": 5.513,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4855,8 +4855,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2544500,
+      "latencyMs": 2.544,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4865,8 +4865,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2556700,
+      "latencyMs": 2.556,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4875,8 +4875,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2198000,
+      "latencyMs": 2.198,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4885,8 +4885,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2511000,
+      "latencyMs": 2.511,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4895,8 +4895,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2510100,
+      "latencyMs": 2.51,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4905,8 +4905,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2303200,
+      "latencyMs": 2.303,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4915,8 +4915,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2537200,
+      "latencyMs": 2.537,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4925,8 +4925,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2417700,
+      "latencyMs": 2.417,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4935,8 +4935,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2259000,
+      "latencyMs": 2.259,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4945,8 +4945,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2624100,
+      "latencyMs": 2.624,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4955,8 +4955,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2652800,
+      "latencyMs": 2.652,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4965,8 +4965,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2575000,
+      "latencyMs": 2.575,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4975,8 +4975,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2508700,
+      "latencyMs": 2.508,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4985,8 +4985,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2630000,
+      "latencyMs": 2.63,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -4995,8 +4995,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2489000,
+      "latencyMs": 2.489,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5005,8 +5005,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2756300,
+      "latencyMs": 2.756,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5015,8 +5015,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2517000,
+      "latencyMs": 2.517,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5025,8 +5025,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2529900,
+      "latencyMs": 2.529,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5035,8 +5035,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2527300,
+      "latencyMs": 2.527,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5045,8 +5045,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2510600,
+      "latencyMs": 2.51,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5055,8 +5055,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2716700,
+      "latencyMs": 2.716,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5065,8 +5065,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2517900,
+      "latencyMs": 2.517,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5075,8 +5075,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2299100,
+      "latencyMs": 2.299,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5085,8 +5085,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2609700,
+      "latencyMs": 2.609,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5095,8 +5095,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2334500,
+      "latencyMs": 2.334,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5105,8 +5105,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2518500,
+      "latencyMs": 2.518,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5115,8 +5115,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2519700,
+      "latencyMs": 2.519,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5125,8 +5125,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2698500,
+      "latencyMs": 2.698,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5135,8 +5135,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3367400,
+      "latencyMs": 3.367,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5145,8 +5145,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3412400,
+      "latencyMs": 3.412,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5155,8 +5155,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2230200,
+      "latencyMs": 2.23,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5165,8 +5165,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2613200,
+      "latencyMs": 2.613,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5175,8 +5175,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2752600,
+      "latencyMs": 2.752,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5185,8 +5185,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2522300,
+      "latencyMs": 2.522,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5195,8 +5195,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2620600,
+      "latencyMs": 2.62,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5205,8 +5205,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2744300,
+      "latencyMs": 2.744,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5215,8 +5215,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2689400,
+      "latencyMs": 2.689,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5225,8 +5225,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2009300,
+      "latencyMs": 2.009,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5235,8 +5235,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2555900,
+      "latencyMs": 2.555,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5245,8 +5245,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2603800,
+      "latencyMs": 2.603,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5255,8 +5255,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2667800,
+      "latencyMs": 2.667,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5265,8 +5265,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2599500,
+      "latencyMs": 2.599,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5275,8 +5275,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2559100,
+      "latencyMs": 2.559,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5285,8 +5285,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2690900,
+      "latencyMs": 2.69,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5295,8 +5295,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2881800,
+      "latencyMs": 2.881,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5305,8 +5305,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 3010200,
+      "latencyMs": 3.01,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5315,8 +5315,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2878900,
+      "latencyMs": 2.878,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5325,8 +5325,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2529700,
+      "latencyMs": 2.529,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5335,8 +5335,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2459700,
+      "latencyMs": 2.459,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5345,8 +5345,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2729500,
+      "latencyMs": 2.729,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5355,8 +5355,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2509000,
+      "latencyMs": 2.509,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5365,8 +5365,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2977900,
+      "latencyMs": 2.977,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5375,8 +5375,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3096100,
+      "latencyMs": 3.096,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5385,8 +5385,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2713700,
+      "latencyMs": 2.713,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5395,8 +5395,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3072800,
+      "latencyMs": 3.072,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5405,8 +5405,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2514600,
+      "latencyMs": 2.514,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5415,8 +5415,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2696800,
+      "latencyMs": 2.696,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5425,8 +5425,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2704000,
+      "latencyMs": 2.704,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5435,8 +5435,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2702900,
+      "latencyMs": 2.702,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5445,8 +5445,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 3307400,
+      "latencyMs": 3.307,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5455,8 +5455,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2761900,
+      "latencyMs": 2.761,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5465,8 +5465,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2518300,
+      "latencyMs": 2.518,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5475,8 +5475,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2376900,
+      "latencyMs": 2.376,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5485,8 +5485,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2783500,
+      "latencyMs": 2.783,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5495,8 +5495,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2522800,
+      "latencyMs": 2.522,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5505,8 +5505,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2221000,
+      "latencyMs": 2.221,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5515,8 +5515,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2551200,
+      "latencyMs": 2.551,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5525,8 +5525,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 3087300,
+      "latencyMs": 3.087,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5535,8 +5535,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 3544100,
+      "latencyMs": 3.544,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5545,8 +5545,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2834500,
+      "latencyMs": 2.834,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5555,8 +5555,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2545400,
+      "latencyMs": 2.545,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5565,8 +5565,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2265800,
+      "latencyMs": 2.265,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5575,8 +5575,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2336800,
+      "latencyMs": 2.336,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5585,8 +5585,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2845300,
+      "latencyMs": 2.845,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5595,8 +5595,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3232100,
+      "latencyMs": 3.232,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5605,8 +5605,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2508200,
+      "latencyMs": 2.508,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5615,8 +5615,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2444200,
+      "latencyMs": 2.444,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5625,8 +5625,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2750600,
+      "latencyMs": 2.75,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5635,8 +5635,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 3097200,
+      "latencyMs": 3.097,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5645,8 +5645,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2452800,
+      "latencyMs": 2.452,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5655,8 +5655,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2446800,
+      "latencyMs": 2.446,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5665,8 +5665,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2204800,
+      "latencyMs": 2.204,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5675,8 +5675,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2270600,
+      "latencyMs": 2.27,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5685,8 +5685,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2593600,
+      "latencyMs": 2.593,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5695,8 +5695,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2514500,
+      "latencyMs": 2.514,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5705,8 +5705,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2283500,
+      "latencyMs": 2.283,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5715,8 +5715,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2138800,
+      "latencyMs": 2.138,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5725,8 +5725,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2731800,
+      "latencyMs": 2.731,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5735,8 +5735,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2408000,
+      "latencyMs": 2.408,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5745,8 +5745,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2518800,
+      "latencyMs": 2.518,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5755,8 +5755,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2533900,
+      "latencyMs": 2.533,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5765,8 +5765,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 3851000,
+      "latencyMs": 3.851,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5775,8 +5775,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2513000,
+      "latencyMs": 2.513,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5785,8 +5785,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2707200,
+      "latencyMs": 2.707,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5795,8 +5795,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2762500,
+      "latencyMs": 2.762,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5805,8 +5805,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2525400,
+      "latencyMs": 2.525,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5815,8 +5815,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2183500,
+      "latencyMs": 2.183,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5825,8 +5825,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2525700,
+      "latencyMs": 2.525,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5835,8 +5835,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2307400,
+      "latencyMs": 2.307,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5845,8 +5845,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2879400,
+      "latencyMs": 2.879,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5855,8 +5855,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2157600,
+      "latencyMs": 2.157,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5865,8 +5865,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2241300,
+      "latencyMs": 2.241,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5875,8 +5875,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2909300,
+      "latencyMs": 2.909,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5885,8 +5885,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2687000,
+      "latencyMs": 2.687,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5895,8 +5895,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 3137900,
+      "latencyMs": 3.137,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5905,8 +5905,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2410400,
+      "latencyMs": 2.41,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5915,8 +5915,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2440000,
+      "latencyMs": 2.44,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5925,8 +5925,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2955100,
+      "latencyMs": 2.955,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5935,8 +5935,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2669900,
+      "latencyMs": 2.669,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5945,8 +5945,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2782200,
+      "latencyMs": 2.782,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5955,8 +5955,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2821900,
+      "latencyMs": 2.821,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5965,8 +5965,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2423200,
+      "latencyMs": 2.423,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5975,8 +5975,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2529600,
+      "latencyMs": 2.529,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5985,8 +5985,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2532700,
+      "latencyMs": 2.532,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -5995,8 +5995,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2526100,
+      "latencyMs": 2.526,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6005,8 +6005,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2506400,
+      "latencyMs": 2.506,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6015,8 +6015,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2653600,
+      "latencyMs": 2.653,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6025,8 +6025,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 2849800,
+      "latencyMs": 2.849,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6035,8 +6035,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 18000000,
-      "latencyMs": 18,
+      "latencyNs": 2453300,
+      "latencyMs": 2.453,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6045,8 +6045,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 7270700,
+      "latencyMs": 7.27,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6055,8 +6055,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 3581200,
+      "latencyMs": 3.581,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6065,8 +6065,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 16000000,
-      "latencyMs": 16,
+      "latencyNs": 3121400,
+      "latencyMs": 3.121,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6075,8 +6075,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2646800,
+      "latencyMs": 2.646,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6085,8 +6085,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 17000000,
-      "latencyMs": 17,
+      "latencyNs": 2515300,
+      "latencyMs": 2.515,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     },
     {
@@ -6095,8 +6095,8 @@
       "mode": "ADAPTIVE",
       "targetId": "RAIL-B",
       "success": true,
-      "latencyNs": 15000000,
-      "latencyMs": 15,
+      "latencyNs": 2509300,
+      "latencyMs": 2.509,
       "decisionReason": "ADAPTIVE_HEALTH_SCORE"
     }
   ]

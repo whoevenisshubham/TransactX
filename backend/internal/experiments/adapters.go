@@ -11,6 +11,70 @@ import (
 	"github.com/transactx/backend/internal/bank"
 )
 
+// ExecutionTracker tracks adapter invocations directly at the domain adapter seam per idempotency key.
+type ExecutionTracker struct {
+	mu                   sync.Mutex
+	holdsPerKey          map[string]int
+	confirmsPerKey       map[string]int
+	financialExecsPerKey map[string]int
+}
+
+// NewExecutionTracker creates a new execution tracker.
+func NewExecutionTracker() *ExecutionTracker {
+	return &ExecutionTracker{
+		holdsPerKey:          make(map[string]int),
+		confirmsPerKey:       make(map[string]int),
+		financialExecsPerKey: make(map[string]int),
+	}
+}
+
+// RecordHold increments hold executions for the idempotency key.
+func (t *ExecutionTracker) RecordHold(key string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.holdsPerKey[key]++
+	t.financialExecsPerKey[key]++
+	return t.holdsPerKey[key]
+}
+
+// RecordConfirm increments confirm executions for the idempotency key.
+func (t *ExecutionTracker) RecordConfirm(key string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.confirmsPerKey[key]++
+	return t.confirmsPerKey[key]
+}
+
+// GetHoldCount returns the number of hold operations executed for the key.
+func (t *ExecutionTracker) GetHoldCount(key string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.holdsPerKey[key]
+}
+
+// GetConfirmCount returns the number of confirm operations executed for the key.
+func (t *ExecutionTracker) GetConfirmCount(key string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.confirmsPerKey[key]
+}
+
+// Stats computes summary stats across all tracked keys.
+func (t *ExecutionTracker) Stats() (uniqueKeys int, maxExecsPerKey int, duplicateExecKeys int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	uniqueKeys = len(t.financialExecsPerKey)
+	for _, count := range t.financialExecsPerKey {
+		if count > 1 {
+			duplicateExecKeys++
+		}
+		if count > maxExecsPerKey {
+			maxExecsPerKey = count
+		}
+	}
+	return
+}
+
 // MockBankAdapter implements bank.BankAdapter with controllable latency and failure injection for benchmarks.
 type MockBankAdapter struct {
 	mu           sync.RWMutex
@@ -19,6 +83,7 @@ type MockBankAdapter struct {
 	available    bool
 	errorHandler func(ctx context.Context, opType string) error
 	operations   map[uuid.UUID]bank.OperationStatus
+	tracker      *ExecutionTracker
 }
 
 var _ bank.BankAdapter = (*MockBankAdapter)(nil)
@@ -48,6 +113,12 @@ func (m *MockBankAdapter) SetErrorHandler(fn func(ctx context.Context, opType st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.errorHandler = fn
+}
+
+func (m *MockBankAdapter) SetTracker(t *ExecutionTracker) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tracker = t
 }
 
 func (m *MockBankAdapter) simulate(ctx context.Context, opType string) error {
@@ -110,6 +181,9 @@ func (m *MockBankAdapter) HoldFunds(ctx context.Context, req bank.HoldFundsReque
 	}
 
 	m.mu.Lock()
+	if m.tracker != nil && req.IdempotencyKey != "" {
+		m.tracker.RecordHold(req.IdempotencyKey)
+	}
 	m.operations[req.OperationID] = bank.OperationSucceeded
 	m.mu.Unlock()
 
@@ -155,6 +229,9 @@ func (m *MockBankAdapter) ConfirmHold(ctx context.Context, req bank.ConfirmHoldR
 	}
 
 	m.mu.Lock()
+	if m.tracker != nil && req.IdempotencyKey != "" {
+		m.tracker.RecordConfirm(req.IdempotencyKey)
+	}
 	m.operations[req.OperationID] = bank.OperationSucceeded
 	m.mu.Unlock()
 
