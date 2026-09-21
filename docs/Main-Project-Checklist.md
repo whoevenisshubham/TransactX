@@ -7,7 +7,7 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 ## Current repository checkpoint
 
-The current branch completes the Member-1 routed-payment checkpoint and the customer payment frontend/API hardening: durable bank operation identity, routed saga persistence, operation status, compensation, deterministic pending recovery, safe customer DTOs, exact paise input, notes, incoming/outgoing history, and rendered responsive screens. The roadmap's later **Phase 6 — Offline-First Client & Safe Replay** remains intentionally unchecked and is outside this takeover's exit scope.
+The current branch completes the Member-1 routed-payment checkpoint, the customer payment frontend/API hardening, and the verified Member-2 resilience/offline/merchant slices: durable bank operation identity, routed saga persistence, operation status, compensation, deterministic pending recovery, safe customer DTOs, exact paise input, notes, incoming/outgoing history, durable offline queue and safe replay, deterministic health/routing, circuit breaker, controlled chaos, merchant product surfaces, and reproducible resilience experiments. Merkle reconciliation, Network Console visualization/streaming, and other explicitly M3-owned work remain outside this M2 exit scope.
 
 \[ ] Work strictly in phase order unless a dependency explicitly allows parallel work.
 \[ ] Tick an item only when it is implemented, tested, and verified — not merely coded.
