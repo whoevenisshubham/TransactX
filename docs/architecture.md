@@ -72,10 +72,39 @@ M2-4 selects immutable switch-level route candidates without modifying logical b
   - `endpoint`: dedicated health probe endpoint associated with `ExecutionTargetID` (required; missing or malformed endpoints are rejected; never silently substituted with execution endpoints or fake targets)
   - `sourceEndpoint`: optional source execution adapter endpoint
   - `destinationEndpoint`: optional destination execution adapter endpoint
-- **Circuit breaker hook**: Retains an optional `CircuitEligibility` hook for future M2-5 integration. Circuit breaker states (CLOSED, OPEN, HALF_OPEN) remain unimplemented until M2-5.
+- **Circuit breaker hook**: Integrates with the deterministic M2-5 circuit breaker via `CircuitEligibility`. `CLOSED` targets are eligible; `OPEN` targets are excluded; HALF_OPEN targets are excluded from payment routing; the bounded probe budget applies to recovery health probes. After successful recovery to CLOSED, payment traffic resumes with gradual restoration.
 
 The default probe timeout threshold is 2 seconds. A probe at or above that measured duration is classified as `TIMEOUT`; otherwise the explicit availability result distinguishes `SUCCESS` from `FAILURE`.
 
+## Deterministic circuit breaker and gradual recovery
+
+M2-5 implements a production-inspired, deterministic, thread-safe circuit breaker and gradual recovery system:
+
+- **State Identity**: Circuit state belongs exclusively to `executionTargetID` (e.g. `RAIL-A`, `RAIL-B`). It does NOT belong to bank ownership, accounts, balances, payments, or the financial ledger. Isolating state by `executionTargetID` ensures that a failing execution rail (e.g. `RAIL-A`) never affects or opens an alternate rail (e.g. `RAIL-B`).
+- **State Machine**:
+  - `CLOSED`: Target is healthy and eligible for routing. Failures and timeouts within the configured rolling window are tracked.
+  - `OPEN`: Target is ineligible for routing. Excluded by `SelectRoute`. Remains OPEN until cooldown expires.
+  - `HALF_OPEN`: Target enters recovery probing state once cooldown has elapsed. Excluded from payment routing; the bounded probe budget applies to recovery health probes.
+- **State Transitions**:
+  - `CLOSED -> OPEN`: Triggered when rolling-window failure count reaches `failureThreshold` (or timeout count reaches `timeoutThreshold`).
+  - `OPEN -> HALF_OPEN`: Deterministically transitions when `now.Sub(openedAt) >= openCooldown`.
+  - `HALF_OPEN -> CLOSED`: Triggered when `successfulProbes >= successThreshold`. Resets probe counters and failure histories, entering gradual restoration.
+  - `HALF_OPEN -> OPEN`: Immediately triggered if any trial probe fails (`probe_failed`).
+- **Configuration**:
+  - `CIRCUIT_FAILURE_THRESHOLD` (default: 5): Positive integer for consecutive or rolling failures required to open.
+  - `CIRCUIT_TIMEOUT_THRESHOLD` (default: 0): When 0, timeouts count as failures toward `failureThreshold`; when > 0, specifies an independent timeout threshold.
+  - `CIRCUIT_ROLLING_WINDOW` (default: 60s): Window duration for tracking failures and timeouts.
+  - `CIRCUIT_OPEN_COOLDOWN` (default: 30s): Cooldown duration before transitioning from `OPEN` to `HALF_OPEN`.
+  - `CIRCUIT_HALF_OPEN_PROBE_LIMIT` (default: 2): Maximum concurrent trial probe requests permitted in `HALF_OPEN`.
+  - `CIRCUIT_SUCCESS_THRESHOLD` (default: 2): Successful probes required to transition `HALF_OPEN -> CLOSED`.
+  - `CIRCUIT_RESTORATION_STEPS` (default: 3): Number of discrete steps for gradual recovery.
+  - `CIRCUIT_SUCCESS_POLICY` (`DECREMENT` or `RESET`): Policy for pruning failure timestamps on successful traffic.
+  - Malformed or invalid configurations fail fast on startup with descriptive validation errors; no hidden magic values.
+- **Concurrency & Probe Budgeting**: Mutex-synchronized per target. In `HALF_OPEN`, atomic probe budget counters ensure concurrent recovery health probes cannot exceed `halfOpenProbeLimit`. Excess recovery health probe requests are rejected deterministically (`CIRCUIT_REJECTED`). HALF_OPEN targets are excluded from payment routing; the bounded probe budget applies to recovery health probes. After successful recovery to CLOSED, payment traffic resumes with gradual restoration.
+- **Gradual Restoration**: A newly recovered target does not instantly absorb all traffic when competing execution targets exist. Restoration operates in deterministic discrete steps (`1..RestorationSteps`). At step $k$ of $N$, the target admits a proportional quota ($\frac{k}{N}$) of requests and deterministically sheds the remainder (`GRADUAL_RESTORATION_SHED`). This allows M2-4 to route shed traffic to alternate healthy candidates. Consecutive successes at each step advance the restoration step until full recovery.
+- **M2-4 Integration**: Connected via `payments.CircuitEligibility` hook in `SelectRoute`. The circuit breaker only evaluates eligibility; it NEVER calls monetary `BankAdapter` operations (`Reserve`, `Settle`, `HoldFunds`, `ProvisionalCredit`) and NEVER alters payment balances or accounts.
+- **Observability**: Every state transition emits an immutable `TransitionEvent` recorded to the `circuit_transition_events` PostgreSQL table and in-memory audit log. Snapshots and event logs are accessible only via authenticated `OPS_ADMIN` endpoints (`/api/ops/circuit`, `/api/ops/circuit/{targetID}`, `/api/ops/circuit/{targetID}/events`). Public roles (`CUSTOMER`, `MERCHANT`) are rejected with `403 Forbidden`.
+
 ## Boundaries and future work
 
-The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Circuit breakers, Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases.
+The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases.

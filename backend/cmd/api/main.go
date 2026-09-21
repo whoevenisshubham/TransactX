@@ -14,6 +14,7 @@ import (
 
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/circuit"
 	"github.com/transactx/backend/internal/config"
 	"github.com/transactx/backend/internal/database"
 	"github.com/transactx/backend/internal/health"
@@ -113,11 +114,31 @@ func main() {
 		})
 	}
 
+	circuitCfg := circuit.Config{
+		FailureThreshold:     cfg.CircuitFailureThreshold,
+		TimeoutThreshold:     cfg.CircuitTimeoutThreshold,
+		RollingWindow:        cfg.CircuitRollingWindow,
+		OpenCooldown:         cfg.CircuitOpenCooldown,
+		HalfOpenProbeLimit:   cfg.CircuitHalfOpenProbeLimit,
+		SuccessThreshold:     cfg.CircuitSuccessThreshold,
+		RestorationSteps:     cfg.CircuitRestorationSteps,
+		SuccessPolicy:        circuit.SuccessPolicy(cfg.CircuitSuccessPolicy),
+		StepSuccessThreshold: 2,
+	}
+	circuitRepo := circuit.NewRepository(db)
+	circuitBreaker, err := circuit.NewBreaker(circuitCfg, circuitRepo)
+	if err != nil {
+		logger.Error("initialize circuit breaker", "error", err)
+		os.Exit(1)
+	}
+	healthService.SetSampleObserver(circuitBreaker.RecordHealthSample)
+	healthService.SetProbeGate(circuitBreaker)
+
 	var handler http.Handler
 	if len(adapters) == 0 {
 		handler = apihttp.NewHandlerWithHealth(db, logger, authService, jwtManager, healthService)
 	} else if len(executionTargets) > 0 {
-		handler = apihttp.NewHandlerWithExecutionTargets(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline)
+		handler = apihttp.NewHandlerWithExecutionTargetsAndCircuit(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker)
 	} else {
 		handler = apihttp.NewHandlerWithBankAdaptersHealthRouting(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService)
 	}

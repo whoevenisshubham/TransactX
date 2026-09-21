@@ -162,3 +162,44 @@ func TestParseExecutionTargetConfig_HealthEndpointRules(t *testing.T) {
 
 	// 5. JSON and delimited configuration follow the same rule (verified across sub-tests 1-4)
 }
+
+func TestLoad_CircuitSuccessPolicy(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+
+	// 1. Default should be DECREMENT
+	t.Setenv("CIRCUIT_SUCCESS_POLICY", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error with default: %v", err)
+	}
+	if cfg.CircuitSuccessPolicy != "DECREMENT" {
+		t.Fatalf("expected default CIRCUIT_SUCCESS_POLICY to be DECREMENT, got %s", cfg.CircuitSuccessPolicy)
+	}
+
+	// 2. Explicit RESET
+	t.Setenv("CIRCUIT_SUCCESS_POLICY", "RESET")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error with RESET: %v", err)
+	}
+	if cfg.CircuitSuccessPolicy != "RESET" {
+		t.Fatalf("expected CIRCUIT_SUCCESS_POLICY to be RESET, got %s", cfg.CircuitSuccessPolicy)
+	}
+
+	// 3. Lowercase or trimmed reset
+	t.Setenv("CIRCUIT_SUCCESS_POLICY", "  reset  ")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error with lowercase reset: %v", err)
+	}
+	if cfg.CircuitSuccessPolicy != "RESET" {
+		t.Fatalf("expected normalized RESET, got %s", cfg.CircuitSuccessPolicy)
+	}
+
+	// 4. Invalid policy returns error
+	t.Setenv("CIRCUIT_SUCCESS_POLICY", "INVALID_POLICY")
+	_, err = Load()
+	if err == nil {
+		t.Fatal("expected error for invalid CIRCUIT_SUCCESS_POLICY, got nil")
+	}
+}
