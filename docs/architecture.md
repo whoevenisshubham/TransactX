@@ -105,6 +105,30 @@ M2-5 implements a production-inspired, deterministic, thread-safe circuit breake
 - **M2-4 Integration**: Connected via `payments.CircuitEligibility` hook in `SelectRoute`. The circuit breaker only evaluates eligibility; it NEVER calls monetary `BankAdapter` operations (`Reserve`, `Settle`, `HoldFunds`, `ProvisionalCredit`) and NEVER alters payment balances or accounts.
 - **Observability**: Every state transition emits an immutable `TransitionEvent` recorded to the `circuit_transition_events` PostgreSQL table and in-memory audit log. Snapshots and event logs are accessible only via authenticated `OPS_ADMIN` endpoints (`/api/ops/circuit`, `/api/ops/circuit/{targetID}`, `/api/ops/circuit/{targetID}/events`). Public roles (`CUSTOMER`, `MERCHANT`) are rejected with `403 Forbidden`.
 
+## Controlled Chaos Controller (M2-6)
+
+M2-6 adds a controlled, reversible, deterministic fault-injection mechanism for resilience testing:
+
+- **Purpose & Safety Guardrails**: Chaos injection is strictly operational simulation (`mode: "SIMULATION"`). It operates exclusively at the network/service decorator seam (`ChaosAdapter`) wrapping `bank.BankAdapter` and `health.HealthChecker`. It NEVER creates fake payments, fake settlements, nor alters central ledger balances, account ownership, or holds. The frozen 9-method `BankAdapter` interface remains strictly unchanged.
+- **Four Supported Scenarios**:
+  1. `BANK_OUTAGE`: Simulates target endpoint unavailability (`ErrBankOutage`). Downstream health checks observe failures; monetary operations fail safely with `ErrCodeBankUnavailable`.
+  2. `LATENCY`: Adds configurable, deterministic delay to target operations. Parameter `latencyMs` is validated (1ms to 30s). Delay is executed safely via context-aware sleep without uncontrolled thread blocking.
+  3. `TRANSIENT_DROP` (alias `TRANSIENT`, `MESSAGE_DROP`): Simulates transient packet/message drops (`ErrTransientDrop`). Supports deterministic drop counts (`dropCount`, e.g. first $N$ requests) or deterministic rates. Does not lose durable financial state; unknown outcomes remain `PENDING_RECONCILIATION`.
+  4. `TEMPORARY_PARTITION`: Simulates communication partition between switch and target (`ErrNetworkPartition`). Reversible upon stop, reset, or auto-expiry.
+- **Target Isolation**: All scenarios are strictly target-scoped by `executionTargetID` (e.g. `RAIL-A`). Injected faults on target $X$ never impact target $Y$, unrelated source/destination banks, or unrelated payment flows.
+- **Lifecycle & Automatic Expiry**:
+  - `START`: Explicit creation with a mandatory duration (100ms to 10m). Sets `Active = true`.
+  - `INSPECT`: Query active scenarios or inspect specific scenario by ID.
+  - `STOP`: Explicitly deactivates scenario; effects cease immediately and safely. Repeated stops are idempotent.
+  - `RESET`: Clears active scenario for a specified target or resets all active scenarios across the system.
+  - `AUTO-EXPIRY`: Evaluated deterministically against current time (`now.After(expiresAt)`). Expired scenarios automatically transition to inactive and emit `CHAOS_EXPIRED` without leaving persistent faults.
+- **Authorization Boundary**: All mutation and inspection controls require `OPS_ADMIN` role via JWT middleware. Public roles (`CUSTOMER`, `MERCHANT`) are rejected with `403 Forbidden`. Unauthenticated requests are rejected with `401 Unauthorized`.
+- **Durable Persistence & Audit**: Active and historical scenarios are persisted in PostgreSQL (`chaos_scenarios`), while state transitions (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`) are appended to `chaos_events` with actor ID, role, target ID, fault parameters, and timestamp.
+- **M2-3 / M2-4 / M2-5 System Integration**:
+  - M2-3 Health Monitoring samples targets through `ChaosAdapter.GetHealth()`, capturing degraded availability, latency penalties, or timeouts.
+  - M2-5 Circuit Breaker observes health failure samples and trips `CLOSED -> OPEN` once the threshold is crossed. `HALF_OPEN` remains recovery-health-probe-only and excludes payment routing.
+  - M2-4 Adaptive Routing naturally avoids targets with low health scores or open circuits, redistributing eligible traffic to alternate valid execution rails. Routing never fabricates fake reroutes or alters bank ownership.
+
 ## Boundaries and future work
 
-The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases.
+The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Merkle reconciliation, console UI visualization, and offline queue UX are later phases.

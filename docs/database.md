@@ -24,8 +24,14 @@ Apply the explicit SQL migrations in order:
 9. `000009_m2_health_samples` — raw observational health samples and recent-window indexes.
 10. `000010_m2_route_decisions` — immutable route-decision history.
 11. `000011_m2_circuit_transitions` — immutable circuit breaker state transition facts.
+12. `000012_m2_chaos_scenarios` — durable chaos scenarios and lifecycle audit events.
 
 Health samples retain stable execution-target identity, sampled time, availability, measured latency in milliseconds, outcome, and optional correlation metadata. The monitor reads a bounded 15-minute/500-sample window; old raw history remains queryable and is not mixed into the active score. Migration `000010_m2_route_decisions` stores immutable `PAYMENT_ROUTED` records: payment ID, candidate ID, logical source/destination bank ownership (distinguished from switch-level execution target ID), selected score, serialized health snapshot JSON, selection mode (`STATIC` or `ADAPTIVE`), reason code, selection timestamp, and event type. Routing facts never alter participant account ownership or ledger state. The table is also queried during pending payment recovery to deterministically resolve the exact original execution target and its associated adapters, ensuring recovery never guesses or substitutes execution paths. Migration `000011_m2_circuit_transitions` stores immutable `CIRCUIT_STATE_TRANSITION` facts: execution target ID, previous state, new state, transition reason, transition timestamp, failure count, timeout count, consecutive successes, active probes, successful probes, restoration step, cooldown duration (ms), rolling window (ms), metadata JSON, and created timestamp. Indexed on `(execution_target_id, transitioned_at DESC, id DESC)` for fast operational auditing. Circuit events never mutate monetary balances or accounts.
+
+Migration `000012_m2_chaos_scenarios` defines two tables for controlled chaos engineering:
+- `chaos_scenarios`: Stores durable scenario definitions including `scenario_id` (unique), `scenario_type` (`BANK_OUTAGE`, `LATENCY`, `TRANSIENT_DROP`, `TEMPORARY_PARTITION`), `target_id`, `parameters` JSONB, `started_at`, `expires_at`, `stopped_at`, `active` boolean, `mode` (strictly `SIMULATION`), `created_by`, `stopped_by`, and audit timestamps. Indexed on `(target_id, active)` and `(active, expires_at)`.
+- `chaos_events`: Stores append-only scenario lifecycle transitions: `scenario_id`, `event_type` (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`), `target_id`, `fault_type`, `actor_id`, `actor_role`, `parameters` JSONB, `details` JSONB, and `occurred_at`. Indexed on `(scenario_id, occurred_at DESC)` and `(target_id, occurred_at DESC)`.
+Chaos tables are operational only and strictly forbidden from modifying financial authority, ledgers, accounts, or balances.
 
 The API and Bank A process do not run migrations automatically at startup.
 

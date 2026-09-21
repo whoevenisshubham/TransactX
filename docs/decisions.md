@@ -142,3 +142,28 @@ M2-5 implements a production-inspired, deterministic, thread-safe circuit breake
 - **Gradual Restoration**: When a target transitions `HALF_OPEN -> CLOSED`, it does not instantly absorb 100% of traffic if multiple execution targets exist. Restoration progresses through discrete steps (`1..RestorationSteps`). At step $k$ of $N$, the target admits $\frac{k}{N}$ of traffic and deterministically sheds the remainder (`GRADUAL_RESTORATION_SHED`) to alternate healthy route candidates.
 - **M2-4 Integration**: Plugs into `payments.SelectRoute` via the `CircuitEligibility` hook. The circuit breaker is purely an eligibility gate: it NEVER calls monetary `BankAdapter` operations (`Reserve`, `Settle`, `HoldFunds`, `ProvisionalCredit`) and NEVER alters central or participant balances.
 - **Observability**: Every state transition emits an immutable `TransitionEvent` persisted to `circuit_transition_events` and recorded in an in-memory audit trail. Snapshots and transition history are exposed only via authenticated `OPS_ADMIN` endpoints (`/api/ops/circuit`, `/api/ops/circuit/{targetID}`, `/api/ops/circuit/{targetID}/events`). Public `CUSTOMER` and `MERCHANT` roles are rejected with `403 Forbidden`.
+
+## ADR-020: Controlled Chaos Controller and Operational Fault Injection
+
+Status: **IMPLEMENTED**
+
+M2-6 implements a controlled, reversible, deterministic, target-isolated chaos controller for resilience engineering:
+- **Operational Simulation Boundary**: Chaos injection is strictly operational simulation (`mode = "SIMULATION"`). Faults are injected only at the network/service communication seam via `ChaosAdapter`, which decorates `bank.BankAdapter` and `health.HealthChecker`. Chaos NEVER touches the central payment ledger, account balances, holds, or settlements, and NEVER creates fake payments or fake settlements. The frozen 9-method `BankAdapter` interface remains strictly unchanged with zero methods added or removed.
+- **Four Supported Scenarios**:
+  1. `BANK_OUTAGE`: Simulates target endpoint downtime (`ErrBankOutage`). Downstream health checks observe failures; monetary operations fail safely with `ErrCodeBankUnavailable`.
+  2. `LATENCY`: Injects configurable, validated latency (1ms to 30s) via context-aware sleeps without uncontrolled thread blocking.
+  3. `TRANSIENT_DROP` (alias `TRANSIENT`, `MESSAGE_DROP`): Simulates transient message drops deterministically (by drop count or drop rate). Unknown payment outcomes remain `PENDING_RECONCILIATION`; no blind retries are introduced.
+  4. `TEMPORARY_PARTITION`: Simulates communication partition between the payment switch and the target (`ErrNetworkPartition`). Reversible upon stop, reset, or auto-expiry.
+- **Target Isolation**: All scenarios are keyed strictly to switch-level `executionTargetID` (e.g. `RAIL-A`). Injected faults on target $X$ never impact target $Y$, alternate routes, unrelated banks, or unrelated payment flows.
+- **Lifecycle & Expiry Guarantees**:
+  - `START`: Explicit start with a validated duration (100ms to 10m).
+  - `INSPECT`: Inspect all active scenarios or a specific scenario by ID.
+  - `STOP`: Immediately and safely terminates the active fault. Repeated stops are safe and idempotent.
+  - `RESET`: Clears active faults for a specific target or across all targets.
+  - `AUTO-EXPIRY`: Evaluated against current time (`now.After(expiresAt)`). Expired scenarios automatically become inactive and emit `CHAOS_EXPIRED`, ensuring no permanent faults leak if a client or UI disconnects.
+- **Authorization Boundary**: All mutation and control endpoints (`/api/ops/chaos/start`, `/api/ops/chaos/scenarios/{scenarioID}/stop`, `/api/ops/chaos/reset`) and inspection endpoints require authenticated `OPS_ADMIN` role. Public roles (`CUSTOMER`, `MERCHANT`) receive `403 Forbidden`. Unauthenticated requests receive `401 Unauthorized`. Customer-facing payment APIs do NOT expose chaos controls.
+- **Durable Persistence & Audit**: Scenario definitions are persisted to `chaos_scenarios`, and all lifecycle transitions (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`) are appended to `chaos_events` with actor ID, actor role, target ID, fault parameters, and timestamps.
+- **Integration with M2-3 / M2-4 / M2-5**:
+  - M2-3 Health Monitoring samples targets through `ChaosAdapter.GetHealth()`, observing outages, elevated latency, or timeouts.
+  - M2-5 Circuit Breaker observes health failure samples and trips `CLOSED -> OPEN` once the failure threshold is reached. `HALF_OPEN` remains recovery-health-probe-only and excludes payment routing.
+  - M2-4 Adaptive Routing naturally routes eligible traffic around unhealthy/open targets to healthy alternate rails. Routing never fabricates fake rerouting or mutates sender/receiver bank authority.

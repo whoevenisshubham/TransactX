@@ -14,6 +14,7 @@ import (
 
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/chaos"
 	"github.com/transactx/backend/internal/circuit"
 	"github.com/transactx/backend/internal/config"
 	"github.com/transactx/backend/internal/database"
@@ -44,6 +45,8 @@ func main() {
 	}
 	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
 	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
+	chaosRepo := chaos.NewRepository(db)
+	chaosController := chaos.NewController(chaosRepo)
 
 	adapters := make(map[uuid.UUID]bank.BankAdapter)
 	healthTargets := make(map[string]health.HealthChecker)
@@ -63,8 +66,9 @@ func main() {
 			logger.Error("configure bank adapter", "code", code, "error", clientErr)
 			os.Exit(1)
 		}
-		adapters[bankID] = adapter
-		healthTargets[code] = adapter
+		chaosAdapter := chaos.NewChaosAdapter(code, adapter, chaosController)
+		adapters[bankID] = chaosAdapter
+		healthTargets[code] = chaosAdapter
 		routeTargets[bankID] = code
 		bankIDs[code] = bankID
 	}
@@ -103,14 +107,14 @@ func main() {
 				logger.Error("configure health target for execution target", "target_id", targetCfg.ExecutionTargetID, "error", err)
 				os.Exit(1)
 			}
-			healthTargets[targetCfg.ExecutionTargetID] = endpointAdapter
+			healthTargets[targetCfg.ExecutionTargetID] = chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, endpointAdapter, chaosController)
 		}
 		key := payments.RouteKey{SourceBankID: srcID, DestinationBankID: dstID}
 		executionTargets[key] = append(executionTargets[key], payments.ExecutionTarget{
 			CandidateID:        targetCfg.CandidateID,
 			ExecutionTargetID:  targetCfg.ExecutionTargetID,
-			SourceAdapter:      srcAdapter,
-			DestinationAdapter: dstAdapter,
+			SourceAdapter:      chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, srcAdapter, chaosController),
+			DestinationAdapter: chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, dstAdapter, chaosController),
 		})
 	}
 
@@ -136,9 +140,9 @@ func main() {
 
 	var handler http.Handler
 	if len(adapters) == 0 {
-		handler = apihttp.NewHandlerWithHealth(db, logger, authService, jwtManager, healthService)
+		handler = apihttp.NewHandlerWithChaos(db, logger, authService, jwtManager, chaosController)
 	} else if len(executionTargets) > 0 {
-		handler = apihttp.NewHandlerWithExecutionTargetsAndCircuit(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker)
+		handler = apihttp.NewHandlerWithExecutionTargetsCircuitAndChaos(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController)
 	} else {
 		handler = apihttp.NewHandlerWithBankAdaptersHealthRouting(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService)
 	}
