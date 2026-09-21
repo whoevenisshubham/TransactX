@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,22 +18,38 @@ var (
 type TargetValidator func(targetID string) bool
 
 // BuildTargetValidator builds a TargetValidator strictly from configured health and execution target IDs.
-// It explicitly excludes bank codes (e.g. BANK-A, BANK-B) to avoid conflating logical bank ownership
-// with switch-level execution rail and target identities.
-func BuildTargetValidator(healthTargetIDs []string, executionTargetIDs []string) TargetValidator {
+// It explicitly excludes bank ownership codes (e.g. BANK-A, BANK-B, sourceBankID, destinationBankID)
+// so that bank ownership identifiers are never automatically accepted as chaos targets unless
+// explicitly configured as a genuine executionTargetID.
+func BuildTargetValidator(healthTargetIDs []string, executionTargetIDs []string, bankOwnershipCodes ...string) TargetValidator {
+	bankSet := make(map[string]bool)
+	for _, code := range bankOwnershipCodes {
+		trimmed := strings.TrimSpace(code)
+		if trimmed != "" {
+			bankSet[trimmed] = true
+		}
+	}
+
 	valid := make(map[string]bool)
-	for _, id := range healthTargetIDs {
-		if id != "" {
-			valid[id] = true
-		}
-	}
+	// 1. Genuine configured execution target IDs are always valid targets.
 	for _, id := range executionTargetIDs {
-		if id != "" {
-			valid[id] = true
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" {
+			valid[trimmed] = true
 		}
 	}
+
+	// 2. Explicitly configured health target IDs are valid ONLY if they are not bank ownership codes,
+	//    unless explicitly registered as a genuine execution target ID.
+	for _, id := range healthTargetIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" && (!bankSet[trimmed] || valid[trimmed]) {
+			valid[trimmed] = true
+		}
+	}
+
 	return func(targetID string) bool {
-		return valid[targetID]
+		return valid[strings.TrimSpace(targetID)]
 	}
 }
 
@@ -346,8 +363,8 @@ func (c *Controller) Reset(ctx context.Context, targetID string, actorID, actorR
 		for _, s := range resetList {
 			if existing, ok := c.scenariosByID[s.ScenarioID]; ok {
 				existing.Active = false
-				existing.StoppedAt = &now
-				existing.StoppedBy = &actorID
+				existing.StoppedAt = s.StoppedAt
+				existing.StoppedBy = s.StoppedBy
 				existing.UpdatedAt = now
 			}
 		}
@@ -357,21 +374,40 @@ func (c *Controller) Reset(ctx context.Context, targetID string, actorID, actorR
 	if targetID != "" {
 		if s, ok := c.activeByTarget[targetID]; ok {
 			s.Active = false
-			s.StoppedAt = &now
-			s.StoppedBy = &actorID
+			if !s.ExpiresAt.After(now) {
+				exp := s.ExpiresAt
+				s.StoppedAt = &exp
+				systemActor := "SYSTEM_AUTO_EXPIRY"
+				s.StoppedBy = &systemActor
+			} else {
+				s.StoppedAt = &now
+				s.StoppedBy = &actorID
+			}
 			s.UpdatedAt = now
 			delete(c.activeByTarget, targetID)
 		}
 	} else {
 		for tid, s := range c.activeByTarget {
 			s.Active = false
-			s.StoppedAt = &now
-			s.StoppedBy = &actorID
+			if !s.ExpiresAt.After(now) {
+				exp := s.ExpiresAt
+				s.StoppedAt = &exp
+				systemActor := "SYSTEM_AUTO_EXPIRY"
+				s.StoppedBy = &systemActor
+			} else {
+				s.StoppedAt = &now
+				s.StoppedBy = &actorID
+			}
 			s.UpdatedAt = now
 			delete(c.activeByTarget, tid)
 		}
 	}
 
+	if targetID != "" {
+		delete(c.targetInvocations, targetID)
+	} else {
+		c.targetInvocations = make(map[string]int)
+	}
 	return nil
 }
 

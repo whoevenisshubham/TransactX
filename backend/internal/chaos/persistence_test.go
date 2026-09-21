@@ -132,3 +132,133 @@ func TestPostgresExactlyOnceExpiry(t *testing.T) {
 		t.Fatalf("expected second expiry to return false: %v, err=%v", second, err)
 	}
 }
+
+// TestPostgresResetVsExpiryAtomic verifies atomic classification between RESET and EXPIRY in PostgreSQL.
+func TestPostgresResetVsExpiryAtomic(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL is not set: skipping live PostgreSQL chaos persistence tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("failed to connect to PostgreSQL: %v", err)
+	}
+	defer pool.Close()
+
+	repo := chaos.NewRepository(pool)
+	now := time.Now().UTC()
+	futureID := "test-live-future-" + now.Format("20060102150405")
+	expiredID := "test-live-expired-" + now.Format("20060102150405")
+
+	// 1. Future scenario (expires 60s in future)
+	futureSc := chaos.ChaosScenario{
+		ScenarioID: futureID,
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		StartedAt:  now.Add(-10 * time.Second),
+		ExpiresAt:  now.Add(60 * time.Second),
+		Active:     true,
+		Mode:       chaos.ExecutionModeSimulation,
+		CreatedBy:  "ops-admin-user",
+	}
+	if err := repo.CreateScenarioWithEvent(ctx, futureSc, chaos.ChaosEvent{
+		ScenarioID: futureID,
+		EventType:  chaos.EventTypeChaosStarted,
+		TargetID:   "RAIL-A",
+		FaultType:  string(futureSc.Type),
+		ActorID:    "ops-admin-user",
+		ActorRole:  "OPS_ADMIN",
+		OccurredAt: futureSc.StartedAt,
+	}); err != nil {
+		t.Fatalf("failed to insert future scenario: %v", err)
+	}
+
+	// 2. Expired scenario (expired 10s ago)
+	expiredSc := chaos.ChaosScenario{
+		ScenarioID: expiredID,
+		Type:       chaos.ScenarioTypeLatency,
+		TargetID:   "RAIL-B",
+		StartedAt:  now.Add(-20 * time.Second),
+		ExpiresAt:  now.Add(-10 * time.Second),
+		Active:     true,
+		Mode:       chaos.ExecutionModeSimulation,
+		CreatedBy:  "ops-admin-user",
+	}
+	if err := repo.CreateScenarioWithEvent(ctx, expiredSc, chaos.ChaosEvent{
+		ScenarioID: expiredID,
+		EventType:  chaos.EventTypeChaosStarted,
+		TargetID:   "RAIL-B",
+		FaultType:  string(expiredSc.Type),
+		ActorID:    "ops-admin-user",
+		ActorRole:  "OPS_ADMIN",
+		OccurredAt: expiredSc.StartedAt,
+	}); err != nil {
+		t.Fatalf("failed to insert expired scenario: %v", err)
+	}
+
+	// 3. Reset all active scenarios
+	resetList, err := repo.ResetScenarios(ctx, "", now, "ops-admin-user", "ops-admin-user", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("ResetScenarios failed: %v", err)
+	}
+	if len(resetList) < 2 {
+		t.Fatalf("expected at least 2 scenarios reset, got %d", len(resetList))
+	}
+
+	// 4. Verify future scenario got CHAOS_RESET and stopped_by = ops-admin-user
+	fut, err := repo.GetScenario(ctx, futureID)
+	if err != nil || fut.Active {
+		t.Fatalf("future scenario must be inactive, got active=%v, err=%v", fut.Active, err)
+	}
+	if fut.StoppedBy == nil || *fut.StoppedBy != "ops-admin-user" {
+		t.Fatalf("expected stoppedBy = ops-admin-user, got %v", fut.StoppedBy)
+	}
+
+	// 5. Verify expired scenario got CHAOS_EXPIRED and stopped_by = SYSTEM_AUTO_EXPIRY
+	exp, err := repo.GetScenario(ctx, expiredID)
+	if err != nil || exp.Active {
+		t.Fatalf("expired scenario must be inactive, got active=%v, err=%v", exp.Active, err)
+	}
+	if exp.StoppedBy == nil || *exp.StoppedBy != "SYSTEM_AUTO_EXPIRY" {
+		t.Fatalf("expected stoppedBy = SYSTEM_AUTO_EXPIRY, got %v", exp.StoppedBy)
+	}
+
+	// 6. Verify events
+	events, err := repo.ListEvents(ctx, futureID, 10)
+	if err != nil {
+		t.Fatalf("ListEvents for future failed: %v", err)
+	}
+	hasReset := false
+	hasExpired := false
+	for _, e := range events {
+		if e.EventType == chaos.EventTypeChaosReset {
+			hasReset = true
+		}
+		if e.EventType == chaos.EventTypeChaosExpired {
+			hasExpired = true
+		}
+	}
+	if !hasReset || hasExpired {
+		t.Fatalf("future scenario: expected CHAOS_RESET=true, CHAOS_EXPIRED=false, got reset=%v, exp=%v", hasReset, hasExpired)
+	}
+
+	eventsExp, err := repo.ListEvents(ctx, expiredID, 10)
+	if err != nil {
+		t.Fatalf("ListEvents for expired failed: %v", err)
+	}
+	hasResetExp := false
+	hasExpiredExp := false
+	for _, e := range eventsExp {
+		if e.EventType == chaos.EventTypeChaosReset {
+			hasResetExp = true
+		}
+		if e.EventType == chaos.EventTypeChaosExpired {
+			hasExpiredExp = true
+		}
+	}
+	if hasResetExp || !hasExpiredExp {
+		t.Fatalf("expired scenario: expected CHAOS_RESET=false, CHAOS_EXPIRED=true, got reset=%v, exp=%v", hasResetExp, hasExpiredExp)
+	}
+}

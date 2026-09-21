@@ -138,17 +138,25 @@ func main() {
 	healthService.SetSampleObserver(circuitBreaker.RecordHealthSample)
 	healthService.SetProbeGate(circuitBreaker)
 
-	var healthTargetIDs []string
-	for targetID := range healthTargets {
-		healthTargetIDs = append(healthTargetIDs, targetID)
-	}
 	var executionTargetIDs []string
 	for _, targets := range executionTargets {
 		for _, et := range targets {
-			executionTargetIDs = append(executionTargetIDs, et.ExecutionTargetID)
+			if et.ExecutionTargetID != "" {
+				executionTargetIDs = append(executionTargetIDs, et.ExecutionTargetID)
+			}
 		}
 	}
-	chaosController.SetTargetValidator(chaos.BuildTargetValidator(healthTargetIDs, executionTargetIDs))
+	var bankCodes []string
+	for code := range bankIDs {
+		bankCodes = append(bankCodes, code)
+	}
+	var explicitHealthTargetIDs []string
+	for targetID := range healthTargets {
+		if _, isBank := bankIDs[targetID]; !isBank {
+			explicitHealthTargetIDs = append(explicitHealthTargetIDs, targetID)
+		}
+	}
+	chaosController.SetTargetValidator(chaos.BuildTargetValidator(explicitHealthTargetIDs, executionTargetIDs, bankCodes...))
 	if err := chaosController.Hydrate(context.Background()); err != nil {
 		logger.Error("hydrate chaos scenarios", "error", err)
 		os.Exit(1)

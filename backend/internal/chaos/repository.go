@@ -225,8 +225,8 @@ func (r *PostgresRepository) ResetScenarios(ctx context.Context, targetID string
 		rows, err = tx.Query(ctx, `
 			UPDATE chaos_scenarios SET
 				active = false,
-				stopped_at = $1,
-				stopped_by = $2,
+				stopped_at = CASE WHEN expires_at <= $1 THEN expires_at ELSE $1 END,
+				stopped_by = CASE WHEN expires_at <= $1 THEN 'SYSTEM_AUTO_EXPIRY' ELSE $2 END,
 				updated_at = $1
 			WHERE target_id = $3 AND active = true
 			RETURNING id, scenario_id, scenario_type, target_id, parameters,
@@ -238,8 +238,8 @@ func (r *PostgresRepository) ResetScenarios(ctx context.Context, targetID string
 		rows, err = tx.Query(ctx, `
 			UPDATE chaos_scenarios SET
 				active = false,
-				stopped_at = $1,
-				stopped_by = $2,
+				stopped_at = CASE WHEN expires_at <= $1 THEN expires_at ELSE $1 END,
+				stopped_by = CASE WHEN expires_at <= $1 THEN 'SYSTEM_AUTO_EXPIRY' ELSE $2 END,
 				updated_at = $1
 			WHERE active = true
 			RETURNING id, scenario_id, scenario_type, target_id, parameters,
@@ -277,19 +277,37 @@ func (r *PostgresRepository) ResetScenarios(ctx context.Context, targetID string
 	}
 
 	for _, s := range resetList {
-		detailsJSON, _ := json.Marshal(map[string]any{
-			"resetAt": stoppedAt.Format(time.RFC3339),
-		})
-		_, err = tx.Exec(ctx, `
-			INSERT INTO chaos_events (
-				scenario_id, event_type, target_id, fault_type,
-				actor_id, actor_role, parameters, details, occurred_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			s.ScenarioID, string(EventTypeChaosReset), s.TargetID, string(s.Type),
-			actorID, actorRole, []byte("{}"), detailsJSON, stoppedAt,
-		)
-		if err != nil {
-			return nil, err
+		isExpired := !s.ExpiresAt.After(stoppedAt)
+		if isExpired {
+			detailsJSON, _ := json.Marshal(map[string]any{
+				"expiredAt": s.ExpiresAt.Format(time.RFC3339),
+			})
+			_, err = tx.Exec(ctx, `
+				INSERT INTO chaos_events (
+					scenario_id, event_type, target_id, fault_type,
+					actor_id, actor_role, parameters, details, occurred_at
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				s.ScenarioID, string(EventTypeChaosExpired), s.TargetID, string(s.Type),
+				"SYSTEM", "SYSTEM", []byte("{}"), detailsJSON, s.ExpiresAt,
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			detailsJSON, _ := json.Marshal(map[string]any{
+				"resetAt": stoppedAt.Format(time.RFC3339),
+			})
+			_, err = tx.Exec(ctx, `
+				INSERT INTO chaos_events (
+					scenario_id, event_type, target_id, fault_type,
+					actor_id, actor_role, parameters, details, occurred_at
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				s.ScenarioID, string(EventTypeChaosReset), s.TargetID, string(s.Type),
+				actorID, actorRole, []byte("{}"), detailsJSON, stoppedAt,
+			)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
