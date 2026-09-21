@@ -21,7 +21,7 @@ type Repository interface {
 	GetActiveScenarioByTarget(ctx context.Context, targetID string, now time.Time) (*ChaosScenario, error)
 	ListActiveScenarios(ctx context.Context, now time.Time) ([]ChaosScenario, error)
 	ListScenarios(ctx context.Context, activeOnly bool, now time.Time, limit int) ([]ChaosScenario, error)
-	ExpireScenario(ctx context.Context, scenarioID string, expiredAt time.Time, event ChaosEvent) (bool, error)
+	ExpireScenario(ctx context.Context, scenarioID string, now time.Time, event ChaosEvent) (bool, error)
 	ResetScenarios(ctx context.Context, targetID string, stoppedAt time.Time, stoppedBy string, actorID, actorRole string) ([]ChaosScenario, error)
 	RecordEvent(ctx context.Context, event ChaosEvent) error
 	ListEvents(ctx context.Context, scenarioID string, limit int) ([]ChaosEvent, error)
@@ -155,7 +155,7 @@ func (r *PostgresRepository) UpdateScenarioWithEvent(ctx context.Context, s Chao
 	return tx.Commit(ctx)
 }
 
-func (r *PostgresRepository) ExpireScenario(ctx context.Context, scenarioID string, expiredAt time.Time, event ChaosEvent) (bool, error) {
+func (r *PostgresRepository) ExpireScenario(ctx context.Context, scenarioID string, now time.Time, event ChaosEvent) (bool, error) {
 	if r == nil || r.db == nil {
 		return false, ErrRepoUnavailable
 	}
@@ -176,7 +176,7 @@ func (r *PostgresRepository) ExpireScenario(ctx context.Context, scenarioID stri
 			updated_at = $2
 		WHERE scenario_id = $3 AND active = true AND expires_at <= $2
 		RETURNING target_id, scenario_type`,
-		expiredAt, time.Now(), scenarioID,
+		event.OccurredAt, now, scenarioID,
 	).Scan(&targetID, &faultType)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -197,7 +197,7 @@ func (r *PostgresRepository) ExpireScenario(ctx context.Context, scenarioID stri
 			actor_id, actor_role, parameters, details, occurred_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		scenarioID, string(EventTypeChaosExpired), targetID, faultType,
-		"SYSTEM", "SYSTEM", []byte("{}"), eventDetailsJSON, expiredAt,
+		"SYSTEM", "SYSTEM", []byte("{}"), eventDetailsJSON, event.OccurredAt,
 	)
 	if err != nil {
 		return false, err

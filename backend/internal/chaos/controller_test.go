@@ -16,14 +16,17 @@ import (
 
 // mockRepo implements in-memory chaos.Repository with controllable failure injection
 type mockRepo struct {
-	mu           sync.Mutex
-	scenarios    map[string]chaos.ChaosScenario
-	events       []chaos.ChaosEvent
-	failCreate   bool
-	failUpdate   bool
-	failExpire   bool
-	failReset    bool
-	expiredCalls int
+	mu             sync.Mutex
+	scenarios      map[string]chaos.ChaosScenario
+	events         []chaos.ChaosEvent
+	failCreate     bool
+	failUpdate     bool
+	failExpire     bool
+	failReset      bool
+	failGetActive  bool
+	failList       bool
+	failListActive bool
+	expiredCalls   int
 }
 
 func newMockRepo() *mockRepo {
@@ -71,18 +74,24 @@ func (m *mockRepo) GetScenario(ctx context.Context, scenarioID string) (*chaos.C
 func (m *mockRepo) GetActiveScenarioByTarget(ctx context.Context, targetID string, now time.Time) (*chaos.ChaosScenario, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failGetActive {
+		return nil, chaos.ErrRepoUnavailable
+	}
 	for _, s := range m.scenarios {
 		if s.TargetID == targetID && s.Active && s.ExpiresAt.After(now) {
 			copyScenario := s
 			return &copyScenario, nil
 		}
 	}
-	return nil, nil
+	return nil, chaos.ErrScenarioNotFound
 }
 
 func (m *mockRepo) ListActiveScenarios(ctx context.Context, now time.Time) ([]chaos.ChaosScenario, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failListActive {
+		return nil, chaos.ErrRepoUnavailable
+	}
 	var list []chaos.ChaosScenario
 	for _, s := range m.scenarios {
 		if s.Active && s.ExpiresAt.After(now) {
@@ -95,6 +104,9 @@ func (m *mockRepo) ListActiveScenarios(ctx context.Context, now time.Time) ([]ch
 func (m *mockRepo) ListScenarios(ctx context.Context, activeOnly bool, now time.Time, limit int) ([]chaos.ChaosScenario, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failList {
+		return nil, chaos.ErrRepoUnavailable
+	}
 	var list []chaos.ChaosScenario
 	for _, s := range m.scenarios {
 		if activeOnly {
@@ -108,21 +120,22 @@ func (m *mockRepo) ListScenarios(ctx context.Context, activeOnly bool, now time.
 	return list, nil
 }
 
-func (m *mockRepo) ExpireScenario(ctx context.Context, scenarioID string, expiredAt time.Time, event chaos.ChaosEvent) (bool, error) {
+func (m *mockRepo) ExpireScenario(ctx context.Context, scenarioID string, now time.Time, event chaos.ChaosEvent) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.failExpire {
 		return false, errors.New("db error: expire failed")
 	}
 	s, ok := m.scenarios[scenarioID]
-	if !ok || !s.Active || s.ExpiresAt.After(expiredAt) {
+	if !ok || !s.Active || s.ExpiresAt.After(now) {
 		return false, nil
 	}
 	s.Active = false
-	s.StoppedAt = &expiredAt
+	exp := s.ExpiresAt
+	s.StoppedAt = &exp
 	systemActor := "SYSTEM_AUTO_EXPIRY"
 	s.StoppedBy = &systemActor
-	s.UpdatedAt = expiredAt
+	s.UpdatedAt = now
 	m.scenarios[scenarioID] = s
 
 	m.events = append(m.events, event)
@@ -305,37 +318,73 @@ func TestTargetValidation(t *testing.T) {
 	ctrl := chaos.NewController(repo)
 	ctx := context.Background()
 
-	// Configure validator to accept only RAIL-A and RAIL-B
-	configuredTargets := map[string]bool{"RAIL-A": true, "RAIL-B": true}
-	ctrl.SetTargetValidator(func(targetID string) bool {
-		return configuredTargets[targetID]
-	})
+	// Build validator from genuine configured execution targets and health targets
+	healthTargets := []string{"HEALTH-RAIL-A", "HEALTH-RAIL-B"}
+	executionTargets := []string{"RAIL-A", "RAIL-B"}
+	ctrl.SetTargetValidator(chaos.BuildTargetValidator(healthTargets, executionTargets))
 
-	// Unknown target rejected
-	unknownReq := chaos.StartRequest{
-		ScenarioID: "sc-unk-1",
-		Type:       chaos.ScenarioTypeBankOutage,
-		TargetID:   "UNKNOWN-RAIL",
-		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
-	}
-	_, err := ctrl.Start(ctx, unknownReq, "ops-1", "OPS_ADMIN")
-	if !errors.Is(err, chaos.ErrTargetNotFound) {
-		t.Fatalf("expected ErrTargetNotFound for unknown target, got %v", err)
-	}
-
-	// Valid target accepted
-	validReq := chaos.StartRequest{
+	// 1. Configured executionTargetID accepted
+	reqA := chaos.StartRequest{
 		ScenarioID: "sc-val-1",
 		Type:       chaos.ScenarioTypeBankOutage,
 		TargetID:   "RAIL-A",
 		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
 	}
-	sc, err := ctrl.Start(ctx, validReq, "ops-1", "OPS_ADMIN")
+	sc, err := ctrl.Start(ctx, reqA, "ops-1", "OPS_ADMIN")
 	if err != nil {
-		t.Fatalf("valid target should be accepted, got error: %v", err)
+		t.Fatalf("configured execution target must be accepted: %v", err)
 	}
 	if sc.TargetID != "RAIL-A" {
 		t.Fatalf("expected target RAIL-A, got %s", sc.TargetID)
+	}
+
+	// 2. Configured health target accepted
+	reqHealth := chaos.StartRequest{
+		ScenarioID: "sc-val-health",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "HEALTH-RAIL-B",
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+	scHealth, err := ctrl.Start(ctx, reqHealth, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("configured health target must be accepted: %v", err)
+	}
+	if scHealth.TargetID != "HEALTH-RAIL-B" {
+		t.Fatalf("expected target HEALTH-RAIL-B, got %s", scHealth.TargetID)
+	}
+
+	// 3. Bank code rejected unless explicitly registered as execution/health target
+	bankCodeReq := chaos.StartRequest{
+		ScenarioID: "sc-bank-code",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "BANK_A", // logical bank code, NOT execution target
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+	_, err = ctrl.Start(ctx, bankCodeReq, "ops-1", "OPS_ADMIN")
+	if !errors.Is(err, chaos.ErrTargetNotFound) {
+		t.Fatalf("expected ErrTargetNotFound for bank code target, got %v", err)
+	}
+
+	// 4. Arbitrary unknown target rejected
+	unknownReq := chaos.StartRequest{
+		ScenarioID: "sc-unk-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "UNKNOWN-TARGET",
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+	_, err = ctrl.Start(ctx, unknownReq, "ops-1", "OPS_ADMIN")
+	if !errors.Is(err, chaos.ErrTargetNotFound) {
+		t.Fatalf("expected ErrTargetNotFound for unknown target, got %v", err)
+	}
+
+	// 5. Target A isolation from Target B: fault on RAIL-A does not affect RAIL-B
+	faultA, activeA, errA := ctrl.GetActiveFault(ctx, "RAIL-A")
+	if errA != nil || !activeA || faultA == nil {
+		t.Fatalf("expected active fault on RAIL-A")
+	}
+	faultB, activeB, errB := ctrl.GetActiveFault(ctx, "RAIL-B")
+	if errB != nil || activeB || faultB != nil {
+		t.Fatalf("target A fault must not affect target B: activeB=%v", activeB)
 	}
 }
 
@@ -360,9 +409,9 @@ func TestDurablePersistenceFailures(t *testing.T) {
 	}
 
 	// Verify in-memory fault was NOT activated
-	fault, active := ctrl.GetActiveFault("RAIL-A")
-	if active || fault != nil {
-		t.Fatalf("fault must not be activated in memory if DB persistence failed")
+	fault, active, getErr := ctrl.GetActiveFault(ctx, "RAIL-A")
+	if getErr != nil || active || fault != nil {
+		t.Fatalf("fault must not be activated in memory if DB persistence failed: err=%v", getErr)
 	}
 
 	// 2. Allow Start to succeed
@@ -380,9 +429,9 @@ func TestDurablePersistenceFailures(t *testing.T) {
 	}
 
 	// In-memory state must NOT be mutated to inactive if DB update failed
-	fault, active = ctrl.GetActiveFault("RAIL-A")
-	if !active || fault == nil {
-		t.Fatalf("scenario must remain active in memory if DB stop failed")
+	fault, active, getErr = ctrl.GetActiveFault(ctx, "RAIL-A")
+	if getErr != nil || !active || fault == nil {
+		t.Fatalf("scenario must remain active in memory if DB stop failed: err=%v", getErr)
 	}
 
 	// 4. Simulate DB failure on Reset
@@ -419,9 +468,9 @@ func TestRestartAndHydration(t *testing.T) {
 	ctrl2.SetNowFunc(func() time.Time { return baseTime })
 
 	// 1. Lazy load: GetActiveFault on cache miss queries persistent storage
-	fault, active := ctrl2.GetActiveFault("RAIL-A")
-	if !active || fault == nil || fault.ScenarioID != "sc-restart-1" {
-		t.Fatalf("active chaos must survive restart via lazy load: active=%v, fault=%+v", active, fault)
+	fault, active, getErr := ctrl2.GetActiveFault(ctx, "RAIL-A")
+	if getErr != nil || !active || fault == nil || fault.ScenarioID != "sc-restart-1" {
+		t.Fatalf("active chaos must survive restart via lazy load: active=%v, fault=%+v, err=%v", active, fault, getErr)
 	}
 
 	// 2. Simulate second restart and test eager Hydrate
@@ -430,9 +479,9 @@ func TestRestartAndHydration(t *testing.T) {
 	if err := ctrl3.Hydrate(ctx); err != nil {
 		t.Fatalf("hydration failed: %v", err)
 	}
-	fault, active = ctrl3.GetActiveFault("RAIL-A")
-	if !active || fault == nil || fault.ScenarioID != "sc-restart-1" {
-		t.Fatalf("active chaos must be present after eager Hydrate: active=%v, fault=%+v", active, fault)
+	fault, active, getErr = ctrl3.GetActiveFault(ctx, "RAIL-A")
+	if getErr != nil || !active || fault == nil || fault.ScenarioID != "sc-restart-1" {
+		t.Fatalf("active chaos must be present after eager Hydrate: active=%v, fault=%+v, err=%v", active, fault, getErr)
 	}
 
 	// 3. Stop after restart
@@ -440,9 +489,9 @@ func TestRestartAndHydration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stop after restart failed: %v", err)
 	}
-	fault, active = ctrl3.GetActiveFault("RAIL-A")
-	if active || fault != nil {
-		t.Fatalf("fault should be inactive after stop")
+	fault, active, getErr = ctrl3.GetActiveFault(ctx, "RAIL-A")
+	if getErr != nil || active || fault != nil {
+		t.Fatalf("fault should be inactive after stop: err=%v", getErr)
 	}
 
 	// 4. Reset after restart clears persisted scenario
@@ -458,9 +507,9 @@ func TestRestartAndHydration(t *testing.T) {
 	if err := ctrl5.Reset(ctx, "", "ops-1", "OPS_ADMIN"); err != nil {
 		t.Fatalf("reset all after restart failed: %v", err)
 	}
-	fault, active = ctrl5.GetActiveFault("RAIL-A")
-	if active || fault != nil {
-		t.Fatalf("fault should be inactive after reset")
+	fault, active, getErr = ctrl5.GetActiveFault(ctx, "RAIL-A")
+	if getErr != nil || active || fault != nil {
+		t.Fatalf("fault should be inactive after reset: err=%v", getErr)
 	}
 }
 
@@ -495,9 +544,9 @@ func TestDurableAndExactExpiry(t *testing.T) {
 	currentTime = baseTime.Add(15 * time.Second)
 
 	// 1. GetActiveFault returns false
-	fault, active := ctrl.GetActiveFault("RAIL-A")
-	if active || fault != nil {
-		t.Fatalf("expected inactive after expiry")
+	fault, active, getErr := ctrl.GetActiveFault(ctx, "RAIL-A")
+	if getErr != nil || active || fault != nil {
+		t.Fatalf("expected inactive after expiry: err=%v", getErr)
 	}
 
 	// 2. GetScenario returns active = false
@@ -793,5 +842,353 @@ func TestChaosHealthCircuitRoutingChain(t *testing.T) {
 	allowed, _ = cb.Allow("RAIL-A", now)
 	if !allowed {
 		t.Fatalf("payment routing must be eligible once CLOSED")
+	}
+}
+
+// 9. Runtime target-validator wiring test
+func TestRuntimeTargetValidatorWiring(t *testing.T) {
+	healthTargetsMap := map[string]bool{"HEALTH-PROBE-1": true}
+	executionTargetsList := []string{"EXEC-RAIL-1", "EXEC-RAIL-2"}
+
+	var healthIDs []string
+	for id := range healthTargetsMap {
+		healthIDs = append(healthIDs, id)
+	}
+	validator := chaos.BuildTargetValidator(healthIDs, executionTargetsList)
+
+	repo := newMockRepo()
+	ctrl := chaos.NewController(repo)
+	ctrl.SetTargetValidator(validator)
+	ctx := context.Background()
+
+	// Valid wired runtime target
+	req := chaos.StartRequest{
+		ScenarioID: "sc-wire-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "EXEC-RAIL-1",
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+	sc, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("expected Start to succeed for wired runtime target, got %v", err)
+	}
+	if sc.TargetID != "EXEC-RAIL-1" {
+		t.Fatalf("expected EXEC-RAIL-1, got %s", sc.TargetID)
+	}
+
+	// Unknown target rejected
+	badReq := chaos.StartRequest{
+		ScenarioID: "sc-wire-2",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "EXEC-RAIL-UNKNOWN",
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+	_, err = ctrl.Start(ctx, badReq, "ops-1", "OPS_ADMIN")
+	if !errors.Is(err, chaos.ErrTargetNotFound) {
+		t.Fatalf("expected ErrTargetNotFound for unknown wired target, got %v", err)
+	}
+}
+
+// 10. Expiry persistence error handling and memory/DB consistency
+func TestExpiryPersistenceErrorPropagation(t *testing.T) {
+	repo := newMockRepo()
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	baseTime := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	currentTime := baseTime
+	ctrl.SetNowFunc(func() time.Time { return currentTime })
+
+	req := chaos.StartRequest{
+		ScenarioID: "sc-exp-err-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Parameters: chaos.ScenarioParameters{DurationMs: 10000},
+	}
+	_, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+
+	// Advance time past expiry
+	currentTime = baseTime.Add(15 * time.Second)
+
+	// Inject persistence failure on expiry
+	repo.failExpire = true
+
+	// 1. GetScenario must surface error
+	_, err = ctrl.GetScenario(ctx, "sc-exp-err-1")
+	if err == nil {
+		t.Fatalf("expected GetScenario to surface expiry persistence error")
+	}
+
+	// 2. GetActiveFault must surface error
+	_, _, err = ctrl.GetActiveFault(ctx, "RAIL-A")
+	if err == nil {
+		t.Fatalf("expected GetActiveFault to surface expiry persistence error")
+	}
+
+	// 3. ListScenarios must surface error
+	_, err = ctrl.ListScenarios(ctx, true)
+	if err == nil {
+		t.Fatalf("expected ListScenarios to surface expiry persistence error")
+	}
+
+	// 4. Restore persistence and verify expiry completes exactly once
+	repo.failExpire = false
+	s, err := ctrl.GetScenario(ctx, "sc-exp-err-1")
+	if err != nil {
+		t.Fatalf("GetScenario should succeed after repo recovery: %v", err)
+	}
+	if s.Active {
+		t.Fatalf("scenario must now be inactive")
+	}
+
+	// Verify exactly 1 CHAOS_EXPIRED event was recorded
+	expiredCount := 0
+	for _, e := range repo.events {
+		if e.EventType == chaos.EventTypeChaosExpired {
+			expiredCount++
+		}
+	}
+	if expiredCount != 1 {
+		t.Fatalf("expected exactly 1 CHAOS_EXPIRED event, got %d", expiredCount)
+	}
+}
+
+// 11. GetActiveFault database error vs scenario not found
+func TestGetActiveFaultDatabaseErrorHandling(t *testing.T) {
+	repo := newMockRepo()
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	// 1. Cache miss with ErrScenarioNotFound -> returns nil, false, nil
+	fault, active, err := ctrl.GetActiveFault(ctx, "NONEXISTENT")
+	if err != nil || active || fault != nil {
+		t.Fatalf("expected nil, false, nil for not found: active=%v, err=%v", active, err)
+	}
+
+	// 2. Cache miss with DB failure -> returns error, does NOT swallow DB error!
+	repo.failGetActive = true
+	fault, active, err = ctrl.GetActiveFault(ctx, "RAIL-A")
+	if err == nil {
+		t.Fatalf("expected error from GetActiveFault when DB query fails")
+	}
+	if active || fault != nil {
+		t.Fatalf("expected inactive on error")
+	}
+
+	// 3. Healthy DB -> Start scenario and verify cache hit avoids DB query
+	repo.failGetActive = false
+	req := chaos.StartRequest{
+		ScenarioID: "sc-cache-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Parameters: chaos.ScenarioParameters{DurationMs: 60000},
+	}
+	_, err = ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+
+	// Break DB again: cache hit should still return the active scenario without querying DB!
+	repo.failGetActive = true
+	fault, active, err = ctrl.GetActiveFault(ctx, "RAIL-A")
+	if err != nil {
+		t.Fatalf("cache hit should not fail even if repo is failing: %v", err)
+	}
+	if !active || fault == nil || fault.ScenarioID != "sc-cache-1" {
+		t.Fatalf("expected cached fault on cache hit")
+	}
+}
+
+// 12. Start fails when active-state lookup is untrustworthy
+func TestStartFailsOnUntrustworthyDurableLookup(t *testing.T) {
+	repo := newMockRepo()
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	// Simulate untrustworthy DB lookup
+	repo.failGetActive = true
+
+	req := chaos.StartRequest{
+		ScenarioID: "sc-trust-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Parameters: chaos.ScenarioParameters{DurationMs: 60000},
+	}
+
+	// Start MUST fail because durable state cannot be verified
+	_, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err == nil {
+		t.Fatalf("expected Start to fail when durable lookup is untrustworthy")
+	}
+
+	// Verify nothing was persisted
+	if len(repo.scenarios) != 0 {
+		t.Fatalf("no scenario should be persisted in repo: %d", len(repo.scenarios))
+	}
+
+	// Verify nothing active in memory
+	repo.failGetActive = false
+	fault, active, err := ctrl.GetActiveFault(ctx, "RAIL-A")
+	if err != nil || active || fault != nil {
+		t.Fatalf("no in-memory fault should be activated")
+	}
+}
+
+// 13. Hydration failure handling
+func TestHydrationFailureHandling(t *testing.T) {
+	repo := newMockRepo()
+	repo.failListActive = true
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	err := ctrl.Hydrate(ctx)
+	if err == nil {
+		t.Fatalf("expected Hydrate to return error when repo fails")
+	}
+}
+
+// 14. Exactly-once atomic expiry tests
+func TestExactlyOnceExpiryAtomic(t *testing.T) {
+	repo := newMockRepo()
+	ctx := context.Background()
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+
+	s := chaos.ChaosScenario{
+		ScenarioID: "sc-atomic-exp",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Active:     true,
+		StartedAt:  now.Add(-20 * time.Second),
+		ExpiresAt:  now.Add(-10 * time.Second),
+	}
+	repo.scenarios[s.ScenarioID] = s
+
+	event := chaos.ChaosEvent{
+		ScenarioID: s.ScenarioID,
+		EventType:  chaos.EventTypeChaosExpired,
+		TargetID:   s.TargetID,
+		FaultType:  string(s.Type),
+		ActorID:    "SYSTEM",
+		ActorRole:  "SYSTEM",
+		OccurredAt: s.ExpiresAt,
+	}
+
+	// A) First expiry: 1 row changed, 1 event inserted
+	first, err := repo.ExpireScenario(ctx, s.ScenarioID, now, event)
+	if err != nil || !first {
+		t.Fatalf("expected first expiry to return true: %v, err=%v", first, err)
+	}
+	if len(repo.events) != 1 {
+		t.Fatalf("expected exactly 1 event after first expiry, got %d", len(repo.events))
+	}
+
+	// B) Second expiry: 0 rows changed, 0 second event
+	second, err := repo.ExpireScenario(ctx, s.ScenarioID, now, event)
+	if err != nil || second {
+		t.Fatalf("expected second expiry to return false: %v, err=%v", second, err)
+	}
+	if len(repo.events) != 1 {
+		t.Fatalf("expected no additional event after second expiry, got %d", len(repo.events))
+	}
+
+	// C) Concurrent expiry: exactly one winner
+	scenarioIDConcurrent := "sc-atomic-conc"
+	sConc := chaos.ChaosScenario{
+		ScenarioID: scenarioIDConcurrent,
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Active:     true,
+		StartedAt:  now.Add(-20 * time.Second),
+		ExpiresAt:  now.Add(-10 * time.Second),
+	}
+	repo.scenarios[scenarioIDConcurrent] = sConc
+
+	eventConc := chaos.ChaosEvent{
+		ScenarioID: scenarioIDConcurrent,
+		EventType:  chaos.EventTypeChaosExpired,
+		TargetID:   sConc.TargetID,
+		FaultType:  string(sConc.Type),
+		ActorID:    "SYSTEM",
+		ActorRole:  "SYSTEM",
+		OccurredAt: sConc.ExpiresAt,
+	}
+
+	var wg sync.WaitGroup
+	var successCount int
+	var countMu sync.Mutex
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			won, expErr := repo.ExpireScenario(ctx, scenarioIDConcurrent, now, eventConc)
+			if expErr == nil && won {
+				countMu.Lock()
+				successCount++
+				countMu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if successCount != 1 {
+		t.Fatalf("expected exactly 1 concurrent expiry to win, got %d", successCount)
+	}
+	concurrentEvents := 0
+	for _, e := range repo.events {
+		if e.ScenarioID == scenarioIDConcurrent && e.EventType == chaos.EventTypeChaosExpired {
+			concurrentEvents++
+		}
+	}
+	if concurrentEvents != 1 {
+		t.Fatalf("expected exactly 1 concurrent event recorded, got %d", concurrentEvents)
+	}
+}
+
+// 15. Chaos adapter fails closed when repository is unavailable
+func TestChaosAdapterFailClosedOnRepositoryUnavailable(t *testing.T) {
+	repo := newMockRepo()
+	repo.failGetActive = true
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	stub := newStubBank("RAIL-A")
+	adapter := chaos.NewChaosAdapter("RAIL-A", stub, ctrl)
+
+	// Health check fails closed with ErrCodeBankUnavailable
+	healthRes, err := adapter.GetHealth(ctx)
+	if err == nil {
+		t.Fatalf("expected error from GetHealth when chaos repo is unavailable")
+	}
+	if healthRes.Available {
+		t.Fatalf("health must be unavailable when chaos repo is unavailable")
+	}
+	var adapterErr *bank.AdapterError
+	if !errors.As(err, &adapterErr) || adapterErr.Code != bank.ErrCodeBankUnavailable {
+		t.Fatalf("expected ErrCodeBankUnavailable, got %v", err)
+	}
+
+	// HoldFunds fails closed with ErrCodeBankUnavailable and OperationFailed
+	holdRes, err := adapter.HoldFunds(ctx, bank.HoldFundsRequest{})
+	if err == nil {
+		t.Fatalf("expected error from HoldFunds when chaos repo is unavailable")
+	}
+	if holdRes.Status != bank.OperationFailed {
+		t.Fatalf("expected OperationFailed, got %s", holdRes.Status)
+	}
+
+	// ProvisionalCredit fails closed
+	creditRes, err := adapter.ProvisionalCredit(ctx, bank.ProvisionalCreditRequest{})
+	if err == nil || creditRes.Status != bank.OperationFailed {
+		t.Fatalf("expected OperationFailed from ProvisionalCredit: %v", err)
+	}
+
+	// ResolveAccount fails closed with AccountInactive
+	accRes, err := adapter.ResolveAccount(ctx, bank.ResolveAccountRequest{})
+	if err == nil || accRes.Status != bank.AccountInactive {
+		t.Fatalf("expected AccountInactive from ResolveAccount: %v", err)
 	}
 }

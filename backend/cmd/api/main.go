@@ -138,23 +138,20 @@ func main() {
 	healthService.SetSampleObserver(circuitBreaker.RecordHealthSample)
 	healthService.SetProbeGate(circuitBreaker)
 
-	validTargets := make(map[string]bool)
-	for code := range bankIDs {
-		validTargets[code] = true
-	}
+	var healthTargetIDs []string
 	for targetID := range healthTargets {
-		validTargets[targetID] = true
+		healthTargetIDs = append(healthTargetIDs, targetID)
 	}
+	var executionTargetIDs []string
 	for _, targets := range executionTargets {
 		for _, et := range targets {
-			validTargets[et.ExecutionTargetID] = true
+			executionTargetIDs = append(executionTargetIDs, et.ExecutionTargetID)
 		}
 	}
-	chaosController.SetTargetValidator(func(targetID string) bool {
-		return validTargets[targetID]
-	})
+	chaosController.SetTargetValidator(chaos.BuildTargetValidator(healthTargetIDs, executionTargetIDs))
 	if err := chaosController.Hydrate(context.Background()); err != nil {
-		logger.Warn("hydrate chaos scenarios", "error", err)
+		logger.Error("hydrate chaos scenarios", "error", err)
+		os.Exit(1)
 	}
 
 	var handler http.Handler

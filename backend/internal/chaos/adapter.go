@@ -2,6 +2,7 @@ package chaos
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/transactx/backend/internal/bank"
@@ -42,7 +43,16 @@ func (a *ChaosAdapter) injectFault(ctx context.Context, isHealthCheck bool) erro
 		return nil
 	}
 
-	scenario, active := a.controller.GetActiveFault(a.targetID)
+	scenario, active, err := a.controller.GetActiveFault(ctx, a.targetID)
+	if err != nil {
+		// If an injected operational fault cannot be determined because the chaos repository
+		// is unavailable, fail closed at the chaos seam rather than silently pretending no chaos exists.
+		return &bank.AdapterError{
+			Code:    bank.ErrCodeBankUnavailable,
+			Message: fmt.Sprintf("chaos controller unavailable: unable to determine chaos state for target %q: %v", a.targetID, err),
+			Err:     fmt.Errorf("%w: %v", ErrRepoUnavailable, err),
+		}
+	}
 	if !active || scenario == nil {
 		return nil
 	}

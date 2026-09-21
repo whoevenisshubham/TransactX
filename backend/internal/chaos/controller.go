@@ -16,6 +16,26 @@ var (
 
 type TargetValidator func(targetID string) bool
 
+// BuildTargetValidator builds a TargetValidator strictly from configured health and execution target IDs.
+// It explicitly excludes bank codes (e.g. BANK-A, BANK-B) to avoid conflating logical bank ownership
+// with switch-level execution rail and target identities.
+func BuildTargetValidator(healthTargetIDs []string, executionTargetIDs []string) TargetValidator {
+	valid := make(map[string]bool)
+	for _, id := range healthTargetIDs {
+		if id != "" {
+			valid[id] = true
+		}
+	}
+	for _, id := range executionTargetIDs {
+		if id != "" {
+			valid[id] = true
+		}
+	}
+	return func(targetID string) bool {
+		return valid[targetID]
+	}
+}
+
 type Controller struct {
 	mu                sync.RWMutex
 	repo              Repository
@@ -152,7 +172,9 @@ func (c *Controller) Start(ctx context.Context, req StartRequest, actorID, actor
 	// 1. Check in-memory active scenario
 	if existing, ok := c.activeByTarget[req.TargetID]; ok {
 		if now.After(existing.ExpiresAt) {
-			c.expireLocked(ctx, existing, now)
+			if _, err := c.expireLocked(ctx, existing, now); err != nil {
+				return nil, err
+			}
 		} else if existing.Active {
 			return nil, fmt.Errorf("%w: target %s has active scenario %s", ErrTargetConflict, req.TargetID, existing.ScenarioID)
 		}
@@ -161,12 +183,16 @@ func (c *Controller) Start(ctx context.Context, req StartRequest, actorID, actor
 	// 2. Check DB active scenario if not found in memory (e.g. after restart)
 	if c.repo != nil {
 		dbActive, err := c.repo.GetActiveScenarioByTarget(ctx, req.TargetID, now)
-		if err != nil && !errors.Is(err, ErrScenarioNotFound) && !errors.Is(err, ErrRepoUnavailable) {
-			return nil, err
-		}
-		if dbActive != nil && dbActive.Active {
+		if err != nil {
+			if !errors.Is(err, ErrScenarioNotFound) {
+				// Any real DB error or ErrRepoUnavailable MUST fail START
+				return nil, fmt.Errorf("failed to verify active scenario state in repository: %w", err)
+			}
+		} else if dbActive != nil && dbActive.Active {
 			if now.After(dbActive.ExpiresAt) {
-				c.expireLocked(ctx, dbActive, now)
+				if _, err := c.expireLocked(ctx, dbActive, now); err != nil {
+					return nil, err
+				}
 			} else {
 				return nil, fmt.Errorf("%w: target %s has active scenario %s in storage", ErrTargetConflict, req.TargetID, dbActive.ScenarioID)
 			}
@@ -262,7 +288,9 @@ func (c *Controller) Stop(ctx context.Context, scenarioID string, actorID, actor
 
 	// Check if already expired; if so, do not stop an expired scenario
 	if now.After(scenario.ExpiresAt) {
-		c.expireLocked(ctx, scenario, now)
+		if _, err := c.expireLocked(ctx, scenario, now); err != nil {
+			return nil, err
+		}
 		copyScenario := *scenario
 		return &copyScenario, nil
 	}
@@ -367,7 +395,9 @@ func (c *Controller) GetScenario(ctx context.Context, scenarioID string) (*Chaos
 	}
 
 	if s.Active && now.After(s.ExpiresAt) {
-		c.expireLocked(ctx, s, now)
+		if _, err := c.expireLocked(ctx, s, now); err != nil {
+			return nil, err
+		}
 	}
 
 	copyScenario := *s
@@ -382,7 +412,9 @@ func (c *Controller) ListScenarios(ctx context.Context, activeOnly bool) ([]Chao
 	// Expire any in-memory active scenarios that have passed expiresAt
 	for _, s := range c.activeByTarget {
 		if now.After(s.ExpiresAt) {
-			c.expireLocked(ctx, s, now)
+			if _, err := c.expireLocked(ctx, s, now); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -402,7 +434,8 @@ func (c *Controller) ListScenarios(ctx context.Context, activeOnly bool) ([]Chao
 
 // GetActiveFault returns the active scenario for the given target if present and not expired.
 // If not found in memory (e.g. after restart), it queries persistent storage.
-func (c *Controller) GetActiveFault(targetID string) (*ChaosScenario, bool) {
+// If persistent storage queries fail, it returns an error to allow the caller to fail closed.
+func (c *Controller) GetActiveFault(ctx context.Context, targetID string) (*ChaosScenario, bool, error) {
 	now := c.now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -411,11 +444,21 @@ func (c *Controller) GetActiveFault(targetID string) (*ChaosScenario, bool) {
 	if !ok || !s.Active {
 		// Attempt hydration / cache miss lookup from durable repository
 		if c.repo != nil {
-			dbScenario, err := c.repo.GetActiveScenarioByTarget(context.Background(), targetID, now)
-			if err == nil && dbScenario != nil && dbScenario.Active {
+			dbScenario, err := c.repo.GetActiveScenarioByTarget(ctx, targetID, now)
+			if err != nil {
+				if errors.Is(err, ErrScenarioNotFound) {
+					// Truly not found in DB
+					return nil, false, nil
+				}
+				// DB error! Must NOT swallow DB error; fail closed.
+				return nil, false, fmt.Errorf("failed to query active scenario from repository: %w", err)
+			}
+			if dbScenario != nil && dbScenario.Active {
 				if now.After(dbScenario.ExpiresAt) {
-					c.expireLocked(context.Background(), dbScenario, now)
-					return nil, false
+					if _, err := c.expireLocked(ctx, dbScenario, now); err != nil {
+						return nil, false, err
+					}
+					return nil, false, nil
 				}
 				c.activeByTarget[targetID] = dbScenario
 				c.scenariosByID[dbScenario.ScenarioID] = dbScenario
@@ -426,16 +469,18 @@ func (c *Controller) GetActiveFault(targetID string) (*ChaosScenario, bool) {
 	}
 
 	if !ok || !s.Active {
-		return nil, false
+		return nil, false, nil
 	}
 
 	if now.After(s.ExpiresAt) {
-		c.expireLocked(context.Background(), s, now)
-		return nil, false
+		if _, err := c.expireLocked(ctx, s, now); err != nil {
+			return nil, false, err
+		}
+		return nil, false, nil
 	}
 
 	copyScenario := *s
-	return &copyScenario, true
+	return &copyScenario, true, nil
 }
 
 // CheckAndRecordInvocation returns whether a fault should be triggered on this invocation,
@@ -471,17 +516,10 @@ func (c *Controller) CheckAndRecordInvocation(scenarioID string, params Scenario
 	return true
 }
 
-func (c *Controller) expireLocked(ctx context.Context, s *ChaosScenario, now time.Time) {
+func (c *Controller) expireLocked(ctx context.Context, s *ChaosScenario, now time.Time) (bool, error) {
 	if !s.Active {
-		return
+		return false, nil
 	}
-	s.Active = false
-	exp := s.ExpiresAt
-	s.StoppedAt = &exp
-	systemActor := "SYSTEM_AUTO_EXPIRY"
-	s.StoppedBy = &systemActor
-	s.UpdatedAt = now
-	delete(c.activeByTarget, s.TargetID)
 
 	if c.repo != nil {
 		event := ChaosEvent{
@@ -496,6 +534,28 @@ func (c *Controller) expireLocked(ctx context.Context, s *ChaosScenario, now tim
 			},
 			OccurredAt: s.ExpiresAt,
 		}
-		_, _ = c.repo.ExpireScenario(ctx, s.ScenarioID, s.ExpiresAt, event)
+		expired, err := c.repo.ExpireScenario(ctx, s.ScenarioID, now, event)
+		if err != nil {
+			return false, fmt.Errorf("failed to persist scenario expiry: %w", err)
+		}
+		// Deactivate in-memory state ONLY after successful persistence
+		s.Active = false
+		exp := s.ExpiresAt
+		s.StoppedAt = &exp
+		systemActor := "SYSTEM_AUTO_EXPIRY"
+		s.StoppedBy = &systemActor
+		s.UpdatedAt = now
+		delete(c.activeByTarget, s.TargetID)
+		return expired, nil
 	}
+
+	// In-memory mode (no repository configured)
+	s.Active = false
+	exp := s.ExpiresAt
+	s.StoppedAt = &exp
+	systemActor := "SYSTEM_AUTO_EXPIRY"
+	s.StoppedBy = &systemActor
+	s.UpdatedAt = now
+	delete(c.activeByTarget, s.TargetID)
+	return true, nil
 }
