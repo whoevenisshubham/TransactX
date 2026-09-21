@@ -1,0 +1,577 @@
+{
+  "experimentId": "offline",
+  "title": "Experiment 4: Durable Offline Queue and Deterministic Replay",
+  "environment": {
+    "gitCommit": "4311d641846780b6c94bffea400a263901702809",
+    "platform": "win32/x64",
+    "os": "win32",
+    "arch": "x64",
+    "nodeVersion": "v24.14.0",
+    "goVersion": "go version go1.27.0 windows/amd64",
+    "deterministicSeed": 42,
+    "datasetSize": 50,
+    "runTimestamp": "2026-09-21T16:01:47.136Z",
+    "runId": "run-1790006507136-win32",
+    "scenarioParams": {
+      "totalIntents": "50",
+      "immediateSuccesses": "30",
+      "transientRetries": "10",
+      "pendingStatusChecks": "5",
+      "permanentFailures": "5"
+    }
+  },
+  "summary": {
+    "totalQueued": 50,
+    "replayAttempts": 65,
+    "successfulSyncCount": 45,
+    "permanentFailures": 5,
+    "duplicateProcessingCount": 0,
+    "sameKeyReplayCount": 10,
+    "latency": {
+      "meanMs": 18050,
+      "p50Ms": 9100,
+      "p95Ms": 41800,
+      "maxMs": 42000
+    },
+    "invariants": [
+      {
+        "invariantName": "No duplicate successful processing for one logical idempotency key",
+        "passed": true,
+        "details": "duplicate processing count = 0"
+      },
+      {
+        "invariantName": "Same-key replay behavior preserved on retries",
+        "passed": true,
+        "details": "10 retry attempts reused their original idempotency keys"
+      },
+      {
+        "invariantName": "Terminal state completeness (no intents left in transient SYNCING/QUEUED state)",
+        "passed": true,
+        "details": "synced=45, failed=5, total=50"
+      },
+      {
+        "invariantName": "Authoritative payment API not bypassed",
+        "passed": true,
+        "details": "total replay API calls made = 65"
+      }
+    ],
+    "allInvariantsSatisfied": true
+  },
+  "samples": [
+    {
+      "index": 0,
+      "clientRequestId": "succ-0-b1400556",
+      "idempotencyKey": "idemp-succ-0-81fa99cd",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 10000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 1,
+      "clientRequestId": "succ-1-2ce1d85f",
+      "idempotencyKey": "idemp-succ-1-40109b21",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 2,
+      "clientRequestId": "succ-2-d7342100",
+      "idempotencyKey": "idemp-succ-2-341989b6",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 3,
+      "clientRequestId": "succ-3-a799effc",
+      "idempotencyKey": "idemp-succ-3-f7f2fcab",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 4,
+      "clientRequestId": "succ-4-913ad308",
+      "idempotencyKey": "idemp-succ-4-3c831a0c",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 5,
+      "clientRequestId": "succ-5-74582463",
+      "idempotencyKey": "idemp-succ-5-5d6939f6",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 6,
+      "clientRequestId": "succ-6-f8f5cf42",
+      "idempotencyKey": "idemp-succ-6-a9875892",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 7,
+      "clientRequestId": "succ-7-7170641d",
+      "idempotencyKey": "idemp-succ-7-ea4573ab",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 8,
+      "clientRequestId": "succ-8-82622f70",
+      "idempotencyKey": "idemp-succ-8-8b89e442",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 9,
+      "clientRequestId": "succ-9-fcf14be3",
+      "idempotencyKey": "idemp-succ-9-72c09b30",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 10,
+      "clientRequestId": "succ-10-19c2561c",
+      "idempotencyKey": "idemp-succ-10-5cd65863",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 11,
+      "clientRequestId": "succ-11-fda053e7",
+      "idempotencyKey": "idemp-succ-11-bffee9e5",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 12,
+      "clientRequestId": "succ-12-9e358c2c",
+      "idempotencyKey": "idemp-succ-12-2697faa1",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 13,
+      "clientRequestId": "succ-13-8f945303",
+      "idempotencyKey": "idemp-succ-13-dff7543a",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 14,
+      "clientRequestId": "succ-14-ccc61673",
+      "idempotencyKey": "idemp-succ-14-8f35d0e8",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 15,
+      "clientRequestId": "succ-15-072ab772",
+      "idempotencyKey": "idemp-succ-15-8bf822cf",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 16,
+      "clientRequestId": "succ-16-d17d7efe",
+      "idempotencyKey": "idemp-succ-16-a00eaa45",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 17,
+      "clientRequestId": "succ-17-6977b857",
+      "idempotencyKey": "idemp-succ-17-c3651233",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 18,
+      "clientRequestId": "succ-18-942b03b6",
+      "idempotencyKey": "idemp-succ-18-d94046d3",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 19,
+      "clientRequestId": "succ-19-44aedc3b",
+      "idempotencyKey": "idemp-succ-19-7dfc93d0",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 20,
+      "clientRequestId": "succ-20-3eaa25ff",
+      "idempotencyKey": "idemp-succ-20-ade1103e",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 21,
+      "clientRequestId": "succ-21-dd241152",
+      "idempotencyKey": "idemp-succ-21-05bada65",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 22,
+      "clientRequestId": "succ-22-2f296a84",
+      "idempotencyKey": "idemp-succ-22-937e8e4a",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 23,
+      "clientRequestId": "succ-23-197a6502",
+      "idempotencyKey": "idemp-succ-23-3a15d199",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 24,
+      "clientRequestId": "succ-24-74b45108",
+      "idempotencyKey": "idemp-succ-24-d36e4024",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 25,
+      "clientRequestId": "succ-25-ad3b7cfe",
+      "idempotencyKey": "idemp-succ-25-86249199",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 26,
+      "clientRequestId": "succ-26-19e22188",
+      "idempotencyKey": "idemp-succ-26-b6078709",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 27,
+      "clientRequestId": "succ-27-7b05796f",
+      "idempotencyKey": "idemp-succ-27-52e45011",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 28,
+      "clientRequestId": "succ-28-ff1c783e",
+      "idempotencyKey": "idemp-succ-28-e40aabbd",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 29,
+      "clientRequestId": "succ-29-affa1a7a",
+      "idempotencyKey": "idemp-succ-29-77b2c297",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 30,
+      "clientRequestId": "transient-30-d8beed37",
+      "idempotencyKey": "idemp-transient-30-038565c2",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 42000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 31,
+      "clientRequestId": "transient-31-7e93db22",
+      "idempotencyKey": "idemp-transient-31-0427890c",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 32,
+      "clientRequestId": "transient-32-3c82fa06",
+      "idempotencyKey": "idemp-transient-32-dd75ad31",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 33,
+      "clientRequestId": "transient-33-0ceae4b8",
+      "idempotencyKey": "idemp-transient-33-b46e9ce1",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 34,
+      "clientRequestId": "transient-34-6483af23",
+      "idempotencyKey": "idemp-transient-34-3030d3a1",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 35,
+      "clientRequestId": "transient-35-ad699295",
+      "idempotencyKey": "idemp-transient-35-faaea113",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 36,
+      "clientRequestId": "transient-36-b91d7883",
+      "idempotencyKey": "idemp-transient-36-2c0e18c4",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 37,
+      "clientRequestId": "transient-37-69749c4c",
+      "idempotencyKey": "idemp-transient-37-92198955",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 38,
+      "clientRequestId": "transient-38-78506669",
+      "idempotencyKey": "idemp-transient-38-a108cf11",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 39,
+      "clientRequestId": "transient-39-a9a31201",
+      "idempotencyKey": "idemp-transient-39-6a853fd1",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 40,
+      "clientRequestId": "pending-40-60e907f7",
+      "idempotencyKey": "idemp-pending-40-c8636348",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 41000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 41,
+      "clientRequestId": "pending-41-f50a3426",
+      "idempotencyKey": "idemp-pending-41-c32e69e2",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 42,
+      "clientRequestId": "pending-42-0ef00131",
+      "idempotencyKey": "idemp-pending-42-5bac1c8b",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 43,
+      "clientRequestId": "pending-43-def3ce6f",
+      "idempotencyKey": "idemp-pending-43-042f6aed",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 44,
+      "clientRequestId": "pending-44-e6349383",
+      "idempotencyKey": "idemp-pending-44-f70cada7",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 45,
+      "clientRequestId": "fail-45-7dcb080c",
+      "idempotencyKey": "idemp-fail-45-91e27bf0",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5500,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 46,
+      "clientRequestId": "fail-46-ab22cf98",
+      "idempotencyKey": "idemp-fail-46-5ecd661c",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5400,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 47,
+      "clientRequestId": "fail-47-485c6078",
+      "idempotencyKey": "idemp-fail-47-0f1b66a3",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5300,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 48,
+      "clientRequestId": "fail-48-d9717a48",
+      "idempotencyKey": "idemp-fail-48-b805a9e2",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5200,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 49,
+      "clientRequestId": "fail-49-5524faa1",
+      "idempotencyKey": "idemp-fail-49-45a0c7f0",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5100,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    }
+  ]
+}
