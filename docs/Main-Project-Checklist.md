@@ -207,15 +207,15 @@ PHASE EXIT GATE: The switch demonstrably avoids unhealthy banks, recovers health
 
 Duration: Week 9   Objective: Turn resilience claims into controlled, repeatable experiments.
 
-\[ ] M2 — Implement operations-only chaos controller.
-\[ ] M2 — Add bank outage scenario.
-\[ ] M2 — Add configurable latency scenario.
-\[ ] M2 — Add transient/message-drop scenario.
-\[ ] M2 — Add temporary network partition scenario.
+\[x] M2 — Implement operations-only chaos controller.
+\[x] M2 — Add bank outage scenario.
+\[x] M2 — Add configurable latency scenario.
+\[x] M2 — Add transient/message-drop scenario.
+\[x] M2 — Add temporary network partition scenario.
 \[ ] M3 — Add admin-only controlled ledger-corruption fixture.
 \[ ] M1 — Add concurrent payment-storm trigger through the test environment.
-\[ ] M2 — Ensure every chaos action is visibly marked as simulation/test mode.
-\[ ] M2 — Ensure chaos endpoints require OPS\_ADMIN authorization.
+\[x] M2 — Ensure every chaos action is visibly marked as simulation/test mode.
+\[x] M2 — Ensure chaos endpoints require OPS\_ADMIN authorization.
 \[ ] M3 — Build chaos-control UI.
 \[ ] M3 — Show active faults and scenario history.
 \[ ] M3 — Stream bank-health and circuit-breaker changes live.
@@ -224,7 +224,7 @@ Duration: Week 9   Objective: Turn resilience claims into controlled, repeatable
 \[ ] ALL — Run bank recovery and observe HALF\_OPEN then gradual restoration.
 \[ ] ALL — Run message-drop scenario and verify safe pending/recovery behavior.
 \[ ] ALL — Run the corruption scenario and verify Merkle/integrity detection.
-\[ ] ALL — Ensure no chaos endpoint is exposed to CUSTOMER or MERCHANT roles.
+\[x] ALL — Ensure no chaos endpoint is exposed to CUSTOMER or MERCHANT roles.
 PHASE EXIT GATE: At least the outage, latency, recovery, and corruption scenarios are repeatable and produce observable, correct system behavior.
 
 # Phase 9 — Runtime Financial Integrity \& Operational Console
