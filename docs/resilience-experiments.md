@@ -10,9 +10,15 @@ All reported numbers are strictly derived from executed benchmark runs. No numbe
 
 To maintain absolute transparency, the test harness clearly distinguishes between genuine domain components under evaluation and the deterministic test doubles used to isolate operational failure conditions:
 
-### Real M2 Domain Components Evaluated
-- **`internal/payments`**: Dynamic candidate evaluation, selection modes (`SelectionModeStatic`, `SelectionModeAdaptive`), route-decision auditing, and circuit-eligibility hook enforcement.
-- **`internal/health`**: Real-time health scoring algorithm (`Score = 0.60*Latency + 0.20*Availability + 0.20*Success`), sliding-window sample retention, and penalty curves.
+- **`internal/health`**: Real-time health scoring algorithm (`backend/internal/health`):
+  - Normalized signal definitions:
+    - `availabilityScore = successfulChecks / totalChecks`
+    - `successScore = successfulCalls / totalCalls`
+    - `latencyPenalty = clamp((p95Latency - lowerBound) / (upperBound - lowerBound), 0, 1)`
+    - `timeoutPenalty = timeoutRate`
+  - Default Score Formula:
+    $$0.35 \times \text{availabilityScore} + 0.35 \times \text{successScore} - 0.20 \times \text{latencyPenalty} - 0.10 \times \text{timeoutPenalty}$$
+  - Supported with bounded sliding-window sample retention, configurable penalty thresholds, and clamping to $[0, 1]$.
 - **`internal/circuit`**: State machine transitions (`CLOSED`, `OPEN`, `HALF_OPEN`), failure/success thresholds, cooldown expiration, probe limiting, and gradual restoration.
 - **`internal/chaos`**: Controlled fault-injection controller, target validation, scenario lifecycle (start, stop, expiry), and `ChaosAdapter` proxy seam.
 - **`frontend/src/offlineQueue.ts`**: Client-side IndexedDB persistence, owner user isolation, atomic state transitions, lease locking, and idempotency key persistence.
@@ -58,7 +64,7 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
 
 ### Configuration
 - **Baseline**: Static candidate ordering (`SelectionModeStatic`), always selecting the designated static baseline (`CANDIDATE-A` -> `RAIL-A`).
-- **Proposed**: Health-aware selector (`SelectionModeAdaptive`), scoring execution targets via `health.HealthSnapshotProvider` (`Score = 0.5*LatencyScore + 0.25*AvailabilityScore + 0.25*SuccessScore`).
+- **Proposed**: Health-aware selector (`SelectionModeAdaptive`), scoring execution targets via `health.HealthSnapshotProvider` using the actual M2 default health configuration (`health.DefaultConfig()`: `0.35 * availabilityScore + 0.35 * successScore - 0.20 * latencyPenalty - 0.10 * timeoutPenalty`, `Window: 10m`, `MinSamples: 1`).
 - **Workload**: 300 sequential requests.
   - Phase 1 (Requests 0–74): Both targets healthy (10–14 ms latency, 100% success).
   - Phase 2 (Requests 75–224): Primary target `RAIL-A` degraded (80% failure rate, 150 ms latency). Backup `RAIL-B` healthy.
@@ -136,7 +142,10 @@ Measure route selector responsiveness to transient latency degradation injected 
   - Phase 1 (0–99): Healthy baseline (`RAIL-A`: 1ms, `RAIL-B`: 2ms).
   - Phase 2 (100–199): Injected latency on `RAIL-A` (+15ms -> ~16–17ms total).
   - Phase 3 (200–299): Recovery back to healthy baseline.
-- **Health Configuration**: `LatencyLowerBound=1ms`, `LatencyUpperBound=10ms`, `LatencyWeight=0.60`.
+- **Health Configuration (Experiment-Specific Override)**: To evaluate route selector sensitivity specifically under injected transient latency, Experiment 3 applies an experiment-specific weight override over the default configuration:
+  - `LatencyWeight = 0.60`, `AvailabilityWeight = 0.20`, `SuccessWeight = 0.20`, `TimeoutWeight = 0.10`
+  - `LatencyLowerBound = 1ms`, `LatencyUpperBound = 10ms`, `MinSamples = 1`
+  - (Distinguished from the standard M2 default configuration where `AvailabilityWeight=0.35`, `SuccessWeight=0.35`, `LatencyWeight=0.20`, `TimeoutWeight=0.10`).
 - **Execution Seam**: Every selected candidate executes `SourceAdapter.HoldFunds(ctx, holdReq)` with measured elapsed time `actualLat := time.Since(execStart)`.
 
 ### Measured Results (Run `latency-20260921-161317`)

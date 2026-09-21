@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +66,22 @@ func TestExperiment2_OutageAndCircuitIsolation(t *testing.T) {
 
 	if !result.Proposed.AllInvariantsSatisfied {
 		t.Error("proposed circuit breaker invariants failed")
+	}
+
+	var foundCircuitInv bool
+	for _, inv := range result.Proposed.Invariants {
+		if inv.InvariantName == "No route decision violated circuit eligibility" {
+			foundCircuitInv = true
+			if !inv.Passed {
+				t.Errorf("expected circuit eligibility invariant to pass, got details: %s", inv.Details)
+			}
+			if !strings.Contains(inv.Details, "violation count: 0") {
+				t.Errorf("expected details to report 0 violations, got: %s", inv.Details)
+			}
+		}
+	}
+	if !foundCircuitInv {
+		t.Error("expected 'No route decision violated circuit eligibility' invariant in proposed results")
 	}
 }
 
@@ -267,6 +284,46 @@ func TestExperiment5_DuplicateFinancialExecutionDetected(t *testing.T) {
 	invariantPassed := dups == 0 && maxExecs <= 1
 	if invariantPassed {
 		t.Error("expected invariant to fail when duplicate financial execution occurred")
+	}
+}
+
+func TestCheckCircuitEligibilityDecisions_ZeroViolations(t *testing.T) {
+	decisions := []RouteDecisionCheck{
+		{Index: 0, TargetID: "RAIL-A", CircuitState: circuit.StateClosed, Reason: "STATIC_PRIORITY"},
+		{Index: 1, TargetID: "RAIL-A", CircuitState: circuit.StateClosed, Reason: "STATIC_PRIORITY"},
+		{Index: 2, TargetID: "RAIL-B", CircuitState: circuit.StateClosed, Reason: "CIRCUIT_TRIPPED_FAILOVER"},
+		{Index: 3, TargetID: "RAIL-A", CircuitState: circuit.StateHalfOpen, Reason: "HALF_OPEN_PROBE"},
+	}
+
+	inv := CheckCircuitEligibilityDecisions(decisions)
+	if !inv.Passed {
+		t.Errorf("expected invariant to pass with 0 violations, got: %+v", inv)
+	}
+	if !strings.Contains(inv.Details, "checked decisions: 4, violation count: 0") {
+		t.Errorf("unexpected details string: %s", inv.Details)
+	}
+	if strings.Contains(inv.Details, "first violation") {
+		t.Errorf("expected no first violation reported when violation count is 0: %s", inv.Details)
+	}
+}
+
+func TestCheckCircuitEligibilityDecisions_ActualViolation(t *testing.T) {
+	decisions := []RouteDecisionCheck{
+		{Index: 0, TargetID: "RAIL-A", CircuitState: circuit.StateClosed, Reason: "STATIC_PRIORITY"},
+		{Index: 1, TargetID: "RAIL-A", CircuitState: circuit.StateOpen, Reason: "STATIC_PRIORITY"},
+		{Index: 2, TargetID: "RAIL-A", CircuitState: circuit.StateOpen, Reason: "STATIC_PRIORITY"},
+	}
+
+	inv := CheckCircuitEligibilityDecisions(decisions)
+	if inv.Passed {
+		t.Errorf("expected invariant to fail with OPEN decisions, got: %+v", inv)
+	}
+	if !strings.Contains(inv.Details, "checked decisions: 3, violation count: 2") {
+		t.Errorf("unexpected details string: %s", inv.Details)
+	}
+	expectedFirst := "first violation: request 1 routed to RAIL-A while circuit state was OPEN (reason: STATIC_PRIORITY)"
+	if !strings.Contains(inv.Details, expectedFirst) {
+		t.Errorf("expected first violation to be reported: got %s, wanted substring %s", inv.Details, expectedFirst)
 	}
 }
 
