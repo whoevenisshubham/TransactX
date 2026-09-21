@@ -2,7 +2,7 @@
   "experimentId": "outage",
   "title": "Experiment 2: Bank Outage and Circuit Isolation",
   "environment": {
-    "gitCommit": "356b04312a611441a5d40cecac221f2c4485d7c1",
+    "gitCommit": "25d24e5c1af5bd0fa88cda51efce7809f3246377",
     "platform": "windows/amd64",
     "os": "windows",
     "arch": "amd64",
@@ -10,11 +10,11 @@
     "nodeVersion": "v24.14.0",
     "deterministicSeed": 42,
     "datasetSize": 300,
-    "runTimestamp": "2026-09-21T16:13:17.223583Z",
-    "runId": "run-1790007197-windows",
+    "runTimestamp": "2026-09-21T17:03:15.0149539Z",
+    "runId": "run-1790010195-windows",
     "scenarioParams": {
       "chaosType": "BANK_OUTAGE",
-      "circuitConfig": "failureThreshold=3, cooldown=5s",
+      "circuitConfig": "failureThreshold=3, cooldown=3s",
       "outageDuration": "100 requests (33% of workload)",
       "targetA": "RAIL-A",
       "targetB": "RAIL-B",
@@ -94,7 +94,7 @@
       {
         "invariantName": "No route decision violated circuit eligibility",
         "passed": true,
-        "details": "Zero requests routed to OPEN circuit target while in open state"
+        "details": "checked decisions: 300, violation count: 0"
       }
     ],
     "allInvariantsSatisfied": true,

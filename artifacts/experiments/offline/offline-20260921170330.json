@@ -2,7 +2,7 @@
   "experimentId": "offline",
   "title": "Experiment 4: Durable Offline Queue and Deterministic Replay",
   "environment": {
-    "gitCommit": "356b04312a611441a5d40cecac221f2c4485d7c1",
+    "gitCommit": "25d24e5c1af5bd0fa88cda51efce7809f3246377",
     "platform": "win32/x64",
     "os": "win32",
     "arch": "x64",
@@ -10,8 +10,8 @@
     "goVersion": "go version go1.27.0 windows/amd64",
     "deterministicSeed": 42,
     "datasetSize": 50,
-    "runTimestamp": "2026-09-21T16:13:44.037Z",
-    "runId": "run-1790007224037-win32",
+    "runTimestamp": "2026-09-21T17:03:30.743Z",
+    "runId": "run-1790010210743-win32",
     "scenarioParams": {
       "totalIntents": "50",
       "immediateSuccesses": "30",

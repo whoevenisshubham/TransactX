@@ -47,7 +47,7 @@ To maintain absolute transparency, the test harness clearly distinguishes betwee
 
 Every benchmark run captures environmental metadata embedded directly into each JSON output:
 
-- **Git Commit**: `356b04312a611441a5d40cecac221f2c4485d7c1`
+- **Git Commit**: `25d24e5c1af5bd0fa88cda51efce7809f3246377`
 - **Platform / OS**: `windows/amd64` (backend), `win32/x64` (frontend)
 - **Go Version**: `go1.27.1`
 - **Node.js Version**: `v24.14.0`
@@ -70,7 +70,7 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
   - Phase 2 (Requests 75–224): Primary target `RAIL-A` degraded (80% failure rate, 150 ms latency). Backup `RAIL-B` healthy.
   - Phase 3 (Requests 225–299): Both targets healthy.
 
-### Measured Results (Run `routing-20260921-161317`)
+### Measured Results (Run `routing-20260921-170314`)
 
 | Metric | Baseline (Static) | Proposed (Adaptive) | Difference / Impact |
 | :--- | :--- | :--- | :--- |
@@ -86,8 +86,8 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
 | **Invariants Satisfied** | Yes | Yes | Zero accounting drift |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/routing/routing-20260921-161317.json`
-- CSV: `artifacts/experiments/routing/routing-20260921-161317.csv`
+- JSON: `artifacts/experiments/routing/routing-20260921-170314.json`
+- CSV: `artifacts/experiments/routing/routing-20260921-170314.csv`
 
 ---
 
@@ -107,7 +107,7 @@ Evaluate how circuit breaker integration (`internal/circuit`) detects a complete
 - **Baseline**: Static routing without circuit breaker, repeatedly attempting `RAIL-A`.
 - **Proposed**: Adaptive routing with circuit eligibility hook (`cb.EligibilityHook`).
 
-### Measured Results (Run `outage-20260921-161317`)
+### Measured Results (Run `outage-20260921-170315`)
 
 | Metric | Baseline (Static) | Proposed (Circuit-Aware) | Notes |
 | :--- | :--- | :--- | :--- |
@@ -127,8 +127,8 @@ Evaluate how circuit breaker integration (`internal/circuit`) detects a complete
 - `Eligibility Conformance`: Zero requests routed to OPEN circuit target (Verified)
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/outage/outage-20260921-161317.json`
-- CSV: `artifacts/experiments/outage/outage-20260921-161317.csv`
+- JSON: `artifacts/experiments/outage/outage-20260921-170315.json`
+- CSV: `artifacts/experiments/outage/outage-20260921-170315.csv`
 
 ---
 
@@ -148,7 +148,7 @@ Measure route selector responsiveness to transient latency degradation injected 
   - (Distinguished from the standard M2 default configuration where `AvailabilityWeight=0.35`, `SuccessWeight=0.35`, `LatencyWeight=0.20`, `TimeoutWeight=0.10`).
 - **Execution Seam**: Every selected candidate executes `SourceAdapter.HoldFunds(ctx, holdReq)` with measured elapsed time `actualLat := time.Since(execStart)`.
 
-### Measured Results (Run `latency-20260921-161317`)
+### Measured Results (Run `latency-20260921-170315`)
 
 | Metric | Baseline (Static) | Proposed (Health-Aware) | Impact |
 | :--- | :--- | :--- | :--- |
@@ -161,8 +161,8 @@ Measure route selector responsiveness to transient latency degradation injected 
 | **Traffic Share** | RAIL-A: 300 (100.0%) | RAIL-A: 98 (32.7%), RAIL-B: 202 (67.3%) | 67.3% shifted to RAIL-B |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/latency/latency-20260921-161317.json`
-- CSV: `artifacts/experiments/latency/latency-20260921-161317.csv`
+- JSON: `artifacts/experiments/latency/latency-20260921-170315.json`
+- CSV: `artifacts/experiments/latency/latency-20260921-170315.csv`
 
 ---
 
@@ -182,7 +182,7 @@ Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-index
   - Pass 2: `T + 45s` (Clock advanced by 35s to expire backoff timers).
   - Pass 3: `T + 80s` (Final convergence verification).
 
-### Measured Results (Run `offline-20260921161344`)
+### Measured Results (Run `offline-20260921170330`)
 
 | Metric | Measured Value | Target / Requirement |
 | :--- | :--- | :--- |
@@ -198,8 +198,8 @@ Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-index
 | **Invariants Satisfied** | **true (4/4)** | Complete pass |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/offline/offline-20260921161344.json`
-- CSV: `artifacts/experiments/offline/offline-20260921161344.csv`
+- JSON: `artifacts/experiments/offline/offline-20260921170330.json`
+- CSV: `artifacts/experiments/offline/offline-20260921170330.csv`
 
 ---
 
@@ -213,7 +213,7 @@ Subject adaptive routing and payment execution to a concurrent workload across 1
 - **Idempotency Pool**: 180 unique deterministic keys (`storm-idemp-s42-0000`).
 - **Execution Pipeline**: `payments.SelectRoute` -> circuit eligibility evaluation -> idempotency coordinator -> `HoldFunds` -> `ConfirmHold` -> `cb.RecordSuccess`.
 
-### Measured Results (Run `concurrency-20260921-161325`)
+### Measured Results (Run `concurrency-20260921-170323`)
 
 | Metric | Measured Value | Invariant Condition |
 | :--- | :--- | :--- |
@@ -232,8 +232,8 @@ Subject adaptive routing and payment execution to a concurrent workload across 1
 | **Money-State Violations** | **0** | **Invariant: Only valid terminal states** |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/concurrency/concurrency-20260921-161325.json`
-- CSV: `artifacts/experiments/concurrency/concurrency-20260921-161325.csv`
+- JSON: `artifacts/experiments/concurrency/concurrency-20260921-170323.json`
+- CSV: `artifacts/experiments/concurrency/concurrency-20260921-170323.csv`
 
 ---
 
