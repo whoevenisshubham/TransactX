@@ -7,7 +7,7 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 ## Current repository checkpoint
 
-The current branch completes the Member-1 routed-payment checkpoint and the customer payment frontend/API hardening: durable bank operation identity, routed saga persistence, operation status, compensation, deterministic pending recovery, safe customer DTOs, exact paise input, notes, incoming/outgoing history, and rendered responsive screens. The roadmap's later **Phase 6 — Offline-First Client & Safe Replay** remains intentionally unchecked and is outside this takeover's exit scope.
+The current branch completes the Member-1 routed-payment checkpoint, the customer payment frontend/API hardening, and the verified Member-2 resilience/offline/merchant slices: durable bank operation identity, routed saga persistence, operation status, compensation, deterministic pending recovery, safe customer DTOs, exact paise input, notes, incoming/outgoing history, durable offline queue and safe replay, deterministic health/routing, circuit breaker, controlled chaos, merchant product surfaces, and reproducible resilience experiments. Merkle reconciliation, Network Console visualization/streaming, and other explicitly M3-owned work remain outside this M2 exit scope.
 
 \[ ] Work strictly in phase order unless a dependency explicitly allows parallel work.
 \[ ] Tick an item only when it is implemented, tested, and verified — not merely coded.
@@ -68,7 +68,7 @@ Duration: Week 2   Objective: Make the application usable before adding complex 
 \[x] M1 — Build registration screen.
 \[x] M1 — Build customer home screen.
 \[x] M1 — Build customer navigation shell.
-\[ ] M2 — Build merchant navigation shell and merchant identity flow.
+\[x] M2 — Build merchant navigation shell and merchant identity flow.
 \[ ] M3 — Build initial network-console shell with placeholder states only.
 \[ ] ALL — Add unit and integration tests for authentication and authorization.
 \[ ] ALL — Verify frontend cannot access protected resources without valid authorization.
@@ -157,26 +157,26 @@ PHASE EXIT GATE: Merkle commitments are incrementally maintained, divergence can
 
 Duration: Week 7   Objective: Make the consumer app continue to function sensibly during temporary connectivity loss.
 
-\[ ] M2 — Define the offline payment intent data model.
-\[ ] M2 — Add IndexedDB persistence using Dexie or equivalent.
-\[ ] M2 — Detect browser online/offline state.
-\[ ] M2 — Queue payment intents locally when the API is unreachable.
-\[ ] M2 — Preserve client request ID.
-\[ ] M2 — Preserve original idempotency key.
-\[ ] M2 — Preserve payload hash and retry metadata.
-\[ ] M2 — Implement offline queue listing.
-\[ ] M2 — Implement queue status transitions.
-\[ ] M2 — Implement replay when connectivity returns.
-\[ ] M2 — Implement bounded exponential backoff.
-\[ ] M2 — Handle replay success.
-\[ ] M2 — Handle replay failure without deleting the request prematurely.
-\[ ] M2 — Build offline queue screen.
-\[ ] M2 — Add clear ONLINE / OFFLINE / QUEUED / SYNCING / SYNCED states.
+\[x] M2 — Define the offline payment intent data model.
+\[x] M2 — Add IndexedDB persistence using Dexie or equivalent.
+\[x] M2 — Detect browser online/offline state.
+\[x] M2 — Queue payment intents locally when the API is unreachable.
+\[x] M2 — Preserve client request ID.
+\[x] M2 — Preserve original idempotency key.
+\[x] M2 — Preserve payload hash and retry metadata.
+\[x] M2 — Implement offline queue listing.
+\[x] M2 — Implement queue status transitions.
+\[x] M2 — Implement replay when connectivity returns.
+\[x] M2 — Implement bounded exponential backoff.
+\[x] M2 — Handle replay success.
+\[x] M2 — Handle replay failure without deleting the request prematurely.
+\[x] M2 — Build offline queue screen.
+\[x] M2 — Add clear ONLINE / OFFLINE / QUEUED / SYNCING / SYNCED states.
 \[ ] M1 — Verify server idempotency protects replay from duplicate processing.
-\[ ] ALL — Verify no offline transaction is shown as final settlement before server acceptance.
-\[ ] ALL — Test multiple queued payments across reconnects.
-\[ ] ALL — Test browser refresh while offline and confirm durable local queue.
-\[ ] ALL — Test duplicate replay.
+\[x] ALL — Verify no offline transaction is shown as final settlement before server acceptance.
+\[x] ALL — Test multiple queued payments across reconnects.
+\[x] ALL — Test browser refresh while offline and confirm durable local queue.
+\[x] ALL — Test duplicate replay.
 PHASE EXIT GATE: Offline requests persist across refresh/reconnect, replay safely, and final settlement occurs only after central acceptance.
 
 # Phase 7 — Adaptive Routing \& Circuit Breaker
@@ -197,10 +197,10 @@ Duration: Week 8   Objective: Make the network resilient to degraded or failed b
 \[ ] M3 — Build bank-health view.
 \[ ] M3 — Build routing distribution visualization.
 \[ ] M3 — Stream health/routing changes to the frontend.
-\[ ] ALL — Define exact experimental routing thresholds in configuration.
-\[ ] ALL — Run static-routing baseline.
-\[ ] ALL — Run adaptive-routing condition.
-\[ ] ALL — Verify deterministic behavior under the same input conditions.
+\[x] ALL — Define exact experimental routing thresholds in configuration.
+\[x] ALL — Run static-routing baseline.
+\[x] ALL — Run adaptive-routing condition.
+\[x] ALL — Verify deterministic behavior under the same input conditions.
 PHASE EXIT GATE: The switch demonstrably avoids unhealthy banks, recovers healthy banks gradually, and records why each route was chosen.
 
 # Phase 8 — Chaos Engineering \& Self-Healing
@@ -219,10 +219,10 @@ Duration: Week 9   Objective: Turn resilience claims into controlled, repeatable
 \[ ] M3 — Build chaos-control UI.
 \[ ] M3 — Show active faults and scenario history.
 \[ ] M3 — Stream bank-health and circuit-breaker changes live.
-\[ ] ALL — Run bank outage and observe rerouting.
-\[ ] ALL — Run latency degradation and observe routing-score change.
-\[ ] ALL — Run bank recovery and observe HALF\_OPEN then gradual restoration.
-\[ ] ALL — Run message-drop scenario and verify safe pending/recovery behavior.
+\[x] ALL — Run bank outage and observe rerouting.
+\[x] ALL — Run latency degradation and observe routing-score change.
+\[x] ALL — Run bank recovery and observe HALF\_OPEN then gradual restoration.
+\[x] ALL — Run message-drop scenario and verify safe pending/recovery behavior.
 \[ ] ALL — Run the corruption scenario and verify Merkle/integrity detection.
 \[x] ALL — Ensure no chaos endpoint is exposed to CUSTOMER or MERCHANT roles.
 PHASE EXIT GATE: At least the outage, latency, recovery, and corruption scenarios are repeatable and produce observable, correct system behavior.
@@ -257,11 +257,11 @@ PHASE EXIT GATE: The Network Console can show the system's health, reconciliatio
 
 Duration: Week 10–11   Objective: Complete the application so it feels like a believable fintech product, not a backend demo.
 
-\[ ] M2 — Build merchant dashboard.
-\[ ] M2 — Build dynamic/static QR generation flow.
-\[ ] M2 — Build incoming-payment feed.
-\[ ] M2 — Build settlement-status view.
-\[ ] M2 — Build merchant transaction search.
+\[x] M2 — Build merchant dashboard.
+\[x] M2 — Build dynamic/static QR generation flow.
+\[x] M2 — Build incoming-payment feed.
+\[x] M2 — Build settlement-status view.
+\[x] M2 — Build merchant transaction search.
 \[x] M1 — Add customer scan/pay flow.
 \[x] M1 — Improve customer transaction timeline.
 \[x] M1 — Add loading, success, failure, pending, and empty states.
@@ -283,19 +283,19 @@ Duration: Week 11   Objective: Produce real measurements for the paper and avoid
 \[ ] M3 — Benchmark naive vs Merkle at 100K transactions.
 \[ ] M3 — Repeat the 100K benchmark multiple times.
 \[ ] M3 — Attempt 1M only if hardware and time permit.
-\[ ] M2 — Benchmark static vs adaptive routing under identical bank failures.
-\[ ] M2 — Measure payment success rate.
-\[ ] M2 — Measure P95/P99 latency.
-\[ ] M2 — Measure recovery time.
-\[ ] M2 — Measure traffic redistribution.
-\[ ] M2 — Benchmark offline queue/replay behavior.
-\[ ] M2 — Measure duplicate-processing count.
+\[x] M2 — Benchmark static vs adaptive routing under identical bank failures.
+\[x] M2 — Measure payment success rate.
+\[x] M2 — Measure P95/P99 latency.
+\[x] M2 — Measure recovery time.
+\[x] M2 — Measure traffic redistribution.
+\[x] M2 — Benchmark offline queue/replay behavior.
+\[x] M2 — Measure duplicate-processing count.
 \[ ] M3 — Run concurrency storm and record invariant violations.
-\[ ] ALL — Save raw benchmark results in versioned files.
-\[ ] ALL — Record hardware/software/environment used for every experiment.
-\[ ] ALL — Separate baseline measurements from proposed-system measurements.
-\[ ] ALL — Generate charts/tables only from actual recorded results.
-\[ ] ALL — Document unfavorable results and limitations instead of hiding them.
+\[x] ALL — Save raw benchmark results in versioned files.
+\[x] ALL — Record hardware/software/environment used for every experiment.
+\[x] ALL — Separate baseline measurements from proposed-system measurements.
+\[x] ALL — Generate charts/tables only from actual recorded results.
+\[x] ALL — Document unfavorable results and limitations instead of hiding them.
 PHASE EXIT GATE: The project has reproducible raw evidence for reconciliation, routing resilience, offline replay, and financial correctness.
 
 # Phase 12 — Final Hardening, Paper, Demo \& Release
