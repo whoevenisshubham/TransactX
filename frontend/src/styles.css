@@ -53,3 +53,67 @@ h3 { font-size: 1rem; margin-bottom: .4rem; }
 @media (max-width: 520px) { .auth-legal { width: 100%; padding: 0 .25rem; text-align: center; overflow-wrap: anywhere; } }
 .optional-label { margin-left: .25rem; color: var(--muted); font-size: .68rem; font-weight: 500; text-transform: none; letter-spacing: 0; }.confirm-message { display: grid; gap: .35rem; padding: 1rem 1.4rem; border-top: 1px solid var(--line); background: #fbfcfb; }.confirm-message small { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .12em; }.confirm-message strong { color: var(--ink); font-size: .82rem; font-weight: 500; overflow-wrap: anywhere; }.result-note { max-width: 28rem; margin: .2rem 0 1rem; color: var(--muted); font-size: .78rem; font-style: italic; }
 .network-status { display: flex; align-items: center; gap: .45rem; margin-bottom: 1.4rem; color: var(--muted); font-size: .68rem; font-weight: 700; letter-spacing: .1em; }.network-status small { margin-left: .35rem; color: var(--faint); font-size: .68rem; font-weight: 400; letter-spacing: 0; }.network-offline .status-dot { background: var(--warning); }.offline-queue-panel { margin-bottom: 4rem; padding: 1.35rem 1.5rem; border: 1px solid var(--line); background: var(--surface); }.offline-queue-panel .section-heading { margin-bottom: .7rem; }.offline-intent-list { border-top: 1px solid var(--line); }.offline-intent-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 0; border-bottom: 1px solid var(--line); }.offline-intent-row > div:first-child { display: grid; gap: .25rem; min-width: 0; }.offline-intent-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }.offline-intent-row small { color: var(--muted); font-size: .7rem; }.offline-intent-status { display: flex; align-items: center; gap: .7rem; flex-shrink: 0; }.offline-intent-status .button { min-height: 32px; padding: .45rem .65rem; font-size: .7rem; }
+
+/* Merchant shell — sidebar accent */
+.merchant-shell .merchant-sidebar { background: #edf3f0; border-right-color: #cdd8d2; }
+.merchant-sidebar .nav-item.is-active { background: #d5e7de; color: #0f4e3e; }
+.merchant-badge { display: inline-flex; align-items: center; padding: .2rem .5rem; border-radius: 99px; background: #dcece4; color: var(--accent-dark); font-size: .6rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; margin-left: .35rem; }
+.merchant-badge-mobile { display: inline-flex; align-items: center; padding: .15rem .45rem; border-radius: 99px; background: #dcece4; color: var(--accent-dark); font-size: .55rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; margin-left: .35rem; }
+.merchant-mobile-header { background: #edf3f0; }
+
+/* Merchant stat panel */
+.merchant-stat-panel { background: #edf3f0; }
+
+/* Merchant QR receive */
+.merchant-receive-layout { display: grid; grid-template-columns: auto 1fr; gap: 3rem; align-items: start; max-width: 800px; }
+.merchant-qr-card { display: grid; gap: .8rem; padding: 2rem; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); text-align: center; justify-items: center; min-width: 260px; }
+.merchant-qr-frame { border: 2px solid var(--line); border-radius: 6px; overflow: hidden; }
+.merchant-qr-frame svg { display: block; }
+.merchant-qr-id { display: grid; gap: .35rem; justify-items: center; }
+.merchant-pid { font-family: "DM Mono", monospace; font-size: .78rem; color: var(--accent-dark); letter-spacing: .03em; overflow-wrap: anywhere; }
+.merchant-receive-note { display: flex; gap: 1.5rem; padding: 1.5rem; background: #edf4ef; border: 1px solid var(--line); align-self: start; margin-top: 2.2rem; }
+.merchant-receive-note strong { display: block; margin-bottom: .55rem; font-size: 1rem; }
+.merchant-receive-note p { max-width: 25rem; margin-bottom: 0; color: var(--muted); font-size: .82rem; line-height: 1.55; }
+
+/* Merchant payment rows */
+.merchant-payment-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .75rem; padding: .9rem .3rem; border-bottom: 1px solid var(--line); }
+.merchant-payment-row:last-child { border-bottom: 0; }
+.merchant-payment-row .payment-main { display: grid; gap: .2rem; }
+.merchant-payment-row .payment-main strong { font-size: .84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merchant-payment-row .payment-main small { color: var(--muted); font-size: .7rem; }
+.merchant-payment-note { font-style: italic; }
+.merchant-payment-expanded { grid-column: 1 / -1; display: flex; align-items: center; gap: .8rem; padding-left: 3.2rem; padding-bottom: .3rem; }
+.merchant-state-pill { display: inline-flex; align-items: center; padding: .15rem .55rem; border-radius: 99px; font-size: .65rem; font-weight: 600; background: var(--surface-soft); color: var(--muted); }
+.merchant-state-pill[data-state="COMPLETED"] { background: #dff2e8; color: var(--success); }
+.merchant-state-pill[data-state="FAILED"], .merchant-state-pill[data-state="REVERSED"] { background: #fae8e5; color: var(--error); }
+.merchant-state-pill[data-state="PROCESSING"], .merchant-state-pill[data-state="PENDING_RECONCILIATION"], .merchant-state-pill[data-state="BANK_SETTLED_CENTRAL_PENDING"] { background: #f6ead5; color: var(--warning); }
+.merchant-completed-at { color: var(--faint); font-size: .66rem; }
+
+/* Settlement groups */
+.merchant-settlement-layout { display: grid; gap: .75rem; max-width: 900px; }
+.settlement-group { border: 1px solid var(--line); background: var(--surface); overflow: hidden; }
+.settlement-group-header { display: flex; align-items: center; gap: 1rem; width: 100%; padding: 1.1rem 1.25rem; border: 0; background: transparent; text-align: left; }
+.settlement-group-header:hover { background: var(--surface-soft); }
+.settlement-group-title { display: flex; align-items: center; gap: .55rem; flex: 1; font-size: .84rem; font-weight: 700; }
+.settlement-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 19px; padding: 0 .4rem; border-radius: 99px; background: var(--surface-soft); color: var(--muted); font-size: .65rem; font-weight: 600; }
+.settlement-group-body { padding: 0 1.25rem .5rem; border-top: 1px solid var(--line); }
+.settlement-empty { padding: .85rem 0; color: var(--muted); font-size: .8rem; }
+.settlement-group-success .settlement-group-title .status-dot { background: var(--success); }
+.settlement-group-warning .settlement-group-title .status-dot { background: var(--warning); }
+.settlement-group-error .settlement-group-title .status-dot { background: var(--error); }
+.settlement-group-neutral .settlement-group-title .status-dot { background: var(--faint); }
+.status-success-dot { background: var(--success); }
+.status-warning-dot { background: var(--warning); }
+.status-error-dot { background: var(--error); }
+.status-neutral-dot { background: var(--faint); }
+
+/* Merchant search toolbar */
+.merchant-search-toolbar { display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 2rem; align-items: end; max-width: 800px; }
+.merchant-search-field { flex: 1; }
+.merchant-filter-field { min-width: 200px; }
+.merchant-select { width: 100%; height: 44px; padding: .65rem .8rem; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: .88rem; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%2365706b' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .75rem center; padding-right: 2rem; }
+.merchant-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(23, 107, 85, .1); outline: 0; }
+
+/* Merchant mobile overrides */
+@media (max-width: 860px) { .merchant-receive-layout { grid-template-columns: 1fr; gap: 1.5rem; } .merchant-receive-note { margin-top: 0; } .merchant-search-toolbar { grid-template-columns: 1fr; } }
+
