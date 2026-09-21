@@ -1,0 +1,3078 @@
+{
+  "experimentId": "concurrency",
+  "title": "Experiment 5: Concurrency Storm and Financial Invariants",
+  "environment": {
+    "gitCommit": "356b04312a611441a5d40cecac221f2c4485d7c1",
+    "platform": "windows/amd64",
+    "os": "windows",
+    "arch": "amd64",
+    "goVersion": "go1.27.1",
+    "nodeVersion": "v24.14.0",
+    "deterministicSeed": 42,
+    "datasetSize": 300,
+    "runTimestamp": "2026-09-21T16:13:25.8010772Z",
+    "runId": "run-1790007205-windows",
+    "scenarioParams": {
+      "concurrency": "10 goroutines",
+      "targetA": "RAIL-A",
+      "targetB": "RAIL-B",
+      "totalOperations": "300",
+      "workloadType": "concurrent payment submissions with duplicate idempotency keys"
+    }
+  },
+  "summary": {
+    "totalRequests": 300,
+    "successCount": 300,
+    "failureCount": 0,
+    "pendingCount": 0,
+    "successRate": 100,
+    "latency": {
+      "meanMs": 0,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0,
+      "maxMs": 0
+    },
+    "recoveryTimeMs": 0,
+    "trafficShare": null,
+    "decisionReasons": {
+      "ADAPTIVE_HEALTH_SCORE": 300
+    },
+    "invariants": [
+      {
+        "invariantName": "Adapter seam: max financial execution count per logical idempotency key == 1",
+        "passed": true,
+        "details": "unique keys=147, max execs/key=1, duplicate financial executions=0"
+      },
+      {
+        "invariantName": "No impossible money-state transitions (states strictly terminal or pending)",
+        "passed": true,
+        "details": "147 payments evaluated, 0 invalid states"
+      },
+      {
+        "invariantName": "Accounting conservation (completed + failed + pending = requested)",
+        "passed": true,
+        "details": "requested=300, completed=300, failed=0, pending=0"
+      },
+      {
+        "invariantName": "No route decision violated circuit eligibility",
+        "passed": true,
+        "details": "checked decisions=300, circuit violations=0"
+      }
+    ],
+    "allInvariantsSatisfied": true,
+    "additionalMetrics": {
+      "circuitDecisionsChecked": 300,
+      "circuitViolations": 0,
+      "concurrency": 10,
+      "duplicateFinancialExecutions": 0,
+      "duplicateSubmissions": 153,
+      "maxExecutionsPerKey": 1,
+      "stateViolations": 0,
+      "uniqueFinancialExecutions": 147,
+      "uniqueLogicalKeys": 180
+    }
+  },
+  "samples": [
+    {
+      "index": 0,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 3,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 1,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 4,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 2,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 5,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 9,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 6,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 10,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 14,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 15,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 17,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 20,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 22,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 23,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 19,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 24,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 12,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 26,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 27,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 16,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 28,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 31,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 32,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 33,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 29,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 34,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 21,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 35,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 37,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 38,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 7,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 40,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 42,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 41,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 44,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 43,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 18,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 45,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 47,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 46,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 48,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 51,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 52,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 8,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 49,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 54,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 30,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 55,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 56,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 57,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 60,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 11,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 61,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 63,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 64,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 58,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 65,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 67,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 66,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 69,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 68,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 36,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 72,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 70,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 73,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 75,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 53,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 77,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 13,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 79,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 80,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 25,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 82,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 83,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 84,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 85,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 86,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 81,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 87,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 88,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 90,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 62,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 91,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 78,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 94,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 76,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 96,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 95,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 97,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 99,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 100,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 98,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 101,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 103,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 102,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 39,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 106,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 107,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 108,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 109,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 105,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 110,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 112,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 113,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 114,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 115,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 71,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 50,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 92,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 117,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 120,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 93,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 59,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 89,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 124,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 74,
+      "timestamp": "2026-09-21T21:43:25.8010772+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 116,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 104,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 126,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 128,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 129,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 119,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 121,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 133,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 132,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 122,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 135,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 134,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 137,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 138,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 123,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 141,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 111,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 139,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 118,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 125,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 127,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 130,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 146,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 149,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 143,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 145,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 152,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 153,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 154,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 155,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 156,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 151,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 158,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 159,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 160,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 136,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 162,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 163,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 164,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 165,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 166,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 167,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 168,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 169,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 170,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 142,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 148,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 140,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 172,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 173,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 175,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 177,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 178,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 161,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 171,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 181,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 182,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 183,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 184,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 185,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 186,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 176,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 188,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 157,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 190,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 131,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 191,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 193,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 192,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 195,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 150,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 187,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 198,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 199,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 200,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 201,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 202,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 203,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 197,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 204,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 144,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 206,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 207,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 208,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 179,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 211,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 209,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 194,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 214,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 210,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 215,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 212,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 218,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 219,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 216,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 217,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 222,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 223,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 221,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 220,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 226,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 225,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 224,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 228,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 227,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 229,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 147,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 232,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 231,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 233,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 235,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 236,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 237,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 239,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 240,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 234,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 238,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 242,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 243,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 189,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 241,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 245,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 196,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 248,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 213,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 205,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 247,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 252,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 253,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 254,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 250,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 256,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 258,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 259,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 251,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 257,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 260,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 261,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 255,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 263,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 265,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 264,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 268,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 267,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 269,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 244,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 271,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 273,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 230,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 262,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 275,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 276,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 266,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 274,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 180,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 281,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 282,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 280,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 277,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 279,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 285,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 286,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 287,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 288,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 290,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 289,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 291,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 292,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 278,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 284,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 295,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 293,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 296,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 298,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 299,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 283,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 297,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 270,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 249,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 294,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_DUPLICATE_REUSE"
+    },
+    {
+      "index": 272,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    },
+    {
+      "index": 246,
+      "timestamp": "2026-09-21T21:43:25.8026317+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "IDEMPOTENT_CONCURRENT_REUSE"
+    },
+    {
+      "index": 174,
+      "timestamp": "2026-09-21T21:43:25.8020811+05:30",
+      "mode": "ADAPTIVE",
+      "targetId": "RAIL-A",
+      "success": true,
+      "latencyNs": 0,
+      "latencyMs": 0,
+      "decisionReason": "ADAPTIVE_HEALTH_SCORE"
+    }
+  ]
+}

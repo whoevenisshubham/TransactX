@@ -9,7 +9,8 @@
     "lint": "tsc -b --pretty false",
     "test:money": "node scripts/verify-money.mjs",
     "test:offline-queue": "node --import tsx --test src/offlineQueue.test.ts",
-    "test:offline-replay": "node --import tsx --test src/offlineReplay.test.ts"
+    "test:offline-replay": "node --import tsx --test src/offlineReplay.test.ts",
+    "experiment:offline": "node --import tsx scripts/run-offline-experiment.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
