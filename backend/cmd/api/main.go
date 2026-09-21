@@ -18,6 +18,7 @@ import (
 	"github.com/transactx/backend/internal/database"
 	"github.com/transactx/backend/internal/health"
 	apihttp "github.com/transactx/backend/internal/http"
+	"github.com/transactx/backend/internal/payments"
 )
 
 func main() {
@@ -46,6 +47,7 @@ func main() {
 	adapters := make(map[uuid.UUID]bank.BankAdapter)
 	healthTargets := make(map[string]health.HealthChecker)
 	routeTargets := make(map[uuid.UUID]string)
+	bankIDs := make(map[string]uuid.UUID)
 	configureBank := func(url, code string) {
 		if url == "" {
 			return
@@ -63,13 +65,59 @@ func main() {
 		adapters[bankID] = adapter
 		healthTargets[code] = adapter
 		routeTargets[bankID] = code
+		bankIDs[code] = bankID
 	}
 	configureBank(os.Getenv("BANK_A_URL"), getEnv("BANK_A_CODE", "BANK-A"))
 	configureBank(os.Getenv("BANK_B_URL"), getEnv("BANK_B_CODE", "BANK-B"))
 
+	executionTargets := make(map[payments.RouteKey][]payments.ExecutionTarget)
+	for _, targetCfg := range cfg.ExecutionTargets {
+		srcID, srcOK := bankIDs[targetCfg.SourceBank]
+		dstID, dstOK := bankIDs[targetCfg.DestinationBank]
+		if !srcOK || !dstOK {
+			logger.Error("execution target bank not found", "source_bank", targetCfg.SourceBank, "destination_bank", targetCfg.DestinationBank)
+			os.Exit(1)
+		}
+		srcAdapter := adapters[srcID]
+		if targetCfg.SourceEndpoint != "" {
+			var err error
+			srcAdapter, err = bank.NewHTTPClient(targetCfg.SourceEndpoint, nil)
+			if err != nil {
+				logger.Error("configure source adapter for execution target", "candidate_id", targetCfg.CandidateID, "error", err)
+				os.Exit(1)
+			}
+		}
+		dstAdapter := adapters[dstID]
+		if targetCfg.DestinationEndpoint != "" {
+			var err error
+			dstAdapter, err = bank.NewHTTPClient(targetCfg.DestinationEndpoint, nil)
+			if err != nil {
+				logger.Error("configure destination adapter for execution target", "candidate_id", targetCfg.CandidateID, "error", err)
+				os.Exit(1)
+			}
+		}
+		if targetCfg.Endpoint != "" {
+			endpointAdapter, err := bank.NewHTTPClient(targetCfg.Endpoint, nil)
+			if err != nil {
+				logger.Error("configure health target for execution target", "target_id", targetCfg.ExecutionTargetID, "error", err)
+				os.Exit(1)
+			}
+			healthTargets[targetCfg.ExecutionTargetID] = endpointAdapter
+		}
+		key := payments.RouteKey{SourceBankID: srcID, DestinationBankID: dstID}
+		executionTargets[key] = append(executionTargets[key], payments.ExecutionTarget{
+			CandidateID:        targetCfg.CandidateID,
+			ExecutionTargetID:  targetCfg.ExecutionTargetID,
+			SourceAdapter:      srcAdapter,
+			DestinationAdapter: dstAdapter,
+		})
+	}
+
 	var handler http.Handler
 	if len(adapters) == 0 {
 		handler = apihttp.NewHandlerWithHealth(db, logger, authService, jwtManager, healthService)
+	} else if len(executionTargets) > 0 {
+		handler = apihttp.NewHandlerWithExecutionTargets(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline)
 	} else {
 		handler = apihttp.NewHandlerWithBankAdaptersHealthRouting(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService)
 	}

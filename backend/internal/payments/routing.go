@@ -25,6 +25,33 @@ const (
 
 var ErrNoRouteCandidate = errors.New("no eligible route candidate")
 
+// ExecutionTarget represents a configured switch-level route/rail/endpoint execution path
+// between participant adapters for a given logical route.
+type ExecutionTarget struct {
+	CandidateID        string
+	ExecutionTargetID  string
+	SourceAdapter      bank.BankAdapter
+	DestinationAdapter bank.BankAdapter
+}
+
+// RouteKey identifies the logical sender bank and receiver bank for a routed payment.
+type RouteKey struct {
+	SourceBankID      uuid.UUID
+	DestinationBankID uuid.UUID
+}
+
+// ToCandidate creates a RouteCandidate preserving the logical bank ownership.
+func (t ExecutionTarget) ToCandidate(sourceBankID, destinationBankID uuid.UUID) RouteCandidate {
+	return RouteCandidate{
+		CandidateID:        t.CandidateID,
+		SourceBankID:       sourceBankID,
+		DestinationBankID:  destinationBankID,
+		ExecutionTargetID:  t.ExecutionTargetID,
+		SourceAdapter:      t.SourceAdapter,
+		DestinationAdapter: t.DestinationAdapter,
+	}
+}
+
 type RouteCandidate struct {
 	CandidateID        string
 	SourceBankID       uuid.UUID
@@ -50,7 +77,12 @@ type RouteDecision struct {
 	SelectedAt time.Time
 }
 
-func SelectRoute(ctx context.Context, candidates []RouteCandidate, mode SelectionMode, snapshots HealthSnapshotProvider, eligible CircuitEligibility, now time.Time) (RouteDecision, error) {
+func SelectRoute(ctx context.Context, candidates []RouteCandidate, mode SelectionMode, snapshots HealthSnapshotProvider, eligible CircuitEligibility, now time.Time, staticBaseline ...string) (RouteDecision, error) {
+	baseline := ""
+	if len(staticBaseline) > 0 {
+		baseline = staticBaseline[0]
+	}
+
 	decisions := make([]RouteDecision, 0, len(candidates))
 	for _, candidate := range candidates {
 		if !validCandidate(candidate) || (eligible != nil && !eligible(ctx, candidate)) {
@@ -62,7 +94,7 @@ func SelectRoute(ctx context.Context, candidates []RouteCandidate, mode Selectio
 			if err != nil {
 				continue
 			}
-			if snapshot.SampleCount > 0 && snapshot.AvailabilityScore == 0 {
+			if snapshot.SampleCount > 0 && (snapshot.AvailabilityScore == 0 || snapshot.Score <= 0) {
 				continue
 			}
 			decision.Snapshot = snapshot
@@ -74,6 +106,23 @@ func SelectRoute(ctx context.Context, candidates []RouteCandidate, mode Selectio
 		return RouteDecision{Mode: mode, Reason: ReasonNoEligibleTarget, SelectedAt: now}, ErrNoRouteCandidate
 	}
 	if mode == SelectionModeStatic {
+		if baseline != "" {
+			var matching []RouteDecision
+			for _, d := range decisions {
+				if d.Candidate.CandidateID == baseline {
+					matching = append(matching, d)
+				}
+			}
+			if len(matching) == 0 {
+				return RouteDecision{Mode: mode, Reason: ReasonNoEligibleTarget, SelectedAt: now}, ErrNoRouteCandidate
+			}
+			sort.Slice(matching, func(left, right int) bool {
+				return matching[left].Candidate.ExecutionTargetID < matching[right].Candidate.ExecutionTargetID
+			})
+			matching[0].Reason = ReasonStatic
+			return matching[0], nil
+		}
+
 		sort.Slice(decisions, func(left, right int) bool {
 			if decisions[left].Candidate.CandidateID == decisions[right].Candidate.CandidateID {
 				return decisions[left].Candidate.ExecutionTargetID < decisions[right].Candidate.ExecutionTargetID

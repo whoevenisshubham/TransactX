@@ -186,8 +186,8 @@ Duration: Week 8   Objective: Make the network resilient to degraded or failed b
 \[x] M2 — Implement bank health sampling.
 \[x] M2 — Define normalized health signals.
 \[x] M2 — Implement deterministic health score.
-\[x] M2 — Implement bank selection using the routing score.
-\[x] M2 — Record routing decisions and reasons.
+\[x] M2 — Implement candidate route selection using genuine execution targets and deterministic health scoring.
+\[x] M2 — Record immutable routing decisions, health snapshots, and reason codes.
 \[ ] M2 — Implement failure counters.
 \[ ] M2 — Implement circuit CLOSED state.
 \[ ] M2 — Implement OPEN state.

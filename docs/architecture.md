@@ -55,10 +55,20 @@ P95 uses nearest-rank over latency values sorted ascending. Samples at the windo
 
 ## Deterministic routing
 
-M2-4 selects immutable switch-level route candidates. A candidate keeps source and destination bank ownership separate from its execution target and adapters; selection never rewrites account ownership. The current registry provides one legitimate candidate for a configured source/destination pair, using the source participant's stable health target as its execution endpoint. `STATIC` chooses a fixed candidate ID; `ADAPTIVE` excludes observed-unavailable candidates, prefers the highest existing health score, and breaks ties by execution target ID then candidate ID. Each selection persists a `PAYMENT_ROUTED` route-decision fact. Circuit eligibility is an optional hook only; M2-5 owns circuit state and transitions.
+M2-4 selects immutable switch-level route candidates without modifying logical bank ownership:
+
+- **Execution target vs. bank ownership**: `ExecutionTargetID` represents a switch-level route, rail, or execution endpoint path. It is never account ownership or logical participant authority. `sourceBankID` and `destinationBankID` remain strictly immutable across all candidates; routing never swaps sender and receiver bank identity.
+- **Multiple execution targets**: Multiple legitimate execution targets (e.g. `direct`, `RAIL-A`, `RAIL-B`) may be configured for the same `(sourceBankID, destinationBankID)` pair, each specifying genuine `SourceAdapter` and `DestinationAdapter` instances. If only default bank adapters exist, safe single-candidate routing is preserved.
+- **Selection modes**:
+  - `STATIC`: Deterministically selects the configured baseline candidate ID (via `ROUTING_STATIC_BASELINE`) or falls back to lexicographical candidate order. Fails safely with `ErrNoRouteCandidate` if the configured baseline is unavailable or invalid.
+  - `ADAPTIVE`: Obtains authoritative M2-3 health snapshots for each candidate's `ExecutionTargetID`, excludes unavailable (`availabilityScore == 0`) and unhealthy (`score <= 0`) targets, compares scores, and selects the highest health score.
+- **Deterministic tie-break**: When candidates have equal health scores, ties are stably broken by `ExecutionTargetID` ascending, then `CandidateID` ascending. Identical inputs always produce identical decisions without randomness.
+- **Route history**: Every routed payment persists an immutable `PAYMENT_ROUTED` record to `payment_route_decisions` containing payment ID, candidate ID, source/destination bank IDs, execution target ID, score, full health snapshot, reason code, selection mode, and selection timestamp.
+- **Explicit runtime configuration**: Configured via environment variables `ROUTING_MODE` (`STATIC` or `ADAPTIVE`), `ROUTING_STATIC_BASELINE`, and `ROUTING_TARGETS` (supporting delimited string format `candidate:target:sourceBank:destBank:endpoint` or structured JSON). Malformed configuration fails safely and deterministically.
+- **Circuit breaker hook**: Retains an optional `CircuitEligibility` hook for future M2-5 integration. Circuit breaker states (CLOSED, OPEN, HALF_OPEN) remain unimplemented until M2-5.
 
 The default probe timeout threshold is 2 seconds. A probe at or above that measured duration is classified as `TIMEOUT`; otherwise the explicit availability result distinguishes `SUCCESS` from `FAILURE`.
 
 ## Boundaries and future work
 
-The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Adaptive routing, circuit breakers, Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases.
+The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Circuit breakers, Merkle reconciliation, full chaos orchestration, and offline queue UX are later phases.
