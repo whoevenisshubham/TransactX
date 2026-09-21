@@ -8,6 +8,51 @@ traversal and APIs remain out of scope.
 provides `GetRoot`, `GetChildren`, `GetRecords`, and `GetMetadata` for later
 reconciliation layers.
 
+## Participant implementations
+
+The participant boundary is a research-facing read model. It is deliberately
+not part of `bank.BankAdapter`: the adapter owns payment execution and status
+lookup, while reconciliation reads a participant ledger and derives verifiable
+metadata from it. Adding Merkle or traversal methods to the adapter would mix
+these authority and lifecycle boundaries.
+
+`MemoryParticipant` is a deterministic fixture. The caller supplies its
+participant identity and canonical logical records; it creates no random
+financial state, timestamps, or metrics. `RepositoryParticipant` wraps the
+existing participant ledger snapshot service, converts persisted
+`bank.LedgerEntry` values into `CanonicalRecord`, and materializes the shared
+incremental Merkle state. The participant ledger remains authoritative; roots,
+bucket records, and metadata are derived research state. An injected
+`IncrementalCommitmentStore` can persist that derived state without becoming a
+second ledger of truth.
+
+## Scope and reference semantics
+
+Scopes are normalized to UTC and use the half-open interval `[From, To)`.
+Zero endpoints are unbounded for the deterministic in-memory fixture;
+repository-backed reads require both endpoints. `To` must be after `From`.
+The normalized endpoints form the stable `ScopeID` carried by node and bucket
+references. A scope change therefore selects a distinct commitment, and a
+record exactly at `To` is excluded.
+
+Root results carry the participant identity, scope identity, commitment
+generation, and deterministic node path. `GetChildren` returns commitment
+nodes in level/index order. `GetRecords` accepts only a matching participant,
+scope, generation, and serialized bucket identity, and returns records in the
+frozen canonical order. Empty scopes have the explicit empty Merkle root and
+no children. Malformed scopes or references return `ErrInvalidScope`,
+`ErrInvalidNodeReference`, or `ErrInvalidBucketReference`; well-formed absent
+nodes and buckets return `ErrNodeNotFound` or `ErrBucketNotFound`. A reference
+from a different participant returns `ErrParticipantMismatch`, and a
+reference from a superseded refresh returns `ErrStaleReference`.
+
+Repository reads propagate context cancellation, deadlines, and source/store
+errors. Normal reads use the initialized maintained commitment; they do not
+silently rebuild from the authoritative ledger. `Initialize` and explicit
+`Refresh` are the materialization/recovery operations and install a new
+generation, invalidating prior references. This is local derived-state
+maintenance and makes no distributed-transactionality claim.
+
 Canonical version `v1` contains only these logical fields:
 
 1. operation UUID
