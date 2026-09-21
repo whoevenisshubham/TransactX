@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/ledger"
 )
 
@@ -17,9 +18,16 @@ var ErrNotFound = errors.New("payment not found")
 var ErrIdempotencyConflict = errors.New("idempotency key reused with a different request")
 var ErrInsufficientFunds = errors.New("insufficient funds")
 
-type Repository struct{ db *pgxpool.Pool }
+type Repository struct {
+	db              *pgxpool.Pool
+	adapterResolver func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool)
+}
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
+
+func (repository *Repository) SetAdapterResolver(fn func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool)) {
+	repository.adapterResolver = fn
+}
 
 const routedPaymentColumns = `id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
 	state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,

@@ -97,6 +97,11 @@ func (repository *Repository) createRoutedIdempotent(ctx context.Context, paymen
 		if err := tx.Commit(ctx); err != nil {
 			return Payment{}, false, err
 		}
+		if repository.adapterResolver != nil {
+			if src, dst, ok := repository.adapterResolver(ctx, existing); ok {
+				sourceAdapter, destinationAdapter = src, dst
+			}
+		}
 		return repository.replayRoutedPayment(ctx, existing, true, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -141,6 +146,11 @@ func (repository *Repository) createRoutedIdempotent(ctx context.Context, paymen
 		existing, duplicate, lookupErr := repository.GetIdempotent(ctx, payment.InitiatedByUserID, key, requestHash)
 		if lookupErr != nil || !duplicate {
 			return Payment{}, false, lookupErr
+		}
+		if repository.adapterResolver != nil {
+			if src, dst, ok := repository.adapterResolver(ctx, existing); ok {
+				sourceAdapter, destinationAdapter = src, dst
+			}
 		}
 		return repository.replayRoutedPayment(ctx, existing, true, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
 	}
@@ -518,6 +528,28 @@ func (repository *Repository) RecoverBankSettledCentralPending(ctx context.Conte
 		return Payment{}, err
 	}
 	return repository.Get(ctx, paymentID)
+}
+
+// GetSelectedExecutionTargetID loads the latest selected execution_target_id
+// for a payment from payment_route_decisions.
+func (repository *Repository) GetSelectedExecutionTargetID(ctx context.Context, paymentID uuid.UUID) (string, bool, error) {
+	if repository == nil || repository.db == nil {
+		return "", false, nil
+	}
+	var targetID string
+	err := repository.db.QueryRow(ctx, `
+		SELECT execution_target_id
+		FROM payment_route_decisions
+		WHERE payment_id = $1
+		ORDER BY selected_at DESC, id DESC
+		LIMIT 1`, paymentID).Scan(&targetID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return targetID, true, nil
 }
 
 func (repository *Repository) getBankOperation(ctx context.Context, paymentID uuid.UUID, operationType string) (routedOperation, bool, error) {

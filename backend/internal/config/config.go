@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+// ExecutionTargetConfig defines an explicit execution target and its associated health and execution endpoints.
+// Fields:
+//   candidateID: unique candidate route identity (e.g. "direct", "rail-b")
+//   executionTargetID: switch-level execution route/rail identity (e.g. "RAIL-A", "RAIL-B")
+//   sourceBank: logical source bank code (e.g. "BANK-A")
+//   destinationBank: logical destination bank code (e.g. "BANK-B")
+//   endpoint: required health probe endpoint associated with ExecutionTargetID
+//   sourceEndpoint: optional source execution endpoint (falls back to source bank default adapter)
+//   destinationEndpoint: optional destination execution endpoint (falls back to destination bank default adapter)
 type ExecutionTargetConfig struct {
 	CandidateID         string `json:"candidateId"`
 	ExecutionTargetID   string `json:"executionTargetId"`
@@ -198,17 +207,27 @@ func validateExecutionTargetConfig(item ExecutionTargetConfig) error {
 		return errors.New("destination_bank is required")
 	}
 	endpoint := strings.TrimSpace(item.Endpoint)
-	sourceEndpoint := strings.TrimSpace(item.SourceEndpoint)
-	destEndpoint := strings.TrimSpace(item.DestinationEndpoint)
-	if endpoint == "" && sourceEndpoint == "" && destEndpoint == "" {
-		return errors.New("at least one execution endpoint is required")
+	if endpoint == "" {
+		return errors.New("endpoint (health target endpoint) is required")
 	}
-	for _, ep := range []string{endpoint, sourceEndpoint, destEndpoint} {
-		if ep != "" {
-			u, err := url.Parse(ep)
-			if err != nil || u.Scheme == "" || u.Host == "" {
-				return fmt.Errorf("invalid endpoint URL: %q", ep)
-			}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("invalid endpoint URL: %q", endpoint)
+	}
+
+	sourceEndpoint := strings.TrimSpace(item.SourceEndpoint)
+	if sourceEndpoint != "" {
+		su, err := url.Parse(sourceEndpoint)
+		if err != nil || su.Scheme == "" || su.Host == "" {
+			return fmt.Errorf("invalid source_endpoint URL: %q", sourceEndpoint)
+		}
+	}
+
+	destEndpoint := strings.TrimSpace(item.DestinationEndpoint)
+	if destEndpoint != "" {
+		du, err := url.Parse(destEndpoint)
+		if err != nil || du.Scheme == "" || du.Host == "" {
+			return fmt.Errorf("invalid destination_endpoint URL: %q", destEndpoint)
 		}
 	}
 	return nil

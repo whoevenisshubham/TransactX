@@ -105,3 +105,60 @@ func TestParseExecutionTargetConfig_Malformed(t *testing.T) {
 		})
 	}
 }
+
+func TestParseExecutionTargetConfig_HealthEndpointRules(t *testing.T) {
+	// 1. Missing health endpoint -> rejected
+	jsonMissingHealth := `[{"candidateId":"c1","executionTargetId":"t1","sourceBank":"BANK-A","destinationBank":"BANK-B","sourceEndpoint":"http://localhost:8081","destinationEndpoint":"http://localhost:8082"}]`
+	if _, err := ParseExecutionTargetConfig(jsonMissingHealth); err == nil {
+		t.Fatal("expected error for JSON missing health endpoint, got nil")
+	}
+
+	delimMissingHealth := "c1:t1:BANK-A:BANK-B:"
+	if _, err := ParseExecutionTargetConfig(delimMissingHealth); err == nil {
+		t.Fatal("expected error for delimited missing health endpoint, got nil")
+	}
+
+	pipeMissingHealth := "c1|t1|BANK-A|BANK-B||http://localhost:8081|http://localhost:8082"
+	if _, err := ParseExecutionTargetConfig(pipeMissingHealth); err == nil {
+		t.Fatal("expected error for pipe missing health endpoint, got nil")
+	}
+
+	// 2. Valid health endpoint -> accepted
+	jsonValidHealth := `[{"candidateId":"c1","executionTargetId":"t1","sourceBank":"BANK-A","destinationBank":"BANK-B","endpoint":"http://localhost:8080"}]`
+	targets, err := ParseExecutionTargetConfig(jsonValidHealth)
+	if err != nil || len(targets) != 1 || targets[0].Endpoint != "http://localhost:8080" {
+		t.Fatalf("expected valid JSON health endpoint accepted, got targets=%+v, err=%v", targets, err)
+	}
+
+	delimValidHealth := "c1:t1:BANK-A:BANK-B:http://localhost:8080"
+	targets, err = ParseExecutionTargetConfig(delimValidHealth)
+	if err != nil || len(targets) != 1 || targets[0].Endpoint != "http://localhost:8080" {
+		t.Fatalf("expected valid delimited health endpoint accepted, got targets=%+v, err=%v", targets, err)
+	}
+
+	// 3. Source/destination endpoints + health endpoint -> accepted
+	jsonFull := `[{"candidateId":"c1","executionTargetId":"t1","sourceBank":"BANK-A","destinationBank":"BANK-B","endpoint":"http://localhost:8080","sourceEndpoint":"http://localhost:8081","destinationEndpoint":"http://localhost:8082"}]`
+	targets, err = ParseExecutionTargetConfig(jsonFull)
+	if err != nil || len(targets) != 1 || targets[0].Endpoint != "http://localhost:8080" || targets[0].SourceEndpoint != "http://localhost:8081" || targets[0].DestinationEndpoint != "http://localhost:8082" {
+		t.Fatalf("expected full JSON accepted, got targets=%+v, err=%v", targets, err)
+	}
+
+	pipeFull := "c1|t1|BANK-A|BANK-B|http://localhost:8080|http://localhost:8081|http://localhost:8082"
+	targets, err = ParseExecutionTargetConfig(pipeFull)
+	if err != nil || len(targets) != 1 || targets[0].Endpoint != "http://localhost:8080" || targets[0].SourceEndpoint != "http://localhost:8081" || targets[0].DestinationEndpoint != "http://localhost:8082" {
+		t.Fatalf("expected full pipe delimited accepted, got targets=%+v, err=%v", targets, err)
+	}
+
+	// 4. Malformed health endpoint -> rejected
+	jsonMalformedHealth := `[{"candidateId":"c1","executionTargetId":"t1","sourceBank":"BANK-A","destinationBank":"BANK-B","endpoint":"://bad-url"}]`
+	if _, err := ParseExecutionTargetConfig(jsonMalformedHealth); err == nil {
+		t.Fatal("expected error for malformed JSON health endpoint, got nil")
+	}
+
+	delimMalformedHealth := "c1:t1:BANK-A:BANK-B:not-a-valid-url"
+	if _, err := ParseExecutionTargetConfig(delimMalformedHealth); err == nil {
+		t.Fatal("expected error for malformed delimited health endpoint, got nil")
+	}
+
+	// 5. JSON and delimited configuration follow the same rule (verified across sub-tests 1-4)
+}

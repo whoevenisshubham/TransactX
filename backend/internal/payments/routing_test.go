@@ -464,3 +464,218 @@ func TestRouteDecisionPersistsTargetAndHealthSnapshot(t *testing.T) {
 			target, candidate, score, samples, reason, mode, eventType)
 	}
 }
+
+// Tests for Blocker 1: Preserving selected execution target during recovery
+func TestRecoveryPreservesSelectedExecutionTarget(t *testing.T) {
+	ctx := context.Background()
+	sourceBankID := uuid.New()
+	destBankID := uuid.New()
+
+	adapterA := &spyBankAdapter{}
+	adapterB := &spyBankAdapter{}
+
+	targetA := ExecutionTarget{
+		CandidateID:        "rail-a-candidate",
+		ExecutionTargetID:  "RAIL-A",
+		SourceAdapter:      adapterA,
+		DestinationAdapter: adapterA,
+	}
+	targetB := ExecutionTarget{
+		CandidateID:        "rail-b-candidate",
+		ExecutionTargetID:  "RAIL-B",
+		SourceAdapter:      adapterB,
+		DestinationAdapter: adapterB,
+	}
+
+	targets := map[RouteKey][]ExecutionTarget{
+		{SourceBankID: sourceBankID, DestinationBankID: destBankID}: {targetA, targetB},
+	}
+
+	service := &Service{
+		executionTargets: targets,
+	}
+
+	paymentID := uuid.New()
+	payment := Payment{
+		ID:                paymentID,
+		SourceBankID:      &sourceBankID,
+		DestinationBankID: &destBankID,
+		State:             StatePendingReconciliation,
+	}
+
+	// 1. RAIL-B selected (mock resolver simulates durable route decision)
+	service.SetRouteDecisionResolver(func(ctx context.Context, pid uuid.UUID) (string, bool, error) {
+		if pid == paymentID {
+			return "RAIL-B", true, nil
+		}
+		return "", false, nil
+	})
+
+	// 2. payment is pending
+	// 3. recovery resolves RAIL-B adapters
+	src, dst, ok, err := service.RoutedAdaptersForPayment(ctx, payment)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected ok=true for configured selected target RAIL-B")
+	}
+	if src != adapterB || dst != adapterB {
+		t.Fatalf("expected adapterB for RAIL-B, got src=%v dst=%v", src, dst)
+	}
+
+	// 4. RAIL-A is NOT used
+	if src == adapterA || dst == adapterA {
+		t.Fatal("RAIL-A adapter was unexpectedly returned!")
+	}
+
+	// 5. Selected target resolution remains deterministic across repeated calls
+	for i := 0; i < 5; i++ {
+		repeatSrc, repeatDst, repeatOK, repeatErr := service.RoutedAdaptersForPayment(ctx, payment)
+		if repeatErr != nil || !repeatOK || repeatSrc != adapterB || repeatDst != adapterB {
+			t.Fatalf("call %d: expected deterministic RAIL-B adapters, got src=%v dst=%v ok=%v err=%v", i, repeatSrc, repeatDst, repeatOK, repeatErr)
+		}
+	}
+
+	// 6. Missing selected target fails closed rather than selecting targets[0]
+	missingTargetPaymentID := uuid.New()
+	missingTargetPayment := Payment{
+		ID:                missingTargetPaymentID,
+		SourceBankID:      &sourceBankID,
+		DestinationBankID: &destBankID,
+		State:             StatePendingReconciliation,
+	}
+	service.SetRouteDecisionResolver(func(ctx context.Context, pid uuid.UUID) (string, bool, error) {
+		if pid == missingTargetPaymentID {
+			// Persisted target RAIL-C is no longer configured
+			return "RAIL-C", true, nil
+		}
+		return "", false, nil
+	})
+
+	missingSrc, missingDst, missingOK, missingErr := service.RoutedAdaptersForPayment(ctx, missingTargetPayment)
+	if missingErr != nil {
+		t.Fatalf("unexpected error on missing target: %v", missingErr)
+	}
+	if missingOK {
+		t.Fatalf("expected missing selected target to fail closed (ok=false), but got ok=true with src=%v, dst=%v", missingSrc, missingDst)
+	}
+	if missingSrc == adapterA || missingDst == adapterA {
+		t.Fatal("missing target incorrectly defaulted to targets[0] (RAIL-A) instead of failing closed!")
+	}
+
+	// 7. Duplicate request does not repeat through a different execution target:
+	// Verify that legacy payment with multiple configured execution targets but NO history fails closed
+	legacyPayment := Payment{
+		ID:                uuid.New(),
+		SourceBankID:      &sourceBankID,
+		DestinationBankID: &destBankID,
+		State:             StatePendingReconciliation,
+	}
+	service.SetRouteDecisionResolver(func(ctx context.Context, pid uuid.UUID) (string, bool, error) {
+		return "", false, nil
+	})
+
+	legacySrc, legacyDst, legacyOK, _ := service.RoutedAdaptersForPayment(ctx, legacyPayment)
+	if legacyOK {
+		t.Fatalf("expected legacy payment with ambiguous multiple targets to fail closed (ok=false), but got ok=true with src=%v dst=%v", legacySrc, legacyDst)
+	}
+	if legacySrc == adapterA || legacyDst == adapterA {
+		t.Fatal("legacy payment with ambiguous targets incorrectly fell back to targets[0] (RAIL-A)!")
+	}
+}
+
+func TestRecoveryPreservesSelectedExecutionTarget_DB(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	data := newRepositoryTestData(t)
+	defer data.close(t)
+
+	sourceBankID := data.bankID
+	destBankID := data.bankID
+
+	adapterA := &spyBankAdapter{}
+	adapterB := &spyBankAdapter{}
+
+	targets := map[RouteKey][]ExecutionTarget{
+		{SourceBankID: sourceBankID, DestinationBankID: destBankID}: {
+			{CandidateID: "candidate-a", ExecutionTargetID: "RAIL-A", SourceAdapter: adapterA, DestinationAdapter: adapterA},
+			{CandidateID: "candidate-b", ExecutionTargetID: "RAIL-B", SourceAdapter: adapterB, DestinationAdapter: adapterB},
+		},
+	}
+
+	service := NewServiceWithExecutionTargets(nil, nil, data.repository, nil, targets, nil, SelectionModeAdaptive, "")
+
+	decision := RouteDecision{
+		Candidate:  routeCandidateWithAdapters("candidate-b", "RAIL-B", sourceBankID, destBankID, adapterB, adapterB),
+		Score:      0.90,
+		Snapshot:   health.HealthSnapshot{TargetID: "RAIL-B", SampleCount: 2, AvailabilityScore: 1, Score: 0.90},
+		Reason:     ReasonAdaptive,
+		Mode:       SelectionModeAdaptive,
+		SelectedAt: time.Now().UTC(),
+	}
+
+	payment, duplicate, err := data.repository.CreateRoutedWithDecisionIdempotent(context.Background(), settlementPayment(data, 100), "recovery-rail-b", "recovery-rail-b-hash", decision)
+	if err != nil || duplicate {
+		t.Fatalf("create = %+v, duplicate=%v, err=%v", payment, duplicate, err)
+	}
+
+	// Verify GetSelectedExecutionTargetID loads RAIL-B from DB
+	targetID, found, err := data.repository.GetSelectedExecutionTargetID(context.Background(), payment.ID)
+	if err != nil || !found || targetID != "RAIL-B" {
+		t.Fatalf("GetSelectedExecutionTargetID = %q, found=%v, err=%v; want RAIL-B, true, nil", targetID, found, err)
+	}
+
+	// Verify RoutedAdaptersForPayment resolves adapterB (RAIL-B)
+	src, dst, ok, err := service.RoutedAdaptersForPayment(context.Background(), payment)
+	if err != nil || !ok || src != adapterB || dst != adapterB {
+		t.Fatalf("RoutedAdaptersForPayment = src:%v dst:%v ok:%v err:%v; want adapterB, adapterB, true, nil", src, dst, ok, err)
+	}
+}
+
+func TestCreateRoutedIdempotentDuplicateUsesSelectedAdapters(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	data := newRepositoryTestData(t)
+	defer data.close(t)
+
+	sourceBankID := data.bankID
+	destBankID := data.bankID
+	adapterA := &spyBankAdapter{}
+	adapterB := &spyBankAdapter{}
+
+	targets := map[RouteKey][]ExecutionTarget{
+		{SourceBankID: sourceBankID, DestinationBankID: destBankID}: {
+			{CandidateID: "candidate-a", ExecutionTargetID: "RAIL-A", SourceAdapter: adapterA, DestinationAdapter: adapterA},
+			{CandidateID: "candidate-b", ExecutionTargetID: "RAIL-B", SourceAdapter: adapterB, DestinationAdapter: adapterB},
+		},
+	}
+
+	_ = NewServiceWithExecutionTargets(nil, nil, data.repository, nil, targets, nil, SelectionModeAdaptive, "")
+
+	decision := RouteDecision{
+		Candidate:  routeCandidateWithAdapters("candidate-b", "RAIL-B", sourceBankID, destBankID, adapterB, adapterB),
+		Score:      0.90,
+		Snapshot:   health.HealthSnapshot{TargetID: "RAIL-B", SampleCount: 2, AvailabilityScore: 1, Score: 0.90},
+		Reason:     ReasonAdaptive,
+		Mode:       SelectionModeAdaptive,
+		SelectedAt: time.Now().UTC(),
+	}
+
+	payment, duplicate, err := data.repository.CreateRoutedWithDecisionIdempotent(context.Background(), settlementPayment(data, 100), "dup-rail-b", "dup-rail-b-hash", decision)
+	if err != nil || duplicate {
+		t.Fatalf("first create = %+v, duplicate=%v, err=%v", payment, duplicate, err)
+	}
+
+	// Now try to create again with the same idempotency key, but pass adapterA in the call
+	// The repository should resolve the original adapterB from the payment's route decision and NOT use adapterA
+	dupPayment, dup, dupErr := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 100), "dup-rail-b", "dup-rail-b-hash", sourceBankID, destBankID, adapterA, adapterA)
+	if dupErr != nil || !dup {
+		t.Fatalf("dup call = %+v, dup=%v, err=%v", dupPayment, dup, dupErr)
+	}
+	if adapterA.holdCalls > 0 || adapterA.creditCalls > 0 {
+		t.Fatalf("adapterA was invoked on duplicate: holdCalls=%d creditCalls=%d", adapterA.holdCalls, adapterA.creditCalls)
+	}
+}
