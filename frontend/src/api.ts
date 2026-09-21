@@ -1,4 +1,4 @@
-import type { Account, Payment, Recipient, User } from "./types";
+import type { Account, MerchantReceiveInfo, Payment, Recipient, User } from "./types";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 
@@ -80,4 +80,6 @@ export const api = {
   payment: (id: string, token: string) => apiRequest<Payment>(`/api/payments/${encodeURIComponent(id)}`, {}, token),
   createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
   createPaymentWithStatus: async (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequestWithStatus<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
+  merchantReceiveInfo: (token: string) => apiRequest<MerchantReceiveInfo>("/api/merchant/receive-info", {}, token),
 };
+

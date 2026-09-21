@@ -39,4 +39,11 @@ export type Payment = {
   durationMs?: number;
 };
 
+export type MerchantReceiveInfo = {
+  paymentIdentifier: string;
+  accountNumber: string;
+  accountStatus: string;
+};
+
 export type View = "home" | "pay" | "transactions" | "details";
+export type MerchantView = "m-home" | "m-receive" | "m-incoming" | "m-settlement" | "m-search";
