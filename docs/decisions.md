@@ -152,17 +152,18 @@ M2-6 implements a controlled, reversible, deterministic, target-isolated chaos c
 - **Four Supported Scenarios**:
   1. `BANK_OUTAGE`: Simulates target endpoint downtime (`ErrBankOutage`). Downstream health checks observe failures; monetary operations fail safely with `ErrCodeBankUnavailable`.
   2. `LATENCY`: Injects configurable, validated latency (1ms to 30s) via context-aware sleeps without uncontrolled thread blocking.
-  3. `TRANSIENT_DROP` (alias `TRANSIENT`, `MESSAGE_DROP`): Simulates transient message drops deterministically (by drop count or drop rate). Unknown payment outcomes remain `PENDING_RECONCILIATION`; no blind retries are introduced.
+  3. `TRANSIENT_DROP` (alias `TRANSIENT`, `MESSAGE_DROP`): Controlled transient/request-drop simulation. Injects deterministic pre-call transient failure (`ErrTransientDrop`, error code `ErrCodeTransientFailure`) without executing the downstream call. It does not falsely claim to prove an unknown bank execution outcome (`UNKNOWN != FAILURE`). Genuine unknown outcomes remain handled exclusively by the existing M1/M2 saga recovery path (`bank.OperationPending` -> `PENDING_RECONCILIATION` -> `GetOperationStatus`).
   4. `TEMPORARY_PARTITION`: Simulates communication partition between the payment switch and the target (`ErrNetworkPartition`). Reversible upon stop, reset, or auto-expiry.
-- **Target Isolation**: All scenarios are keyed strictly to switch-level `executionTargetID` (e.g. `RAIL-A`). Injected faults on target $X$ never impact target $Y$, alternate routes, unrelated banks, or unrelated payment flows.
-- **Lifecycle & Expiry Guarantees**:
-  - `START`: Explicit start with a validated duration (100ms to 10m).
-  - `INSPECT`: Inspect all active scenarios or a specific scenario by ID.
-  - `STOP`: Immediately and safely terminates the active fault. Repeated stops are safe and idempotent.
-  - `RESET`: Clears active faults for a specific target or across all targets.
-  - `AUTO-EXPIRY`: Evaluated against current time (`now.After(expiresAt)`). Expired scenarios automatically become inactive and emit `CHAOS_EXPIRED`, ensuring no permanent faults leak if a client or UI disconnects.
+- **Target Isolation & Validation**: All scenarios are keyed strictly to switch-level `executionTargetID` (e.g. `RAIL-A`). Injected faults on target $X$ never impact target $Y$, alternate routes, unrelated banks, or unrelated payment flows. Target IDs are validated at startup and on every start request against configured execution targets and health targets; unknown targets are rejected (`ErrTargetNotFound`).
+- **Lifecycle & Exact Expiry Guarantees**:
+  - `START`: Explicit start with a validated duration (100ms to 10m). Scenario state and `CHAOS_STARTED` audit event are persisted atomically in PostgreSQL before in-memory activation.
+  - `INSPECT`: Inspect all active scenarios or a specific scenario by ID. Excludes expired scenarios (`expires_at <= now`).
+  - `STOP`: Immediately and safely terminates the active fault, persisted atomically with `CHAOS_STOPPED`. Repeated stops are safe and idempotent. Never resurrects an expired scenario.
+  - `RESET`: Clears active faults for a specific target or across all targets in both RAM and PostgreSQL (`CHAOS_RESET`).
+  - `AUTO-EXPIRY`: Evaluated against injectable clock (`now.After(expiresAt)`). Expired scenarios automatically become inactive in PostgreSQL and emit `CHAOS_EXPIRED` exactly once. Scenarios where `expires_at <= now` are never treated as active.
+- **Restart Safety & Hydration**: Active chaos state survives process restarts. On startup, `Hydrate()` reloads unexpired active scenarios from PostgreSQL. Cache misses in `GetActiveFault` query the database, validate expiry, and cache the active fault on demand.
 - **Authorization Boundary**: All mutation and control endpoints (`/api/ops/chaos/start`, `/api/ops/chaos/scenarios/{scenarioID}/stop`, `/api/ops/chaos/reset`) and inspection endpoints require authenticated `OPS_ADMIN` role. Public roles (`CUSTOMER`, `MERCHANT`) receive `403 Forbidden`. Unauthenticated requests receive `401 Unauthorized`. Customer-facing payment APIs do NOT expose chaos controls.
-- **Durable Persistence & Audit**: Scenario definitions are persisted to `chaos_scenarios`, and all lifecycle transitions (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`) are appended to `chaos_events` with actor ID, actor role, target ID, fault parameters, and timestamps.
+- **Durable Persistence & Audit**: Scenario definitions are persisted to `chaos_scenarios`, and all lifecycle transitions (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`) are appended to `chaos_events` atomically in the same PostgreSQL transaction. If database persistence fails, the operation fails fast and in-memory faults are not activated.
 - **Integration with M2-3 / M2-4 / M2-5**:
   - M2-3 Health Monitoring samples targets through `ChaosAdapter.GetHealth()`, observing outages, elevated latency, or timeouts.
   - M2-5 Circuit Breaker observes health failure samples and trips `CLOSED -> OPEN` once the failure threshold is reached. `HALF_OPEN` remains recovery-health-probe-only and excludes payment routing.

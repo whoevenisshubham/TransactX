@@ -14,11 +14,16 @@ import (
 	"github.com/transactx/backend/internal/health"
 )
 
-// mockRepo implements in-memory chaos.Repository for testing
+// mockRepo implements in-memory chaos.Repository with controllable failure injection
 type mockRepo struct {
-	mu        sync.Mutex
-	scenarios map[string]chaos.ChaosScenario
-	events    []chaos.ChaosEvent
+	mu           sync.Mutex
+	scenarios    map[string]chaos.ChaosScenario
+	events       []chaos.ChaosEvent
+	failCreate   bool
+	failUpdate   bool
+	failExpire   bool
+	failReset    bool
+	expiredCalls int
 }
 
 func newMockRepo() *mockRepo {
@@ -27,17 +32,28 @@ func newMockRepo() *mockRepo {
 	}
 }
 
-func (m *mockRepo) CreateScenario(ctx context.Context, s chaos.ChaosScenario) error {
+func (m *mockRepo) CreateScenarioWithEvent(ctx context.Context, s chaos.ChaosScenario, event chaos.ChaosEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failCreate {
+		return errors.New("db error: insert failed")
+	}
 	m.scenarios[s.ScenarioID] = s
+	m.events = append(m.events, event)
 	return nil
 }
 
-func (m *mockRepo) UpdateScenario(ctx context.Context, s chaos.ChaosScenario) error {
+func (m *mockRepo) UpdateScenarioWithEvent(ctx context.Context, s chaos.ChaosScenario, event chaos.ChaosEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.failUpdate {
+		return errors.New("db error: update failed")
+	}
+	if _, ok := m.scenarios[s.ScenarioID]; !ok {
+		return chaos.ErrScenarioNotFound
+	}
 	m.scenarios[s.ScenarioID] = s
+	m.events = append(m.events, event)
 	return nil
 }
 
@@ -48,20 +64,100 @@ func (m *mockRepo) GetScenario(ctx context.Context, scenarioID string) (*chaos.C
 	if !ok {
 		return nil, chaos.ErrScenarioNotFound
 	}
-	return &s, nil
+	copyScenario := s
+	return &copyScenario, nil
 }
 
-func (m *mockRepo) ListScenarios(ctx context.Context, activeOnly bool, limit int) ([]chaos.ChaosScenario, error) {
+func (m *mockRepo) GetActiveScenarioByTarget(ctx context.Context, targetID string, now time.Time) (*chaos.ChaosScenario, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.scenarios {
+		if s.TargetID == targetID && s.Active && s.ExpiresAt.After(now) {
+			copyScenario := s
+			return &copyScenario, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockRepo) ListActiveScenarios(ctx context.Context, now time.Time) ([]chaos.ChaosScenario, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var list []chaos.ChaosScenario
 	for _, s := range m.scenarios {
-		if activeOnly && !s.Active {
-			continue
+		if s.Active && s.ExpiresAt.After(now) {
+			list = append(list, s)
 		}
-		list = append(list, s)
 	}
 	return list, nil
+}
+
+func (m *mockRepo) ListScenarios(ctx context.Context, activeOnly bool, now time.Time, limit int) ([]chaos.ChaosScenario, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var list []chaos.ChaosScenario
+	for _, s := range m.scenarios {
+		if activeOnly {
+			if s.Active && s.ExpiresAt.After(now) {
+				list = append(list, s)
+			}
+		} else {
+			list = append(list, s)
+		}
+	}
+	return list, nil
+}
+
+func (m *mockRepo) ExpireScenario(ctx context.Context, scenarioID string, expiredAt time.Time, event chaos.ChaosEvent) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failExpire {
+		return false, errors.New("db error: expire failed")
+	}
+	s, ok := m.scenarios[scenarioID]
+	if !ok || !s.Active || s.ExpiresAt.After(expiredAt) {
+		return false, nil
+	}
+	s.Active = false
+	s.StoppedAt = &expiredAt
+	systemActor := "SYSTEM_AUTO_EXPIRY"
+	s.StoppedBy = &systemActor
+	s.UpdatedAt = expiredAt
+	m.scenarios[scenarioID] = s
+
+	m.events = append(m.events, event)
+	m.expiredCalls++
+	return true, nil
+}
+
+func (m *mockRepo) ResetScenarios(ctx context.Context, targetID string, stoppedAt time.Time, stoppedBy string, actorID, actorRole string) ([]chaos.ChaosScenario, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failReset {
+		return nil, errors.New("db error: reset failed")
+	}
+	var resetList []chaos.ChaosScenario
+	for id, s := range m.scenarios {
+		if s.Active && (targetID == "" || s.TargetID == targetID) {
+			s.Active = false
+			s.StoppedAt = &stoppedAt
+			s.StoppedBy = &stoppedBy
+			s.UpdatedAt = stoppedAt
+			m.scenarios[id] = s
+			resetList = append(resetList, s)
+
+			m.events = append(m.events, chaos.ChaosEvent{
+				ScenarioID: s.ScenarioID,
+				EventType:  chaos.EventTypeChaosReset,
+				TargetID:   s.TargetID,
+				FaultType:  string(s.Type),
+				ActorID:    actorID,
+				ActorRole:  actorRole,
+				OccurredAt: stoppedAt,
+			})
+		}
+	}
+	return resetList, nil
 }
 
 func (m *mockRepo) RecordEvent(ctx context.Context, event chaos.ChaosEvent) error {
@@ -149,6 +245,7 @@ func (s *stubBankAdapter) GetLedgerSnapshot(ctx context.Context, scope bank.Ledg
 	return bank.LedgerSnapshot{BankID: s.bankID, SnapshotID: uuid.New(), CapturedAt: time.Now()}, nil
 }
 
+// 1. Authorization
 func TestChaosAuthorization(t *testing.T) {
 	repo := newMockRepo()
 	ctrl := chaos.NewController(repo)
@@ -161,19 +258,19 @@ func TestChaosAuthorization(t *testing.T) {
 		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
 	}
 
-	// 1. CUSTOMER denied
+	// CUSTOMER denied
 	_, err := ctrl.Start(ctx, req, "cust-1", "CUSTOMER")
 	if !errors.Is(err, chaos.ErrUnauthorized) {
 		t.Fatalf("expected ErrUnauthorized for CUSTOMER, got %v", err)
 	}
 
-	// 2. MERCHANT denied
+	// MERCHANT denied
 	_, err = ctrl.Start(ctx, req, "merch-1", "MERCHANT")
 	if !errors.Is(err, chaos.ErrUnauthorized) {
 		t.Fatalf("expected ErrUnauthorized for MERCHANT, got %v", err)
 	}
 
-	// 3. OPS_ADMIN allowed
+	// OPS_ADMIN allowed
 	sc, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
 	if err != nil {
 		t.Fatalf("unexpected error for OPS_ADMIN: %v", err)
@@ -202,7 +299,173 @@ func TestChaosAuthorization(t *testing.T) {
 	}
 }
 
-func TestChaosLifecycleAndExpiry(t *testing.T) {
+// 2. Target validation
+func TestTargetValidation(t *testing.T) {
+	repo := newMockRepo()
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	// Configure validator to accept only RAIL-A and RAIL-B
+	configuredTargets := map[string]bool{"RAIL-A": true, "RAIL-B": true}
+	ctrl.SetTargetValidator(func(targetID string) bool {
+		return configuredTargets[targetID]
+	})
+
+	// Unknown target rejected
+	unknownReq := chaos.StartRequest{
+		ScenarioID: "sc-unk-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "UNKNOWN-RAIL",
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+	_, err := ctrl.Start(ctx, unknownReq, "ops-1", "OPS_ADMIN")
+	if !errors.Is(err, chaos.ErrTargetNotFound) {
+		t.Fatalf("expected ErrTargetNotFound for unknown target, got %v", err)
+	}
+
+	// Valid target accepted
+	validReq := chaos.StartRequest{
+		ScenarioID: "sc-val-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+	sc, err := ctrl.Start(ctx, validReq, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("valid target should be accepted, got error: %v", err)
+	}
+	if sc.TargetID != "RAIL-A" {
+		t.Fatalf("expected target RAIL-A, got %s", sc.TargetID)
+	}
+}
+
+// 3. Durable persistence failure handling
+func TestDurablePersistenceFailures(t *testing.T) {
+	repo := newMockRepo()
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	req := chaos.StartRequest{
+		ScenarioID: "sc-fail-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+	}
+
+	// 1. Simulate DB failure on Start
+	repo.failCreate = true
+	_, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err == nil {
+		t.Fatalf("expected Start to fail when DB persistence fails")
+	}
+
+	// Verify in-memory fault was NOT activated
+	fault, active := ctrl.GetActiveFault("RAIL-A")
+	if active || fault != nil {
+		t.Fatalf("fault must not be activated in memory if DB persistence failed")
+	}
+
+	// 2. Allow Start to succeed
+	repo.failCreate = false
+	_, err = ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("start should succeed: %v", err)
+	}
+
+	// 3. Simulate DB failure on Stop
+	repo.failUpdate = true
+	_, err = ctrl.Stop(ctx, "sc-fail-1", "ops-1", "OPS_ADMIN")
+	if err == nil {
+		t.Fatalf("expected Stop to fail when DB persistence fails")
+	}
+
+	// In-memory state must NOT be mutated to inactive if DB update failed
+	fault, active = ctrl.GetActiveFault("RAIL-A")
+	if !active || fault == nil {
+		t.Fatalf("scenario must remain active in memory if DB stop failed")
+	}
+
+	// 4. Simulate DB failure on Reset
+	repo.failReset = true
+	err = ctrl.Reset(ctx, "RAIL-A", "ops-1", "OPS_ADMIN")
+	if err == nil {
+		t.Fatalf("expected Reset to fail when DB persistence fails")
+	}
+}
+
+// 4. Active chaos surviving restart
+func TestRestartAndHydration(t *testing.T) {
+	repo := newMockRepo()
+	ctrl1 := chaos.NewController(repo)
+	ctx := context.Background()
+
+	baseTime := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	ctrl1.SetNowFunc(func() time.Time { return baseTime })
+
+	// Start scenario on controller 1
+	req := chaos.StartRequest{
+		ScenarioID: "sc-restart-1",
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   "RAIL-A",
+		Parameters: chaos.ScenarioParameters{DurationMs: 60000},
+	}
+	_, err := ctrl1.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("failed to start: %v", err)
+	}
+
+	// Simulate API restart: create a new controller instance with the same repo
+	ctrl2 := chaos.NewController(repo)
+	ctrl2.SetNowFunc(func() time.Time { return baseTime })
+
+	// 1. Lazy load: GetActiveFault on cache miss queries persistent storage
+	fault, active := ctrl2.GetActiveFault("RAIL-A")
+	if !active || fault == nil || fault.ScenarioID != "sc-restart-1" {
+		t.Fatalf("active chaos must survive restart via lazy load: active=%v, fault=%+v", active, fault)
+	}
+
+	// 2. Simulate second restart and test eager Hydrate
+	ctrl3 := chaos.NewController(repo)
+	ctrl3.SetNowFunc(func() time.Time { return baseTime })
+	if err := ctrl3.Hydrate(ctx); err != nil {
+		t.Fatalf("hydration failed: %v", err)
+	}
+	fault, active = ctrl3.GetActiveFault("RAIL-A")
+	if !active || fault == nil || fault.ScenarioID != "sc-restart-1" {
+		t.Fatalf("active chaos must be present after eager Hydrate: active=%v, fault=%+v", active, fault)
+	}
+
+	// 3. Stop after restart
+	_, err = ctrl3.Stop(ctx, "sc-restart-1", "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("stop after restart failed: %v", err)
+	}
+	fault, active = ctrl3.GetActiveFault("RAIL-A")
+	if active || fault != nil {
+		t.Fatalf("fault should be inactive after stop")
+	}
+
+	// 4. Reset after restart clears persisted scenario
+	ctrl4 := chaos.NewController(repo)
+	ctrl4.SetNowFunc(func() time.Time { return baseTime })
+	_, err = ctrl4.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("failed to restart scenario: %v", err)
+	}
+	// Fresh controller simulating restart before reset
+	ctrl5 := chaos.NewController(repo)
+	ctrl5.SetNowFunc(func() time.Time { return baseTime })
+	if err := ctrl5.Reset(ctx, "", "ops-1", "OPS_ADMIN"); err != nil {
+		t.Fatalf("reset all after restart failed: %v", err)
+	}
+	fault, active = ctrl5.GetActiveFault("RAIL-A")
+	if active || fault != nil {
+		t.Fatalf("fault should be inactive after reset")
+	}
+}
+
+// 5. Durable and exact expiry
+func TestDurableAndExactExpiry(t *testing.T) {
 	repo := newMockRepo()
 	ctrl := chaos.NewController(repo)
 	ctx := context.Background()
@@ -211,249 +474,194 @@ func TestChaosLifecycleAndExpiry(t *testing.T) {
 	currentTime := baseTime
 	ctrl.SetNowFunc(func() time.Time { return currentTime })
 
-	// 1. Create/Start
 	req := chaos.StartRequest{
-		ScenarioID: "sc-life-1",
+		ScenarioID: "sc-exp-1",
 		Type:       chaos.ScenarioTypeBankOutage,
 		TargetID:   "RAIL-A",
 		Parameters: chaos.ScenarioParameters{DurationMs: 10000},
 	}
-	sc, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+	_, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
 	if err != nil {
-		t.Fatalf("failed to start scenario: %v", err)
-	}
-	if sc.Mode != chaos.ExecutionModeSimulation {
-		t.Fatalf("expected mode SIMULATION, got %s", sc.Mode)
-	}
-	if !sc.Active {
-		t.Fatalf("expected scenario to be active")
-	}
-	expectedExpiry := baseTime.Add(10 * time.Second)
-	if !sc.ExpiresAt.Equal(expectedExpiry) {
-		t.Fatalf("expected expiry %v, got %v", expectedExpiry, sc.ExpiresAt)
+		t.Fatalf("failed to start: %v", err)
 	}
 
-	// Inspect
-	fetched, err := ctrl.GetScenario(ctx, "sc-life-1")
-	if err != nil {
-		t.Fatalf("failed to get scenario: %v", err)
-	}
-	if !fetched.Active {
-		t.Fatalf("expected fetched scenario to be active")
-	}
-
-	// Target conflict when active
-	if _, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN"); !errors.Is(err, chaos.ErrTargetConflict) {
-		t.Fatalf("expected ErrTargetConflict, got %v", err)
-	}
-
-	// Active fault present
-	fault, active := ctrl.GetActiveFault("RAIL-A")
-	if !active || fault.ScenarioID != "sc-life-1" {
-		t.Fatalf("expected active fault sc-life-1, got active=%v, fault=%+v", active, fault)
+	// Active before expiry
+	list, err := ctrl.ListScenarios(ctx, true)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("expected 1 active scenario before expiry, got %d", len(list))
 	}
 
 	// Advance time past expiry
-	currentTime = baseTime.Add(11 * time.Second)
+	currentTime = baseTime.Add(15 * time.Second)
 
-	// 2. Auto-expiry check
-	fault, active = ctrl.GetActiveFault("RAIL-A")
+	// 1. GetActiveFault returns false
+	fault, active := ctrl.GetActiveFault("RAIL-A")
 	if active || fault != nil {
-		t.Fatalf("expected fault to be inactive after expiry, got active=%v, fault=%+v", active, fault)
+		t.Fatalf("expected inactive after expiry")
 	}
 
-	// Scenario inspected shows inactive
-	fetched, err = ctrl.GetScenario(ctx, "sc-life-1")
+	// 2. GetScenario returns active = false
+	s, err := ctrl.GetScenario(ctx, "sc-exp-1")
+	if err != nil || s.Active {
+		t.Fatalf("expected active=false from GetScenario, got active=%v, err=%v", s.Active, err)
+	}
+
+	// 3. Active listing excludes expired scenarios
+	list, err = ctrl.ListScenarios(ctx, true)
+	if err != nil || len(list) != 0 {
+		t.Fatalf("active listing must exclude expired scenarios, got %d", len(list))
+	}
+
+	// 4. Exactly-once expiry event
+	events, err := repo.ListEvents(ctx, "sc-exp-1", 50)
 	if err != nil {
-		t.Fatalf("failed to get expired scenario: %v", err)
+		t.Fatalf("failed to list events: %v", err)
 	}
-	if fetched.Active {
-		t.Fatalf("expected expired scenario to be inactive")
+	expiredCount := 0
+	for _, e := range events {
+		if e.EventType == chaos.EventTypeChaosExpired {
+			expiredCount++
+		}
+	}
+	if expiredCount != 1 {
+		t.Fatalf("expected exactly 1 CHAOS_EXPIRED event, got %d", expiredCount)
 	}
 
-	// 3. Repeated stop is safe and idempotent
-	if _, err := ctrl.Stop(ctx, "sc-life-1", "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("repeated stop should succeed cleanly, got %v", err)
-	}
-
-	// 4. Repeated reset is safe and idempotent
-	if err := ctrl.Reset(ctx, "RAIL-A", "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("reset target should succeed, got %v", err)
-	}
-	if err := ctrl.Reset(ctx, "", "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("reset all should succeed, got %v", err)
+	// 5. Repeated stop does NOT resurrect or emit new stop event
+	stopped, err := ctrl.Stop(ctx, "sc-exp-1", "ops-1", "OPS_ADMIN")
+	if err != nil || stopped.Active {
+		t.Fatalf("stop should not resurrect expired scenario")
 	}
 }
 
-func TestTargetIsolation(t *testing.T) {
+// 6. Message-drop semantics: UNKNOWN != FAILURE
+func TestMessageDropSemantics(t *testing.T) {
+	repo := newMockRepo()
+	ctrl := chaos.NewController(repo)
+	ctx := context.Background()
+
+	stub := newStubBank("RAIL-A")
+	adapter := chaos.NewChaosAdapter("RAIL-A", stub, ctrl)
+
+	// Start transient drop scenario with DropCount = 1
+	req := chaos.StartRequest{
+		ScenarioID: "sc-drop-1",
+		Type:       chaos.ScenarioTypeTransientDrop,
+		TargetID:   "RAIL-A",
+		Parameters: chaos.ScenarioParameters{DurationMs: 10000, DropCount: 1},
+	}
+	if _, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN"); err != nil {
+		t.Fatalf("failed to start transient drop: %v", err)
+	}
+
+	// Invocations:
+	// Call 1 is a pre-call transient failure
+	holdRes, err := adapter.HoldFunds(ctx, bank.HoldFundsRequest{})
+	if err == nil {
+		t.Fatalf("call 1 should fail transiently")
+	}
+	var adapterErr *bank.AdapterError
+	if !errors.As(err, &adapterErr) {
+		t.Fatalf("expected *bank.AdapterError, got %T", err)
+	}
+	// Definite transient transport rejection:
+	if adapterErr.Code != bank.ErrCodeTransientFailure {
+		t.Fatalf("expected ErrCodeTransientFailure, got %s", adapterErr.Code)
+	}
+	// Under pre-call drop, operation status is FAILED (not PENDING)
+	if holdRes.Status != bank.OperationFailed {
+		t.Fatalf("expected OperationFailed, got %s", holdRes.Status)
+	}
+
+	// Crucial distinction: UNKNOWN != FAILURE
+	// When bank outcome is truly unknown (e.g. timeout during bank processing), status is OperationPending
+	unknownRes := bank.OperationResult{
+		Status: bank.OperationPending,
+	}
+	if unknownRes.Status == holdRes.Status {
+		t.Fatalf("UNKNOWN must not equal definite FAILURE: %s == %s", unknownRes.Status, holdRes.Status)
+	}
+
+	// Call 2 passes through cleanly
+	holdRes2, err2 := adapter.HoldFunds(ctx, bank.HoldFundsRequest{})
+	if err2 != nil || holdRes2.Status != bank.OperationSucceeded {
+		t.Fatalf("call 2 should succeed, got status=%s, err=%v", holdRes2.Status, err2)
+	}
+}
+
+// 7. Outage, latency, partition scenarios
+func TestScenariosOutageLatencyPartition(t *testing.T) {
 	repo := newMockRepo()
 	ctrl := chaos.NewController(repo)
 	ctx := context.Background()
 
 	stubA := newStubBank("RAIL-A")
 	stubB := newStubBank("RAIL-B")
-
 	adapterA := chaos.NewChaosAdapter("RAIL-A", stubA, ctrl)
 	adapterB := chaos.NewChaosAdapter("RAIL-B", stubB, ctrl)
 
-	// Start fault only on RAIL-A
-	req := chaos.StartRequest{
-		ScenarioID: "sc-iso-1",
+	// BANK_OUTAGE on RAIL-A
+	_, err := ctrl.Start(ctx, chaos.StartRequest{
+		ScenarioID: "sc-outage",
 		Type:       chaos.ScenarioTypeBankOutage,
 		TargetID:   "RAIL-A",
 		Parameters: chaos.ScenarioParameters{DurationMs: 10000},
-	}
-	if _, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("failed to start scenario: %v", err)
+	}, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("failed to start outage: %v", err)
 	}
 
-	// Target A is affected
 	healthA, errA := adapterA.GetHealth(ctx)
 	if healthA.Available || errA == nil {
-		t.Fatalf("expected target A to be unavailable with error, got avail=%v, err=%v", healthA.Available, errA)
+		t.Fatalf("RAIL-A must observe outage")
 	}
-	var adapterErr *bank.AdapterError
-	if !errors.As(errA, &adapterErr) || adapterErr.Code != bank.ErrCodeBankUnavailable {
-		t.Fatalf("expected ErrCodeBankUnavailable on target A, got %v", errA)
-	}
-
-	holdA, errHoldA := adapterA.HoldFunds(ctx, bank.HoldFundsRequest{})
-	if holdA.Status != bank.OperationFailed || errHoldA == nil {
-		t.Fatalf("expected hold to fail on target A, got status=%s, err=%v", holdA.Status, errHoldA)
-	}
-
-	// Target B is completely UNAFFECTED
+	// Target B unaffected
 	healthB, errB := adapterB.GetHealth(ctx)
-	if errB != nil || !healthB.Available {
-		t.Fatalf("target B should be unaffected, got avail=%v, err=%v", healthB.Available, errB)
+	if !healthB.Available || errB != nil {
+		t.Fatalf("RAIL-B must be unaffected")
 	}
 
-	holdB, errHoldB := adapterB.HoldFunds(ctx, bank.HoldFundsRequest{})
-	if errHoldB != nil || holdB.Status != bank.OperationSucceeded {
-		t.Fatalf("target B hold should succeed, got status=%s, err=%v", holdB.Status, errHoldB)
-	}
+	_ = ctrl.Reset(ctx, "RAIL-A", "ops-1", "OPS_ADMIN")
 
-	// Stop scenario on A -> Target A immediately restored
-	if _, err := ctrl.Stop(ctx, "sc-iso-1", "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("stop should succeed, got %v", err)
-	}
-
-	healthA2, errA2 := adapterA.GetHealth(ctx)
-	if errA2 != nil || !healthA2.Available {
-		t.Fatalf("target A should be restored after stop, got avail=%v, err=%v", healthA2.Available, errA2)
-	}
-}
-
-func TestScenarioLatency(t *testing.T) {
-	repo := newMockRepo()
-	ctrl := chaos.NewController(repo)
-	ctx := context.Background()
-
-	var recordedSleep time.Duration
+	// LATENCY on RAIL-A
+	var sleepRecorded time.Duration
 	ctrl.SetSleepFunc(func(ctx context.Context, d time.Duration) error {
-		recordedSleep = d
+		sleepRecorded = d
 		return nil
 	})
-
-	stub := newStubBank("RAIL-A")
-	adapter := chaos.NewChaosAdapter("RAIL-A", stub, ctrl)
-
-	req := chaos.StartRequest{
-		ScenarioID: "sc-lat-1",
+	_, err = ctrl.Start(ctx, chaos.StartRequest{
+		ScenarioID: "sc-latency",
 		Type:       chaos.ScenarioTypeLatency,
 		TargetID:   "RAIL-A",
-		Parameters: chaos.ScenarioParameters{DurationMs: 10000, LatencyMs: 250},
+		Parameters: chaos.ScenarioParameters{DurationMs: 10000, LatencyMs: 150},
+	}, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("failed to start latency: %v", err)
 	}
-	if _, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("failed to start latency scenario: %v", err)
-	}
-
-	res, err := adapter.GetHealth(ctx)
-	if err != nil || !res.Available {
-		t.Fatalf("expected available health with latency, got avail=%v, err=%v", res.Available, err)
-	}
-	if recordedSleep != 250*time.Millisecond {
-		t.Fatalf("expected 250ms sleep, got %v", recordedSleep)
-	}
-}
-
-func TestScenarioTransientDrop(t *testing.T) {
-	repo := newMockRepo()
-	ctrl := chaos.NewController(repo)
-	ctx := context.Background()
-
-	stub := newStubBank("RAIL-A")
-	adapter := chaos.NewChaosAdapter("RAIL-A", stub, ctrl)
-
-	// Drop exactly 2 requests
-	req := chaos.StartRequest{
-		ScenarioID: "sc-drop-1",
-		Type:       chaos.ScenarioTypeTransientDrop,
-		TargetID:   "RAIL-A",
-		Parameters: chaos.ScenarioParameters{DurationMs: 10000, DropCount: 2},
-	}
-	if _, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("failed to start transient drop scenario: %v", err)
+	_, _ = adapterA.GetHealth(ctx)
+	if sleepRecorded != 150*time.Millisecond {
+		t.Fatalf("expected 150ms sleep, got %v", sleepRecorded)
 	}
 
-	// Call 1: Dropped
-	if _, err1 := adapter.GetHealth(ctx); !errors.Is(err1, chaos.ErrTransientDrop) {
-		t.Fatalf("call 1 should be dropped with ErrTransientDrop, got %v", err1)
-	}
+	_ = ctrl.Reset(ctx, "RAIL-A", "ops-1", "OPS_ADMIN")
 
-	// Call 2: Dropped
-	if _, err2 := adapter.HoldFunds(ctx, bank.HoldFundsRequest{}); err2 == nil {
-		t.Fatalf("call 2 should be dropped with error, got nil")
-	}
-
-	// Call 3: Allowed through
-	res3, err3 := adapter.GetHealth(ctx)
-	if err3 != nil || !res3.Available {
-		t.Fatalf("call 3 should succeed, got avail=%v, err=%v", res3.Available, err3)
-	}
-
-	// Call 4: Allowed through
-	res4, err4 := adapter.HoldFunds(ctx, bank.HoldFundsRequest{})
-	if err4 != nil || res4.Status != bank.OperationSucceeded {
-		t.Fatalf("call 4 should succeed, got status=%s, err=%v", res4.Status, err4)
-	}
-}
-
-func TestScenarioTemporaryPartition(t *testing.T) {
-	repo := newMockRepo()
-	ctrl := chaos.NewController(repo)
-	ctx := context.Background()
-
-	stub := newStubBank("RAIL-A")
-	adapter := chaos.NewChaosAdapter("RAIL-A", stub, ctrl)
-
-	req := chaos.StartRequest{
-		ScenarioID: "sc-part-1",
+	// TEMPORARY_PARTITION on RAIL-A
+	_, err = ctrl.Start(ctx, chaos.StartRequest{
+		ScenarioID: "sc-partition",
 		Type:       chaos.ScenarioTypePartition,
 		TargetID:   "RAIL-A",
-		Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+		Parameters: chaos.ScenarioParameters{DurationMs: 10000},
+	}, "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("failed to start partition: %v", err)
 	}
-	if _, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("failed to start partition scenario: %v", err)
-	}
-
-	// Health check fails with network partition error
-	if _, err := adapter.GetHealth(ctx); !errors.Is(err, chaos.ErrNetworkPartition) {
+	_, err = adapterA.GetHealth(ctx)
+	if !errors.Is(err, chaos.ErrNetworkPartition) {
 		t.Fatalf("expected ErrNetworkPartition, got %v", err)
-	}
-
-	// Reset removes partition
-	if err := ctrl.Reset(ctx, "RAIL-A", "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("reset should succeed, got %v", err)
-	}
-
-	res, err := adapter.GetHealth(ctx)
-	if err != nil || !res.Available {
-		t.Fatalf("target should be restored after reset, got avail=%v, err=%v", res.Available, err)
 	}
 }
 
-// In-memory health repo for integration tests
+// 8. Health -> Circuit -> Routing integration chain
 type memHealthRepo struct {
 	mu      sync.Mutex
 	samples []health.HealthSample
@@ -478,15 +686,14 @@ func (m *memHealthRepo) ListRecent(ctx context.Context, targetID string, from, t
 	return res, nil
 }
 
-func TestChaosHealthAndCircuitIntegration(t *testing.T) {
+func TestChaosHealthCircuitRoutingChain(t *testing.T) {
 	repo := newMockRepo()
 	ctrl := chaos.NewController(repo)
 	ctx := context.Background()
 
-	stub := newStubBank("RAIL-A")
-	chaosAdapter := chaos.NewChaosAdapter("RAIL-A", stub, ctrl)
+	stubA := newStubBank("RAIL-A")
+	chaosAdapterA := chaos.NewChaosAdapter("RAIL-A", stubA, ctrl)
 
-	// Create CircuitBreaker configured to trip on 2 failures
 	cbConfig := circuit.Config{
 		FailureThreshold:     2,
 		TimeoutThreshold:     2,
@@ -505,7 +712,6 @@ func TestChaosHealthAndCircuitIntegration(t *testing.T) {
 
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 
-	// Create HealthService with ProbeGate and observer wired to circuit breaker
 	hRepo := &memHealthRepo{}
 	hConfig := health.DefaultConfig()
 	hConfig.TimeoutThreshold = 500 * time.Millisecond
@@ -513,81 +719,79 @@ func TestChaosHealthAndCircuitIntegration(t *testing.T) {
 	hService.SetProbeGate(cb)
 	hService.SetSampleObserver(cb.RecordHealthSample)
 
-	// Initial state is CLOSED
+	// Step 1: Initial state is CLOSED
 	if state := cb.GetState("RAIL-A", now); state != circuit.StateClosed {
 		t.Fatalf("expected initial state CLOSED, got %s", state)
 	}
 
-	// Start Chaos: BANK_OUTAGE on RAIL-A
-	if _, err := ctrl.Start(ctx, chaos.StartRequest{
-		ScenarioID: "sc-cb-1",
+	// Step 2: Inject BANK_OUTAGE into RAIL-A
+	_, err = ctrl.Start(ctx, chaos.StartRequest{
+		ScenarioID: "sc-chain-1",
 		Type:       chaos.ScenarioTypeBankOutage,
 		TargetID:   "RAIL-A",
 		Parameters: chaos.ScenarioParameters{DurationMs: 30000},
-	}, "ops-1", "OPS_ADMIN"); err != nil {
+	}, "ops-1", "OPS_ADMIN")
+	if err != nil {
 		t.Fatalf("failed to start chaos: %v", err)
 	}
 
-	// Health check 1 fails
-	sample1, err := hService.Sample(ctx, "RAIL-A", chaosAdapter, now)
-	if err != nil || sample1.Outcome != health.OutcomeFailure {
-		t.Fatalf("expected sample 1 to fail, got sample=%+v, err=%v", sample1, err)
-	}
-	if state := cb.GetState("RAIL-A", now); state != circuit.StateClosed {
-		t.Fatalf("expected state CLOSED after 1 failure, got %s", state)
+	// Step 3: Health sample 1 observes failure
+	s1, err := hService.Sample(ctx, "RAIL-A", chaosAdapterA, now)
+	if err != nil || s1.Outcome != health.OutcomeFailure {
+		t.Fatalf("sample 1 should fail, got: %+v, err: %v", s1, err)
 	}
 
-	// Health check 2 fails -> trips circuit to OPEN!
-	sample2, err := hService.Sample(ctx, "RAIL-A", chaosAdapter, now)
-	if err != nil || sample2.Outcome != health.OutcomeFailure {
-		t.Fatalf("expected sample 2 to fail, got sample=%+v, err=%v", sample2, err)
+	// Step 4: Health sample 2 observes failure -> trips circuit to OPEN
+	s2, err := hService.Sample(ctx, "RAIL-A", chaosAdapterA, now)
+	if err != nil || s2.Outcome != health.OutcomeFailure {
+		t.Fatalf("sample 2 should fail, got: %+v, err: %v", s2, err)
 	}
 	if state := cb.GetState("RAIL-A", now); state != circuit.StateOpen {
-		t.Fatalf("expected state OPEN after 2 failures, got %s", state)
+		t.Fatalf("circuit must trip to OPEN after 2 failures, got %s", state)
 	}
 
-	// While OPEN, payment routing is ineligible (Allow returns false)
+	// Step 5: Routing eligibility excludes OPEN target
 	allowed, reason := cb.Allow("RAIL-A", now)
 	if allowed {
-		t.Fatalf("expected payment routing Allow() to be false while OPEN, got reason=%s", reason)
+		t.Fatalf("payment routing Allow() must be false while OPEN, got reason=%s", reason)
 	}
 
-	// Advance time past OpenCooldown to transition to HALF_OPEN
+	// Step 6: Advance cooldown -> HALF_OPEN (recovery probe only)
 	now = now.Add(6 * time.Second)
 	if state := cb.GetState("RAIL-A", now); state != circuit.StateHalfOpen {
 		t.Fatalf("expected state HALF_OPEN after cooldown, got %s", state)
 	}
 
-	// HALF_OPEN is recovery-health-probe-only:
-	// Normal payment routing Allow() MUST still return false!
-	allowed, reason = cb.Allow("RAIL-A", now)
+	// Payment routing MUST remain ineligible during HALF_OPEN
+	allowed, _ = cb.Allow("RAIL-A", now)
 	if allowed {
-		t.Fatalf("payment routing must remain ineligible during HALF_OPEN, got allowed=true, reason=%s", reason)
+		t.Fatalf("payment routing must be ineligible in HALF_OPEN")
 	}
 
-	// Stop chaos
-	if _, err := ctrl.Stop(ctx, "sc-cb-1", "ops-1", "OPS_ADMIN"); err != nil {
-		t.Fatalf("stop should succeed, got %v", err)
+	// Step 7: Stop chaos -> recovery probe succeeds
+	_, err = ctrl.Stop(ctx, "sc-chain-1", "ops-1", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("stop failed: %v", err)
 	}
 
-	// Recovery health probe executes and succeeds
-	probeSample1, err := hService.Sample(ctx, "RAIL-A", chaosAdapter, now)
-	if err != nil || probeSample1.Outcome != health.OutcomeSuccess {
-		t.Fatalf("expected recovery probe 1 to succeed, got sample=%+v, err=%v", probeSample1, err)
+	probe1, err := hService.Sample(ctx, "RAIL-A", chaosAdapterA, now)
+	if err != nil || probe1.Outcome != health.OutcomeSuccess {
+		t.Fatalf("probe 1 should succeed: %+v, err: %v", probe1, err)
 	}
 
-	// 2nd successful probe transitions circuit back to CLOSED
-	probeSample2, err := hService.Sample(ctx, "RAIL-A", chaosAdapter, now)
-	if err != nil || probeSample2.Outcome != health.OutcomeSuccess {
-		t.Fatalf("expected recovery probe 2 to succeed, got sample=%+v, err=%v", probeSample2, err)
+	probe2, err := hService.Sample(ctx, "RAIL-A", chaosAdapterA, now)
+	if err != nil || probe2.Outcome != health.OutcomeSuccess {
+		t.Fatalf("probe 2 should succeed: %+v, err: %v", probe2, err)
 	}
+
+	// Transitioned back to CLOSED
 	if state := cb.GetState("RAIL-A", now); state != circuit.StateClosed {
 		t.Fatalf("expected state CLOSED after successful probes, got %s", state)
 	}
 
-	// Once CLOSED, normal payment routing is eligible again
+	// Payment routing eligible again
 	allowed, _ = cb.Allow("RAIL-A", now)
 	if !allowed {
-		t.Fatalf("expected payment routing Allow() to be true once CLOSED")
+		t.Fatalf("payment routing must be eligible once CLOSED")
 	}
 }

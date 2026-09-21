@@ -69,6 +69,12 @@ func (a *ChaosAdapter) injectFault(ctx context.Context, isHealthCheck bool) erro
 		return nil
 
 	case ScenarioTypeTransientDrop, ScenarioTypeTransient, ScenarioTypeMessageDrop:
+		// Pre-call transient / request-drop simulation:
+		// Intercepts the request prior to bank execution and returns a definite transport-level
+		// transient failure (ErrCodeTransientFailure).
+		// This simulates network/connection drops before reaching the bank endpoint.
+		// It is NOT an unknown outcome (OperationPending); unknown outcomes remain governed
+		// by M1/M2 saga recovery where GetOperationStatus is used before any safe retry.
 		shouldDrop := a.controller.CheckAndRecordInvocation(scenario.ScenarioID, scenario.Parameters)
 		if shouldDrop {
 			msg := "chaos simulation: transient drop"

@@ -37,6 +37,7 @@ func (handler *Handler) chaosStart(writer http.ResponseWriter, request *http.Req
 		}
 		if errors.Is(err, chaos.ErrInvalidScenarioID) ||
 			errors.Is(err, chaos.ErrInvalidTargetID) ||
+			errors.Is(err, chaos.ErrTargetNotFound) ||
 			errors.Is(err, chaos.ErrInvalidScenario) ||
 			errors.Is(err, chaos.ErrInvalidParameters) {
 			writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", err.Error(), http.StatusBadRequest))

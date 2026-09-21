@@ -138,13 +138,32 @@ func main() {
 	healthService.SetSampleObserver(circuitBreaker.RecordHealthSample)
 	healthService.SetProbeGate(circuitBreaker)
 
+	validTargets := make(map[string]bool)
+	for code := range bankIDs {
+		validTargets[code] = true
+	}
+	for targetID := range healthTargets {
+		validTargets[targetID] = true
+	}
+	for _, targets := range executionTargets {
+		for _, et := range targets {
+			validTargets[et.ExecutionTargetID] = true
+		}
+	}
+	chaosController.SetTargetValidator(func(targetID string) bool {
+		return validTargets[targetID]
+	})
+	if err := chaosController.Hydrate(context.Background()); err != nil {
+		logger.Warn("hydrate chaos scenarios", "error", err)
+	}
+
 	var handler http.Handler
 	if len(adapters) == 0 {
 		handler = apihttp.NewHandlerWithChaos(db, logger, authService, jwtManager, chaosController)
 	} else if len(executionTargets) > 0 {
 		handler = apihttp.NewHandlerWithExecutionTargetsCircuitAndChaos(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController)
 	} else {
-		handler = apihttp.NewHandlerWithBankAdaptersHealthRouting(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService)
+		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingAndChaos(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService, chaosController)
 	}
 	server := &http.Server{
 		Addr:              cfg.Address,

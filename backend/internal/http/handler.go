@@ -63,6 +63,10 @@ func NewHandlerWithBankAdaptersHealthRouting(db *pgxpool.Pool, logger *slog.Logg
 	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthTargets, routeTargets, nil, healthService, payments.SelectionModeAdaptive, "")
 }
 
+func NewHandlerWithBankAdaptersHealthRoutingAndChaos(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, healthService *health.Service, chaosController *chaos.Controller) http.Handler {
+	return newHandlerWithAdaptersAndChaos(db, logger, authService, jwtManager, nil, adapters, healthTargets, routeTargets, nil, healthService, payments.SelectionModeAdaptive, "", nil, chaosController)
+}
+
 func NewHandlerWithExecutionTargets(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string) http.Handler {
 	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, mode, staticBaseline)
 }

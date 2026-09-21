@@ -113,20 +113,21 @@ M2-6 adds a controlled, reversible, deterministic fault-injection mechanism for 
 - **Four Supported Scenarios**:
   1. `BANK_OUTAGE`: Simulates target endpoint unavailability (`ErrBankOutage`). Downstream health checks observe failures; monetary operations fail safely with `ErrCodeBankUnavailable`.
   2. `LATENCY`: Adds configurable, deterministic delay to target operations. Parameter `latencyMs` is validated (1ms to 30s). Delay is executed safely via context-aware sleep without uncontrolled thread blocking.
-  3. `TRANSIENT_DROP` (alias `TRANSIENT`, `MESSAGE_DROP`): Simulates transient packet/message drops (`ErrTransientDrop`). Supports deterministic drop counts (`dropCount`, e.g. first $N$ requests) or deterministic rates. Does not lose durable financial state; unknown outcomes remain `PENDING_RECONCILIATION`.
+  3. `TRANSIENT_DROP` (alias `TRANSIENT`, `MESSAGE_DROP`): Controlled transient/request-drop simulation. Injects a pre-call transient rejection (`ErrTransientDrop`, error code `ErrCodeTransientFailure`) before downstream adapter invocation. It does not falsely claim to prove an unconfirmed bank outcome: `UNKNOWN != FAILURE`. Genuine unknown bank outcomes remain governed exclusively by the existing M1/M2 saga recovery path (`bank.OperationPending` / `PENDING_RECONCILIATION` / `GetOperationStatus`) without blind retries.
   4. `TEMPORARY_PARTITION`: Simulates communication partition between switch and target (`ErrNetworkPartition`). Reversible upon stop, reset, or auto-expiry.
-- **Target Isolation**: All scenarios are strictly target-scoped by `executionTargetID` (e.g. `RAIL-A`). Injected faults on target $X$ never impact target $Y$, unrelated source/destination banks, or unrelated payment flows.
-- **Lifecycle & Automatic Expiry**:
-  - `START`: Explicit creation with a mandatory duration (100ms to 10m). Sets `Active = true`.
-  - `INSPECT`: Query active scenarios or inspect specific scenario by ID.
-  - `STOP`: Explicitly deactivates scenario; effects cease immediately and safely. Repeated stops are idempotent.
-  - `RESET`: Clears active scenario for a specified target or resets all active scenarios across the system.
-  - `AUTO-EXPIRY`: Evaluated deterministically against current time (`now.After(expiresAt)`). Expired scenarios automatically transition to inactive and emit `CHAOS_EXPIRED` without leaving persistent faults.
+- **Target Isolation & Validation**: All scenarios are strictly target-scoped by `executionTargetID` (e.g. `RAIL-A`). Injected faults on target $X$ never impact target $Y$, unrelated source/destination banks, or unrelated payment flows. Target IDs are validated at startup and on every start request against the configured execution and health target registry; arbitrary or nonexistent target IDs are rejected (`ErrTargetNotFound`).
+- **Lifecycle & Exact Expiry**:
+  - `START`: Explicit creation with a mandatory duration (100ms to 10m). Atomic persistence of scenario state and `CHAOS_STARTED` event in PostgreSQL must succeed before in-memory activation.
+  - `INSPECT`: Query active scenarios or inspect specific scenario by ID. Excludes expired scenarios (`expires_at <= now`).
+  - `STOP`: Explicitly deactivates scenario; persisted atomically with `CHAOS_STOPPED` event. Repeated stops are safe and idempotent. Never resurrects an expired scenario.
+  - `RESET`: Clears active scenario for a specified target or resets all active scenarios across the system in both memory and PostgreSQL (`CHAOS_RESET`).
+  - `AUTO-EXPIRY`: Evaluated deterministically against injected clock (`now.After(expiresAt)`). Expired scenarios automatically transition to inactive in PostgreSQL via atomic check-and-update and emit `CHAOS_EXPIRED` exactly once. Scenarios where `expires_at <= now` are never treated as active.
+- **Restart Safety & Hydration**: Active chaos state survives process restarts. On startup, `Hydrate()` reloads all unexpired active scenarios from PostgreSQL. If an unexpired active scenario exists in the database but is absent from memory cache, `GetActiveFault` loads, validates, and caches it on demand.
 - **Authorization Boundary**: All mutation and inspection controls require `OPS_ADMIN` role via JWT middleware. Public roles (`CUSTOMER`, `MERCHANT`) are rejected with `403 Forbidden`. Unauthenticated requests are rejected with `401 Unauthorized`.
-- **Durable Persistence & Audit**: Active and historical scenarios are persisted in PostgreSQL (`chaos_scenarios`), while state transitions (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`) are appended to `chaos_events` with actor ID, role, target ID, fault parameters, and timestamp.
+- **Durable Persistence & Audit**: Scenario state changes and lifecycle audit events (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`) are persisted atomically within PostgreSQL transactions. If durable persistence fails, API requests fail and in-memory faults are not activated.
 - **M2-3 / M2-4 / M2-5 System Integration**:
   - M2-3 Health Monitoring samples targets through `ChaosAdapter.GetHealth()`, capturing degraded availability, latency penalties, or timeouts.
-  - M2-5 Circuit Breaker observes health failure samples and trips `CLOSED -> OPEN` once the threshold is crossed. `HALF_OPEN` remains recovery-health-probe-only and excludes payment routing.
+  - M2-5 Circuit Breaker observes health failure samples and trips `CLOSED -> OPEN` once the failure threshold is crossed. `HALF_OPEN` remains recovery-health-probe-only and excludes payment routing.
   - M2-4 Adaptive Routing naturally avoids targets with low health scores or open circuits, redistributing eligible traffic to alternate valid execution rails. Routing never fabricates fake reroutes or alters bank ownership.
 
 ## Boundaries and future work

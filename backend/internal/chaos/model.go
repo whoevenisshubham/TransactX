@@ -47,6 +47,7 @@ var (
 	ErrScenarioNotFound  = errors.New("chaos scenario not found")
 	ErrScenarioInactive  = errors.New("chaos scenario is not active")
 	ErrTargetConflict    = errors.New("target already has an active chaos scenario")
+	ErrTargetNotFound    = errors.New("target is not a configured execution or health target")
 
 	// Domain simulation errors injected at the communication seam
 	ErrBankOutage        = errors.New("chaos simulation: bank endpoint unavailable")

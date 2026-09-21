@@ -31,7 +31,7 @@ Health samples retain stable execution-target identity, sampled time, availabili
 Migration `000012_m2_chaos_scenarios` defines two tables for controlled chaos engineering:
 - `chaos_scenarios`: Stores durable scenario definitions including `scenario_id` (unique), `scenario_type` (`BANK_OUTAGE`, `LATENCY`, `TRANSIENT_DROP`, `TEMPORARY_PARTITION`), `target_id`, `parameters` JSONB, `started_at`, `expires_at`, `stopped_at`, `active` boolean, `mode` (strictly `SIMULATION`), `created_by`, `stopped_by`, and audit timestamps. Indexed on `(target_id, active)` and `(active, expires_at)`.
 - `chaos_events`: Stores append-only scenario lifecycle transitions: `scenario_id`, `event_type` (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`), `target_id`, `fault_type`, `actor_id`, `actor_role`, `parameters` JSONB, `details` JSONB, and `occurred_at`. Indexed on `(scenario_id, occurred_at DESC)` and `(target_id, occurred_at DESC)`.
-Chaos tables are operational only and strictly forbidden from modifying financial authority, ledgers, accounts, or balances.
+All scenario state changes (start, stop, reset, expiry) and corresponding lifecycle audit events are committed atomically within PostgreSQL transactions (`CreateScenarioWithEvent`, `UpdateScenarioWithEvent`, `ExpireScenario`, `ResetScenarios`). If the database transaction fails, the in-memory fault controller refuses activation. Active scenario listings filter with `active = true AND expires_at > $now` to ensure expired rows are never returned as active. Chaos tables are operational only and strictly forbidden from modifying financial authority, ledgers, accounts, or balances.
 
 The API and Bank A process do not run migrations automatically at startup.
 
