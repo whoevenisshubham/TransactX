@@ -401,41 +401,9 @@ func (service *Service) RoutedAdaptersForPayment(ctx context.Context, payment Pa
 }
 
 func (service *Service) routedAdaptersFor(sourceBankID, destinationBankID *uuid.UUID) (bank.BankAdapter, bank.BankAdapter, bool) {
-	if sourceBankID != nil && destinationBankID != nil {
-		key := RouteKey{SourceBankID: *sourceBankID, DestinationBankID: *destinationBankID}
-		if targets, ok := service.executionTargets[key]; ok {
-			if len(targets) == 1 {
-				src := targets[0].SourceAdapter
-				dst := targets[0].DestinationAdapter
-				if src == nil && service.adapters != nil {
-					src = service.adapters[*sourceBankID]
-				}
-				if dst == nil && service.adapters != nil {
-					dst = service.adapters[*destinationBankID]
-				}
-				if src == nil {
-					src = service.adapter
-				}
-				if dst == nil {
-					dst = service.adapter
-				}
-				if src != nil && dst != nil {
-					return src, dst, true
-				}
-			}
-			// When len(targets) > 1, cannot blindly return targets[0] without payment route decision context
-			return nil, nil, false
-		}
-		if service.adapters != nil {
-			source, sourceOK := service.adapters[*sourceBankID]
-			destination, destinationOK := service.adapters[*destinationBankID]
-			return source, destination, sourceOK && destinationOK
-		}
-	}
-	if service.adapter != nil {
-		return service.adapter, service.adapter, true
-	}
-	return nil, nil, false
+	payment := Payment{SourceBankID: sourceBankID, DestinationBankID: destinationBankID}
+	src, dst, ok, _ := service.RoutedAdaptersForPayment(context.Background(), payment)
+	return src, dst, ok
 }
 
 func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string, notes ...string) string {

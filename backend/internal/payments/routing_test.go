@@ -679,3 +679,234 @@ func TestCreateRoutedIdempotentDuplicateUsesSelectedAdapters(t *testing.T) {
 		t.Fatalf("adapterA was invoked on duplicate: holdCalls=%d creditCalls=%d", adapterA.holdCalls, adapterA.creditCalls)
 	}
 }
+
+type spyHealthCountProvider struct {
+	snapshots map[string]health.HealthSnapshot
+	calls     int
+}
+
+func (s *spyHealthCountProvider) GetSnapshot(_ context.Context, targetID string, _ time.Time) (health.HealthSnapshot, error) {
+	s.calls++
+	return s.snapshots[targetID], nil
+}
+
+// Tests for actual Service.CreateWithResult() duplicate/pending recovery integration:
+// Proves A, B, C, D, E, F, G, H
+func TestServiceCreateWithResult_DuplicatePreservesSelectedExecutionTarget(t *testing.T) {
+	ctx := context.Background()
+	sourceBankID := uuid.New()
+	destBankID := uuid.New()
+	sourceAccountID := uuid.New()
+	userID := uuid.New()
+	key := "retry-idempotency-key-rail-b"
+	recipient := "bob@upi"
+	amountPaise := int64(10000)
+
+	adapterA := &spyBankAdapter{}
+	adapterB := &spyBankAdapter{}
+
+	targetA := ExecutionTarget{
+		CandidateID:        "candidate-a",
+		ExecutionTargetID:  "RAIL-A",
+		SourceAdapter:      adapterA,
+		DestinationAdapter: adapterA,
+	}
+	targetB := ExecutionTarget{
+		CandidateID:        "candidate-b",
+		ExecutionTargetID:  "RAIL-B",
+		SourceAdapter:      adapterB,
+		DestinationAdapter: adapterB,
+	}
+
+	targets := map[RouteKey][]ExecutionTarget{
+		{SourceBankID: sourceBankID, DestinationBankID: destBankID}: {targetA, targetB},
+	}
+
+	healthSpy := &spyHealthCountProvider{
+		snapshots: map[string]health.HealthSnapshot{
+			"RAIL-A": {TargetID: "RAIL-A", SampleCount: 5, AvailabilityScore: 1, Score: 0.40},
+			"RAIL-B": {TargetID: "RAIL-B", SampleCount: 5, AvailabilityScore: 1, Score: 0.90},
+		},
+	}
+
+	repo := &Repository{}
+	service := NewServiceWithExecutionTargets(nil, nil, repo, nil, targets, healthSpy, SelectionModeAdaptive, "")
+
+	paymentID := uuid.New()
+	pendingPayment := Payment{
+		ID:                paymentID,
+		InitiatedByUserID: userID,
+		SenderAccountID:   sourceAccountID,
+		AmountPaise:       amountPaise,
+		Currency:          "INR",
+		State:             StatePendingReconciliation,
+		SourceBankID:      &sourceBankID,
+		DestinationBankID: &destBankID,
+	}
+
+	// A. Initial payment selected RAIL-B (persisted route decision)
+	repo.SetSelectedExecutionTargetIDFn(func(ctx context.Context, pid uuid.UUID) (string, bool, error) {
+		if pid == paymentID {
+			return "RAIL-B", true, nil
+		}
+		return "", false, nil
+	})
+
+	recoveredCount := 0
+	repo.SetMockHooks(
+		// B. Payment is pending on lookup
+		func(ctx context.Context, uid uuid.UUID, k, hash string) (Payment, bool, error) {
+			if uid == userID && k == key {
+				return pendingPayment, true, nil
+			}
+			return Payment{}, false, nil
+		},
+		// Recovery hook
+		func(ctx context.Context, p Payment, src, dst bank.BankAdapter) error {
+			recoveredCount++
+			// D. RoutedAdaptersForPayment resolves RAIL-B: verify exact adapters passed
+			if src != adapterB || dst != adapterB {
+				t.Fatalf("RecoverRoutedPayment received wrong adapters: src=%v dst=%v; want adapterB", src, dst)
+			}
+			_, _ = src.HoldFunds(ctx, bank.HoldFundsRequest{})
+			_, _ = dst.ProvisionalCredit(ctx, bank.ProvisionalCreditRequest{})
+			pendingPayment.State = StateCompleted
+			return nil
+		},
+		// Get hook returns refreshed payment
+		func(ctx context.Context, id uuid.UUID) (Payment, error) {
+			if id == paymentID {
+				return pendingPayment, nil
+			}
+			return Payment{}, ErrNotFound
+		},
+	)
+
+	// Reset healthSpy calls before retry
+	healthSpy.calls = 0
+
+	// C. Customer retries the SAME idempotency key via Service.CreateWithResult()
+	input := CreateInput{
+		UserID:          userID,
+		SourceAccountID: sourceAccountID,
+		Recipient:       recipient,
+		AmountPaise:     amountPaise,
+		Currency:        "INR",
+		Note:            "retry payment",
+		IdempotencyKey:  key,
+	}
+
+	resultPayment, duplicate, err := service.CreateWithResult(ctx, input)
+	if err != nil {
+		t.Fatalf("unexpected error on retry: %v", err)
+	}
+	if !duplicate {
+		t.Fatal("expected duplicate=true on idempotency retry")
+	}
+	if resultPayment.State != StateCompleted {
+		t.Fatalf("expected recovered state %s, got %s", StateCompleted, resultPayment.State)
+	}
+	if recoveredCount != 1 {
+		t.Fatalf("expected RecoverRoutedPayment to be called once, got %d", recoveredCount)
+	}
+
+	// D. RoutedAdaptersForPayment resolved RAIL-B: adapterB was used
+	if adapterB.holdCalls != 1 || adapterB.creditCalls != 1 {
+		t.Fatalf("expected adapterB holdCalls=1, creditCalls=1; got hold=%d credit=%d", adapterB.holdCalls, adapterB.creditCalls)
+	}
+
+	// E. RAIL-A is NEVER used
+	if adapterA.holdCalls != 0 || adapterA.creditCalls != 0 {
+		t.Fatalf("RAIL-A adapter was invoked! holdCalls=%d creditCalls=%d", adapterA.holdCalls, adapterA.creditCalls)
+	}
+
+	// F. Recovery does not re-run route selection
+	if healthSpy.calls != 0 {
+		t.Fatalf("recovery re-ran route selection! healthSpy.calls=%d", healthSpy.calls)
+	}
+
+	// G & H: Missing RAIL-B configuration leaves the payment pending/fail-closed,
+	// and a different configured target (RAIL-A) cannot silently replace RAIL-B.
+	t.Run("MissingRAILBConfiguration_FailsClosed_PreservesPending", func(t *testing.T) {
+		adapterA2 := &spyBankAdapter{}
+		// Only RAIL-A is configured; RAIL-B is missing
+		missingTargets := map[RouteKey][]ExecutionTarget{
+			{SourceBankID: sourceBankID, DestinationBankID: destBankID}: {
+				{CandidateID: "candidate-a", ExecutionTargetID: "RAIL-A", SourceAdapter: adapterA2, DestinationAdapter: adapterA2},
+			},
+		}
+
+		missingRepo := &Repository{}
+		serviceMissing := NewServiceWithExecutionTargets(nil, nil, missingRepo, nil, missingTargets, nil, SelectionModeAdaptive, "")
+
+		missingPaymentID := uuid.New()
+		missingPayment := Payment{
+			ID:                missingPaymentID,
+			InitiatedByUserID: userID,
+			SenderAccountID:   sourceAccountID,
+			AmountPaise:       amountPaise,
+			Currency:          "INR",
+			State:             StatePendingReconciliation,
+			SourceBankID:      &sourceBankID,
+			DestinationBankID: &destBankID,
+		}
+
+		missingKey := "retry-missing-rail-b"
+		missingRepo.SetSelectedExecutionTargetIDFn(func(ctx context.Context, pid uuid.UUID) (string, bool, error) {
+			if pid == missingPaymentID {
+				// Payment originally selected RAIL-B
+				return "RAIL-B", true, nil
+			}
+			return "", false, nil
+		})
+
+		recoveredCalled := false
+		missingRepo.SetMockHooks(
+			func(ctx context.Context, uid uuid.UUID, k, hash string) (Payment, bool, error) {
+				if uid == userID && k == missingKey {
+					return missingPayment, true, nil
+				}
+				return Payment{}, false, nil
+			},
+			func(ctx context.Context, p Payment, src, dst bank.BankAdapter) error {
+				recoveredCalled = true
+				return nil
+			},
+			func(ctx context.Context, id uuid.UUID) (Payment, error) {
+				return missingPayment, nil
+			},
+		)
+
+		missingInput := CreateInput{
+			UserID:          userID,
+			SourceAccountID: sourceAccountID,
+			Recipient:       recipient,
+			AmountPaise:     amountPaise,
+			Currency:        "INR",
+			Note:            "missing rail-b test",
+			IdempotencyKey:  missingKey,
+		}
+
+		resPayment, dup, err := serviceMissing.CreateWithResult(ctx, missingInput)
+		if err != nil {
+			t.Fatalf("unexpected error on missing target retry: %v", err)
+		}
+		if !dup {
+			t.Fatal("expected duplicate=true")
+		}
+
+		// G. Missing RAIL-B leaves payment pending/fail-closed
+		if resPayment.State != StatePendingReconciliation {
+			t.Fatalf("expected state to remain %s, got %s", StatePendingReconciliation, resPayment.State)
+		}
+		if recoveredCalled {
+			t.Fatal("RecoverRoutedPayment was called even though RAIL-B was missing from configuration!")
+		}
+
+		// H. Different configured target (RAIL-A) cannot silently replace RAIL-B
+		if adapterA2.holdCalls != 0 || adapterA2.creditCalls != 0 {
+			t.Fatalf("RAIL-A was silently used to substitute missing RAIL-B! holdCalls=%d, creditCalls=%d",
+				adapterA2.holdCalls, adapterA2.creditCalls)
+		}
+	})
+}

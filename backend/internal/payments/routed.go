@@ -245,6 +245,9 @@ processing:
 // operation identities through status lookup before making any new monetary
 // call. A retry never creates a replacement operation ID.
 func (repository *Repository) RecoverRoutedPayment(ctx context.Context, payment Payment, sourceAdapter, destinationAdapter bank.BankAdapter) error {
+	if repository.recoverRoutedFn != nil {
+		return repository.recoverRoutedFn(ctx, payment, sourceAdapter, destinationAdapter)
+	}
 	if payment.State != StateProcessing && payment.State != StatePendingReconciliation {
 		return nil
 	}
@@ -533,7 +536,13 @@ func (repository *Repository) RecoverBankSettledCentralPending(ctx context.Conte
 // GetSelectedExecutionTargetID loads the latest selected execution_target_id
 // for a payment from payment_route_decisions.
 func (repository *Repository) GetSelectedExecutionTargetID(ctx context.Context, paymentID uuid.UUID) (string, bool, error) {
-	if repository == nil || repository.db == nil {
+	if repository == nil {
+		return "", false, nil
+	}
+	if repository.getSelectedExecutionTargetIDFn != nil {
+		return repository.getSelectedExecutionTargetIDFn(ctx, paymentID)
+	}
+	if repository.db == nil {
 		return "", false, nil
 	}
 	var targetID string
