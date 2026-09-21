@@ -5,6 +5,7 @@ import { Amount, Avatar, BrandMark, Button, EmptyState, formatDate, Icon, PageHe
 import { parsePaise } from "./money";
 import { OfflineIntentQueue, type OfflineIntent } from "./offlineQueue";
 import { OfflineReplayWorker } from "./offlineReplay";
+import { encodeQRSvg } from "./qr";
 import type { Account, MerchantReceiveInfo, MerchantView, Payment, Recipient, User, View } from "./types";
 import "./styles.css";
 
@@ -297,12 +298,22 @@ function MerchantReceiveView({ token }: { token: string }) {
   const [info, setInfo] = useState<MerchantReceiveInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // qrSvg is populated async once `info` is available.
+  const [qrSvg, setQrSvg] = useState("");
 
   useEffect(() => {
     let active = true;
     api.merchantReceiveInfo(token)
-      .then((data) => { if (active) { setInfo(data); setLoading(false); } })
-      .catch((caught) => { if (active) { setError(caught instanceof Error ? caught.message : "Could not load receive information."); setLoading(false); } });
+      .then((data) => {
+        if (!active) return;
+        setInfo(data);
+        // Encode the real QR code immediately after info is available.
+        return encodeQRSvg(data.paymentIdentifier).then((svg) => {
+          if (active) setQrSvg(svg);
+        });
+      })
+      .catch((caught) => { if (active) { setError(caught instanceof Error ? caught.message : "Could not load receive information."); } })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [token]);
 
@@ -321,8 +332,6 @@ function MerchantReceiveView({ token }: { token: string }) {
     </div>
   );
 
-  const qrSvg = buildQRSvg(info.paymentIdentifier);
-
   return (
     <>
       <PageHeader eyebrow="Receive" title="Accept payments" description="Share your QR code or payment ID with customers." />
@@ -334,8 +343,11 @@ function MerchantReceiveView({ token }: { token: string }) {
               Ask your customer to scan this code with their TransactX app.
             </p>
           </div>
-          <div className="merchant-qr-frame" aria-label={`QR code for payment to ${info.paymentIdentifier}`}
-            dangerouslySetInnerHTML={{ __html: qrSvg }} />
+          {qrSvg
+            ? <div className="merchant-qr-frame" aria-label={`QR code for payment to ${info.paymentIdentifier}`}
+                dangerouslySetInnerHTML={{ __html: qrSvg }} />
+            : <div className="merchant-qr-frame" style={{ width: 168, height: 168, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: "0.78rem" }}>Generating…</div>
+          }
           <div className="merchant-qr-id">
             <span className="eyebrow">Payment ID</span>
             <strong className="merchant-pid">{info.paymentIdentifier}</strong>
@@ -539,66 +551,7 @@ function MerchantPaymentRow({ payment, expanded = false }: { payment: Payment; e
   );
 }
 
-// ---------------------------------------------------------------------------
-// Utility: QR Code (pure TypeScript, no library dependency)
-// QR encoding: always uses the alphanumeric mode and appends the payment ID.
-// This generates a simple QR-like grid visual — a real QR encoder would be
-// needed for camera scanning in production, but for the merchant demo surface
-// this renders the identifier as a scannable-looking SVG.
-// ---------------------------------------------------------------------------
-
-function buildQRSvg(text: string): string {
-  // Deterministic grid: hash the text to produce a stable 21x21 grid of cells.
-  // This is a visual placeholder — it renders as a QR-like square grid.
-  const size = 21;
-  const cells: boolean[][] = [];
-  for (let row = 0; row < size; row++) {
-    cells.push([]);
-    for (let col = 0; col < size; col++) {
-      // Use finder patterns + deterministic fill from text hash
-      const inFinder = isFinderCell(row, col, size);
-      if (inFinder) { cells[row].push(isFinderDark(row, col, size)); continue; }
-      // Stable hash per cell based on text content
-      let h = 0;
-      for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i) + row * 7 + col * 13) >>> 0;
-      cells[row].push((h & 1) === 1);
-    }
-  }
-  const cellPx = 8;
-  const margin = 16;
-  const dim = size * cellPx + margin * 2;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${dim}" height="${dim}" viewBox="0 0 ${dim} ${dim}">`;
-  svg += `<rect width="${dim}" height="${dim}" fill="white" />`;
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      if (cells[r][c]) {
-        svg += `<rect x="${margin + c * cellPx}" y="${margin + r * cellPx}" width="${cellPx}" height="${cellPx}" fill="#17201d" />`;
-      }
-    }
-  }
-  svg += `</svg>`;
-  return svg;
-}
-
-function isFinderCell(row: number, col: number, size: number): boolean {
-  return (row < 8 && col < 8) || (row < 8 && col >= size - 8) || (row >= size - 8 && col < 8);
-}
-
-function isFinderDark(row: number, col: number, size: number): boolean {
-  // Top-left finder
-  if (row < 8 && col < 8) return finderPattern(row, col);
-  // Top-right finder
-  if (row < 8 && col >= size - 8) return finderPattern(row, col - (size - 7));
-  // Bottom-left finder
-  if (row >= size - 8 && col < 8) return finderPattern(row - (size - 7), col);
-  return false;
-}
-
-function finderPattern(r: number, c: number): boolean {
-  if (r === 0 || r === 6 || c === 0 || c === 6) return r <= 6 && c <= 6;
-  if (r >= 2 && r <= 4 && c >= 2 && c <= 4) return true;
-  return false;
-}
+// (QR encoding is handled by src/qr.ts using the `qrcode` npm package)
 
 // ---------------------------------------------------------------------------
 // Routing helpers for merchant views
