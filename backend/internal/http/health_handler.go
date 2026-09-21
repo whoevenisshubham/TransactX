@@ -45,6 +45,10 @@ func (handler *Handler) healthSample(writer http.ResponseWriter, request *http.R
 		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "health target is invalid", http.StatusBadRequest))
 		return
 	}
+	if errors.Is(err, health.ErrProbeRejected) {
+		writeAPIError(writer, request, common.NewAPIError("CIRCUIT_REJECTED", "health probe rejected: circuit open or probe limit exceeded", http.StatusServiceUnavailable))
+		return
+	}
 	if err != nil {
 		handler.logger.Warn("health sample failed", "request_id", common.GetRequestID(request), "error", err)
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "health sample could not be recorded", http.StatusServiceUnavailable))

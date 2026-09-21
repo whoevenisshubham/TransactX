@@ -61,16 +61,24 @@ func (c *ExecutionTargetConfig) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
-	Address               string
-	DatabaseURL           string
-	JWTSecret             string
-	JWTIssuer             string
-	JWTLifetime           time.Duration
-	DefaultBankCode       string
-	DevelopmentMode       bool
-	RoutingMode           string
-	RoutingStaticBaseline string
-	ExecutionTargets      []ExecutionTargetConfig
+	Address                   string
+	DatabaseURL               string
+	JWTSecret                 string
+	JWTIssuer                 string
+	JWTLifetime               time.Duration
+	DefaultBankCode           string
+	DevelopmentMode           bool
+	RoutingMode               string
+	RoutingStaticBaseline     string
+	ExecutionTargets          []ExecutionTargetConfig
+	CircuitFailureThreshold   int
+	CircuitTimeoutThreshold   int
+	CircuitRollingWindow      time.Duration
+	CircuitOpenCooldown       time.Duration
+	CircuitHalfOpenProbeLimit int
+	CircuitSuccessThreshold   int
+	CircuitRestorationSteps   int
+	CircuitSuccessPolicy      string
 }
 
 func Load() (Config, error) {
@@ -96,17 +104,65 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("ROUTING_TARGETS invalid: %w", err)
 	}
 
+	circuitFailureThreshold, err := strconv.Atoi(getEnv("CIRCUIT_FAILURE_THRESHOLD", "5"))
+	if err != nil || circuitFailureThreshold <= 0 {
+		return Config{}, fmt.Errorf("CIRCUIT_FAILURE_THRESHOLD must be a positive integer: %w", err)
+	}
+
+	circuitTimeoutThreshold, err := strconv.Atoi(getEnv("CIRCUIT_TIMEOUT_THRESHOLD", "0"))
+	if err != nil || circuitTimeoutThreshold < 0 {
+		return Config{}, fmt.Errorf("CIRCUIT_TIMEOUT_THRESHOLD must be a non-negative integer: %w", err)
+	}
+
+	circuitRollingWindow, err := time.ParseDuration(getEnv("CIRCUIT_ROLLING_WINDOW", "60s"))
+	if err != nil || circuitRollingWindow <= 0 {
+		return Config{}, fmt.Errorf("CIRCUIT_ROLLING_WINDOW must be a positive duration: %w", err)
+	}
+
+	circuitOpenCooldown, err := time.ParseDuration(getEnv("CIRCUIT_OPEN_COOLDOWN", "30s"))
+	if err != nil || circuitOpenCooldown <= 0 {
+		return Config{}, fmt.Errorf("CIRCUIT_OPEN_COOLDOWN must be a positive duration: %w", err)
+	}
+
+	circuitHalfOpenProbeLimit, err := strconv.Atoi(getEnv("CIRCUIT_HALF_OPEN_PROBE_LIMIT", "2"))
+	if err != nil || circuitHalfOpenProbeLimit <= 0 {
+		return Config{}, fmt.Errorf("CIRCUIT_HALF_OPEN_PROBE_LIMIT must be a positive integer: %w", err)
+	}
+
+	circuitSuccessThreshold, err := strconv.Atoi(getEnv("CIRCUIT_SUCCESS_THRESHOLD", "2"))
+	if err != nil || circuitSuccessThreshold <= 0 {
+		return Config{}, fmt.Errorf("CIRCUIT_SUCCESS_THRESHOLD must be a positive integer: %w", err)
+	}
+
+	circuitRestorationSteps, err := strconv.Atoi(getEnv("CIRCUIT_RESTORATION_STEPS", "3"))
+	if err != nil || circuitRestorationSteps < 1 {
+		return Config{}, fmt.Errorf("CIRCUIT_RESTORATION_STEPS must be an integer >= 1: %w", err)
+	}
+
+	circuitSuccessPolicy := strings.ToUpper(strings.TrimSpace(getEnv("CIRCUIT_SUCCESS_POLICY", "DECREMENT")))
+	if circuitSuccessPolicy != "DECREMENT" && circuitSuccessPolicy != "RESET" {
+		return Config{}, fmt.Errorf("CIRCUIT_SUCCESS_POLICY must be DECREMENT or RESET: %q", circuitSuccessPolicy)
+	}
+
 	cfg := Config{
-		Address:               getEnv("APP_ADDR", ":8080"),
-		DatabaseURL:           getEnv("DATABASE_URL", ""),
-		JWTSecret:             os.Getenv("JWT_SECRET"),
-		JWTIssuer:             getEnv("JWT_ISSUER", "transactx-api"),
-		JWTLifetime:           jwtLifetime,
-		DefaultBankCode:       getEnv("DEFAULT_BANK_CODE", "BANK-DEV-001"),
-		DevelopmentMode:       developmentMode,
-		RoutingMode:           routingMode,
-		RoutingStaticBaseline: routingStaticBaseline,
-		ExecutionTargets:      executionTargets,
+		Address:                   getEnv("APP_ADDR", ":8080"),
+		DatabaseURL:               getEnv("DATABASE_URL", ""),
+		JWTSecret:                 os.Getenv("JWT_SECRET"),
+		JWTIssuer:                 getEnv("JWT_ISSUER", "transactx-api"),
+		JWTLifetime:               jwtLifetime,
+		DefaultBankCode:           getEnv("DEFAULT_BANK_CODE", "BANK-DEV-001"),
+		DevelopmentMode:           developmentMode,
+		RoutingMode:               routingMode,
+		RoutingStaticBaseline:     routingStaticBaseline,
+		ExecutionTargets:          executionTargets,
+		CircuitFailureThreshold:   circuitFailureThreshold,
+		CircuitTimeoutThreshold:   circuitTimeoutThreshold,
+		CircuitRollingWindow:      circuitRollingWindow,
+		CircuitOpenCooldown:       circuitOpenCooldown,
+		CircuitHalfOpenProbeLimit: circuitHalfOpenProbeLimit,
+		CircuitSuccessThreshold:   circuitSuccessThreshold,
+		CircuitRestorationSteps:   circuitRestorationSteps,
+		CircuitSuccessPolicy:      circuitSuccessPolicy,
 	}
 	if !developmentMode && len([]byte(cfg.JWTSecret)) < 32 {
 		return Config{}, errors.New("JWT_SECRET must contain at least 32 bytes outside development mode")

@@ -129,3 +129,74 @@ func TestSampleMeasuresElapsedLatency(t *testing.T) {
 		t.Fatalf("latency = %s, want measured elapsed latency", sample.Latency)
 	}
 }
+
+type mockProbeGate struct {
+	mu            sync.Mutex
+	allowed       bool
+	isProbe       bool
+	releaseCalls  int
+	beforeCalls   int
+	lastTargetID  string
+}
+
+func (m *mockProbeGate) BeforeHealthSample(targetID string, now ...time.Time) (bool, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.beforeCalls++
+	m.lastTargetID = targetID
+	return m.allowed, m.isProbe
+}
+
+func (m *mockProbeGate) ReleaseProbe(targetID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.releaseCalls++
+	m.lastTargetID = targetID
+}
+
+func TestSampleProbeGateRejection(t *testing.T) {
+	repository := &memoryRepository{}
+	service := NewService(repository, DefaultConfig())
+	gate := &mockProbeGate{allowed: false, isProbe: false}
+	service.SetProbeGate(gate)
+
+	checkerCalled := false
+	checker := healthChecker(func(context.Context) (bank.HealthResult, error) {
+		checkerCalled = true
+		return bank.HealthResult{Available: true}, nil
+	})
+
+	_, err := service.Sample(context.Background(), "RAIL-A", checker)
+	if !errors.Is(err, ErrProbeRejected) {
+		t.Fatalf("expected ErrProbeRejected, got %v", err)
+	}
+	if checkerCalled {
+		t.Fatalf("checker must not be called when probe gate rejects")
+	}
+	if gate.beforeCalls != 1 || gate.lastTargetID != "RAIL-A" {
+		t.Fatalf("gate before calls = %d, target = %s", gate.beforeCalls, gate.lastTargetID)
+	}
+}
+
+func TestSampleProbeGateReleaseOnPanic(t *testing.T) {
+	repository := &memoryRepository{}
+	service := NewService(repository, DefaultConfig())
+	gate := &mockProbeGate{allowed: true, isProbe: true}
+	service.SetProbeGate(gate)
+
+	checker := healthChecker(func(context.Context) (bank.HealthResult, error) {
+		panic("boom")
+	})
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic")
+		}
+		if gate.releaseCalls != 1 {
+			t.Fatalf("expected ReleaseProbe to be called once on panic, got %d", gate.releaseCalls)
+		}
+	}()
+
+	_, _ = service.Sample(context.Background(), "RAIL-A", checker)
+}

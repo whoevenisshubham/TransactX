@@ -12,6 +12,7 @@ import (
 	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/circuit"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/health"
 	"github.com/transactx/backend/internal/payments"
@@ -20,15 +21,16 @@ import (
 )
 
 type Handler struct {
-	db            *pgxpool.Pool
-	logger        *slog.Logger
-	auth          *auth.Service
-	users         *users.Repository
-	accountsRepo  *accounts.Repository
-	recipients    *recipients.Repository
-	payments      *payments.Service
-	healthService *health.Service
-	healthTargets map[string]health.HealthChecker
+	db             *pgxpool.Pool
+	logger         *slog.Logger
+	auth           *auth.Service
+	users          *users.Repository
+	accountsRepo   *accounts.Repository
+	recipients     *recipients.Repository
+	payments       *payments.Service
+	healthService  *health.Service
+	healthTargets  map[string]health.HealthChecker
+	circuitBreaker *circuit.CircuitBreaker
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -63,11 +65,15 @@ func NewHandlerWithExecutionTargets(db *pgxpool.Pool, logger *slog.Logger, authS
 	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, mode, staticBaseline)
 }
 
+func NewHandlerWithExecutionTargetsAndCircuit(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker) http.Handler {
+	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, mode, staticBaseline, circuitBreaker)
+}
+
 func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
 	return newHandlerWithAdapters(db, logger, authService, jwtManager, adapter, nil, nil, nil, nil, nil, payments.SelectionModeAdaptive, "")
 }
 
-func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string) http.Handler {
+func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreakers ...*circuit.CircuitBreaker) http.Handler {
 	handler := &Handler{
 		db:            db,
 		logger:        logger,
@@ -77,6 +83,9 @@ func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *
 		recipients:    recipients.NewRepository(db),
 		healthService: healthService,
 		healthTargets: healthTargets,
+	}
+	if len(circuitBreakers) > 0 && circuitBreakers[0] != nil {
+		handler.circuitBreaker = circuitBreakers[0]
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -89,12 +98,24 @@ func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *
 	} else {
 		handler.payments = payments.NewService(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapter)
 	}
+	if handler.circuitBreaker != nil && handler.payments != nil {
+		handler.payments.SetCircuitEligibility(handler.circuitBreaker.EligibilityHook())
+	}
+	if handler.circuitBreaker != nil && handler.healthService != nil {
+		handler.healthService.SetSampleObserver(handler.circuitBreaker.RecordHealthSample)
+		handler.healthService.SetProbeGate(handler.circuitBreaker)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)
 	if healthService != nil {
 		mux.Handle("GET /api/ops/health/{targetID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.healthSnapshot))))
 		mux.Handle("POST /api/ops/health/{targetID}/sample", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.healthSample))))
+	}
+	if handler.circuitBreaker != nil {
+		mux.Handle("GET /api/ops/circuit", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.circuitSnapshots))))
+		mux.Handle("GET /api/ops/circuit/{targetID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.circuitSnapshot))))
+		mux.Handle("GET /api/ops/circuit/{targetID}/events", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.circuitEvents))))
 	}
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)

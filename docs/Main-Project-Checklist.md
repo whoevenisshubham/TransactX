@@ -188,12 +188,12 @@ Duration: Week 8   Objective: Make the network resilient to degraded or failed b
 \[x] M2 — Implement deterministic health score.
 \[x] M2 — Implement candidate route selection using genuine execution targets and deterministic health scoring.
 \[x] M2 — Record immutable routing decisions, health snapshots, and reason codes.
-\[ ] M2 — Implement failure counters.
-\[ ] M2 — Implement circuit CLOSED state.
-\[ ] M2 — Implement OPEN state.
-\[ ] M2 — Implement HALF\_OPEN state.
-\[ ] M2 — Implement cooldown and probe behavior.
-\[ ] M2 — Implement gradual traffic restoration after recovery.
+\[x] M2 — Implement failure counters.
+\[x] M2 — Implement circuit CLOSED state.
+\[x] M2 — Implement OPEN state.
+\[x] M2 — Implement HALF\_OPEN state.
+\[x] M2 — Implement cooldown and probe behavior.
+\[x] M2 — Implement gradual traffic restoration after recovery.
 \[ ] M3 — Build bank-health view.
 \[ ] M3 — Build routing distribution visualization.
 \[ ] M3 — Stream health/routing changes to the frontend.
