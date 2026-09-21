@@ -119,7 +119,7 @@ func RunExperiment2(ctx context.Context, seed int64, totalRequests int) (*Experi
 		"targetA":        "RAIL-A",
 		"targetB":        "RAIL-B",
 		"outageDuration": "100 requests (33% of workload)",
-		"circuitConfig":  "failureThreshold=3, cooldown=5s",
+		"circuitConfig":  "failureThreshold=3, cooldown=3s",
 	}
 	env := CaptureEnvironmentMetadata(seed, totalRequests, scenarioParams)
 
@@ -138,6 +138,40 @@ func RunExperiment2(ctx context.Context, seed int64, totalRequests int) (*Experi
 		Proposed:     proposedSummary,
 		Samples:      allSamples,
 	}, nil
+}
+
+// RouteDecisionCheck records a route decision for invariant verification.
+type RouteDecisionCheck struct {
+	Index        int
+	TargetID     string
+	CircuitState circuit.State
+	Reason       string
+}
+
+// CheckCircuitEligibilityDecisions inspects every route decision to verify that
+// no payment request was routed to an OPEN target.
+func CheckCircuitEligibilityDecisions(decisions []RouteDecisionCheck) InvariantResult {
+	var violationCount int
+	var firstViolation string
+	for _, d := range decisions {
+		if d.CircuitState == circuit.StateOpen {
+			violationCount++
+			if firstViolation == "" {
+				firstViolation = fmt.Sprintf("request %d routed to %s while circuit state was OPEN (reason: %s)", d.Index, d.TargetID, d.Reason)
+			}
+		}
+	}
+
+	details := fmt.Sprintf("checked decisions: %d, violation count: %d", len(decisions), violationCount)
+	if firstViolation != "" {
+		details += fmt.Sprintf(", first violation: %s", firstViolation)
+	}
+
+	return InvariantResult{
+		InvariantName: "No route decision violated circuit eligibility",
+		Passed:        violationCount == 0,
+		Details:       details,
+	}
 }
 
 func runOutageSimulation(ctx context.Context, seed int64, totalRequests int, enableCircuitBreaker bool) (*ExperimentSummary, []ExperimentSample) {
@@ -204,6 +238,7 @@ func runOutageSimulation(ctx context.Context, seed int64, totalRequests int, ena
 	trafficShareBefore := make(map[string]int)
 	trafficShareDuring := make(map[string]int)
 	trafficShareAfter := make(map[string]int)
+	routeDecisionChecks := make([]RouteDecisionCheck, 0, totalRequests)
 
 	successes := 0
 	failures := 0
@@ -263,6 +298,15 @@ func runOutageSimulation(ctx context.Context, seed int64, totalRequests int, ena
 
 		selectedTarget := decision.Candidate.ExecutionTargetID
 		decisionReasons[decision.Reason]++
+
+		if enableCircuitBreaker {
+			routeDecisionChecks = append(routeDecisionChecks, RouteDecisionCheck{
+				Index:        i,
+				TargetID:     selectedTarget,
+				CircuitState: cb.GetState(selectedTarget, now),
+				Reason:       decision.Reason,
+			})
+		}
 
 		// Track traffic phase distribution
 		if i < outageStartIdx {
@@ -342,11 +386,7 @@ func runOutageSimulation(ctx context.Context, seed int64, totalRequests int, ena
 			Passed:        isolationTimeMs > 0 && trafficShareDuring["RAIL-B"] > trafficShareDuring["RAIL-A"],
 			Details:       fmt.Sprintf("isolationTime=%.2fms, duringOutage: Rail-A=%d, Rail-B=%d", isolationTimeMs, trafficShareDuring["RAIL-A"], trafficShareDuring["RAIL-B"]),
 		})
-		invariants = append(invariants, InvariantResult{
-			InvariantName: "No route decision violated circuit eligibility",
-			Passed:        true,
-			Details:       "Zero requests routed to OPEN circuit target while in open state",
-		})
+		invariants = append(invariants, CheckCircuitEligibilityDecisions(routeDecisionChecks))
 	}
 
 	allInv := true

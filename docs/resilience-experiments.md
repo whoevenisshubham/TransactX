@@ -10,9 +10,15 @@ All reported numbers are strictly derived from executed benchmark runs. No numbe
 
 To maintain absolute transparency, the test harness clearly distinguishes between genuine domain components under evaluation and the deterministic test doubles used to isolate operational failure conditions:
 
-### Real M2 Domain Components Evaluated
-- **`internal/payments`**: Dynamic candidate evaluation, selection modes (`SelectionModeStatic`, `SelectionModeAdaptive`), route-decision auditing, and circuit-eligibility hook enforcement.
-- **`internal/health`**: Real-time health scoring algorithm (`Score = 0.60*Latency + 0.20*Availability + 0.20*Success`), sliding-window sample retention, and penalty curves.
+- **`internal/health`**: Real-time health scoring algorithm (`backend/internal/health`):
+  - Normalized signal definitions:
+    - `availabilityScore = successfulChecks / totalChecks`
+    - `successScore = successfulCalls / totalCalls`
+    - `latencyPenalty = clamp((p95Latency - lowerBound) / (upperBound - lowerBound), 0, 1)`
+    - `timeoutPenalty = timeoutRate`
+  - Default Score Formula:
+    $$0.35 \times \text{availabilityScore} + 0.35 \times \text{successScore} - 0.20 \times \text{latencyPenalty} - 0.10 \times \text{timeoutPenalty}$$
+  - Supported with bounded sliding-window sample retention, configurable penalty thresholds, and clamping to $[0, 1]$.
 - **`internal/circuit`**: State machine transitions (`CLOSED`, `OPEN`, `HALF_OPEN`), failure/success thresholds, cooldown expiration, probe limiting, and gradual restoration.
 - **`internal/chaos`**: Controlled fault-injection controller, target validation, scenario lifecycle (start, stop, expiry), and `ChaosAdapter` proxy seam.
 - **`frontend/src/offlineQueue.ts`**: Client-side IndexedDB persistence, owner user isolation, atomic state transitions, lease locking, and idempotency key persistence.
@@ -41,7 +47,7 @@ To maintain absolute transparency, the test harness clearly distinguishes betwee
 
 Every benchmark run captures environmental metadata embedded directly into each JSON output:
 
-- **Git Commit**: `356b04312a611441a5d40cecac221f2c4485d7c1`
+- **Git Commit**: `25d24e5c1af5bd0fa88cda51efce7809f3246377`
 - **Platform / OS**: `windows/amd64` (backend), `win32/x64` (frontend)
 - **Go Version**: `go1.27.1`
 - **Node.js Version**: `v24.14.0`
@@ -58,13 +64,13 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
 
 ### Configuration
 - **Baseline**: Static candidate ordering (`SelectionModeStatic`), always selecting the designated static baseline (`CANDIDATE-A` -> `RAIL-A`).
-- **Proposed**: Health-aware selector (`SelectionModeAdaptive`), scoring execution targets via `health.HealthSnapshotProvider` (`Score = 0.5*LatencyScore + 0.25*AvailabilityScore + 0.25*SuccessScore`).
+- **Proposed**: Health-aware selector (`SelectionModeAdaptive`), using the M2 default health formula and weights from `health.DefaultConfig()` (`0.35 * availabilityScore + 0.35 * successScore - 0.20 * latencyPenalty - 0.10 * timeoutPenalty`), with the Experiment 1-specific overrides `Window=10m` (the M2 default is 15m) and `MinSamples=1` (same as the default).
 - **Workload**: 300 sequential requests.
   - Phase 1 (Requests 0–74): Both targets healthy (10–14 ms latency, 100% success).
   - Phase 2 (Requests 75–224): Primary target `RAIL-A` degraded (80% failure rate, 150 ms latency). Backup `RAIL-B` healthy.
   - Phase 3 (Requests 225–299): Both targets healthy.
 
-### Measured Results (Run `routing-20260921-161317`)
+### Measured Results (Run `routing-20260921-170314`)
 
 | Metric | Baseline (Static) | Proposed (Adaptive) | Difference / Impact |
 | :--- | :--- | :--- | :--- |
@@ -80,8 +86,8 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
 | **Invariants Satisfied** | Yes | Yes | Zero accounting drift |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/routing/routing-20260921-161317.json`
-- CSV: `artifacts/experiments/routing/routing-20260921-161317.csv`
+- JSON: `artifacts/experiments/routing/routing-20260921-170314.json`
+- CSV: `artifacts/experiments/routing/routing-20260921-170314.csv`
 
 ---
 
@@ -101,7 +107,7 @@ Evaluate how circuit breaker integration (`internal/circuit`) detects a complete
 - **Baseline**: Static routing without circuit breaker, repeatedly attempting `RAIL-A`.
 - **Proposed**: Adaptive routing with circuit eligibility hook (`cb.EligibilityHook`).
 
-### Measured Results (Run `outage-20260921-161317`)
+### Measured Results (Run `outage-20260921-170315`)
 
 | Metric | Baseline (Static) | Proposed (Circuit-Aware) | Notes |
 | :--- | :--- | :--- | :--- |
@@ -121,8 +127,8 @@ Evaluate how circuit breaker integration (`internal/circuit`) detects a complete
 - `Eligibility Conformance`: Zero requests routed to OPEN circuit target (Verified)
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/outage/outage-20260921-161317.json`
-- CSV: `artifacts/experiments/outage/outage-20260921-161317.csv`
+- JSON: `artifacts/experiments/outage/outage-20260921-170315.json`
+- CSV: `artifacts/experiments/outage/outage-20260921-170315.csv`
 
 ---
 
@@ -136,10 +142,13 @@ Measure route selector responsiveness to transient latency degradation injected 
   - Phase 1 (0–99): Healthy baseline (`RAIL-A`: 1ms, `RAIL-B`: 2ms).
   - Phase 2 (100–199): Injected latency on `RAIL-A` (+15ms -> ~16–17ms total).
   - Phase 3 (200–299): Recovery back to healthy baseline.
-- **Health Configuration**: `LatencyLowerBound=1ms`, `LatencyUpperBound=10ms`, `LatencyWeight=0.60`.
+- **Health Configuration (Experiment-Specific Override)**: To evaluate route selector sensitivity specifically under injected transient latency, Experiment 3 applies an experiment-specific weight override over the default configuration:
+  - `LatencyWeight = 0.60`, `AvailabilityWeight = 0.20`, `SuccessWeight = 0.20`, `TimeoutWeight = 0.10`
+  - `LatencyLowerBound = 1ms`, `LatencyUpperBound = 10ms`, `MinSamples = 1`
+  - (Distinguished from the standard M2 default configuration where `AvailabilityWeight=0.35`, `SuccessWeight=0.35`, `LatencyWeight=0.20`, `TimeoutWeight=0.10`).
 - **Execution Seam**: Every selected candidate executes `SourceAdapter.HoldFunds(ctx, holdReq)` with measured elapsed time `actualLat := time.Since(execStart)`.
 
-### Measured Results (Run `latency-20260921-161317`)
+### Measured Results (Run `latency-20260921-170315`)
 
 | Metric | Baseline (Static) | Proposed (Health-Aware) | Impact |
 | :--- | :--- | :--- | :--- |
@@ -152,8 +161,8 @@ Measure route selector responsiveness to transient latency degradation injected 
 | **Traffic Share** | RAIL-A: 300 (100.0%) | RAIL-A: 98 (32.7%), RAIL-B: 202 (67.3%) | 67.3% shifted to RAIL-B |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/latency/latency-20260921-161317.json`
-- CSV: `artifacts/experiments/latency/latency-20260921-161317.csv`
+- JSON: `artifacts/experiments/latency/latency-20260921-170315.json`
+- CSV: `artifacts/experiments/latency/latency-20260921-170315.csv`
 
 ---
 
@@ -173,7 +182,7 @@ Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-index
   - Pass 2: `T + 45s` (Clock advanced by 35s to expire backoff timers).
   - Pass 3: `T + 80s` (Final convergence verification).
 
-### Measured Results (Run `offline-20260921161344`)
+### Measured Results (Run `offline-20260921170330`)
 
 | Metric | Measured Value | Target / Requirement |
 | :--- | :--- | :--- |
@@ -189,8 +198,8 @@ Exercise the client-side durable `OfflineIntentQueue` (IndexedDB via `fake-index
 | **Invariants Satisfied** | **true (4/4)** | Complete pass |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/offline/offline-20260921161344.json`
-- CSV: `artifacts/experiments/offline/offline-20260921161344.csv`
+- JSON: `artifacts/experiments/offline/offline-20260921170330.json`
+- CSV: `artifacts/experiments/offline/offline-20260921170330.csv`
 
 ---
 
@@ -204,7 +213,7 @@ Subject adaptive routing and payment execution to a concurrent workload across 1
 - **Idempotency Pool**: 180 unique deterministic keys (`storm-idemp-s42-0000`).
 - **Execution Pipeline**: `payments.SelectRoute` -> circuit eligibility evaluation -> idempotency coordinator -> `HoldFunds` -> `ConfirmHold` -> `cb.RecordSuccess`.
 
-### Measured Results (Run `concurrency-20260921-161325`)
+### Measured Results (Run `concurrency-20260921-170323`)
 
 | Metric | Measured Value | Invariant Condition |
 | :--- | :--- | :--- |
@@ -223,8 +232,8 @@ Subject adaptive routing and payment execution to a concurrent workload across 1
 | **Money-State Violations** | **0** | **Invariant: Only valid terminal states** |
 
 ### Raw Artifact Paths
-- JSON: `artifacts/experiments/concurrency/concurrency-20260921-161325.json`
-- CSV: `artifacts/experiments/concurrency/concurrency-20260921-161325.csv`
+- JSON: `artifacts/experiments/concurrency/concurrency-20260921-170323.json`
+- CSV: `artifacts/experiments/concurrency/concurrency-20260921-170323.csv`
 
 ---
 
