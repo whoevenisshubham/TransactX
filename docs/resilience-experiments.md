@@ -64,7 +64,7 @@ Measure the resilience improvement of deterministic health-aware adaptive routin
 
 ### Configuration
 - **Baseline**: Static candidate ordering (`SelectionModeStatic`), always selecting the designated static baseline (`CANDIDATE-A` -> `RAIL-A`).
-- **Proposed**: Health-aware selector (`SelectionModeAdaptive`), scoring execution targets via `health.HealthSnapshotProvider` using the actual M2 default health configuration (`health.DefaultConfig()`: `0.35 * availabilityScore + 0.35 * successScore - 0.20 * latencyPenalty - 0.10 * timeoutPenalty`, `Window: 10m`, `MinSamples: 1`).
+- **Proposed**: Health-aware selector (`SelectionModeAdaptive`), using the M2 default health formula and weights from `health.DefaultConfig()` (`0.35 * availabilityScore + 0.35 * successScore - 0.20 * latencyPenalty - 0.10 * timeoutPenalty`), with the Experiment 1-specific overrides `Window=10m` (the M2 default is 15m) and `MinSamples=1` (same as the default).
 - **Workload**: 300 sequential requests.
   - Phase 1 (Requests 0–74): Both targets healthy (10–14 ms latency, 100% success).
   - Phase 2 (Requests 75–224): Primary target `RAIL-A` degraded (80% failure rate, 150 ms latency). Backup `RAIL-B` healthy.
