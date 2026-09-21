@@ -136,4 +136,7 @@ M2-6 adds a controlled, reversible, deterministic fault-injection mechanism for 
 
 ## Boundaries and future work
 
-The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic. Merkle reconciliation, console UI visualization, and offline queue UX are later phases.
+The adapter registry is keyed by persisted central bank ID and contains no bank-specific orchestration logic.
+
+- **Implemented in M2**: Offline queue and replay UX is implemented in M2. M2-1/M2-2 own the durable offline queue and safe replay mechanics (IndexedDB persistence, lease locking, deterministic exponential backoff, and preservation of `clientRequestId` and `idempotencyKey` without premature settlement claims). M2-3 through M2-8 own observational health monitoring, deterministic route selection over genuine `ExecutionTargetID` and `RouteCandidate` targets (strictly distinct from logical bank ownership), circuit breaker state machines with gradual restoration, operational chaos injection via `ChaosAdapter` without altering central PostgreSQL authority or `BankAdapter` contracts, safe merchant product experiences, and empirical resilience benchmark outputs.
+- **Future M3 Work**: Merkle reconciliation (incremental tree commitments, root comparison, and recursive divergence localization) remains future M3 work. Network Console visualization and operational console streaming remain future M3 work.
