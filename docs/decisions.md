@@ -112,3 +112,18 @@ Bank A owns its accounts, balances, operation records, and ledger entries. Bank 
 Status: **IMPLEMENTED**
 
 M2-3 stores explicit `SUCCESS`, `FAILURE`, or `TIMEOUT` samples for stable execution-target IDs. The default rolling window is 15 minutes with at most 500 samples, one sample minimum, a 2-second timeout threshold, weights availability `0.35`, success `0.35`, latency `0.20`, and timeout `0.10`; latency is normalized between 10ms and 1000ms using nearest-rank p95. Scores clamp to `[0,1]`. Health is observational only: it cannot mutate payment state, balances, participant financial state, or the ledger. The read-only snapshot contract is `GET /api/ops/health/{targetID}` and is restricted to `OPS_ADMIN`; customer and merchant roles are denied. Legacy or future routing/circuit decisions must consume stable target IDs rather than account ownership.
+
+## ADR-018: Deterministic Route Candidates and Genuine Execution Targets
+
+Status: **IMPLEMENTED**
+
+M2-4 selects legitimate switch-level route candidates without modifying logical bank ownership:
+- **ExecutionTarget vs Bank Ownership**: `ExecutionTargetID` represents a switch-level route, rail, or endpoint path identity. It is strictly distinct from `sourceBankID` and `destinationBankID` account ownership, which remain immutable across all candidates. Routing never swaps or alters sender/receiver bank authority.
+- **Multiple Genuine Execution Targets**: The live payment path supports multiple explicitly configured execution targets (e.g., `direct`, `RAIL-A`, `RAIL-B`) for the same logical source/destination bank pair, each providing genuine `SourceAdapter` and `DestinationAdapter` instances actually used during routed execution.
+- **Runtime Modes**:
+  - `STATIC`: Deterministically selects the configured baseline candidate ID (from `ROUTING_STATIC_BASELINE`) or falls back to alphabetical candidate ID order. If the baseline candidate is unavailable or not eligible, selection fails safely with `ErrNoRouteCandidate`.
+  - `ADAPTIVE`: Queries authoritative M2-3 health snapshots for each candidate's `ExecutionTargetID`, excludes unavailable (`availabilityScore == 0`) and unhealthy (`score <= 0`) targets, compares scores, and selects the highest health score.
+- **Deterministic Tie-Break**: Equal scores break ties stably by `ExecutionTargetID` ascending, then `CandidateID` ascending. Identical inputs produce identical decisions.
+- **Route History & Durable Recovery**: Persists an immutable `PAYMENT_ROUTED` fact to `payment_route_decisions` containing payment ID, candidate ID, source/destination bank IDs, execution target ID, score, health snapshot JSON, reason code, mode, and timestamp. During pending payment recovery or duplicate processing, the durable route decision is queried to resolve the originally selected execution target's adapters. If the selected execution target is no longer configured, recovery fails closed and leaves the payment pending; it never blindly defaults to `targets[0]`.
+- **Configuration**: Explicitly configured via `ROUTING_MODE`, `ROUTING_STATIC_BASELINE`, and `ROUTING_TARGETS` (delimited string or JSON). Configuration strictly requires `endpoint` as the dedicated health probe endpoint for `ExecutionTargetID` (missing or malformed health endpoints are rejected; execution endpoints are not silently substituted for health targets). Optional `sourceEndpoint` and `destinationEndpoint` specify execution adapters.
+- **Circuit Breaker**: An optional `CircuitEligibility` hook is retained for future M2-5 integration, but circuit breaker states (CLOSED/OPEN/HALF_OPEN) remain unimplemented until M2-5.
