@@ -262,3 +262,94 @@ func TestPostgresResetVsExpiryAtomic(t *testing.T) {
 		t.Fatalf("expired scenario: expected CHAOS_RESET=false, CHAOS_EXPIRED=true, got reset=%v, exp=%v", hasResetExp, hasExpiredExp)
 	}
 }
+
+// TestPostgresStaleExpiryRestartFinalization tests that an expired active scenario in PostgreSQL
+// is automatically finalized during a restart when Start or Hydrate runs against the target.
+func TestPostgresStaleExpiryRestartFinalization(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL is not set: skipping live PostgreSQL chaos persistence tests")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("failed to connect to PostgreSQL: %v", err)
+	}
+	defer pool.Close()
+
+	repo := chaos.NewRepository(pool)
+	now := time.Now().UTC()
+	staleID := "test-live-stale-" + now.Format("20060102150405")
+	newID := "test-live-new-" + now.Format("20060102150405")
+	targetID := "RAIL-LIVE-STALE"
+
+	// 1. Insert an expired scenario directly in PostgreSQL with active = true
+	staleSc := chaos.ChaosScenario{
+		ScenarioID: staleID,
+		Type:       chaos.ScenarioTypeBankOutage,
+		TargetID:   targetID,
+		StartedAt:  now.Add(-20 * time.Second),
+		ExpiresAt:  now.Add(-5 * time.Second), // expired 5 seconds ago
+		Active:     true,
+		Mode:       chaos.ExecutionModeSimulation,
+		CreatedBy:  "ops-admin-user",
+	}
+	if err := repo.CreateScenarioWithEvent(ctx, staleSc, chaos.ChaosEvent{
+		ScenarioID: staleID,
+		EventType:  chaos.EventTypeChaosStarted,
+		TargetID:   targetID,
+		FaultType:  string(staleSc.Type),
+		ActorID:    "ops-admin-user",
+		ActorRole:  "OPS_ADMIN",
+		OccurredAt: staleSc.StartedAt,
+	}); err != nil {
+		t.Fatalf("failed to insert stale scenario in PG: %v", err)
+	}
+
+	// 2. Create a fresh Controller simulating a service restart
+	ctrl := chaos.NewController(repo)
+	ctrl.SetTargetValidator(func(tID string) bool { return true })
+
+	// 3. Start a new scenario on the same target
+	req := chaos.StartRequest{
+		ScenarioID: newID,
+		Type:       chaos.ScenarioTypeLatency,
+		TargetID:   targetID,
+		Parameters: chaos.ScenarioParameters{DurationMs: 10000, LatencyMs: 50},
+	}
+	sc2, err := ctrl.Start(ctx, req, "ops-admin-user", "OPS_ADMIN")
+	if err != nil {
+		t.Fatalf("ctrl.Start failed on target with stale scenario in PG: %v", err)
+	}
+	if !sc2.Active {
+		t.Fatalf("new scenario must be active")
+	}
+
+	// 4. Verify old scenario is inactive in PostgreSQL with stopped_by = SYSTEM_AUTO_EXPIRY
+	oldSc, err := repo.GetScenario(ctx, staleID)
+	if err != nil || oldSc.Active {
+		t.Fatalf("stale scenario must be inactive in PG: active=%v, err=%v", oldSc.Active, err)
+	}
+	if oldSc.StoppedBy == nil || *oldSc.StoppedBy != "SYSTEM_AUTO_EXPIRY" {
+		t.Fatalf("expected stale scenario stoppedBy = SYSTEM_AUTO_EXPIRY, got %v", oldSc.StoppedBy)
+	}
+
+	// 5. Verify exactly one CHAOS_EXPIRED event for stale scenario
+	events, err := repo.ListEvents(ctx, staleID, 10)
+	if err != nil {
+		t.Fatalf("ListEvents failed: %v", err)
+	}
+	expiredCount := 0
+	for _, e := range events {
+		if e.EventType == chaos.EventTypeChaosExpired {
+			expiredCount++
+		}
+	}
+	if expiredCount != 1 {
+		t.Fatalf("expected exactly 1 CHAOS_EXPIRED event for stale scenario in PG, got %d", expiredCount)
+	}
+
+	// Cleanup: stop new scenario
+	_, _ = ctrl.Stop(ctx, newID, "ops-admin-user", "OPS_ADMIN")
+}

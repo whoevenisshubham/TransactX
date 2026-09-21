@@ -15,6 +15,16 @@ var (
 	ErrUnauthorized = errors.New("unauthorized: chaos operations require OPS_ADMIN role")
 )
 
+// IsExpired reports whether a scenario has expired at the given time.
+// The unified boundary everywhere is: expires_at <= now => EXPIRED.
+func IsExpired(now, expiresAt time.Time) bool {
+	return !now.Before(expiresAt)
+}
+
+func isExpired(now, expiresAt time.Time) bool {
+	return IsExpired(now, expiresAt)
+}
+
 type TargetValidator func(targetID string) bool
 
 // BuildTargetValidator builds a TargetValidator strictly from configured health and execution target IDs.
@@ -135,7 +145,8 @@ func (c *Controller) verifyRole(actorRole string) error {
 	return nil
 }
 
-// Hydrate loads active, unexpired scenarios from durable storage into memory.
+// Hydrate loads active scenarios from durable storage, finalizes any expired rows,
+// and hydrates unexpired active scenarios into memory.
 func (c *Controller) Hydrate(ctx context.Context) error {
 	if c.repo == nil {
 		return nil
@@ -151,8 +162,14 @@ func (c *Controller) Hydrate(ctx context.Context) error {
 
 	for _, s := range scenarios {
 		sc := s
-		c.activeByTarget[sc.TargetID] = &sc
-		c.scenariosByID[sc.ScenarioID] = &sc
+		if isExpired(now, sc.ExpiresAt) {
+			if _, err := c.expireLocked(ctx, &sc, now); err != nil {
+				return err
+			}
+		} else {
+			c.activeByTarget[sc.TargetID] = &sc
+			c.scenariosByID[sc.ScenarioID] = &sc
+		}
 	}
 	return nil
 }
@@ -188,7 +205,7 @@ func (c *Controller) Start(ctx context.Context, req StartRequest, actorID, actor
 
 	// 1. Check in-memory active scenario
 	if existing, ok := c.activeByTarget[req.TargetID]; ok {
-		if now.After(existing.ExpiresAt) {
+		if isExpired(now, existing.ExpiresAt) {
 			if _, err := c.expireLocked(ctx, existing, now); err != nil {
 				return nil, err
 			}
@@ -199,14 +216,19 @@ func (c *Controller) Start(ctx context.Context, req StartRequest, actorID, actor
 
 	// 2. Check DB active scenario if not found in memory (e.g. after restart)
 	if c.repo != nil {
-		dbActive, err := c.repo.GetActiveScenarioByTarget(ctx, req.TargetID, now)
-		if err != nil {
-			if !errors.Is(err, ErrScenarioNotFound) {
-				// Any real DB error or ErrRepoUnavailable MUST fail START
-				return nil, fmt.Errorf("failed to verify active scenario state in repository: %w", err)
+		for {
+			dbActive, err := c.repo.GetActiveScenarioByTarget(ctx, req.TargetID, now)
+			if err != nil {
+				if !errors.Is(err, ErrScenarioNotFound) {
+					// Any real DB error or ErrRepoUnavailable MUST fail START
+					return nil, fmt.Errorf("failed to verify active scenario state in repository: %w", err)
+				}
+				break
 			}
-		} else if dbActive != nil && dbActive.Active {
-			if now.After(dbActive.ExpiresAt) {
+			if dbActive == nil || !dbActive.Active {
+				break
+			}
+			if isExpired(now, dbActive.ExpiresAt) {
 				if _, err := c.expireLocked(ctx, dbActive, now); err != nil {
 					return nil, err
 				}
@@ -303,8 +325,8 @@ func (c *Controller) Stop(ctx context.Context, scenarioID string, actorID, actor
 		return &copyScenario, nil
 	}
 
-	// Check if already expired; if so, do not stop an expired scenario
-	if now.After(scenario.ExpiresAt) {
+	// Check if already expired (exact boundary expires_at <= now); if so, finalize as expired rather than stopped
+	if isExpired(now, scenario.ExpiresAt) {
 		if _, err := c.expireLocked(ctx, scenario, now); err != nil {
 			return nil, err
 		}
@@ -374,7 +396,7 @@ func (c *Controller) Reset(ctx context.Context, targetID string, actorID, actorR
 	if targetID != "" {
 		if s, ok := c.activeByTarget[targetID]; ok {
 			s.Active = false
-			if !s.ExpiresAt.After(now) {
+			if isExpired(now, s.ExpiresAt) {
 				exp := s.ExpiresAt
 				s.StoppedAt = &exp
 				systemActor := "SYSTEM_AUTO_EXPIRY"
@@ -389,7 +411,7 @@ func (c *Controller) Reset(ctx context.Context, targetID string, actorID, actorR
 	} else {
 		for tid, s := range c.activeByTarget {
 			s.Active = false
-			if !s.ExpiresAt.After(now) {
+			if isExpired(now, s.ExpiresAt) {
 				exp := s.ExpiresAt
 				s.StoppedAt = &exp
 				systemActor := "SYSTEM_AUTO_EXPIRY"
@@ -430,7 +452,7 @@ func (c *Controller) GetScenario(ctx context.Context, scenarioID string) (*Chaos
 		}
 	}
 
-	if s.Active && now.After(s.ExpiresAt) {
+	if s.Active && isExpired(now, s.ExpiresAt) {
 		if _, err := c.expireLocked(ctx, s, now); err != nil {
 			return nil, err
 		}
@@ -447,7 +469,7 @@ func (c *Controller) ListScenarios(ctx context.Context, activeOnly bool) ([]Chao
 
 	// Expire any in-memory active scenarios that have passed expiresAt
 	for _, s := range c.activeByTarget {
-		if now.After(s.ExpiresAt) {
+		if isExpired(now, s.ExpiresAt) {
 			if _, err := c.expireLocked(ctx, s, now); err != nil {
 				return nil, err
 			}
@@ -460,7 +482,7 @@ func (c *Controller) ListScenarios(ctx context.Context, activeOnly bool) ([]Chao
 
 	var results []ChaosScenario
 	for _, s := range c.scenariosByID {
-		if activeOnly && (!s.Active || now.After(s.ExpiresAt)) {
+		if activeOnly && (!s.Active || isExpired(now, s.ExpiresAt)) {
 			continue
 		}
 		results = append(results, *s)
@@ -480,26 +502,30 @@ func (c *Controller) GetActiveFault(ctx context.Context, targetID string) (*Chao
 	if !ok || !s.Active {
 		// Attempt hydration / cache miss lookup from durable repository
 		if c.repo != nil {
-			dbScenario, err := c.repo.GetActiveScenarioByTarget(ctx, targetID, now)
-			if err != nil {
-				if errors.Is(err, ErrScenarioNotFound) {
-					// Truly not found in DB
-					return nil, false, nil
+			for {
+				dbScenario, err := c.repo.GetActiveScenarioByTarget(ctx, targetID, now)
+				if err != nil {
+					if errors.Is(err, ErrScenarioNotFound) {
+						// Truly not found in DB
+						return nil, false, nil
+					}
+					// DB error! Must NOT swallow DB error; fail closed.
+					return nil, false, fmt.Errorf("failed to query active scenario from repository: %w", err)
 				}
-				// DB error! Must NOT swallow DB error; fail closed.
-				return nil, false, fmt.Errorf("failed to query active scenario from repository: %w", err)
-			}
-			if dbScenario != nil && dbScenario.Active {
-				if now.After(dbScenario.ExpiresAt) {
+				if dbScenario == nil || !dbScenario.Active {
+					break
+				}
+				if isExpired(now, dbScenario.ExpiresAt) {
 					if _, err := c.expireLocked(ctx, dbScenario, now); err != nil {
 						return nil, false, err
 					}
-					return nil, false, nil
+					continue
 				}
 				c.activeByTarget[targetID] = dbScenario
 				c.scenariosByID[dbScenario.ScenarioID] = dbScenario
 				s = dbScenario
 				ok = true
+				break
 			}
 		}
 	}
@@ -508,7 +534,7 @@ func (c *Controller) GetActiveFault(ctx context.Context, targetID string) (*Chao
 		return nil, false, nil
 	}
 
-	if now.After(s.ExpiresAt) {
+	if isExpired(now, s.ExpiresAt) {
 		if _, err := c.expireLocked(ctx, s, now); err != nil {
 			return nil, false, err
 		}
@@ -582,6 +608,14 @@ func (c *Controller) expireLocked(ctx context.Context, s *ChaosScenario, now tim
 		s.StoppedBy = &systemActor
 		s.UpdatedAt = now
 		delete(c.activeByTarget, s.TargetID)
+		if existing, ok := c.scenariosByID[s.ScenarioID]; ok {
+			existing.Active = false
+			existing.StoppedAt = &exp
+			existing.StoppedBy = &systemActor
+			existing.UpdatedAt = now
+		} else {
+			c.scenariosByID[s.ScenarioID] = s
+		}
 		return expired, nil
 	}
 
@@ -593,5 +627,13 @@ func (c *Controller) expireLocked(ctx context.Context, s *ChaosScenario, now tim
 	s.StoppedBy = &systemActor
 	s.UpdatedAt = now
 	delete(c.activeByTarget, s.TargetID)
+	if existing, ok := c.scenariosByID[s.ScenarioID]; ok {
+		existing.Active = false
+		existing.StoppedAt = &exp
+		existing.StoppedBy = &systemActor
+		existing.UpdatedAt = now
+	} else {
+		c.scenariosByID[s.ScenarioID] = s
+	}
 	return true, nil
 }

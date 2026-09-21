@@ -277,7 +277,7 @@ func (r *PostgresRepository) ResetScenarios(ctx context.Context, targetID string
 	}
 
 	for _, s := range resetList {
-		isExpired := !s.ExpiresAt.After(stoppedAt)
+		isExpired := IsExpired(stoppedAt, s.ExpiresAt)
 		if isExpired {
 			detailsJSON, _ := json.Marshal(map[string]any{
 				"expiredAt": s.ExpiresAt.Format(time.RFC3339),
@@ -358,9 +358,9 @@ func (r *PostgresRepository) GetActiveScenarioByTarget(ctx context.Context, targ
 		       started_at, expires_at, stopped_at, active, mode,
 		       created_by, stopped_by, created_at, updated_at
 		FROM chaos_scenarios
-		WHERE target_id = $1 AND active = true AND expires_at > $2
+		WHERE target_id = $1 AND active = true
 		ORDER BY started_at DESC
-		LIMIT 1`, targetID, now)
+		LIMIT 1`, targetID)
 
 	var s ChaosScenario
 	var st string
@@ -392,8 +392,8 @@ func (r *PostgresRepository) ListActiveScenarios(ctx context.Context, now time.T
 		       started_at, expires_at, stopped_at, active, mode,
 		       created_by, stopped_by, created_at, updated_at
 		FROM chaos_scenarios
-		WHERE active = true AND expires_at > $1
-		ORDER BY started_at DESC`, now)
+		WHERE active = true
+		ORDER BY started_at DESC`)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package chaos_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -77,11 +78,18 @@ func (m *mockRepo) GetActiveScenarioByTarget(ctx context.Context, targetID strin
 	if m.failGetActive {
 		return nil, chaos.ErrRepoUnavailable
 	}
+	var latest *chaos.ChaosScenario
 	for _, s := range m.scenarios {
-		if s.TargetID == targetID && s.Active && s.ExpiresAt.After(now) {
-			copyScenario := s
-			return &copyScenario, nil
+		if s.TargetID == targetID && s.Active {
+			sc := s
+			if latest == nil || sc.StartedAt.After(latest.StartedAt) {
+				latest = &sc
+			}
 		}
+	}
+	if latest != nil {
+		copyScenario := *latest
+		return &copyScenario, nil
 	}
 	return nil, chaos.ErrScenarioNotFound
 }
@@ -94,7 +102,7 @@ func (m *mockRepo) ListActiveScenarios(ctx context.Context, now time.Time) ([]ch
 	}
 	var list []chaos.ChaosScenario
 	for _, s := range m.scenarios {
-		if s.Active && s.ExpiresAt.After(now) {
+		if s.Active {
 			list = append(list, s)
 		}
 	}
@@ -110,7 +118,7 @@ func (m *mockRepo) ListScenarios(ctx context.Context, activeOnly bool, now time.
 	var list []chaos.ChaosScenario
 	for _, s := range m.scenarios {
 		if activeOnly {
-			if s.Active && s.ExpiresAt.After(now) {
+			if s.Active && !chaos.IsExpired(now, s.ExpiresAt) {
 				list = append(list, s)
 			}
 		} else {
@@ -127,7 +135,7 @@ func (m *mockRepo) ExpireScenario(ctx context.Context, scenarioID string, now ti
 		return false, errors.New("db error: expire failed")
 	}
 	s, ok := m.scenarios[scenarioID]
-	if !ok || !s.Active || s.ExpiresAt.After(now) {
+	if !ok || !s.Active || !chaos.IsExpired(now, s.ExpiresAt) {
 		return false, nil
 	}
 	s.Active = false
@@ -153,7 +161,7 @@ func (m *mockRepo) ResetScenarios(ctx context.Context, targetID string, stoppedA
 	for id, s := range m.scenarios {
 		if s.Active && (targetID == "" || s.TargetID == targetID) {
 			s.Active = false
-			isExpired := !s.ExpiresAt.After(stoppedAt)
+			isExpired := chaos.IsExpired(stoppedAt, s.ExpiresAt)
 			if isExpired {
 				exp := s.ExpiresAt
 				s.StoppedAt = &exp
@@ -1567,6 +1575,494 @@ func TestResetVsExpiryAtomicSemantics(t *testing.T) {
 		}
 		if terminalEvents != 1 {
 			t.Fatalf("expected exactly 1 terminal event under concurrent expiry/reset, got %d", terminalEvents)
+		}
+	})
+}
+
+func TestExactBoundaryExpiryAndStaleCleanup(t *testing.T) {
+	baseTime := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	// A. Stop at exact expiry: now == expires_at -> CHAOS_EXPIRED, not CHAOS_STOPPED
+	t.Run("A_StopAtExactExpiry_EmitsChaosExpiredNotStopped", func(t *testing.T) {
+		repo := newMockRepo()
+		ctrl := chaos.NewController(repo)
+		currentTime := baseTime
+		ctrl.SetNowFunc(func() time.Time { return currentTime })
+		ctrl.SetTargetValidator(func(targetID string) bool { return true })
+
+		req := chaos.StartRequest{
+			ScenarioID: "sc-stop-exact-exp",
+			Type:       chaos.ScenarioTypeBankOutage,
+			TargetID:   "RAIL-A",
+			Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+		}
+		sc, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("failed to start: %v", err)
+		}
+		if !sc.Active {
+			t.Fatalf("scenario should be active")
+		}
+
+		// Advance clock to EXACT expiry: now == expires_at
+		currentTime = sc.ExpiresAt
+
+		stopped, err := ctrl.Stop(ctx, sc.ScenarioID, "ops-admin", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("failed to stop at exact expiry: %v", err)
+		}
+		if stopped.Active {
+			t.Fatalf("expected scenario to be inactive")
+		}
+		if stopped.StoppedBy == nil || *stopped.StoppedBy != "SYSTEM_AUTO_EXPIRY" {
+			t.Fatalf("expected stoppedBy to be SYSTEM_AUTO_EXPIRY, got %v", stopped.StoppedBy)
+		}
+		if stopped.StoppedAt == nil || !stopped.StoppedAt.Equal(sc.ExpiresAt) {
+			t.Fatalf("expected stoppedAt to be expiresAt (%v), got %v", sc.ExpiresAt, stopped.StoppedAt)
+		}
+
+		// Verify repository events: exactly one CHAOS_EXPIRED, zero CHAOS_STOPPED
+		expiredCount := 0
+		stoppedCount := 0
+		for _, e := range repo.events {
+			if e.ScenarioID == sc.ScenarioID {
+				if e.EventType == chaos.EventTypeChaosExpired {
+					expiredCount++
+				} else if e.EventType == chaos.EventTypeChaosStopped {
+					stoppedCount++
+				}
+			}
+		}
+		if expiredCount != 1 || stoppedCount != 0 {
+			t.Fatalf("expected exactly 1 CHAOS_EXPIRED and 0 CHAOS_STOPPED, got expired=%d, stopped=%d", expiredCount, stoppedCount)
+		}
+
+		// Repeated stop must be idempotent and emit no new events
+		eventsBefore := len(repo.events)
+		secondStop, err := ctrl.Stop(ctx, sc.ScenarioID, "ops-admin", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("repeated stop error: %v", err)
+		}
+		if secondStop.Active {
+			t.Fatalf("repeated stop must remain inactive")
+		}
+		if len(repo.events) != eventsBefore {
+			t.Fatalf("repeated stop must not emit new events, before=%d, after=%d", eventsBefore, len(repo.events))
+		}
+	})
+
+	// B. GetActiveFault at exact expiry: -> inactive, exactly one CHAOS_EXPIRED
+	t.Run("B_GetActiveFaultAtExactExpiry_BecomesInactiveEmitsExpired", func(t *testing.T) {
+		repo := newMockRepo()
+		ctrl := chaos.NewController(repo)
+		currentTime := baseTime
+		ctrl.SetNowFunc(func() time.Time { return currentTime })
+		ctrl.SetTargetValidator(func(targetID string) bool { return true })
+
+		req := chaos.StartRequest{
+			ScenarioID: "sc-fault-exact-exp",
+			Type:       chaos.ScenarioTypeBankOutage,
+			TargetID:   "RAIL-A",
+			Parameters: chaos.ScenarioParameters{DurationMs: 4000},
+		}
+		sc, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("failed to start: %v", err)
+		}
+
+		// Advance clock to EXACT expiry: now == expires_at
+		currentTime = sc.ExpiresAt
+
+		activeFault, active, err := ctrl.GetActiveFault(ctx, "RAIL-A")
+		if err != nil {
+			t.Fatalf("GetActiveFault error: %v", err)
+		}
+		if active || activeFault != nil {
+			t.Fatalf("expected fault to be inactive at exact expiry, got active=%v, fault=%+v", active, activeFault)
+		}
+
+		// Verify exactly one CHAOS_EXPIRED event
+		expiredCount := 0
+		for _, e := range repo.events {
+			if e.ScenarioID == sc.ScenarioID && e.EventType == chaos.EventTypeChaosExpired {
+				expiredCount++
+			}
+		}
+		if expiredCount != 1 {
+			t.Fatalf("expected exactly 1 CHAOS_EXPIRED event, got %d", expiredCount)
+		}
+
+		// Second call returns inactive without duplicate event
+		eventsBefore := len(repo.events)
+		_, active2, err2 := ctrl.GetActiveFault(ctx, "RAIL-A")
+		if err2 != nil || active2 {
+			t.Fatalf("second GetActiveFault unexpected: err=%v, active=%v", err2, active2)
+		}
+		if len(repo.events) != eventsBefore {
+			t.Fatalf("second GetActiveFault must not emit additional events")
+		}
+	})
+
+	// C. ListScenarios(active=true) at exact expiry: -> scenario excluded as active
+	t.Run("C_ListScenariosActiveOnlyAtExactExpiry_ExcludesScenario", func(t *testing.T) {
+		repo := newMockRepo()
+		ctrl := chaos.NewController(repo)
+		currentTime := baseTime
+		ctrl.SetNowFunc(func() time.Time { return currentTime })
+		ctrl.SetTargetValidator(func(targetID string) bool { return true })
+
+		req := chaos.StartRequest{
+			ScenarioID: "sc-list-exact-exp",
+			Type:       chaos.ScenarioTypeBankOutage,
+			TargetID:   "RAIL-A",
+			Parameters: chaos.ScenarioParameters{DurationMs: 3000},
+		}
+		sc, err := ctrl.Start(ctx, req, "ops-1", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("failed to start: %v", err)
+		}
+
+		// Advance clock to EXACT expiry: now == expires_at
+		currentTime = sc.ExpiresAt
+
+		list, err := ctrl.ListScenarios(ctx, true)
+		if err != nil {
+			t.Fatalf("ListScenarios error: %v", err)
+		}
+		for _, s := range list {
+			if s.ScenarioID == sc.ScenarioID {
+				t.Fatalf("exact-expiry scenario must be excluded from active-only list: %+v", s)
+			}
+		}
+	})
+
+	// D. Start at exact expiry: -> old scenario finalized as expired, new scenario may start
+	t.Run("D_StartAtExactExpiry_FinalizesOldAndStartsNew", func(t *testing.T) {
+		repo := newMockRepo()
+		ctrl := chaos.NewController(repo)
+		currentTime := baseTime
+		ctrl.SetNowFunc(func() time.Time { return currentTime })
+		ctrl.SetTargetValidator(func(targetID string) bool { return true })
+
+		req1 := chaos.StartRequest{
+			ScenarioID: "sc-start-exact-old",
+			Type:       chaos.ScenarioTypeBankOutage,
+			TargetID:   "RAIL-A",
+			Parameters: chaos.ScenarioParameters{DurationMs: 6000},
+		}
+		sc1, err := ctrl.Start(ctx, req1, "ops-1", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("failed to start sc1: %v", err)
+		}
+
+		// Advance clock to EXACT expiry: now == sc1.ExpiresAt
+		currentTime = sc1.ExpiresAt
+
+		req2 := chaos.StartRequest{
+			ScenarioID: "sc-start-exact-new",
+			Type:       chaos.ScenarioTypeLatency,
+			TargetID:   "RAIL-A",
+			Parameters: chaos.ScenarioParameters{DurationMs: 3000, LatencyMs: 200},
+		}
+		sc2, err := ctrl.Start(ctx, req2, "ops-2", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("failed to start sc2 at exact expiry of sc1: %v", err)
+		}
+		if !sc2.Active || sc2.ScenarioID != "sc-start-exact-new" {
+			t.Fatalf("sc2 unexpected state: %+v", sc2)
+		}
+
+		// Verify sc1 is finalized as inactive with CHAOS_EXPIRED
+		oldSc, err := ctrl.GetScenario(ctx, "sc-start-exact-old")
+		if err != nil || oldSc.Active {
+			t.Fatalf("old scenario must be inactive, got active=%v, err=%v", oldSc.Active, err)
+		}
+		if oldSc.StoppedBy == nil || *oldSc.StoppedBy != "SYSTEM_AUTO_EXPIRY" {
+			t.Fatalf("expected stoppedBy SYSTEM_AUTO_EXPIRY, got %v", oldSc.StoppedBy)
+		}
+
+		// Verify events: sc1 has exactly 1 CHAOS_EXPIRED, sc2 has 1 CHAOS_STARTED
+		sc1Expired := 0
+		sc2Started := 0
+		for _, e := range repo.events {
+			if e.ScenarioID == "sc-start-exact-old" && e.EventType == chaos.EventTypeChaosExpired {
+				sc1Expired++
+			}
+			if e.ScenarioID == "sc-start-exact-new" && e.EventType == chaos.EventTypeChaosStarted {
+				sc2Started++
+			}
+		}
+		if sc1Expired != 1 {
+			t.Fatalf("expected sc1 CHAOS_EXPIRED=1, got %d", sc1Expired)
+		}
+		if sc2Started != 1 {
+			t.Fatalf("expected sc2 CHAOS_STARTED=1, got %d", sc2Started)
+		}
+	})
+
+	// E. Restart stale-expiry case:
+	//    1. persist active scenario
+	//    2. advance deterministic clock past expiry
+	//    3. create fresh Controller
+	//    4. Start new scenario on same target
+	//    5. old scenario must be inactive in repository
+	//    6. old scenario must have exactly one CHAOS_EXPIRED
+	//    7. new scenario must be the only active scenario on that target
+	t.Run("E_RestartStaleExpiryCase_FreshControllerFinalizesOldOnStart", func(t *testing.T) {
+		repo := newMockRepo()
+		currentTime := baseTime
+		ctrl1 := chaos.NewController(repo)
+		ctrl1.SetNowFunc(func() time.Time { return currentTime })
+		ctrl1.SetTargetValidator(func(targetID string) bool { return true })
+
+		req1 := chaos.StartRequest{
+			ScenarioID: "sc-stale-restart-old",
+			Type:       chaos.ScenarioTypeBankOutage,
+			TargetID:   "RAIL-A",
+			Parameters: chaos.ScenarioParameters{DurationMs: 5000},
+		}
+		sc1, err := ctrl1.Start(ctx, req1, "ops-1", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("failed to start sc1: %v", err)
+		}
+
+		// 2. Advance deterministic clock past expiry (e.g. +10s)
+		currentTime = baseTime.Add(10 * time.Second)
+
+		// 3. Create fresh Controller without calling Hydrate (cold controller)
+		ctrl2 := chaos.NewController(repo)
+		ctrl2.SetNowFunc(func() time.Time { return currentTime })
+		ctrl2.SetTargetValidator(func(targetID string) bool { return true })
+
+		// 4. Start new scenario on the same target
+		req2 := chaos.StartRequest{
+			ScenarioID: "sc-stale-restart-new",
+			Type:       chaos.ScenarioTypeLatency,
+			TargetID:   "RAIL-A",
+			Parameters: chaos.ScenarioParameters{DurationMs: 4000, LatencyMs: 150},
+		}
+		sc2, err := ctrl2.Start(ctx, req2, "ops-2", "OPS_ADMIN")
+		if err != nil {
+			t.Fatalf("ctrl2.Start failed: %v", err)
+		}
+		if !sc2.Active {
+			t.Fatalf("sc2 should be active")
+		}
+
+		// 5. Old scenario must be inactive in repository
+		oldInRepo, ok := repo.scenarios["sc-stale-restart-old"]
+		if !ok || oldInRepo.Active {
+			t.Fatalf("old scenario must be inactive in repo: active=%v", oldInRepo.Active)
+		}
+		if oldInRepo.StoppedBy == nil || *oldInRepo.StoppedBy != "SYSTEM_AUTO_EXPIRY" {
+			t.Fatalf("expected old scenario stoppedBy SYSTEM_AUTO_EXPIRY, got %v", oldInRepo.StoppedBy)
+		}
+		if oldInRepo.StoppedAt == nil || !oldInRepo.StoppedAt.Equal(sc1.ExpiresAt) {
+			t.Fatalf("expected old scenario stoppedAt == expiresAt (%v), got %v", sc1.ExpiresAt, oldInRepo.StoppedAt)
+		}
+
+		// 6. Old scenario must have exactly one CHAOS_EXPIRED
+		oldExpiredCount := 0
+		for _, e := range repo.events {
+			if e.ScenarioID == "sc-stale-restart-old" && e.EventType == chaos.EventTypeChaosExpired {
+				oldExpiredCount++
+			}
+		}
+		if oldExpiredCount != 1 {
+			t.Fatalf("expected old scenario to have exactly 1 CHAOS_EXPIRED, got %d", oldExpiredCount)
+		}
+
+		// 7. New scenario must be the only active scenario on that target in repository
+		activeCountOnTarget := 0
+		for _, s := range repo.scenarios {
+			if s.TargetID == "RAIL-A" && s.Active {
+				activeCountOnTarget++
+				if s.ScenarioID != "sc-stale-restart-new" {
+					t.Fatalf("unexpected active scenario in repo: %+v", s)
+				}
+			}
+		}
+		if activeCountOnTarget != 1 {
+			t.Fatalf("expected exactly 1 active scenario on RAIL-A in repo, got %d", activeCountOnTarget)
+		}
+	})
+
+	// F. Concurrent stale-expiry case:
+	//    race Start/Reset/ExpireScenario against the same expired scenario
+	//    -> exactly one terminal event
+	//    -> no duplicate active scenarios for the target
+	t.Run("F_ConcurrentStaleExpiryCase_RaceStartResetExpire", func(t *testing.T) {
+		repo := newMockRepo()
+		currentTime := baseTime.Add(10 * time.Second)
+
+		// Setup stale active scenario in repository directly
+		scenarioID := "sc-concurrent-stale"
+		expiresAt := baseTime.Add(5 * time.Second)
+		startedAt := baseTime
+		s := chaos.ChaosScenario{
+			ScenarioID: scenarioID,
+			Type:       chaos.ScenarioTypeBankOutage,
+			TargetID:   "RAIL-A",
+			StartedAt:  startedAt,
+			ExpiresAt:  expiresAt,
+			Active:     true,
+			Mode:       chaos.ExecutionModeSimulation,
+			CreatedBy:  "ops-1",
+		}
+		repo.scenarios[scenarioID] = s
+
+		ctrl := chaos.NewController(repo)
+		ctrl.SetNowFunc(func() time.Time { return currentTime })
+		ctrl.SetTargetValidator(func(targetID string) bool { return true })
+
+		eventExp := chaos.ChaosEvent{
+			ScenarioID: scenarioID,
+			EventType:  chaos.EventTypeChaosExpired,
+			TargetID:   "RAIL-A",
+			FaultType:  string(s.Type),
+			ActorID:    "SYSTEM",
+			ActorRole:  "SYSTEM",
+			OccurredAt: expiresAt,
+		}
+
+		var wg sync.WaitGroup
+		// Concurrently race:
+		// 1. Start a new scenario on the target
+		// 2. Reset scenarios for the target
+		// 3. Directly call ExpireScenario
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = repo.ExpireScenario(ctx, scenarioID, currentTime, eventExp)
+			}()
+		}
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = ctrl.Reset(ctx, "RAIL-A", "ops-admin", "OPS_ADMIN")
+			}()
+		}
+		for i := 0; i < 4; i++ {
+			idSuffix := i
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req := chaos.StartRequest{
+					ScenarioID: fmt.Sprintf("sc-race-new-%d", idSuffix),
+					Type:       chaos.ScenarioTypeLatency,
+					TargetID:   "RAIL-A",
+					Parameters: chaos.ScenarioParameters{DurationMs: 4000, LatencyMs: 100},
+				}
+				_, _ = ctrl.Start(ctx, req, "ops-admin", "OPS_ADMIN")
+			}()
+		}
+		wg.Wait()
+
+		// Verify S1 has EXACTLY ONE terminal event
+		s1TerminalEvents := 0
+		for _, e := range repo.events {
+			if e.ScenarioID == scenarioID && (e.EventType == chaos.EventTypeChaosExpired || e.EventType == chaos.EventTypeChaosReset) {
+				s1TerminalEvents++
+			}
+		}
+		if s1TerminalEvents != 1 {
+			t.Fatalf("expected exactly 1 terminal event for stale scenario, got %d", s1TerminalEvents)
+		}
+
+		// Verify S1 is inactive in repository
+		if repo.scenarios[scenarioID].Active {
+			t.Fatalf("stale scenario must be inactive in repository")
+		}
+
+		// Verify at most 1 active scenario exists on RAIL-A
+		activeCount := 0
+		for _, sc := range repo.scenarios {
+			if sc.TargetID == "RAIL-A" && sc.Active {
+				activeCount++
+			}
+		}
+		if activeCount > 1 {
+			t.Fatalf("expected at most 1 active scenario on target, got %d", activeCount)
+		}
+	})
+
+	// G. Hydration stale-expiry case:
+	//    Review Hydrate() for expired rows.
+	//    Do not leave expired rows permanently as active=true in PostgreSQL merely because hydration filters them out.
+	//    Use the existing transactional expiry mechanism so expired durable rows are reconciled safely.
+	t.Run("G_Hydrate_ReconcilesStaleExpiredRowsSafely", func(t *testing.T) {
+		repo := newMockRepo()
+		currentTime := baseTime.Add(10 * time.Second)
+
+		// Setup 1 expired scenario and 1 unexpired scenario in repository
+		staleID := "sc-stale-in-db"
+		repo.scenarios[staleID] = chaos.ChaosScenario{
+			ScenarioID: staleID,
+			Type:       chaos.ScenarioTypeBankOutage,
+			TargetID:   "RAIL-A",
+			StartedAt:  baseTime,
+			ExpiresAt:  baseTime.Add(5 * time.Second), // expired at t0+5s
+			Active:     true,
+			Mode:       chaos.ExecutionModeSimulation,
+			CreatedBy:  "ops-1",
+		}
+
+		unexpiredID := "sc-unexpired-in-db"
+		repo.scenarios[unexpiredID] = chaos.ChaosScenario{
+			ScenarioID: unexpiredID,
+			Type:       chaos.ScenarioTypeLatency,
+			TargetID:   "RAIL-B",
+			StartedAt:  baseTime,
+			ExpiresAt:  baseTime.Add(20 * time.Second), // unexpired (currentTime is t0+10s)
+			Active:     true,
+			Mode:       chaos.ExecutionModeSimulation,
+			CreatedBy:  "ops-1",
+		}
+
+		ctrl := chaos.NewController(repo)
+		ctrl.SetNowFunc(func() time.Time { return currentTime })
+		ctrl.SetTargetValidator(func(targetID string) bool { return true })
+
+		if err := ctrl.Hydrate(ctx); err != nil {
+			t.Fatalf("Hydrate failed: %v", err)
+		}
+
+		// Stale scenario in repo must be reconciled to inactive
+		staleInRepo := repo.scenarios[staleID]
+		if staleInRepo.Active {
+			t.Fatalf("stale scenario must be deactivated during hydration")
+		}
+		if staleInRepo.StoppedBy == nil || *staleInRepo.StoppedBy != "SYSTEM_AUTO_EXPIRY" {
+			t.Fatalf("expected stoppedBy SYSTEM_AUTO_EXPIRY, got %v", staleInRepo.StoppedBy)
+		}
+		if staleInRepo.StoppedAt == nil || !staleInRepo.StoppedAt.Equal(staleInRepo.ExpiresAt) {
+			t.Fatalf("expected stoppedAt == expiresAt, got %v", staleInRepo.StoppedAt)
+		}
+
+		// Stale scenario must have exactly one CHAOS_EXPIRED event
+		staleExpiredEvents := 0
+		for _, e := range repo.events {
+			if e.ScenarioID == staleID && e.EventType == chaos.EventTypeChaosExpired {
+				staleExpiredEvents++
+			}
+		}
+		if staleExpiredEvents != 1 {
+			t.Fatalf("expected exactly 1 CHAOS_EXPIRED event for stale row, got %d", staleExpiredEvents)
+		}
+
+		// Unexpired scenario must be active in memory
+		faultB, activeB, err := ctrl.GetActiveFault(ctx, "RAIL-B")
+		if err != nil || !activeB || faultB == nil || faultB.ScenarioID != unexpiredID {
+			t.Fatalf("unexpired scenario must be active in memory: err=%v, active=%v, fault=%+v", err, activeB, faultB)
+		}
+
+		// Stale scenario must NOT be active in memory
+		faultA, activeA, err := ctrl.GetActiveFault(ctx, "RAIL-A")
+		if err != nil || activeA || faultA != nil {
+			t.Fatalf("stale scenario must not be active in memory: err=%v, active=%v", err, activeA)
 		}
 	})
 }
