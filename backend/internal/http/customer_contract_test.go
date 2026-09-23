@@ -21,20 +21,21 @@ import (
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/payments"
+	"github.com/transactx/backend/internal/recipients"
 )
 
 type contractFixture struct {
-	pool           *pgxpool.Pool
-	handler        http.Handler
-	payerToken     string
-	receiverToken  string
-	strangerToken  string
-	payerID        uuid.UUID
-	receiverID     uuid.UUID
-	strangerID     uuid.UUID
-	payerAccount   uuid.UUID
-	receiverUPI    string
-	payerUPI       string
+	pool          *pgxpool.Pool
+	handler       http.Handler
+	payerToken    string
+	receiverToken string
+	strangerToken string
+	payerID       uuid.UUID
+	receiverID    uuid.UUID
+	strangerID    uuid.UUID
+	payerAccount  uuid.UUID
+	receiverUPI   string
+	payerUPI      string
 }
 
 func newContractFixture(t *testing.T) contractFixture {
@@ -155,6 +156,19 @@ func loginUser(t *testing.T, handler http.Handler, paymentID, password string) (
 		t.Fatal(err)
 	}
 	return envelope.Data.Token, userID
+}
+
+func decodeDataInto(t *testing.T, envelope map[string]any, target any) {
+	t.Helper()
+	raw, err := json.Marshal(envelope["data"])
+	if err != nil {
+		t.Fatalf("marshal response data: %v", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		t.Fatalf("decode public response: %v; data=%s", err, raw)
+	}
 }
 
 func doJSON(t *testing.T, handler http.Handler, method, path, token string, body any, headers map[string]string) (int, map[string]any) {
@@ -310,12 +324,53 @@ func TestCustomerHTTP_AccountsOmitInternalIdentifiers(t *testing.T) {
 	if account["balancePaise"].(float64) != 100000 {
 		t.Fatalf("balancePaise = %v, want 100000", account["balancePaise"])
 	}
+	var publicAccount customerAccountResponse
+	decodeDataInto(t, map[string]any{"data": account}, &publicAccount)
+	if publicAccount.AccountNumber == "" || publicAccount.Status == "" || publicAccount.BalancePaise != 100000 {
+		t.Fatalf("decoded public account = %+v", publicAccount)
+	}
 
 	status, envelope = doJSON(t, fx.handler, http.MethodGet, "/api/accounts/"+fx.payerAccount.String(), fx.payerToken, nil, nil)
 	if status != http.StatusOK {
 		t.Fatalf("account detail status = %d", status)
 	}
+	var publicDetail customerAccountResponse
+	decodeDataInto(t, envelope, &publicDetail)
+	if publicDetail.AccountNumber == "" || publicDetail.Status == "" {
+		t.Fatalf("decoded account detail = %+v", publicDetail)
+	}
 	assertNoInternalIDs(t, dataObject(t, envelope), "account detail")
+}
+
+func TestCustomerHTTP_AuthenticationAndAccountAuthorization(t *testing.T) {
+	fx := newContractFixture(t)
+
+	status, envelope := doJSON(t, fx.handler, http.MethodGet, "/api/accounts", "", nil, nil)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("missing auth status = %d, want 401", status)
+	}
+	if errObj, ok := envelope["error"].(map[string]any); !ok || errObj["code"] != "UNAUTHORIZED" {
+		t.Fatalf("missing auth error = %#v", envelope["error"])
+	}
+	if requestID, ok := envelope["requestId"].(string); !ok || requestID == "" {
+		t.Fatal("missing auth response lacks requestId")
+	}
+
+	status, envelope = doJSON(t, fx.handler, http.MethodGet, "/api/accounts", "not-a-jwt", nil, nil)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("malformed auth status = %d, want 401", status)
+	}
+	if errObj, ok := envelope["error"].(map[string]any); !ok || errObj["code"] != "UNAUTHORIZED" {
+		t.Fatalf("malformed auth error = %#v", envelope["error"])
+	}
+
+	status, envelope = doJSON(t, fx.handler, http.MethodGet, "/api/accounts/"+fx.payerAccount.String(), fx.strangerToken, nil, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("cross-user account status = %d, want 404", status)
+	}
+	if errObj, ok := envelope["error"].(map[string]any); !ok || errObj["code"] != "ACCOUNT_NOT_FOUND" {
+		t.Fatalf("cross-user account error = %#v", envelope["error"])
+	}
 }
 
 func TestCustomerHTTP_RecipientResolution(t *testing.T) {
@@ -330,6 +385,11 @@ func TestCustomerHTTP_RecipientResolution(t *testing.T) {
 	}
 	if data["name"] == "" {
 		t.Fatal("recipient name empty")
+	}
+	var publicRecipient recipients.Recipient
+	decodeDataInto(t, envelope, &publicRecipient)
+	if publicRecipient.PaymentID != fx.receiverUPI || publicRecipient.Name == "" || publicRecipient.AccountStatus == "" {
+		t.Fatalf("decoded public recipient = %+v", publicRecipient)
 	}
 	for _, key := range []string{"accountId", "userId", "bankId", "bankAccountId"} {
 		if _, found := data[key]; found {
@@ -374,6 +434,11 @@ func TestCustomerHTTP_CreatePaymentContract(t *testing.T) {
 	if payment["note"] != "Lunch" {
 		t.Fatalf("note = %v", payment["note"])
 	}
+	var publicPayment payments.CustomerPayment
+	decodeDataInto(t, envelope, &publicPayment)
+	if publicPayment.ID == uuid.Nil || publicPayment.AmountPaise != 12550 || publicPayment.Direction != "SENT" || publicPayment.ReceiverPaymentID != fx.receiverUPI {
+		t.Fatalf("decoded public payment = %+v", publicPayment)
+	}
 	assertNoInternalIDs(t, payment, "create payment")
 
 	// Same key + payload replays.
@@ -386,6 +451,20 @@ func TestCustomerHTTP_CreatePaymentContract(t *testing.T) {
 	replay := dataObject(t, envelope)
 	if replay["id"] != payment["id"] {
 		t.Fatalf("replay id = %v, want %v", replay["id"], payment["id"])
+	}
+	paymentUUID, err := uuid.Parse(payment["id"].(string))
+	if err != nil {
+		t.Fatalf("payment id = %v: %v", payment["id"], err)
+	}
+	var paymentCount, ledgerCount int
+	if err := fx.pool.QueryRow(context.Background(), `SELECT count(*) FROM payments WHERE id = $1`, paymentUUID).Scan(&paymentCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.pool.QueryRow(context.Background(), `SELECT count(*) FROM ledger_transactions WHERE payment_id = $1`, paymentUUID).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if paymentCount != 1 || ledgerCount != 1 {
+		t.Fatalf("same-key replay created duplicate settlement: payments=%d ledger_transactions=%d", paymentCount, ledgerCount)
 	}
 
 	// Same key + changed payload conflicts.
@@ -521,7 +600,7 @@ func TestCustomerHTTP_PendingPaymentReturnsAccepted(t *testing.T) {
 	handler := NewHandlerWithBankAdapters(fx.pool, slog.Default(), authService, manager, adapters)
 
 	// Re-issue tokens against the same manager used by the pending handler.
-payerToken, _ := loginUser(t, handler, fx.payerUPI, "password-payer-1")
+	payerToken, _ := loginUser(t, handler, fx.payerUPI, "password-payer-1")
 
 	status, envelope := doJSON(t, handler, http.MethodPost, "/api/payments", payerToken, map[string]any{
 		"recipient":   fx.receiverUPI,
@@ -532,9 +611,11 @@ payerToken, _ := loginUser(t, handler, fx.payerUPI, "password-payer-1")
 		t.Fatalf("pending status = %d body=%v", status, envelope)
 	}
 	payment := dataObject(t, envelope)
-	if payment["state"] != payments.StatePendingReconciliation && payment["state"] != payments.StateProcessing {
-		t.Fatalf("pending state = %v", payment["state"])
+	if payment["state"] != payments.StatePendingReconciliation {
+		t.Fatalf("pending state = %v, want %s", payment["state"], payments.StatePendingReconciliation)
 	}
+	var publicPending payments.CustomerPayment
+	decodeDataInto(t, envelope, &publicPending)
 	assertNoInternalIDs(t, payment, "pending payment")
 }
 
