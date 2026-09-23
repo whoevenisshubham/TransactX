@@ -6,14 +6,15 @@ TransactX is a simulated payment infrastructure research prototype. It does not 
 
 Implemented through the current routed-payment milestone:
 
-- Go HTTP API, React + TypeScript frontend shell, JWT authentication, accounts, recipients, and user-scoped idempotency.
+- Central Go HTTP API, React + TypeScript frontend shell, JWT authentication, accounts, recipients, and user-scoped idempotency.
 - Atomic local PostgreSQL settlement with integer paise, double-entry ledger entries, and concurrency protection.
 - A typed `BankAdapter` contract and durable Bank A/Bank B participant processes with independent PostgreSQL schemas, HTTP boundaries, holds, provisional/final credits, operation status, ledgers, and restart-safe operation identity.
 - Routed saga persistence for source/destination bank identity and bank operations, deterministic retries, compensation, pending-operation recovery, and central-only recovery after bank settlement.
 - Customer payment frontend and API contract: exact decimal-to-paise input, stable idempotency attempts, safe account/payment DTOs, notes, incoming/outgoing history, explicit pending status checks, and transaction details.
-- Unit, PostgreSQL-backed integration, and race-detector coverage for the critical payment and bank paths.
-
-Adaptive routing, circuit breakers, reconciliation orchestration, chaos orchestration, and offline queue UX remain future work. The canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are implemented for research use; they are not a production reconciliation service.
+- Offline-first IndexedDB transaction queue, lease safety, and safe idempotent replay workers (M2-1/M2-2).
+- Observational target health sampling (M2-3), adaptive route selection over genuine execution targets (M2-4), circuit breaker with gradual restoration (M2-5), operational chaos injection via `ChaosAdapter` (M2-6), merchant product/QR flows (M2-7), and reproducible resilience experiment harnesses (M2-8).
+- Canonical record serialization (`TXCANON|v1`), SHA-256 leaf hashing (`TXLEAF|v1|`), incremental Merkle bucket engine, persisted commitments, and `ReconciliationParticipant` read boundary (M3-1 to M3-4).
+- Unit, PostgreSQL-backed integration, offline queue/replay, and race-detector test suites across Go backend and TypeScript frontend.
 
 ## Local development
 
