@@ -21,8 +21,58 @@ export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: 
 
 export function StatusBadge({ state }: { state: string }) {
   const normalized = state.toLowerCase();
-  const label = normalized === "completed" ? "Completed" : normalized === "failed" ? "Not completed" : normalized === "pending_reconciliation" || normalized === "bank_settled_central_pending" ? "Confirming" : normalized === "processing" ? "Processing" : state.replaceAll("_", " ").toLowerCase();
-  const tone = normalized === "completed" ? "success" : normalized === "failed" || normalized === "reversed" ? "error" : normalized.includes("pending") || normalized === "processing" ? "warning" : "neutral";
+  let label = state.replaceAll("_", " ").toLowerCase();
+  let tone: "success" | "error" | "warning" | "neutral" = "neutral";
+
+  switch (state) {
+    case "COMPLETED":
+      label = "Completed";
+      tone = "success";
+      break;
+    case "FAILED":
+      label = "Failed";
+      tone = "error";
+      break;
+    case "REVERSED":
+      label = "Reversed";
+      tone = "error";
+      break;
+    case "PROCESSING":
+      label = "Processing";
+      tone = "warning";
+      break;
+    case "PENDING_RECONCILIATION":
+      label = "Pending Confirmation";
+      tone = "warning";
+      break;
+    case "BANK_SETTLED_CENTRAL_PENDING":
+      label = "Syncing Central";
+      tone = "warning";
+      break;
+    case "OFFLINE_CAPTURED":
+      label = "Captured Offline";
+      tone = "neutral";
+      break;
+    case "QUEUED":
+      label = "Queued";
+      tone = "neutral";
+      break;
+    case "SYNCING":
+      label = "Syncing";
+      tone = "warning";
+      break;
+    case "RETRYABLE":
+      label = "Retryable";
+      tone = "warning";
+      break;
+    case "REPLAY_FAILED":
+      label = "Replay Failed";
+      tone = "error";
+      break;
+    default:
+      if (normalized.includes("pending")) tone = "warning";
+  }
+
   return <span className={`status-badge status-${tone}`}><span className="status-dot" />{label}</span>;
 }
 
