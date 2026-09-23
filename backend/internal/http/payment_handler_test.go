@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/transactx/backend/internal/auth"
+	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/common"
 )
 
 func TestCreatePaymentRejectsUnauthenticatedRequest(t *testing.T) {
@@ -69,5 +71,45 @@ func TestCreatePaymentRejectsClientSuppliedSourceAccountID(t *testing.T) {
 	errObj, _ := envelope["error"].(map[string]any)
 	if errObj["code"] != "INVALID_REQUEST" {
 		t.Fatalf("code = %v, want INVALID_REQUEST", errObj["code"])
+	}
+}
+
+func TestRequestIDEndToEndPropagation(t *testing.T) {
+	var capturedBankRequestID string
+	bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBankRequestID = r.Header.Get("X-Request-ID")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"available":true}`))
+	}))
+	defer bankServer.Close()
+
+	client, err := bank.NewHTTPClient(bankServer.URL, bankServer.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const clientReqID = "e2e-request-id-98765"
+	req := httptest.NewRequest(http.MethodGet, "/test-downstream", nil)
+	req.Header.Set("X-Request-ID", clientReqID)
+
+	var apiResponseReqID string
+	handler := common.RequestIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiResponseReqID = common.GetRequestID(r)
+		_, _ = client.GetHealth(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Header().Get("X-Request-ID") != clientReqID {
+		t.Fatalf("API response header X-Request-ID = %q, want %q", rec.Header().Get("X-Request-ID"), clientReqID)
+	}
+	if apiResponseReqID != clientReqID {
+		t.Fatalf("API internal context request ID = %q, want %q", apiResponseReqID, clientReqID)
+	}
+	if capturedBankRequestID != clientReqID {
+		t.Fatalf("Downstream bank service received X-Request-ID = %q, want %q", capturedBankRequestID, clientReqID)
 	}
 }
