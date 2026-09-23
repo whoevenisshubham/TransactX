@@ -65,6 +65,10 @@ export function StatusBadge({ state }: { state: string }) {
       label = "Retryable";
       tone = "warning";
       break;
+    case "SYNCED":
+      label = "Synced";
+      tone = "neutral";
+      break;
     case "REPLAY_FAILED":
       label = "Replay Failed";
       tone = "error";
@@ -92,7 +96,8 @@ export function PaymentRow({ payment, onClick }: { payment: Payment; onClick: ()
   const completed = payment.state === "COMPLETED";
   const counterparty = payment.direction === "RECEIVED" ? payment.senderName : payment.receiverName;
   const sign = payment.direction === "RECEIVED" ? "+ " : "− ";
-  return <button className="payment-row" onClick={onClick}><Avatar name={counterparty} /><span className="payment-main"><strong>{counterparty}</strong><small>{payment.direction === "RECEIVED" ? "Received" : "Sent"} · {formatDate(payment.createdAt)}</small></span><span className={`payment-amount ${completed ? "" : "payment-muted"}`}><Amount paise={payment.amountPaise} sign={sign} /><small><StatusBadge state={payment.state} /></small></span><Icon name="chevron" size={16} /></button>;
+  const dirClass = payment.direction === "RECEIVED" ? "payment-received" : "payment-sent";
+  return <button className={`payment-row ${dirClass}`} onClick={onClick}><Avatar name={counterparty} /><span className="payment-main"><strong>{counterparty}</strong><small>{payment.direction === "RECEIVED" ? "Received" : "Sent"} · {formatDate(payment.createdAt)}</small></span><span className={`payment-amount ${completed ? "" : "payment-muted"}`}><Amount paise={payment.amountPaise} sign={sign} /><small><StatusBadge state={payment.state} /></small></span><Icon name="chevron" size={16} /></button>;
 }
 export function formatDate(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 export function formatShortDate(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short" }).format(new Date(value)); }

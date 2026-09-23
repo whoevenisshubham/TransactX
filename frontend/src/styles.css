@@ -117,3 +117,166 @@ h3 { font-size: 1rem; margin-bottom: .4rem; }
 /* Merchant mobile overrides */
 @media (max-width: 860px) { .merchant-receive-layout { grid-template-columns: 1fr; gap: 1.5rem; } .merchant-receive-note { margin-top: 0; } .merchant-search-toolbar { grid-template-columns: 1fr; } }
 
+/* ============================================================
+   M1 Production Polish — Visual Hardening Pass
+   ============================================================ */
+
+/* Auth intro — richer gradient + gradient hero text */
+.auth-intro {
+  background: linear-gradient(155deg, #d3e8dc 0%, #e6f1e9 50%, #cce4d6 100%);
+}
+.auth-intro-copy h1 {
+  background: linear-gradient(140deg, #0e3c2d 0%, #176b55 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+/* Auth panel — hairline top accent */
+.auth-panel { position: relative; }
+.auth-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, transparent 70%);
+}
+
+/* NetworkStatus — minimal when online, prominent when offline */
+.network-status.network-online {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin-bottom: .55rem;
+  color: var(--faint);
+  font-size: .63rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+}
+.network-status.network-online small { display: none; }
+.network-status.network-online .status-dot {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(33, 116, 81, .14);
+}
+.network-status.network-offline {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  margin-bottom: 1.2rem;
+  padding: .65rem .9rem;
+  border: 1px solid #e2c06a;
+  border-radius: 7px;
+  background: #fdf3dc;
+  color: #7a5212;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
+.network-status.network-offline small {
+  margin-left: .2rem;
+  color: #9a6a1c;
+  font-size: .68rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.network-status.network-offline .status-dot {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px rgba(165, 104, 36, .18);
+}
+
+/* Balance panel — premium card gradient */
+.balance-panel {
+  background: linear-gradient(150deg, #fafcfa 0%, #f5faf6 65%, #f0f7f2 100%);
+  position: relative;
+  overflow: hidden;
+}
+.balance-panel::before {
+  content: '';
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(23, 107, 85, .07) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Overview grid — rounded container */
+.overview-grid { border-radius: 8px; overflow: hidden; }
+
+/* Directional payment amount coloring in PaymentRow */
+.payment-received .payment-amount { color: var(--success); }
+.payment-sent .payment-amount { color: var(--ink); }
+
+/* Content entrance animation */
+.content-wrap { animation: tx-fadeup .22s ease-out both; }
+@keyframes tx-fadeup { from { opacity: 0; transform: translateY(6px); } }
+
+/* Result/processing mark — entrance pop */
+.result-mark, .processing-mark {
+  animation: tx-pop .28s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+@keyframes tx-pop { from { transform: scale(.55); opacity: 0; } }
+
+/* Button spinner (for programmatic loading states) */
+@keyframes tx-spin { to { transform: rotate(360deg); } }
+.button-spinner {
+  width: 13px;
+  height: 13px;
+  border: 1.8px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: tx-spin .6s linear infinite;
+  opacity: .75;
+  flex-shrink: 0;
+}
+
+/* Confirm sheet — stronger layered shadow + radius */
+.confirm-sheet {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 28px rgba(20, 39, 31, .09), 0 1px 4px rgba(20, 39, 31, .05);
+}
+
+/* Offline queue panel — warm amber treatment */
+.offline-queue-panel {
+  border-color: #e2c06a;
+  background: #fdf3dc;
+}
+.offline-queue-panel .eyebrow { color: #8a6020; }
+.offline-queue-panel .section-heading h2 { color: #6b4a10; }
+.offline-intent-row strong { color: #3d2a08; }
+.offline-intent-row small { color: #7a5212; }
+
+/* Sidebar nav item — smooth transition */
+.nav-item { transition: background .12s ease, color .12s ease; }
+
+/* Settlement group — rounded card + header hover */
+.settlement-group { border-radius: 7px; overflow: hidden; }
+.settlement-group-header { transition: background .12s ease; }
+
+/* Merchant stat panel — soft gradient */
+.merchant-stat-panel {
+  background: linear-gradient(135deg, #e4f0ea 0%, #daeee3 100%);
+}
+
+/* Empty-state mark — use accent palette */
+.empty-mark {
+  background: var(--accent-pale);
+  color: var(--accent);
+}
+
+/* Detail hero — rounded container */
+.details-hero { border-radius: 8px; overflow: hidden; }
+
+/* Confirm actions fade-in */
+.confirm-actions { animation: tx-fadeup .18s ease-out .08s both; }
+
+/* Auth form — focus ring consistent */
+.auth-tabs button.is-active { font-weight: 700; }
+
+/* Amount prominent — tighter for narrow screens */
+@media (max-width: 380px) {
+  .amount-prominent { font-size: 2.4rem !important; }
+}
+
