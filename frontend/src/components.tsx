@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Payment, View } from "./types";
 
 export function Icon({ name, size = 18 }: { name: "home" | "send" | "activity" | "arrow" | "chevron" | "check" | "alert" | "close"; size?: number }) {
@@ -101,10 +101,27 @@ export function PaymentRow({ payment, onClick }: { payment: Payment; onClick: ()
 }
 export function formatDate(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 export function formatShortDate(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short" }).format(new Date(value)); }
+export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    if (!text) return;
+    void navigator.clipboard?.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button type="button" className="copy-button" onClick={handleCopy} title={`Copy ${text}`}>
+      {copied ? "Copied!" : label}
+    </button>
+  );
+}
+
 export function paymentResultCopy(payment: Payment) {
-  if (payment.state === "COMPLETED") return { title: "Payment complete", description: "Your payment has been completed.", tone: "success" as const };
+  if (payment.state === "COMPLETED") return { title: "Payment complete", description: "Your payment was processed and settled successfully.", tone: "success" as const };
   if (payment.state === "FAILED" || payment.state === "REVERSED") return { title: "Payment not completed", description: payment.failureReason ?? "The payment could not be completed.", tone: "error" as const };
-  if (payment.state === "PROCESSING") return { title: "Payment being processed", description: "The payment is still being processed. It has not been marked complete yet.", tone: "pending" as const };
-  return { title: "Payment still being confirmed", description: "The outcome is not known yet. This payment is not marked complete; check its status again later.", tone: "pending" as const };
+  if (payment.state === "PROCESSING") return { title: "Payment processing", description: "The network is processing this payment. Outcome is not confirmed yet.", tone: "pending" as const };
+  if (payment.state === "PENDING_RECONCILIATION") return { title: "Pending confirmation", description: "Network verification in progress. Money may have moved downstream; status will update upon status resolution.", tone: "pending" as const };
+  if (payment.state === "BANK_SETTLED_CENTRAL_PENDING") return { title: "Syncing ledger", description: "Bank transfer completed successfully. Central ledger records are being updated.", tone: "pending" as const };
+  return { title: "Status unconfirmed", description: "The outcome is not yet known. Do not initiate a duplicate payment attempt.", tone: "pending" as const };
 }
 export function navLabel(view: View) { return view === "home" ? "Overview" : view === "pay" ? "Pay" : "Transactions"; }

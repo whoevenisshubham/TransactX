@@ -280,3 +280,25 @@ h3 { font-size: 1rem; margin-bottom: .4rem; }
   .amount-prominent { font-size: 2.4rem !important; }
 }
 
+/* Copy button & record reference row */
+.record-reference {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.copy-button {
+  background: var(--accent-pale);
+  color: var(--accent);
+  border: 1px solid rgba(23, 107, 85, 0.2);
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.copy-button:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
