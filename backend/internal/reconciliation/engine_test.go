@@ -8,8 +8,23 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/reconciliation"
 )
+
+type mutableSnapshotSource struct {
+	bankID  string
+	entries []bank.LedgerEntry
+}
+
+func (m *mutableSnapshotSource) GetLedgerSnapshot(_ context.Context, _ bank.LedgerScope) (bank.LedgerSnapshot, error) {
+	return bank.LedgerSnapshot{
+		BankID:     m.bankID,
+		SnapshotID: uuid.New(),
+		CapturedAt: time.Now().UTC(),
+		Entries:    append([]bank.LedgerEntry(nil), m.entries...),
+	}, nil
+}
 
 // --- helper: in-memory RunStore for engine unit tests ---
 
@@ -531,21 +546,227 @@ func TestCanonicalSourceIsIndependent(t *testing.T) {
 	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
 	const pid = "BANK-A"
 
-	canonRecords := makeSampleRecords(base)[:2]
-	partRecords := makeSampleRecords(base)[:2]
+	initialRecords := makeSampleRecords(base)[:2]
 
-	canonP := makeTestParticipant(t, pid, canonRecords)
-	canonRootBefore, _ := canonP.GetRoot(context.Background(), scope)
+	// 1. Canonical source: independent ReconciliationParticipant instance
+	canonP := makeTestParticipant(t, pid, initialRecords)
 
-	// Mutate participant records completely
-	partRecords[0].AmountPaise = 888888
-	partRecords[1].AmountPaise = 777777
+	// 2. Participant-side source: independent RepositoryParticipant backed by a mutable snapshot source
+	entries := make([]bank.LedgerEntry, len(initialRecords))
+	for i, r := range initialRecords {
+		entries[i] = bank.LedgerEntry{
+			OperationID: r.OperationID,
+			PaymentID:   r.PaymentID,
+			AccountID:   r.AccountID,
+			EntryType:   r.EntryType,
+			AmountPaise: r.AmountPaise,
+			Currency:    r.Currency,
+			OccurredAt:  r.OccurredAt,
+		}
+	}
+	partSource := &mutableSnapshotSource{bankID: pid, entries: entries}
+	partP, err := reconciliation.NewRepositoryParticipant(partSource, pid, pid, time.Hour)
+	if err != nil {
+		t.Fatalf("build RepositoryParticipant: %v", err)
+	}
+	if err := partP.Initialize(context.Background(), scope); err != nil {
+		t.Fatalf("initialize participant: %v", err)
+	}
 
-	canonRootAfter, _ := canonP.GetRoot(context.Background(), scope)
-	if !bytes.Equal(canonRootBefore.Root, canonRootAfter.Root) {
+	canonRootInitial, err := canonP.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("canonical GetRoot: %v", err)
+	}
+	partRootInitial, err := partP.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("participant GetRoot: %v", err)
+	}
+
+	// Initially, both independent sources have identical roots for identical data
+	if !bytes.Equal(canonRootInitial.Root, partRootInitial.Root) {
+		t.Fatal("expected initial canonical and participant roots to be identical")
+	}
+
+	// 3. Mutate participant-side data in the participant's own source and refresh it
+	partSource.entries[0].AmountPaise = 888888
+	partSource.entries[1].AmountPaise = 777777
+	if err := partP.Refresh(context.Background(), scope); err != nil {
+		t.Fatalf("participant Refresh: %v", err)
+	}
+
+	partRootMutated, err := partP.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("mutated participant GetRoot: %v", err)
+	}
+
+	// Proves changing participant-side data changes participant root
+	if bytes.Equal(partRootInitial.Root, partRootMutated.Root) {
+		t.Fatal("expected participant root to change after participant data mutation")
+	}
+
+	// Proves canonical root does NOT change when participant-side data is mutated
+	canonRootAfter, err := canonP.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("canonical GetRoot after: %v", err)
+	}
+	if !bytes.Equal(canonRootInitial.Root, canonRootAfter.Root) {
 		t.Fatal("canonical participant root was modified when participant side changed")
 	}
+
+	// Proves the two sources have diverged
+	if bytes.Equal(canonRootAfter.Root, partRootMutated.Root) {
+		t.Fatal("expected canonical and participant roots to diverge after mutation")
+	}
 }
+
+// One-sided subtree/node coverage:
+// Verifies when a divergent node exists only in canonical ledger:
+// - the run completes normally (status COMPLETED)
+// - discrepancy is preserved
+// - no panic
+// - the affected region is identified
+// - reconciliation does not stop before processing remaining divergent regions
+func TestTwoSidedOneSidedSubtreeCoverage(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+	const pid = "BANK-A"
+
+	// Canonical has 4 records across 4 buckets (Bucket 0, 1, 2, 3)
+	canonRecords := makeSampleRecords(base)
+	// Participant has records only in Buckets 0, 1, 2 (Bucket 3 does not exist on participant side)
+	// AND Bucket 0 has a mutated amount (divergent region in a separate branch)
+	partRecords := []reconciliation.CanonicalRecord{
+		canonRecords[0],
+		canonRecords[1],
+		canonRecords[2],
+	}
+	partRecords[0].AmountPaise = 999999 // mutated Bucket 0
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	// 1. Run completes normally without panic
+	if run.Status != reconciliation.RunStatusCompleted {
+		t.Fatalf("status = %q, want COMPLETED", run.Status)
+	}
+
+	// 2. Both divergent regions are identified and preserved (does not stop early)
+	if run.DiscrepancyCount != 2 {
+		t.Fatalf("discrepancyCount = %d, want 2", run.DiscrepancyCount)
+	}
+	if len(repo.discrepancies) != 2 {
+		t.Fatalf("saved discrepancies = %d, want 2", len(repo.discrepancies))
+	}
+
+	// 3. Verify the one-sided node discrepancy (Bucket 3 / L0/3 exists only on canonical side)
+	var foundOneSided, foundBucket0 bool
+	for _, d := range repo.discrepancies {
+		if d.MismatchCategory == reconciliation.MismatchMissingRecord && d.Evidence["reason"] == "node exists only in canonical ledger" {
+			foundOneSided = true
+			if d.Evidence["node_path"] != "L0/3" {
+				t.Errorf("one-sided discrepancy node_path = %q, want L0/3", d.Evidence["node_path"])
+			}
+			if !d.BucketStart.Equal(base.Add(3 * time.Hour)) {
+				t.Errorf("one-sided discrepancy BucketStart = %v, want %v", d.BucketStart, base.Add(3*time.Hour))
+			}
+		}
+		if d.MismatchCategory == reconciliation.MismatchRecordDifference && d.Evidence["field"] == "amount_paise" {
+			foundBucket0 = true
+			if !d.BucketStart.Equal(base) {
+				t.Errorf("bucket 0 discrepancy BucketStart = %v, want %v", d.BucketStart, base)
+			}
+		}
+	}
+
+	if !foundOneSided {
+		t.Fatal("expected one-sided node discrepancy (node exists only in canonical ledger)")
+	}
+	if !foundBucket0 {
+		t.Fatal("expected mutated bucket 0 discrepancy (field amount_paise mismatch)")
+	}
+}
+
+// Verifies when a divergent node exists only on participant side:
+// - run completes normally
+// - MismatchExtraRecord discrepancy is preserved
+// - remaining divergent regions in other branches are processed
+func TestTwoSidedOneSidedParticipantNodeCoverage(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+	const pid = "BANK-A"
+
+	// Canonical has records in buckets 0, 1, 2
+	canonRecords := makeSampleRecords(base)[:3]
+	// Participant has records in buckets 0, 1, 2, 3 (Bucket 3 is extra on participant side)
+	// AND Bucket 0 has a mutated amount
+	partRecords := makeSampleRecords(base)
+	partRecords[0].AmountPaise = 888888 // mutated Bucket 0
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	if run.Status != reconciliation.RunStatusCompleted {
+		t.Fatalf("status = %q, want COMPLETED", run.Status)
+	}
+	if run.DiscrepancyCount != 2 {
+		t.Fatalf("discrepancyCount = %d, want 2", run.DiscrepancyCount)
+	}
+
+	var foundExtraNode, foundBucket0 bool
+	for _, d := range repo.discrepancies {
+		if d.MismatchCategory == reconciliation.MismatchExtraRecord && d.Evidence["reason"] == "node exists only in participant ledger" {
+			foundExtraNode = true
+			if d.Evidence["node_path"] != "L0/3" {
+				t.Errorf("extra node discrepancy node_path = %q, want L0/3", d.Evidence["node_path"])
+			}
+		}
+		if d.MismatchCategory == reconciliation.MismatchRecordDifference && d.Evidence["field"] == "amount_paise" {
+			foundBucket0 = true
+		}
+	}
+
+	if !foundExtraNode {
+		t.Fatal("expected one-sided extra node discrepancy (node exists only in participant ledger)")
+	}
+	if !foundBucket0 {
+		t.Fatal("expected mutated bucket 0 discrepancy")
+	}
+}
+
 
 // Participant source isolation: cannot cross participant boundaries
 func TestParticipantSourceIsolation(t *testing.T) {

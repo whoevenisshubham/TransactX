@@ -365,3 +365,98 @@ func (source fakeSnapshotSource) GetLedgerSnapshot(ctx context.Context, _ bank.L
 	}
 	return source.snapshot, nil
 }
+
+// TestParticipantBoundaryRejectsForeignParticipantRef directly verifies that
+// both MemoryParticipant and RepositoryParticipant reject any NodeRef or BucketRef
+// targeting a foreign participant identity with ErrParticipantMismatch.
+func TestParticipantBoundaryRejectsForeignParticipantRef(t *testing.T) {
+	scope := participantScope()
+	records := participantRecords()
+
+	// 1. Test MemoryParticipant boundary rejection
+	memP, err := NewMemoryParticipant("BANK-A", "ledger", time.Hour, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memRoot, err := memP.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	foreignNodeRef := NodeRef{
+		ParticipantID: "BANK-B",
+		ScopeID:       memRoot.Ref.ScopeID,
+		Generation:    memRoot.Ref.Generation,
+		Path:          memRoot.Ref.Path,
+	}
+	foreignBucketRef := BucketRef{
+		ParticipantID: "BANK-B",
+		ScopeID:       memRoot.Ref.ScopeID,
+		Generation:    memRoot.Ref.Generation,
+		Key:           bucketKeyForRecord(t, records[0]),
+	}
+
+	if _, err := memP.GetChildren(context.Background(), foreignNodeRef); !errors.Is(err, ErrParticipantMismatch) {
+		t.Fatalf("MemoryParticipant.GetChildren expected ErrParticipantMismatch, got: %v", err)
+	}
+	if _, err := memP.GetRecords(context.Background(), foreignBucketRef); !errors.Is(err, ErrParticipantMismatch) {
+		t.Fatalf("MemoryParticipant.GetRecords expected ErrParticipantMismatch, got: %v", err)
+	}
+	if _, err := memP.GetBucketID(context.Background(), foreignNodeRef); !errors.Is(err, ErrParticipantMismatch) {
+		t.Fatalf("MemoryParticipant.GetBucketID expected ErrParticipantMismatch, got: %v", err)
+	}
+
+	// 2. Test RepositoryParticipant boundary rejection
+	entries := make([]bank.LedgerEntry, 0, len(records))
+	for _, record := range records {
+		entries = append(entries, bank.LedgerEntry{
+			OperationID: record.OperationID,
+			PaymentID:   record.PaymentID,
+			AccountID:   record.AccountID,
+			EntryType:   record.EntryType,
+			AmountPaise: record.AmountPaise,
+			Currency:    record.Currency,
+			OccurredAt:  record.OccurredAt,
+		})
+	}
+	snapshot := bank.LedgerSnapshot{
+		BankID:     "BANK-A",
+		SnapshotID: uuid.New(),
+		CapturedAt: time.Date(2026, 1, 2, 2, 0, 0, 0, time.UTC),
+		Entries:    entries,
+	}
+	repoP, err := NewRepositoryParticipant(fakeSnapshotSource{snapshot: snapshot}, "BANK-A", "ledger", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repoP.Initialize(context.Background(), scope); err != nil {
+		t.Fatal(err)
+	}
+	repoRoot, err := repoP.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repoForeignNode := NodeRef{
+		ParticipantID: "BANK-B",
+		ScopeID:       repoRoot.Ref.ScopeID,
+		Generation:    repoRoot.Ref.Generation,
+		Path:          repoRoot.Ref.Path,
+	}
+	repoForeignBucket := BucketRef{
+		ParticipantID: "BANK-B",
+		ScopeID:       repoRoot.Ref.ScopeID,
+		Generation:    repoRoot.Ref.Generation,
+		Key:           bucketKeyForRecord(t, records[0]),
+	}
+
+	if _, err := repoP.GetChildren(context.Background(), repoForeignNode); !errors.Is(err, ErrParticipantMismatch) {
+		t.Fatalf("RepositoryParticipant.GetChildren expected ErrParticipantMismatch, got: %v", err)
+	}
+	if _, err := repoP.GetRecords(context.Background(), repoForeignBucket); !errors.Is(err, ErrParticipantMismatch) {
+		t.Fatalf("RepositoryParticipant.GetRecords expected ErrParticipantMismatch, got: %v", err)
+	}
+	if _, err := repoP.GetBucketID(context.Background(), repoForeignNode); !errors.Is(err, ErrParticipantMismatch) {
+		t.Fatalf("RepositoryParticipant.GetBucketID expected ErrParticipantMismatch, got: %v", err)
+	}
+}
