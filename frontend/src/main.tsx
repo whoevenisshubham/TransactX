@@ -81,7 +81,7 @@ function AuthPage({
           <span className="intro-separator">•</span>
           <span>INR payments</span>
           <span className="intro-separator">•</span>
-          <span>Real-time settlement</span>
+          <span>Simulated payment network</span>
         </div>
       </section>
       <section className="auth-panel">
@@ -1028,10 +1028,6 @@ function ConfirmPayment({
           <span>
             <Icon name="check" size={15} />
             INR settlement
-          </span>
-          <span>
-            <Icon name="check" size={15} />
-            Zero network fee
           </span>
         </div>
       </div>
