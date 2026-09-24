@@ -13,7 +13,7 @@ Implemented through the current routed-payment milestone:
 - Customer payment frontend and API contract: exact decimal-to-paise input, stable idempotency attempts, safe account/payment DTOs, notes, incoming/outgoing history, explicit pending status checks, and transaction details.
 - Unit, PostgreSQL-backed integration, and race-detector coverage for the critical payment and bank paths.
 
-Adaptive routing, circuit breakers, reconciliation orchestration, chaos orchestration, and offline queue UX remain future work. The canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are implemented for research use; they are not a production reconciliation service.
+Adaptive routing, circuit breakers, chaos orchestration, and offline queue UX are implemented. Reconciliation orchestration, reconciliation APIs, and later M3 work remain future work. Canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are implemented for research use and are not a production reconciliation service.
 
 ## Local development
 
