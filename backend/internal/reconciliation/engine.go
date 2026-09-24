@@ -117,8 +117,250 @@ func (engine *Engine) Execute(ctx context.Context, req RunRequest) (Run, error) 
 }
 
 type nodePair struct {
-	canonical   NodeRef
-	participant NodeRef
+	canonical       NodeRef
+	canonicalHash   []byte
+	participant     NodeRef
+	participantHash []byte
+}
+
+type leafBucket struct {
+	ref      NodeRef
+	hash     []byte
+	bucketID BucketID
+}
+
+type nodeRegion struct {
+	node   NodeResult
+	leaves []leafBucket
+	start  time.Time
+	end    time.Time
+}
+
+func regionKey(start, end time.Time) string {
+	return fmt.Sprintf("%d_%d", start.UTC().UnixNano(), end.UTC().UnixNano())
+}
+
+func collectLeafBuckets(ctx context.Context, p ReconciliationParticipant, ref NodeRef, hash []byte) ([]leafBucket, error) {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if ref.Path == emptyNodePath {
+		return []leafBucket{}, nil
+	}
+	children, err := p.GetChildren(ctx, ref)
+	if err != nil {
+		return nil, fmt.Errorf("GetChildren on %s: %w", ref.Path, err)
+	}
+	if len(children) == 0 {
+		bID, err := p.GetBucketID(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("GetBucketID on leaf %s: %w", ref.Path, err)
+		}
+		return []leafBucket{
+			{
+				ref:      ref,
+				hash:     hash,
+				bucketID: bID,
+			},
+		}, nil
+	}
+	var leaves []leafBucket
+	for _, child := range children {
+		childLeaves, err := collectLeafBuckets(ctx, p, child.Ref, child.Hash)
+		if err != nil {
+			return nil, err
+		}
+		leaves = append(leaves, childLeaves...)
+	}
+	return leaves, nil
+}
+
+func getChildRegions(ctx context.Context, p ReconciliationParticipant, children []NodeResult) ([]nodeRegion, error) {
+	regions := make([]nodeRegion, len(children))
+	for i, c := range children {
+		leaves, err := collectLeafBuckets(ctx, p, c.Ref, c.Hash)
+		if err != nil {
+			return nil, err
+		}
+		var start, end time.Time
+		if len(leaves) > 0 {
+			start = leaves[0].bucketID.Start
+			end = leaves[len(leaves)-1].bucketID.Start.Add(leaves[len(leaves)-1].bucketID.Width)
+		}
+		regions[i] = nodeRegion{
+			node:   c,
+			leaves: leaves,
+			start:  start,
+			end:    end,
+		}
+	}
+	return regions, nil
+}
+
+func (engine *Engine) reconcileLeavesByBucketID(
+	ctx context.Context,
+	runID uuid.UUID,
+	participantID string,
+	canonicalParticipant ReconciliationParticipant,
+	participantParticipant ReconciliationParticipant,
+	canonLeaves []leafBucket,
+	partLeaves []leafBucket,
+	recordsInspected *int,
+	divergentBuckets *int,
+	divergentRecords *int,
+) (int64, error) {
+	var newDiscrepancies int64
+
+	canonByBucket := make(map[string]leafBucket, len(canonLeaves))
+	for _, l := range canonLeaves {
+		canonByBucket[l.bucketID.String()] = l
+	}
+
+	partByBucket := make(map[string]leafBucket, len(partLeaves))
+	for _, l := range partLeaves {
+		partByBucket[l.bucketID.String()] = l
+	}
+
+	bucketKeySet := make(map[string]bool)
+	for k := range canonByBucket {
+		bucketKeySet[k] = true
+	}
+	for k := range partByBucket {
+		bucketKeySet[k] = true
+	}
+
+	allBucketKeys := make([]string, 0, len(bucketKeySet))
+	for k := range bucketKeySet {
+		allBucketKeys = append(allBucketKeys, k)
+	}
+	sort.Strings(allBucketKeys)
+
+	for _, key := range allBucketKeys {
+		cL, inCanon := canonByBucket[key]
+		pL, inPart := partByBucket[key]
+
+		if inCanon && inPart {
+			if bytes.Equal(cL.hash, pL.hash) {
+				// Hashes equal: identical bucket on both sides, skip
+				continue
+			}
+			*divergentBuckets++
+
+			cRecords, cErr := canonicalParticipant.GetRecords(ctx, BucketRef{
+				ParticipantID: cL.ref.ParticipantID,
+				ScopeID:       cL.ref.ScopeID,
+				Generation:    cL.ref.Generation,
+				Key:           key,
+			})
+			if cErr != nil {
+				return newDiscrepancies, fmt.Errorf("canonical GetRecords for bucket %s: %w", key, cErr)
+			}
+
+			pRecords, pErr := participantParticipant.GetRecords(ctx, BucketRef{
+				ParticipantID: pL.ref.ParticipantID,
+				ScopeID:       pL.ref.ScopeID,
+				Generation:    pL.ref.Generation,
+				Key:           key,
+			})
+			if pErr != nil {
+				return newDiscrepancies, fmt.Errorf("participant GetRecords for bucket %s: %w", key, pErr)
+			}
+
+			*recordsInspected += len(cRecords) + len(pRecords)
+
+			discs := compareBucketRecords(
+				runID,
+				participantID,
+				cL.bucketID,
+				cL.hash,
+				pL.hash,
+				cRecords,
+				pRecords,
+			)
+
+			for _, disc := range discs {
+				if _, saveErr := engine.store.SaveDiscrepancy(ctx, disc); saveErr != nil {
+					return newDiscrepancies, fmt.Errorf("save discrepancy: %w", saveErr)
+				}
+				newDiscrepancies++
+				*divergentRecords++
+			}
+		} else if inCanon && !inPart {
+			// Bucket exists only on canonical side: record MismatchMissingRecord
+			*divergentBuckets++
+
+			cRecords, cErr := canonicalParticipant.GetRecords(ctx, BucketRef{
+				ParticipantID: cL.ref.ParticipantID,
+				ScopeID:       cL.ref.ScopeID,
+				Generation:    cL.ref.Generation,
+				Key:           key,
+			})
+			if cErr != nil {
+				return newDiscrepancies, fmt.Errorf("canonical GetRecords for missing bucket %s: %w", key, cErr)
+			}
+			*recordsInspected += len(cRecords)
+
+			disc := Discrepancy{
+				RunID:            runID,
+				ParticipantID:    participantID,
+				BucketKey:        cL.bucketID.String(),
+				BucketPartition:  cL.bucketID.Partition,
+				BucketStart:      cL.bucketID.Start,
+				BucketWidthNs:    int64(cL.bucketID.Width),
+				ExpectedRoot:     cL.hash,
+				ObservedRoot:     nil,
+				MismatchCategory: MismatchMissingRecord,
+				Evidence: map[string]string{
+					"reason":    "node exists only in canonical ledger",
+					"node_path": cL.ref.Path,
+					"bucket_id": cL.bucketID.String(),
+				},
+				DetectedAt: time.Now().UTC(),
+			}
+			if _, saveErr := engine.store.SaveDiscrepancy(ctx, disc); saveErr != nil {
+				return newDiscrepancies, fmt.Errorf("save discrepancy: %w", saveErr)
+			}
+			newDiscrepancies++
+		} else if !inCanon && inPart {
+			// Bucket exists only on participant side: record MismatchExtraRecord
+			*divergentBuckets++
+
+			pRecords, pErr := participantParticipant.GetRecords(ctx, BucketRef{
+				ParticipantID: pL.ref.ParticipantID,
+				ScopeID:       pL.ref.ScopeID,
+				Generation:    pL.ref.Generation,
+				Key:           key,
+			})
+			if pErr != nil {
+				return newDiscrepancies, fmt.Errorf("participant GetRecords for extra bucket %s: %w", key, pErr)
+			}
+			*recordsInspected += len(pRecords)
+
+			disc := Discrepancy{
+				RunID:            runID,
+				ParticipantID:    participantID,
+				BucketKey:        pL.bucketID.String(),
+				BucketPartition:  pL.bucketID.Partition,
+				BucketStart:      pL.bucketID.Start,
+				BucketWidthNs:    int64(pL.bucketID.Width),
+				ExpectedRoot:     nil,
+				ObservedRoot:     pL.hash,
+				MismatchCategory: MismatchExtraRecord,
+				Evidence: map[string]string{
+					"reason":    "node exists only in participant ledger",
+					"node_path": pL.ref.Path,
+					"bucket_id": pL.bucketID.String(),
+				},
+				DetectedAt: time.Now().UTC(),
+			}
+			if _, saveErr := engine.store.SaveDiscrepancy(ctx, disc); saveErr != nil {
+				return newDiscrepancies, fmt.Errorf("save discrepancy: %w", saveErr)
+			}
+			newDiscrepancies++
+		}
+	}
+
+	return newDiscrepancies, nil
 }
 
 func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantID string, scope Scope) (Run, error) {
@@ -189,11 +431,13 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 	}
 
 	// 8. Roots differ: initialize queue containing the root pair.
-	// Queue item contains BOTH canonical NodeRef and participant NodeRef.
+	// Queue item contains BOTH canonical NodeRef and participant NodeRef with their hashes.
 	queue := []nodePair{
 		{
-			canonical:   canonicalRoot.Ref,
-			participant: participantRoot.Ref,
+			canonical:       canonicalRoot.Ref,
+			canonicalHash:   canonicalRoot.Root,
+			participant:     participantRoot.Ref,
+			participantHash: participantRoot.Root,
 		},
 	}
 
@@ -223,172 +467,90 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 			return Run{}, fmt.Errorf("participant GetChildren on %s: %w", pair.participant.Path, pErr)
 		}
 
-		// Leaf level: both have zero children (level 0 bucket leaves)
-		if len(canonChildren) == 0 && len(partChildren) == 0 {
-			divergentBuckets++
-
-			// Resolve bucket identity from whichever side is available
-			bucketID, bErr := canonicalParticipant.GetBucketID(ctx, pair.canonical)
-			if bErr != nil {
-				bucketID, bErr = participantParticipant.GetBucketID(ctx, pair.participant)
-				if bErr != nil {
-					bucketID = BucketID{Partition: participantID, Start: scope.From, Width: scope.To.Sub(scope.From)}
-				}
+		// Leaf level or one side is a leaf:
+		if len(canonChildren) == 0 || len(partChildren) == 0 {
+			cLeaves, err := collectLeafBuckets(ctx, canonicalParticipant, pair.canonical, pair.canonicalHash)
+			if err != nil {
+				return Run{}, err
 			}
-
-			// Obtain canonical records using canonical bucket reference
-			canonBucketKey := bucketID.String()
-			if cID, cErr := canonicalParticipant.GetBucketID(ctx, pair.canonical); cErr == nil {
-				canonBucketKey = cID.String()
+			pLeaves, err := collectLeafBuckets(ctx, participantParticipant, pair.participant, pair.participantHash)
+			if err != nil {
+				return Run{}, err
 			}
-			canonRecords, _ := canonicalParticipant.GetRecords(ctx, BucketRef{
-				ParticipantID: pair.canonical.ParticipantID,
-				ScopeID:       pair.canonical.ScopeID,
-				Generation:    pair.canonical.Generation,
-				Key:           canonBucketKey,
-			})
-
-			// Obtain participant records using participant bucket reference
-			partBucketKey := bucketID.String()
-			if pID, pErr := participantParticipant.GetBucketID(ctx, pair.participant); pErr == nil {
-				partBucketKey = pID.String()
-			}
-			partRecords, _ := participantParticipant.GetRecords(ctx, BucketRef{
-				ParticipantID: pair.participant.ParticipantID,
-				ScopeID:       pair.participant.ScopeID,
-				Generation:    pair.participant.Generation,
-				Key:           partBucketKey,
-			})
-
-			recordsInspected += len(canonRecords) + len(partRecords)
-
-			// Detailed record-level comparison
-			discs := compareBucketRecords(
-				runID,
-				participantID,
-				bucketID,
-				canonicalRoot.Root,
-				participantRoot.Root,
-				canonRecords,
-				partRecords,
+			newDiscs, err := engine.reconcileLeavesByBucketID(
+				ctx, runID, participantID, canonicalParticipant, participantParticipant,
+				cLeaves, pLeaves,
+				&recordsInspected, &divergentBuckets, &divergentRecords,
 			)
-
-			for _, disc := range discs {
-				if _, saveErr := engine.store.SaveDiscrepancy(ctx, disc); saveErr != nil {
-					return Run{}, fmt.Errorf("save discrepancy: %w", saveErr)
-				}
-				discrepancyCount++
-				divergentRecords++
+			if err != nil {
+				return Run{}, err
 			}
+			discrepancyCount += newDiscs
 			continue
 		}
 
-		// Internal node level: match children using deterministic node identity/path
-		canonByPath := make(map[string]NodeResult, len(canonChildren))
-		for _, c := range canonChildren {
-			canonByPath[c.Ref.Path] = c
+		// Internal node level: both have children.
+		// Group children by their logical ledger time region [start, end),
+		// NOT by absolute implementation tree coordinates (NodeRef.Path).
+		canonRegions, cErr := getChildRegions(ctx, canonicalParticipant, canonChildren)
+		if cErr != nil {
+			return Run{}, cErr
 		}
-		partByPath := make(map[string]NodeResult, len(partChildren))
-		for _, p := range partChildren {
-			partByPath[p.Ref.Path] = p
+		partRegions, pErr := getChildRegions(ctx, participantParticipant, partChildren)
+		if pErr != nil {
+			return Run{}, pErr
 		}
 
-		pathSet := make(map[string]bool)
-		for p := range canonByPath {
-			pathSet[p] = true
+		partByRegion := make(map[string]nodeRegion, len(partRegions))
+		for _, pr := range partRegions {
+			partByRegion[regionKey(pr.start, pr.end)] = pr
 		}
-		for p := range partByPath {
-			pathSet[p] = true
-		}
-		allPaths := make([]string, 0, len(pathSet))
-		for p := range pathSet {
-			allPaths = append(allPaths, p)
-		}
-		sort.Strings(allPaths)
 
-		for _, p := range allPaths {
-			cChild, inCanon := canonByPath[p]
-			pChild, inPart := partByPath[p]
+		matchedPartRegions := make(map[string]bool)
+		var unmatchedCanonLeaves []leafBucket
 
-			if inCanon && inPart {
-				if bytes.Equal(cChild.Hash, pChild.Hash) {
-					// Hashes equal: skip
+		for _, cr := range canonRegions {
+			rk := regionKey(cr.start, cr.end)
+			pr, found := partByRegion[rk]
+			if found {
+				matchedPartRegions[rk] = true
+				if bytes.Equal(cr.node.Hash, pr.node.Hash) {
+					// Hashes equal: entire subtree is identical, skip (O(1) pruning)
 					continue
 				}
-				// Hashes differ: enqueue canonical child + participant child
+				// Hashes differ: enqueue pair into work queue to descend
 				queue = append(queue, nodePair{
-					canonical:   cChild.Ref,
-					participant: pChild.Ref,
+					canonical:       cr.node.Ref,
+					canonicalHash:   cr.node.Hash,
+					participant:     pr.node.Ref,
+					participantHash: pr.node.Hash,
 				})
-			} else if inCanon && !inPart {
-				// Child exists only on canonical side: record discrepancy immediately
-				divergentBuckets++
-				bucketID, bErr := canonicalParticipant.GetBucketID(ctx, cChild.Ref)
-				if bErr != nil {
-					bucketID = BucketID{Partition: participantID, Start: scope.From, Width: scope.To.Sub(scope.From)}
-				}
-				cRecords, _ := canonicalParticipant.GetRecords(ctx, BucketRef{
-					ParticipantID: cChild.Ref.ParticipantID,
-					ScopeID:       cChild.Ref.ScopeID,
-					Generation:    cChild.Ref.Generation,
-					Key:           bucketID.String(),
-				})
-				recordsInspected += len(cRecords)
-				disc := Discrepancy{
-					RunID:            runID,
-					ParticipantID:    participantID,
-					BucketKey:        bucketID.String(),
-					BucketPartition:  bucketID.Partition,
-					BucketStart:      bucketID.Start,
-					BucketWidthNs:    int64(bucketID.Width),
-					ExpectedRoot:     cChild.Hash,
-					ObservedRoot:     nil,
-					MismatchCategory: MismatchMissingRecord,
-					Evidence: map[string]string{
-						"reason":    "node exists only in canonical ledger",
-						"node_path": cChild.Ref.Path,
-					},
-					DetectedAt: time.Now().UTC(),
-				}
-				if _, saveErr := engine.store.SaveDiscrepancy(ctx, disc); saveErr != nil {
-					return Run{}, fmt.Errorf("save discrepancy: %w", saveErr)
-				}
-				discrepancyCount++
-			} else if !inCanon && inPart {
-				// Child exists only on participant side: record discrepancy immediately
-				divergentBuckets++
-				bucketID, bErr := participantParticipant.GetBucketID(ctx, pChild.Ref)
-				if bErr != nil {
-					bucketID = BucketID{Partition: participantID, Start: scope.From, Width: scope.To.Sub(scope.From)}
-				}
-				pRecords, _ := participantParticipant.GetRecords(ctx, BucketRef{
-					ParticipantID: pChild.Ref.ParticipantID,
-					ScopeID:       pChild.Ref.ScopeID,
-					Generation:    pChild.Ref.Generation,
-					Key:           bucketID.String(),
-				})
-				recordsInspected += len(pRecords)
-				disc := Discrepancy{
-					RunID:            runID,
-					ParticipantID:    participantID,
-					BucketKey:        bucketID.String(),
-					BucketPartition:  bucketID.Partition,
-					BucketStart:      bucketID.Start,
-					BucketWidthNs:    int64(bucketID.Width),
-					ExpectedRoot:     nil,
-					ObservedRoot:     pChild.Hash,
-					MismatchCategory: MismatchExtraRecord,
-					Evidence: map[string]string{
-						"reason":    "node exists only in participant ledger",
-						"node_path": pChild.Ref.Path,
-					},
-					DetectedAt: time.Now().UTC(),
-				}
-				if _, saveErr := engine.store.SaveDiscrepancy(ctx, disc); saveErr != nil {
-					return Run{}, fmt.Errorf("save discrepancy: %w", saveErr)
-				}
-				discrepancyCount++
+			} else {
+				// No participant child covers this exact region: structurally incompatible
+				unmatchedCanonLeaves = append(unmatchedCanonLeaves, cr.leaves...)
 			}
+		}
+
+		var unmatchedPartLeaves []leafBucket
+		for _, pr := range partRegions {
+			rk := regionKey(pr.start, pr.end)
+			if !matchedPartRegions[rk] {
+				unmatchedPartLeaves = append(unmatchedPartLeaves, pr.leaves...)
+			}
+		}
+
+		// At structurally incompatible subtrees, enumerate descendant leaf/bucket regions
+		// on both sides and match them by logical BucketID.
+		if len(unmatchedCanonLeaves) > 0 || len(unmatchedPartLeaves) > 0 {
+			newDiscs, err := engine.reconcileLeavesByBucketID(
+				ctx, runID, participantID, canonicalParticipant, participantParticipant,
+				unmatchedCanonLeaves, unmatchedPartLeaves,
+				&recordsInspected, &divergentBuckets, &divergentRecords,
+			)
+			if err != nil {
+				return Run{}, err
+			}
+			discrepancyCount += newDiscs
 		}
 	}
 

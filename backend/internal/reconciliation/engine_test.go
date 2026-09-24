@@ -675,16 +675,24 @@ func TestTwoSidedOneSidedSubtreeCoverage(t *testing.T) {
 		t.Fatalf("saved discrepancies = %d, want 2", len(repo.discrepancies))
 	}
 
-	// 3. Verify the one-sided node discrepancy (Bucket 3 / L0/3 exists only on canonical side)
+	// 3. Verify the one-sided node discrepancy (Bucket 3 exists only on canonical side)
 	var foundOneSided, foundBucket0 bool
 	for _, d := range repo.discrepancies {
 		if d.MismatchCategory == reconciliation.MismatchMissingRecord && d.Evidence["reason"] == "node exists only in canonical ledger" {
 			foundOneSided = true
-			if d.Evidence["node_path"] != "L0/3" {
-				t.Errorf("one-sided discrepancy node_path = %q, want L0/3", d.Evidence["node_path"])
-			}
 			if !d.BucketStart.Equal(base.Add(3 * time.Hour)) {
 				t.Errorf("one-sided discrepancy BucketStart = %v, want %v", d.BucketStart, base.Add(3*time.Hour))
+			}
+			if d.BucketWidthNs != int64(time.Hour) {
+				t.Errorf("one-sided discrepancy BucketWidthNs = %d, want %d", d.BucketWidthNs, int64(time.Hour))
+			}
+			expectedBucketKey := reconciliation.BucketID{
+				Partition: pid,
+				Start:     base.Add(3 * time.Hour),
+				Width:     time.Hour,
+			}.String()
+			if d.BucketKey != expectedBucketKey {
+				t.Errorf("one-sided discrepancy BucketKey = %q, want %q", d.BucketKey, expectedBucketKey)
 			}
 		}
 		if d.MismatchCategory == reconciliation.MismatchRecordDifference && d.Evidence["field"] == "amount_paise" {
@@ -750,12 +758,26 @@ func TestTwoSidedOneSidedParticipantNodeCoverage(t *testing.T) {
 	for _, d := range repo.discrepancies {
 		if d.MismatchCategory == reconciliation.MismatchExtraRecord && d.Evidence["reason"] == "node exists only in participant ledger" {
 			foundExtraNode = true
-			if d.Evidence["node_path"] != "L0/3" {
-				t.Errorf("extra node discrepancy node_path = %q, want L0/3", d.Evidence["node_path"])
+			if !d.BucketStart.Equal(base.Add(3 * time.Hour)) {
+				t.Errorf("extra node discrepancy BucketStart = %v, want %v", d.BucketStart, base.Add(3*time.Hour))
+			}
+			if d.BucketWidthNs != int64(time.Hour) {
+				t.Errorf("extra node discrepancy BucketWidthNs = %d, want %d", d.BucketWidthNs, int64(time.Hour))
+			}
+			expectedBucketKey := reconciliation.BucketID{
+				Partition: pid,
+				Start:     base.Add(3 * time.Hour),
+				Width:     time.Hour,
+			}.String()
+			if d.BucketKey != expectedBucketKey {
+				t.Errorf("extra node discrepancy BucketKey = %q, want %q", d.BucketKey, expectedBucketKey)
 			}
 		}
 		if d.MismatchCategory == reconciliation.MismatchRecordDifference && d.Evidence["field"] == "amount_paise" {
 			foundBucket0 = true
+			if !d.BucketStart.Equal(base) {
+				t.Errorf("bucket 0 discrepancy BucketStart = %v, want %v", d.BucketStart, base)
+			}
 		}
 	}
 
@@ -765,6 +787,123 @@ func TestTwoSidedOneSidedParticipantNodeCoverage(t *testing.T) {
 	if !foundBucket0 {
 		t.Fatal("expected mutated bucket 0 discrepancy")
 	}
+}
+
+// Regression test: proves tree-height mismatch does not create false discrepancies
+// for unrelated identical buckets.
+// Case 1: Canonical has 4 buckets (height 3: L2 root) vs Participant has 2 buckets (height 2: L1 root).
+// Buckets 0 and 1 are identical.
+// Case 2: Canonical has 1 bucket (height 1: L0 root) vs Participant has 2 buckets (height 2: L1 root).
+// Bucket 0 is identical.
+func TestTreeHeightMismatchDoesNotCreateFalseDiscrepancies(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	const pid = "BANK-A"
+
+	t.Run("Canonical4BucketsVsParticipant2Buckets", func(t *testing.T) {
+		scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+		allRecords := makeSampleRecords(base) // 4 records across 4 buckets
+		canonRecords := allRecords             // buckets 0, 1, 2, 3
+		partRecords := allRecords[:2]          // buckets 0, 1 only (identical to canon)
+
+		engine, repo := newTestEngine(
+			t,
+			[]string{pid},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return makeTestParticipant(t, id, canonRecords), nil
+			},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return makeTestParticipant(t, id, partRecords), nil
+			},
+		)
+
+		run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+			ParticipantID: pid,
+			ScopeFrom:     scope.From,
+			ScopeTo:       scope.To,
+		})
+		if err != nil {
+			t.Fatalf("unexpected execute error: %v", err)
+		}
+
+		if run.Status != reconciliation.RunStatusCompleted {
+			t.Fatalf("status = %q, want COMPLETED", run.Status)
+		}
+
+		// Exactly 2 discrepancies: Bucket 2 and Bucket 3 are missing on participant side.
+		// Buckets 0 and 1 are identical and must NOT produce false discrepancies.
+		if run.DiscrepancyCount != 2 {
+			t.Fatalf("discrepancyCount = %d, want 2 (only buckets 2 and 3 missing)", run.DiscrepancyCount)
+		}
+		if len(repo.discrepancies) != 2 {
+			t.Fatalf("saved discrepancies = %d, want 2", len(repo.discrepancies))
+		}
+
+		missingStarts := make(map[time.Time]bool)
+		for _, d := range repo.discrepancies {
+			if d.MismatchCategory != reconciliation.MismatchMissingRecord {
+				t.Errorf("unexpected discrepancy category %q, want MISSING_PARTICIPANT_RECORD", d.MismatchCategory)
+			}
+			missingStarts[d.BucketStart] = true
+			if d.BucketStart.Equal(base) || d.BucketStart.Equal(base.Add(time.Hour)) {
+				t.Errorf("false discrepancy created for identical bucket at %v", d.BucketStart)
+			}
+		}
+
+		if !missingStarts[base.Add(2*time.Hour)] {
+			t.Errorf("missing expected discrepancy for Bucket 2 at %v", base.Add(2*time.Hour))
+		}
+		if !missingStarts[base.Add(3*time.Hour)] {
+			t.Errorf("missing expected discrepancy for Bucket 3 at %v", base.Add(3*time.Hour))
+		}
+	})
+
+	t.Run("Canonical1BucketVsParticipant2Buckets", func(t *testing.T) {
+		scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
+		allRecords := makeSampleRecords(base)
+		canonRecords := allRecords[:1] // bucket 0 only
+		partRecords := allRecords[:2]  // bucket 0 (identical) + bucket 1 (extra)
+
+		engine, repo := newTestEngine(
+			t,
+			[]string{pid},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return makeTestParticipant(t, id, canonRecords), nil
+			},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return makeTestParticipant(t, id, partRecords), nil
+			},
+		)
+
+		run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+			ParticipantID: pid,
+			ScopeFrom:     scope.From,
+			ScopeTo:       scope.To,
+		})
+		if err != nil {
+			t.Fatalf("unexpected execute error: %v", err)
+		}
+
+		if run.Status != reconciliation.RunStatusCompleted {
+			t.Fatalf("status = %q, want COMPLETED", run.Status)
+		}
+
+		// Exactly 1 discrepancy: Bucket 1 is extra on participant side.
+		// Bucket 0 is identical and must NOT produce a false discrepancy.
+		if run.DiscrepancyCount != 1 {
+			t.Fatalf("discrepancyCount = %d, want 1 (only bucket 1 extra)", run.DiscrepancyCount)
+		}
+		if len(repo.discrepancies) != 1 {
+			t.Fatalf("saved discrepancies = %d, want 1", len(repo.discrepancies))
+		}
+
+		d := repo.discrepancies[0]
+		if d.MismatchCategory != reconciliation.MismatchExtraRecord {
+			t.Errorf("category = %q, want EXTRA_PARTICIPANT_RECORD", d.MismatchCategory)
+		}
+		if !d.BucketStart.Equal(base.Add(time.Hour)) {
+			t.Errorf("discrepancy BucketStart = %v, want %v", d.BucketStart, base.Add(time.Hour))
+		}
+	})
 }
 
 
