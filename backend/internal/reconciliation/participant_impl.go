@@ -124,6 +124,24 @@ func (participant *MemoryParticipant) GetRecords(ctx context.Context, ref Bucket
 	return recordsFromState(scope, ref.Generation, state, ref)
 }
 
+func (participant *MemoryParticipant) GetBucketID(ctx context.Context, ref NodeRef) (BucketID, error) {
+	if err := participant.validateParticipant(ref.ParticipantID); err != nil {
+		return BucketID{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return BucketID{}, err
+	}
+	scope, err := parseScopeIdentity(ref.ScopeID)
+	if err != nil {
+		return BucketID{}, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
+	}
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
+	if err != nil {
+		return BucketID{}, err
+	}
+	return bucketIDFromState(scope, ref.Generation, state, ref)
+}
+
 func (participant *MemoryParticipant) GetMetadata(ctx context.Context, scope Scope) (ParticipantMetadata, error) {
 	state, _, _, err := participant.state(ctx, scope)
 	if err != nil {
@@ -324,6 +342,24 @@ func (participant *RepositoryParticipant) GetRecords(ctx context.Context, ref Bu
 	return recordsFromState(scope, ref.Generation, state, ref)
 }
 
+func (participant *RepositoryParticipant) GetBucketID(ctx context.Context, ref NodeRef) (BucketID, error) {
+	if ref.ParticipantID != "" && ref.ParticipantID != participant.participantID {
+		return BucketID{}, fmt.Errorf("%w: requested=%q actual=%q", ErrParticipantMismatch, ref.ParticipantID, participant.participantID)
+	}
+	if err := ctx.Err(); err != nil {
+		return BucketID{}, err
+	}
+	scope, err := parseScopeIdentity(ref.ScopeID)
+	if err != nil {
+		return BucketID{}, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
+	}
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
+	if err != nil {
+		return BucketID{}, err
+	}
+	return bucketIDFromState(scope, ref.Generation, state, ref)
+}
+
 func (participant *RepositoryParticipant) GetMetadata(ctx context.Context, scope Scope) (ParticipantMetadata, error) {
 	state, _, _, err := participant.state(ctx, scope)
 	if err != nil {
@@ -472,6 +508,12 @@ func recordsFromState(scope Scope, generation string, state IncrementalCommitmen
 	if ref.ScopeID != ScopeIdentity(scope) || ref.Generation != generation {
 		return nil, fmt.Errorf("%w: reference commitment does not match requested generation", ErrStaleReference)
 	}
+	if strings.HasPrefix(ref.Key, "L0/") || ref.Key == rootNodePath {
+		level, index, err := parseNodePath(ref.Key, len(state.Levels))
+		if err == nil && level == 0 && index < len(state.BucketRecords) {
+			return cloneCanonicalRecords(state.BucketRecords[index]), nil
+		}
+	}
 	if !strings.HasPrefix(ref.Key, bucketHeader) {
 		return nil, ErrInvalidBucketReference
 	}
@@ -481,6 +523,20 @@ func recordsFromState(scope Scope, generation string, state IncrementalCommitmen
 		}
 	}
 	return nil, ErrBucketNotFound
+}
+
+func bucketIDFromState(scope Scope, generation string, state IncrementalCommitmentState, ref NodeRef) (BucketID, error) {
+	if ref.ScopeID != ScopeIdentity(scope) || ref.Generation != generation {
+		return BucketID{}, fmt.Errorf("%w: reference commitment does not match requested generation", ErrStaleReference)
+	}
+	level, index, err := parseNodePath(ref.Path, len(state.Levels))
+	if err != nil {
+		return BucketID{}, err
+	}
+	if level != 0 || index >= len(state.Buckets) {
+		return BucketID{}, ErrBucketNotFound
+	}
+	return state.Buckets[index].ID, nil
 }
 
 func parseNodePath(path string, levelCount int) (int, int, error) {

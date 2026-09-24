@@ -168,10 +168,43 @@ Every reconciliation run transitions through an explicit, durable lifecycle:
   configured participant and compares only that participant's records against
   canonical state.
 
-### Canonical vs participant state & non-mutation guarantee
+### True two-sided reconciliation architecture
 
-- Canonical state is derived deterministically from the canonical representation
-  using `v1` bytes and SHA-256 hashing.
+Reconciliation in TransactX is a strictly two-sided comparison between two independent read models:
+
+1. **Canonical Source**:
+   - Authoritative central PostgreSQL financial ledger (`payment_bank_operations` joined with bank routing metadata via `CentralLedgerSnapshotSource`).
+   - Represents TransactX's authoritative central recording of bank operations for the specified participant.
+   - Built through `NewCentralRepositoryParticipant` in production or a separate fixture in tests.
+   - BankAdapter is never used as or mixed into the canonical source.
+
+2. **Participant Source**:
+   - Bank participant ledger (`RepositoryParticipant` backed by participant PostgreSQL or `MemoryParticipant` in tests).
+   - Selected strictly according to the requested participant (`BANK-A` reads Bank A; `BANK-B` reads Bank B).
+   - Preserves complete participant boundary isolation.
+
+3. **Normalized Half-Open Scope `[From, To)`**:
+   - Both sources receive the exact same normalized UTC interval.
+   - Roots are fetched independently via `canonical.GetRoot(ctx, scope)` and `participant.GetRoot(ctx, scope)`.
+   - Both roots are persisted separately in `recon_runs` (`canonical_root` and `participant_root`).
+
+4. **Two-Sided Tree Traversal Algorithm**:
+   - If `canonicalRoot == participantRoot`, the run completes immediately with 0 discrepancies.
+   - If unequal, a work queue is initialized with the root pair: `nodePair{canonical: canonicalRoot, participant: participantRoot}`.
+   - For every pair:
+     - `canonicalChildren := canonical.GetChildren(ctx, pair.canonical)`
+     - `participantChildren := participant.GetChildren(ctx, pair.participant)`
+     - Matching children are paired by deterministic node path.
+     - Identical child hashes are skipped; differing hashes are enqueued for deeper traversal.
+     - Unmatched nodes existing on only one side are immediately flagged as discrepancies.
+     - Traversal continues exhaustively until the queue is empty; it **never** exits early after the first mismatch.
+   - When a divergent bucket leaf is reached, the engine retrieves records from both sides (`canonical.GetRecords` and `participant.GetRecords`) and performs deterministic record-level diffing, detecting:
+     - Missing participant records (`MISSING_PARTICIPANT_RECORD`)
+     - Extra participant records (`EXTRA_PARTICIPANT_RECORD`)
+     - Field-level attribute differences (`RECORD_MISMATCH`: amount, currency, entry type, payment ID, account ID, timestamp)
+
+### Non-mutation guarantee
+
 - Reconciliation is strictly read-only comparison: it **never** alters account
   balances, modifies payment states, settles funds, or silently repairs ledger
   values.

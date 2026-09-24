@@ -1,4 +1,4 @@
-﻿package http
+package http
 
 import (
 	"bytes"
@@ -131,11 +131,10 @@ func makeReconHandler(t *testing.T, participants []string, store *memReconStore)
 	}
 	engine := reconciliation.NewEngineWithRepo(known, store,
 		func(ctx context.Context, id string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-			p, err := reconciliation.NewMemoryParticipant(id, "test-partition", time.Hour, nil)
-			if err != nil {
-				return nil, err
-			}
-			return p, nil
+			return reconciliation.NewMemoryParticipant(id, "test-canonical", time.Hour, nil)
+		},
+		func(ctx context.Context, id string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return reconciliation.NewMemoryParticipant(id, "test-participant", time.Hour, nil)
 		},
 	)
 	handler := NewHandlerWithReconciliation(nil, nil, nil, manager, nil, engine)

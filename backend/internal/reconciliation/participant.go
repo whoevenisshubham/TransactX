@@ -130,5 +130,6 @@ type ReconciliationParticipant interface {
 	GetRoot(context.Context, Scope) (RootResult, error)
 	GetChildren(context.Context, NodeRef) ([]NodeResult, error)
 	GetRecords(context.Context, BucketRef) ([]CanonicalRecord, error)
+	GetBucketID(context.Context, NodeRef) (BucketID, error)
 	GetMetadata(context.Context, Scope) (ParticipantMetadata, error)
 }

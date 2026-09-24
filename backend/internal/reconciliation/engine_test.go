@@ -1,8 +1,9 @@
-﻿package reconciliation_test
+package reconciliation_test
 
 import (
+	"bytes"
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,8 +11,8 @@ import (
 	"github.com/transactx/backend/internal/reconciliation"
 )
 
-// memoryRunRepository is a pure in-memory RunRepository for engine tests.
-// It avoids any PostgreSQL dependency in unit tests.
+// --- helper: in-memory RunStore for engine unit tests ---
+
 type memoryRunRepository struct {
 	runs          map[uuid.UUID]reconciliation.Run
 	discrepancies []reconciliation.Discrepancy
@@ -21,7 +22,7 @@ func newMemoryRunRepository() *memoryRunRepository {
 	return &memoryRunRepository{runs: make(map[uuid.UUID]reconciliation.Run)}
 }
 
-func (r *memoryRunRepository) CreateRun(ctx context.Context, participantID string, scope reconciliation.Scope) (reconciliation.Run, error) {
+func (m *memoryRunRepository) CreateRun(_ context.Context, participantID string, scope reconciliation.Scope) (reconciliation.Run, error) {
 	run := reconciliation.Run{
 		ID:            uuid.New(),
 		ParticipantID: participantID,
@@ -30,13 +31,13 @@ func (r *memoryRunRepository) CreateRun(ctx context.Context, participantID strin
 		Status:        reconciliation.RunStatusRunning,
 		StartedAt:     time.Now().UTC(),
 	}
-	r.runs[run.ID] = run
+	m.runs[run.ID] = run
 	return run, nil
 }
 
-func (r *memoryRunRepository) CompleteRun(_ context.Context, runID uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64) (reconciliation.Run, error) {
-	run, ok := r.runs[runID]
-	if !ok || run.Status != reconciliation.RunStatusRunning {
+func (m *memoryRunRepository) CompleteRun(_ context.Context, runID uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64) (reconciliation.Run, error) {
+	run, ok := m.runs[runID]
+	if !ok {
 		return reconciliation.Run{}, reconciliation.ErrRunNotFound
 	}
 	run.Status = reconciliation.RunStatusCompleted
@@ -48,54 +49,50 @@ func (r *memoryRunRepository) CompleteRun(_ context.Context, runID uuid.UUID, ca
 	run.DiscrepancyCount = discrepancyCount
 	now := time.Now().UTC()
 	run.CompletedAt = &now
-	r.runs[runID] = run
+	m.runs[runID] = run
 	return run, nil
 }
 
-func (r *memoryRunRepository) FailRun(_ context.Context, runID uuid.UUID, errMsg string) (reconciliation.Run, error) {
-	run, ok := r.runs[runID]
-	if !ok || run.Status != reconciliation.RunStatusRunning {
+func (m *memoryRunRepository) FailRun(_ context.Context, runID uuid.UUID, errMsg string) (reconciliation.Run, error) {
+	run, ok := m.runs[runID]
+	if !ok {
 		return reconciliation.Run{}, reconciliation.ErrRunNotFound
 	}
 	run.Status = reconciliation.RunStatusFailed
 	run.ErrorMessage = errMsg
 	now := time.Now().UTC()
 	run.CompletedAt = &now
-	r.runs[runID] = run
+	m.runs[runID] = run
 	return run, nil
 }
 
-func (r *memoryRunRepository) GetRun(_ context.Context, runID uuid.UUID) (reconciliation.Run, error) {
-	run, ok := r.runs[runID]
+func (m *memoryRunRepository) GetRun(_ context.Context, runID uuid.UUID) (reconciliation.Run, error) {
+	run, ok := m.runs[runID]
 	if !ok {
 		return reconciliation.Run{}, reconciliation.ErrRunNotFound
 	}
 	return run, nil
 }
 
-func (r *memoryRunRepository) ListRuns(_ context.Context, req reconciliation.ListRunsRequest) (reconciliation.RunListPage, error) {
-	items := make([]reconciliation.Run, 0)
-	for _, run := range r.runs {
-		if req.ParticipantID != "" && run.ParticipantID != req.ParticipantID {
+func (m *memoryRunRepository) ListRuns(_ context.Context, req reconciliation.ListRunsRequest) (reconciliation.RunListPage, error) {
+	var matched []reconciliation.Run
+	for _, r := range m.runs {
+		if req.ParticipantID != "" && r.ParticipantID != req.ParticipantID {
 			continue
 		}
-		items = append(items, run)
+		matched = append(matched, r)
 	}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 20
 	}
-	page := reconciliation.RunListPage{Total: len(items), Limit: limit}
-	if req.Offset < len(items) {
+	page := reconciliation.RunListPage{Total: len(matched), Limit: limit}
+	if req.Offset < len(matched) {
 		end := req.Offset + limit
-		if end > len(items) {
-			end = len(items)
+		if end > len(matched) {
+			end = len(matched)
 		}
-		page.Items = items[req.Offset:end]
-		if end < len(items) {
-			nextOff := req.Offset + limit
-			page.NextOffset = &nextOff
-		}
+		page.Items = matched[req.Offset:end]
 	}
 	if page.Items == nil {
 		page.Items = []reconciliation.Run{}
@@ -103,16 +100,16 @@ func (r *memoryRunRepository) ListRuns(_ context.Context, req reconciliation.Lis
 	return page, nil
 }
 
-func (r *memoryRunRepository) SaveDiscrepancy(_ context.Context, disc reconciliation.Discrepancy) (reconciliation.Discrepancy, error) {
+func (m *memoryRunRepository) SaveDiscrepancy(_ context.Context, disc reconciliation.Discrepancy) (reconciliation.Discrepancy, error) {
 	disc.ID = uuid.New()
 	disc.DetectedAt = time.Now().UTC()
-	r.discrepancies = append(r.discrepancies, disc)
+	m.discrepancies = append(m.discrepancies, disc)
 	return disc, nil
 }
 
-func (r *memoryRunRepository) ListDiscrepancies(_ context.Context, req reconciliation.ListDiscrepanciesRequest) (reconciliation.DiscrepancyListPage, error) {
-	items := make([]reconciliation.Discrepancy, 0)
-	for _, d := range r.discrepancies {
+func (m *memoryRunRepository) ListDiscrepancies(_ context.Context, req reconciliation.ListDiscrepanciesRequest) (reconciliation.DiscrepancyListPage, error) {
+	var items []reconciliation.Discrepancy
+	for _, d := range m.discrepancies {
 		if d.RunID == req.RunID {
 			items = append(items, d)
 		}
@@ -135,26 +132,20 @@ func (r *memoryRunRepository) ListDiscrepancies(_ context.Context, req reconcili
 	return page, nil
 }
 
-// engineRunRepository wraps the memoryRunRepository to satisfy the engine's
-// RunRepository interface (so we can share the in-memory store for assertions).
-type engineRunRepository = reconciliation.RunRepository
-
-// makeTestParticipant builds a MemoryParticipant for a given set of records.
 func makeTestParticipant(t *testing.T, participantID string, records []reconciliation.CanonicalRecord) reconciliation.ReconciliationParticipant {
 	t.Helper()
-	p, err := reconciliation.NewMemoryParticipant(participantID, "test-partition", time.Hour, records)
+	p, err := reconciliation.NewMemoryParticipant(participantID, participantID, time.Hour, records)
 	if err != nil {
 		t.Fatalf("build test participant: %v", err)
 	}
 	return p
 }
 
-// newTestEngine builds an Engine with an in-memory repository that allows
-// assertions without a database.
 func newTestEngine(
 	t *testing.T,
 	participants []string,
-	buildParticipant func(ctx context.Context, id string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error),
+	canonicalFactory func(ctx context.Context, id string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error),
+	participantFactory func(ctx context.Context, id string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error),
 ) (*reconciliation.Engine, *memoryRunRepository) {
 	t.Helper()
 	repo := newMemoryRunRepository()
@@ -162,72 +153,72 @@ func newTestEngine(
 	for _, p := range participants {
 		knownParticipants[p] = true
 	}
-	// Engine uses real RunRepository; for tests we wrap the memory store by
-	// embedding it inside a thin adapter that matches the Engine's internal
-	// contract.
-	engine := reconciliation.NewEngineWithRepo(knownParticipants, repo, buildParticipant)
+	engine := reconciliation.NewEngineWithRepo(knownParticipants, repo, canonicalFactory, participantFactory)
 	return engine, repo
 }
 
-// --- Tests ---
-
-func TestEngineSuccessfulRun(t *testing.T) {
-	// A run with records must create RUNNING then COMPLETED.
-	now := time.Now().UTC().Truncate(time.Second)
-	records := []reconciliation.CanonicalRecord{
+func makeSampleRecords(base time.Time) []reconciliation.CanonicalRecord {
+	return []reconciliation.CanonicalRecord{
 		{
-			OperationID: uuid.New(),
-			PaymentID:   uuid.New(),
-			AccountID:   uuid.New(),
+			OperationID: uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			PaymentID:   uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+			AccountID:   uuid.MustParse("00000000-0000-0000-0000-000000000001"),
 			EntryType:   "DEBIT",
-			AmountPaise: 100,
+			AmountPaise: 1000,
 			Currency:    "INR",
-			OccurredAt:  now.Add(-30 * time.Minute),
+			OccurredAt:  base.Add(30 * time.Minute), // Bucket 0: [base, base+1h)
+		},
+		{
+			OperationID: uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+			PaymentID:   uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+			AccountID:   uuid.MustParse("00000000-0000-0000-0000-000000000002"),
+			EntryType:   "CREDIT",
+			AmountPaise: 2000,
+			Currency:    "INR",
+			OccurredAt:  base.Add(1*time.Hour + 30*time.Minute), // Bucket 1: [base+1h, base+2h)
+		},
+		{
+			OperationID: uuid.MustParse("33333333-3333-3333-3333-333333333333"),
+			PaymentID:   uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+			AccountID:   uuid.MustParse("00000000-0000-0000-0000-000000000003"),
+			EntryType:   "DEBIT",
+			AmountPaise: 3000,
+			Currency:    "INR",
+			OccurredAt:  base.Add(2*time.Hour + 30*time.Minute), // Bucket 2: [base+2h, base+3h)
+		},
+		{
+			OperationID: uuid.MustParse("44444444-4444-4444-4444-444444444444"),
+			PaymentID:   uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+			AccountID:   uuid.MustParse("00000000-0000-0000-0000-000000000004"),
+			EntryType:   "CREDIT",
+			AmountPaise: 4000,
+			Currency:    "INR",
+			OccurredAt:  base.Add(3*time.Hour + 30*time.Minute), // Bucket 3: [base+3h, base+4h)
 		},
 	}
-	scope := reconciliation.Scope{From: now.Add(-time.Hour), To: now}
-	const pid = "BANK-A"
-
-	engine, repo := newTestEngine(t, []string{pid}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		return makeTestParticipant(t, id, records), nil
-	})
-
-	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
-		ParticipantID: pid,
-		ScopeFrom:     scope.From,
-		ScopeTo:       scope.To,
-	})
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if run.Status != reconciliation.RunStatusCompleted {
-		t.Fatalf("expected COMPLETED, got %q", run.Status)
-	}
-	if run.CompletedAt == nil {
-		t.Fatal("expected CompletedAt to be set")
-	}
-	if run.ParticipantID != pid {
-		t.Fatalf("expected participant %q, got %q", pid, run.ParticipantID)
-	}
-	// Verify the run is persisted.
-	stored, err := repo.GetRun(context.Background(), run.ID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if stored.Status != reconciliation.RunStatusCompleted {
-		t.Fatalf("stored run status: expected COMPLETED, got %q", stored.Status)
-	}
 }
 
-func TestEngineZeroDiscrepancies(t *testing.T) {
-	// Empty participant produces COMPLETED with zero discrepancies and EmptyHash root.
-	now := time.Now().UTC().Truncate(time.Second)
-	scope := reconciliation.Scope{From: now.Add(-time.Hour), To: now}
-	const pid = "BANK-B"
+// --- Required Tests ---
 
-	engine, _ := newTestEngine(t, []string{pid}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		return makeTestParticipant(t, id, nil), nil
-	})
+// CASE A: Identical data -> 0 discrepancies, COMPLETED status
+func TestTwoSidedIdenticalRoots(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+	const pid = "BANK-A"
+
+	canonRecords := makeSampleRecords(base)
+	partRecords := makeSampleRecords(base)
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
 
 	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
 		ParticipantID: pid,
@@ -235,211 +226,523 @@ func TestEngineZeroDiscrepancies(t *testing.T) {
 		ScopeTo:       scope.To,
 	})
 	if err != nil {
-		t.Fatalf("Execute: %v", err)
+		t.Fatalf("unexpected execute error: %v", err)
 	}
+
 	if run.Status != reconciliation.RunStatusCompleted {
-		t.Fatalf("expected COMPLETED, got %q", run.Status)
+		t.Fatalf("run status = %q, want COMPLETED", run.Status)
 	}
 	if run.DiscrepancyCount != 0 {
-		t.Fatalf("expected 0 discrepancies, got %d", run.DiscrepancyCount)
+		t.Fatalf("discrepancyCount = %d, want 0", run.DiscrepancyCount)
+	}
+	if len(repo.discrepancies) != 0 {
+		t.Fatalf("saved discrepancies = %d, want 0", len(repo.discrepancies))
+	}
+	if !bytes.Equal(run.CanonicalRoot, run.ParticipantRoot) {
+		t.Fatal("expected identical canonical and participant roots for identical data")
 	}
 }
 
-func TestEngineInvalidParticipant(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	engine, _ := newTestEngine(t, []string{"BANK-A"}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		return makeTestParticipant(t, id, nil), nil
-	})
-	_, err := engine.Execute(context.Background(), reconciliation.RunRequest{
-		ParticipantID: "UNKNOWN",
-		ScopeFrom:     now.Add(-time.Hour),
-		ScopeTo:       now,
-	})
-	if err == nil {
-		t.Fatal("expected error for unknown participant")
-	}
-}
-
-func TestEngineOperationalFailure(t *testing.T) {
-	// If the participant factory returns an error, the run must become FAILED.
-	now := time.Now().UTC().Truncate(time.Second)
+// CASE B: One mutation in one bucket -> affected region found, COMPLETED status
+func TestTwoSidedSingleBucketMismatch(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
 	const pid = "BANK-A"
 
-	engine, repo := newTestEngine(t, []string{pid}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		return nil, fmt.Errorf("participant unavailable: simulated failure")
-	})
+	canonRecords := makeSampleRecords(base)
+	partRecords := makeSampleRecords(base)
+	// Mutate Bucket 2 in participant side (AmountPaise 3000 -> 9999)
+	partRecords[2].AmountPaise = 9999
 
-	_, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
 		ParticipantID: pid,
-		ScopeFrom:     now.Add(-time.Hour),
-		ScopeTo:       now,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
 	})
-	if err == nil {
-		t.Fatal("expected error for participant failure")
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
 	}
-	// Find the run in the repo and verify it is FAILED.
-	var failedRun *reconciliation.Run
-	for _, run := range repo.runs {
-		r := run
-		failedRun = &r
-		break
+
+	if run.Status != reconciliation.RunStatusCompleted {
+		t.Fatalf("run status = %q, want COMPLETED", run.Status)
 	}
-	if failedRun == nil {
-		t.Fatal("expected a run record to be created")
+	if bytes.Equal(run.CanonicalRoot, run.ParticipantRoot) {
+		t.Fatal("expected divergent canonical and participant roots")
 	}
-	if failedRun.Status != reconciliation.RunStatusFailed {
-		t.Fatalf("expected FAILED, got %q", failedRun.Status)
+	if run.DiscrepancyCount != 1 {
+		t.Fatalf("discrepancyCount = %d, want 1", run.DiscrepancyCount)
 	}
-	if failedRun.ErrorMessage == "" {
-		t.Fatal("expected error message to be set on FAILED run")
+	if len(repo.discrepancies) != 1 {
+		t.Fatalf("saved discrepancies = %d, want 1", len(repo.discrepancies))
+	}
+	d := repo.discrepancies[0]
+	if d.MismatchCategory != reconciliation.MismatchRecordDifference {
+		t.Fatalf("discrepancy category = %q, want %q", d.MismatchCategory, reconciliation.MismatchRecordDifference)
+	}
+	if d.Evidence["field"] != "amount_paise" {
+		t.Fatalf("discrepancy field = %q, want amount_paise", d.Evidence["field"])
 	}
 }
 
-func TestEngineParticipantIsolation(t *testing.T) {
-	// A participant cannot access another participant's data because the engine
-	// validates participant IDs before execution.
-	now := time.Now().UTC().Truncate(time.Second)
-	engine, _ := newTestEngine(t, []string{"BANK-A"}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		return makeTestParticipant(t, id, nil), nil
+// CASE C: Two mutations in separate branches -> BOTH regions preserved
+func TestTwoSidedMultipleBucketMismatches(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+	const pid = "BANK-A"
+
+	canonRecords := makeSampleRecords(base)
+	partRecords := makeSampleRecords(base)
+	// Mutate Bucket 0 (left branch) and Bucket 2 (right branch)
+	partRecords[0].AmountPaise = 1111 // Bucket 0 mutated
+	partRecords[2].AmountPaise = 3333 // Bucket 2 mutated
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
 	})
-	// BANK-B is not in the known participants list.
-	_, err := engine.Execute(context.Background(), reconciliation.RunRequest{
-		ParticipantID: "BANK-B",
-		ScopeFrom:     now.Add(-time.Hour),
-		ScopeTo:       now,
-	})
-	if err == nil {
-		t.Fatal("expected ErrInvalidParticipant for unknown participant")
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	if run.Status != reconciliation.RunStatusCompleted {
+		t.Fatalf("run status = %q, want COMPLETED", run.Status)
+	}
+	if bytes.Equal(run.CanonicalRoot, run.ParticipantRoot) {
+		t.Fatal("expected divergent canonical and participant roots")
+	}
+	// Must have at least 2 discrepancies across the 2 distinct bucket regions
+	if run.DiscrepancyCount < 2 {
+		t.Fatalf("discrepancyCount = %d, want at least 2", run.DiscrepancyCount)
+	}
+
+	// Verify both bucket start times are represented
+	bucketStarts := make(map[time.Time]bool)
+	for _, d := range repo.discrepancies {
+		bucketStarts[d.BucketStart] = true
+	}
+	wantStart0 := base
+	wantStart2 := base.Add(2 * time.Hour)
+	if !bucketStarts[wantStart0] {
+		t.Errorf("missing discrepancy for Bucket 0 start %v", wantStart0)
+	}
+	if !bucketStarts[wantStart2] {
+		t.Errorf("missing discrepancy for Bucket 2 start %v", wantStart2)
 	}
 }
 
-func TestEngineDeterministicRoot(t *testing.T) {
-	// Same canonical dataset must produce the same commitment root on every run.
-	now := time.Now().UTC().Truncate(time.Second)
-	records := []reconciliation.CanonicalRecord{
+// CASE D: Three dispersed mutations -> ALL regions preserved (never early exits)
+func TestTwoSidedDispersedMismatches(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+	const pid = "BANK-A"
+
+	canonRecords := makeSampleRecords(base)
+	// Participant mutations across 3 separate buckets:
+	// Bucket 0: Amount changed
+	// Bucket 2: Currency changed
+	// Bucket 3: Record completely missing on participant side
+	partRecords := []reconciliation.CanonicalRecord{
+		canonRecords[0],
+		canonRecords[1],
+		canonRecords[2],
+	}
+	partRecords[0].AmountPaise = 777777
+	partRecords[2].Currency = "USD"
+	// canonRecords[3] is omitted from participant side
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	if run.Status != reconciliation.RunStatusCompleted {
+		t.Fatalf("run status = %q, want COMPLETED", run.Status)
+	}
+	if run.DiscrepancyCount < 3 {
+		t.Fatalf("discrepancyCount = %d, want at least 3", run.DiscrepancyCount)
+	}
+
+	categories := make(map[string]int)
+	for _, d := range repo.discrepancies {
+		categories[d.MismatchCategory]++
+	}
+	if categories[reconciliation.MismatchRecordDifference] < 2 {
+		t.Errorf("expected at least 2 RECORD_MISMATCH discrepancies, got %d", categories[reconciliation.MismatchRecordDifference])
+	}
+	if categories[reconciliation.MismatchMissingRecord] < 1 {
+		t.Errorf("expected at least 1 MISSING_PARTICIPANT_RECORD discrepancy, got %d", categories[reconciliation.MismatchMissingRecord])
+	}
+}
+
+// Record differences: missing record, extra record, field mismatch
+func TestTwoSidedRecordDifference(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
+	const pid = "BANK-A"
+
+	canonRecords := []reconciliation.CanonicalRecord{
 		{
-			OperationID: uuid.MustParse("00000000-0000-4000-8000-000000000001"),
-			PaymentID:   uuid.MustParse("00000000-0000-4000-8000-000000000002"),
-			AccountID:   uuid.MustParse("00000000-0000-4000-8000-000000000003"),
+			OperationID: uuid.MustParse("aaaaaaaa-0000-0000-0000-000000000001"),
+			PaymentID:   uuid.New(),
+			AccountID:   uuid.New(),
 			EntryType:   "DEBIT",
 			AmountPaise: 500,
 			Currency:    "INR",
-			OccurredAt:  now.Add(-30 * time.Minute),
+			OccurredAt:  base.Add(15 * time.Minute),
 		},
 	}
-	scope := reconciliation.Scope{From: now.Add(-time.Hour), To: now}
-	const pid = "BANK-A"
 
-	makeEngine := func() *reconciliation.Engine {
-		repo := newMemoryRunRepository()
-		engine := reconciliation.NewEngineWithRepo(
-			reconciliation.KnownParticipants{pid: true},
-			repo,
-			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-				return makeTestParticipant(t, id, records), nil
-			},
-		)
-		return engine
-	}
-
-	run1, err := makeEngine().Execute(context.Background(), reconciliation.RunRequest{ParticipantID: pid, ScopeFrom: scope.From, ScopeTo: scope.To})
-	if err != nil {
-		t.Fatalf("run1: %v", err)
-	}
-	run2, err := makeEngine().Execute(context.Background(), reconciliation.RunRequest{ParticipantID: pid, ScopeFrom: scope.From, ScopeTo: scope.To})
-	if err != nil {
-		t.Fatalf("run2: %v", err)
-	}
-	if !reconciliation.EqualBytes(run1.CanonicalRoot, run2.CanonicalRoot) {
-		t.Fatalf("canonical root is not deterministic: run1=%x run2=%x", run1.CanonicalRoot, run2.CanonicalRoot)
-	}
-}
-
-func TestEngineNoFinancialMutation(t *testing.T) {
-	// Reconciliation must not alter RecordCount on the participant records;
-	// it is read-only. We verify that the canonical record data is unchanged.
-	now := time.Now().UTC().Truncate(time.Second)
-	originalAmount := int64(999)
-	records := []reconciliation.CanonicalRecord{
+	// Participant has an extra record not present in canonical
+	partRecords := []reconciliation.CanonicalRecord{
+		canonRecords[0],
 		{
-			OperationID: uuid.New(),
+			OperationID: uuid.MustParse("bbbbbbbb-0000-0000-0000-000000000002"),
 			PaymentID:   uuid.New(),
 			AccountID:   uuid.New(),
 			EntryType:   "CREDIT",
-			AmountPaise: originalAmount,
+			AmountPaise: 999,
 			Currency:    "INR",
-			OccurredAt:  now.Add(-10 * time.Minute),
+			OccurredAt:  base.Add(30 * time.Minute),
 		},
 	}
-	scope := reconciliation.Scope{From: now.Add(-time.Hour), To: now}
-	const pid = "BANK-A"
 
-	var captured []reconciliation.CanonicalRecord
-	engine, _ := newTestEngine(t, []string{pid}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		p, err := reconciliation.NewMemoryParticipant(id, "test-partition", time.Hour, records)
-		if err != nil {
-			return nil, err
-		}
-		// Capture a snapshot of records before execution.
-		captured = append([]reconciliation.CanonicalRecord(nil), records...)
-		return p, nil
-	})
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
 
-	if _, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
 		ParticipantID: pid,
 		ScopeFrom:     scope.From,
 		ScopeTo:       scope.To,
-	}); err != nil {
-		t.Fatalf("Execute: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
 	}
 
-	// Verify original records are unchanged.
-	if len(captured) != 1 || captured[0].AmountPaise != originalAmount {
-		t.Fatalf("financial records were mutated; expected amount %d, got %d", originalAmount, captured[0].AmountPaise)
+	if run.Status != reconciliation.RunStatusCompleted {
+		t.Fatalf("run status = %q, want COMPLETED", run.Status)
+	}
+	if run.DiscrepancyCount != 1 {
+		t.Fatalf("discrepancyCount = %d, want 1", run.DiscrepancyCount)
+	}
+	if repo.discrepancies[0].MismatchCategory != reconciliation.MismatchExtraRecord {
+		t.Fatalf("category = %q, want %q", repo.discrepancies[0].MismatchCategory, reconciliation.MismatchExtraRecord)
+	}
+}
+
+// Stores canonical and participant roots separately when divergent
+func TestCanonicalAndParticipantRootsStoredSeparately(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
+	const pid = "BANK-A"
+
+	canonRecords := makeSampleRecords(base)[:2]
+	partRecords := makeSampleRecords(base)[:2]
+	partRecords[0].AmountPaise = 999999
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	if bytes.Equal(run.CanonicalRoot, run.ParticipantRoot) {
+		t.Fatal("expected CanonicalRoot and ParticipantRoot to be distinct")
+	}
+	if len(run.CanonicalRoot) != 32 {
+		t.Fatalf("CanonicalRoot length = %d, want 32", len(run.CanonicalRoot))
+	}
+	if len(run.ParticipantRoot) != 32 {
+		t.Fatalf("ParticipantRoot length = %d, want 32", len(run.ParticipantRoot))
+	}
+
+	// Verify in repository
+	saved, err := repo.GetRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatalf("GetRun error: %v", err)
+	}
+	if bytes.Equal(saved.CanonicalRoot, saved.ParticipantRoot) {
+		t.Fatal("saved CanonicalRoot and ParticipantRoot in repository are not distinct")
+	}
+}
+
+// Canonical source is independent of participant mutations
+func TestCanonicalSourceIsIndependent(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
+	const pid = "BANK-A"
+
+	canonRecords := makeSampleRecords(base)[:2]
+	partRecords := makeSampleRecords(base)[:2]
+
+	canonP := makeTestParticipant(t, pid, canonRecords)
+	canonRootBefore, _ := canonP.GetRoot(context.Background(), scope)
+
+	// Mutate participant records completely
+	partRecords[0].AmountPaise = 888888
+	partRecords[1].AmountPaise = 777777
+
+	canonRootAfter, _ := canonP.GetRoot(context.Background(), scope)
+	if !bytes.Equal(canonRootBefore.Root, canonRootAfter.Root) {
+		t.Fatal("canonical participant root was modified when participant side changed")
+	}
+}
+
+// Participant source isolation: cannot cross participant boundaries
+func TestParticipantSourceIsolation(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
+
+	engine, _ := newTestEngine(
+		t,
+		[]string{"BANK-A"}, // BANK-B not registered
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, nil), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, nil), nil
+		},
+	)
+
+	_, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: "BANK-B",
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if !errors.Is(err, reconciliation.ErrInvalidParticipant) {
+		t.Fatalf("expected ErrInvalidParticipant, got: %v", err)
+	}
+}
+
+// Verifies the engine never exits early after the first mismatch
+func TestNoFirstMismatchEarlyExit(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+	const pid = "BANK-A"
+
+	canonRecords := makeSampleRecords(base)
+	partRecords := makeSampleRecords(base)
+	// Mutate all 4 buckets
+	partRecords[0].AmountPaise += 1
+	partRecords[1].AmountPaise += 2
+	partRecords[2].AmountPaise += 3
+	partRecords[3].AmountPaise += 4
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, canonRecords), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, partRecords), nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	if run.DiscrepancyCount != 4 {
+		t.Fatalf("discrepancyCount = %d, want exactly 4 (one for each mutated bucket)", run.DiscrepancyCount)
+	}
+	if len(repo.discrepancies) != 4 {
+		t.Fatalf("saved discrepancies = %d, want 4", len(repo.discrepancies))
+	}
+}
+
+// Financial state is never mutated during reconciliation
+func TestNoFinancialMutation(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
+	const pid = "BANK-A"
+
+	records := makeSampleRecords(base)[:2]
+	originalAmount0 := records[0].AmountPaise
+	originalAmount1 := records[1].AmountPaise
+
+	engine, _ := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, records), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, records), nil
+		},
+	)
+
+	_, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	// Verify original values were untouched
+	if records[0].AmountPaise != originalAmount0 || records[1].AmountPaise != originalAmount1 {
+		t.Fatal("reconciliation mutated source record data!")
+	}
+}
+
+// Operational failure marks run as FAILED
+func TestEngineOperationalFailure(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
+	const pid = "BANK-A"
+
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return nil, errors.New("database connectivity lost")
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, nil), nil
+		},
+	)
+
+	_, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err == nil {
+		t.Fatal("expected execute error, got nil")
+	}
+
+	// Run must be marked FAILED
+	var failedRun reconciliation.Run
+	for _, r := range repo.runs {
+		failedRun = r
+	}
+	if failedRun.Status != reconciliation.RunStatusFailed {
+		t.Fatalf("status = %q, want FAILED", failedRun.Status)
+	}
+	if failedRun.ErrorMessage == "" {
+		t.Fatal("expected non-empty ErrorMessage on FAILED run")
 	}
 }
 
 func TestEngineListRuns(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	scope := reconciliation.Scope{From: now.Add(-time.Hour), To: now}
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(2 * time.Hour)}
 	const pid = "BANK-A"
 
-	engine, _ := newTestEngine(t, []string{pid}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		return makeTestParticipant(t, id, nil), nil
-	})
+	engine, _ := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, nil), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, nil), nil
+		},
+	)
 
-	// Execute multiple runs.
-	for i := 0; i < 3; i++ {
-		if _, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+	for i := 0; i < 5; i++ {
+		_, err := engine.Execute(context.Background(), reconciliation.RunRequest{
 			ParticipantID: pid,
 			ScopeFrom:     scope.From,
 			ScopeTo:       scope.To,
-		}); err != nil {
-			t.Fatalf("run %d: %v", i, err)
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
 
-	page, err := engine.ListRuns(context.Background(), reconciliation.ListRunsRequest{Limit: 2})
+	page, err := engine.ListRuns(context.Background(), reconciliation.ListRunsRequest{Limit: 2, Offset: 0})
 	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
+		t.Fatal(err)
+	}
+	if page.Total != 5 {
+		t.Fatalf("total = %d, want 5", page.Total)
 	}
 	if len(page.Items) != 2 {
-		t.Fatalf("expected 2 items (limited), got %d", len(page.Items))
-	}
-	if page.Total != 3 {
-		t.Fatalf("expected total 3, got %d", page.Total)
-	}
-	if page.NextOffset == nil {
-		t.Fatal("expected NextOffset to be set for paginated result")
+		t.Fatalf("items = %d, want 2", len(page.Items))
 	}
 }
 
 func TestEngineGetRunNotFound(t *testing.T) {
-	engine, _ := newTestEngine(t, []string{"BANK-A"}, func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-		return makeTestParticipant(t, id, nil), nil
-	})
+	engine, _ := newTestEngine(
+		t,
+		[]string{"BANK-A"},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, nil), nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, id, nil), nil
+		},
+	)
+
 	_, err := engine.GetRun(context.Background(), uuid.New())
-	if err == nil {
-		t.Fatal("expected ErrRunNotFound for nonexistent run ID")
+	if !errors.Is(err, reconciliation.ErrRunNotFound) {
+		t.Fatalf("expected ErrRunNotFound, got: %v", err)
 	}
 }

@@ -1,4 +1,4 @@
-﻿package reconciliation
+package reconciliation
 
 import (
 	"errors"
@@ -19,11 +19,14 @@ const (
 
 // Mismatch category constants used in discrepancy evidence.
 const (
-	MismatchBucketRoot           = "BUCKET_ROOT_MISMATCH"
-	MismatchCanonicalRoot        = "CANONICAL_ROOT_MISMATCH"
-	MismatchParticipantUnavail   = "PARTICIPANT_UNAVAILABLE"
-	MismatchScopeMismatch        = "SCOPE_MISMATCH"
-	MismatchVersionIncompatible  = "VERSION_INCOMPATIBLE"
+	MismatchBucketRoot          = "BUCKET_ROOT_MISMATCH"
+	MismatchCanonicalRoot       = "CANONICAL_ROOT_MISMATCH"
+	MismatchRecordDifference    = "RECORD_MISMATCH"
+	MismatchMissingRecord       = "MISSING_PARTICIPANT_RECORD"
+	MismatchExtraRecord         = "EXTRA_PARTICIPANT_RECORD"
+	MismatchParticipantUnavail  = "PARTICIPANT_UNAVAILABLE"
+	MismatchScopeMismatch       = "SCOPE_MISMATCH"
+	MismatchVersionIncompatible = "VERSION_INCOMPATIBLE"
 )
 
 // ErrRunNotFound is returned when a requested reconciliation run does not exist.

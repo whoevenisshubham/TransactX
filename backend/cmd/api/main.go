@@ -163,9 +163,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Build the reconciliation engine backed by the configured adapters.
-	// Each configured bank code becomes a known participant that OPS_ADMIN
-	// can target in a reconciliation run.
+	// Build the reconciliation engine backed by two distinct read sources:
+	// 1. Canonical source: authoritative central PostgreSQL financial ledger
+	// 2. Participant source: bank participant adapter
 	knownParticipants := make(reconciliation.KnownParticipants)
 	participantAdapters := make(map[string]bank.BankAdapter)
 	for code, bankID := range bankIDs {
@@ -176,6 +176,18 @@ func main() {
 	reconEngine := reconciliation.NewEngine(
 		knownParticipants,
 		reconRepo,
+		// Canonical factory: authoritative central PostgreSQL ledger
+		func(ctx context.Context, participantID string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			p, err := reconciliation.NewCentralRepositoryParticipant(db, participantID, "canonical", 15*time.Minute)
+			if err != nil {
+				return nil, err
+			}
+			if initErr := p.Initialize(ctx, scope); initErr != nil {
+				return nil, initErr
+			}
+			return p, nil
+		},
+		// Participant factory: bank participant adapter
 		func(ctx context.Context, participantID string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
 			adapter, ok := participantAdapters[participantID]
 			if !ok {
@@ -187,6 +199,9 @@ func main() {
 			if err != nil {
 				return nil, err
 			}
+			if initErr := p.Initialize(ctx, scope); initErr != nil {
+				return nil, initErr
+			}
 			return p, nil
 		},
 	)
@@ -197,7 +212,7 @@ func main() {
 	} else if len(executionTargets) > 0 {
 		handler = apihttp.NewHandlerWithExecutionTargetsCircuitChaosAndReconciliation(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController, reconEngine)
 	} else {
-		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingAndChaos(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService, chaosController)
+		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingChaosAndReconciliation(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService, chaosController, reconEngine)
 	}
 	server := &http.Server{
 		Addr:              cfg.Address,
