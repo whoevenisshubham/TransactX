@@ -148,12 +148,12 @@ func loginUser(t *testing.T, handler http.Handler, paymentID, password string) (
 	if err := json.NewDecoder(recorder.Body).Decode(&envelope); err != nil {
 		t.Fatal(err)
 	}
+	if envelope.Data.Token == "" {
+		t.Fatalf("login %s returned empty token", paymentID)
+	}
 	userID, err := uuid.Parse(envelope.Data.User.ID)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if envelope.Data.Token == "" {
-		t.Fatal("login response contained an empty token")
 	}
 	return envelope.Data.Token, userID
 }
@@ -223,6 +223,75 @@ func assertNoInternalIDs(t *testing.T, payload map[string]any, label string) {
 			t.Errorf("%s leaks internal field %q in %s", label, key, encoded)
 		}
 	}
+}
+
+func TestCustomerHTTP_FreshRegistrationLoginAndAccountAccess(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	pool, err := pgxpool.New(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	manager, err := auth.NewJWTManager(strings.Repeat("c", 32), "fresh-login-regression", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authService := auth.NewService(pool, manager, "BANK-DEV-001")
+	handler := NewHandler(pool, slog.Default(), authService, manager)
+
+	suffix := uuid.New().String()[:8]
+	name := "Fresh User " + suffix
+	phone := "99" + suffix
+	identifier := "fresh-" + suffix + "@transactx"
+	password := "fresh-password-1"
+
+	registerUser(t, handler, name, phone, identifier, password)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(fmt.Sprintf(`{"identifier":%q,"password":%q}`, identifier, password)))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("fresh login status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	var loginEnvelope struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&loginEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if loginEnvelope.Data.Token == "" {
+		t.Fatal("fresh login returned empty token")
+	}
+
+	status, envelope := doJSON(t, handler, http.MethodGet, "/api/accounts", loginEnvelope.Data.Token, nil, nil)
+	if status != http.StatusOK {
+		t.Fatalf("fresh account status = %d body=%v", status, envelope)
+	}
+	list, ok := envelope["data"].([]any)
+	if !ok || len(list) == 0 {
+		t.Fatalf("fresh account data = %#v", envelope["data"])
+	}
+	account, ok := list[0].(map[string]any)
+	if !ok {
+		t.Fatalf("fresh account entry = %#v", list[0])
+	}
+	for _, key := range []string{"accountNumber", "balancePaise", "status"} {
+		if _, found := account[key]; !found {
+			t.Fatalf("fresh account is missing %q: %#v", key, account)
+		}
+	}
+	if _, found := account["id"]; found {
+		t.Fatalf("fresh account exposes internal field id: %#v", account)
+	}
+	_, _ = pool.Exec(context.Background(), `DELETE FROM accounts WHERE user_id IN (SELECT id FROM users WHERE payment_identifier = $1)`, identifier)
+	_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE payment_identifier = $1`, identifier)
 }
 
 func TestCustomerHTTP_AccountsOmitInternalIdentifiers(t *testing.T) {

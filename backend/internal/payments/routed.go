@@ -3,6 +3,7 @@ package payments
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -46,6 +47,14 @@ const (
 // durable bank saga. The central insert and bank calls intentionally do not
 // share a database transaction.
 func (repository *Repository) CreateRoutedIdempotent(ctx context.Context, payment Payment, key, requestHash string, sourceBankID, destinationBankID uuid.UUID, sourceAdapter, destinationAdapter bank.BankAdapter) (Payment, bool, error) {
+	return repository.createRoutedIdempotent(ctx, payment, key, requestHash, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter, nil)
+}
+
+func (repository *Repository) CreateRoutedWithDecisionIdempotent(ctx context.Context, payment Payment, key, requestHash string, decision RouteDecision) (Payment, bool, error) {
+	return repository.createRoutedIdempotent(ctx, payment, key, requestHash, decision.Candidate.SourceBankID, decision.Candidate.DestinationBankID, decision.Candidate.SourceAdapter, decision.Candidate.DestinationAdapter, &decision)
+}
+
+func (repository *Repository) createRoutedIdempotent(ctx context.Context, payment Payment, key, requestHash string, sourceBankID, destinationBankID uuid.UUID, sourceAdapter, destinationAdapter bank.BankAdapter, decision *RouteDecision) (Payment, bool, error) {
 	sourceBankAccountID := payment.SourceBankAccountID
 	if sourceBankAccountID == nil {
 		value := payment.SenderAccountID
@@ -88,22 +97,44 @@ func (repository *Repository) CreateRoutedIdempotent(ctx context.Context, paymen
 		if err := tx.Commit(ctx); err != nil {
 			return Payment{}, false, err
 		}
+		if repository.adapterResolver != nil {
+			if src, dst, ok := repository.adapterResolver(ctx, existing); ok {
+				sourceAdapter, destinationAdapter = src, dst
+			}
+		}
 		return repository.replayRoutedPayment(ctx, existing, true, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return Payment{}, false, err
 	}
 
+	routingReason := "static M1 routed adapter route"
+	if decision != nil {
+		routingReason = decision.Reason
+	}
 	created, err := scanPayment(tx.QueryRow(ctx, `
 		INSERT INTO payments
 			(id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, state, note, origin,
 			 source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id, routing_reason)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(NULLIF($9, ''), 'ONLINE'), $10, $11, $12, $13, 'static M1 routed adapter route')
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(NULLIF($9, ''), 'ONLINE'), $10, $11, $12, $13, $14)
 		RETURNING `+routedPaymentColumns, payment.ID, payment.InitiatedByUserID, payment.SenderAccountID,
 		payment.ReceiverAccountID, payment.AmountPaise, payment.Currency, payment.State, payment.Note, payment.Origin,
-		sourceBankID, destinationBankID, *sourceBankAccountID, *destinationBankAccountID))
+		sourceBankID, destinationBankID, *sourceBankAccountID, *destinationBankAccountID, routingReason))
 	if err != nil {
 		return Payment{}, false, err
+	}
+	if decision != nil {
+		snapshot, marshalErr := json.Marshal(decision.Snapshot)
+		if marshalErr != nil {
+			return Payment{}, false, marshalErr
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO payment_route_decisions (payment_id, candidate_id, source_bank_id, destination_bank_id, execution_target_id, selected_score, health_snapshot, reason_code, selection_mode, selected_at, event_type)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PAYMENT_ROUTED')`,
+			payment.ID, decision.Candidate.CandidateID, sourceBankID, destinationBankID, decision.Candidate.ExecutionTargetID, decision.Score, snapshot, decision.Reason, decision.Mode, decision.SelectedAt); err != nil {
+			return Payment{}, false, err
+		}
+		slog.InfoContext(ctx, "payment routed", "event_type", "PAYMENT_ROUTED", "payment_id", payment.ID.String(), "candidate_id", decision.Candidate.CandidateID, "execution_target_id", decision.Candidate.ExecutionTargetID, "reason", decision.Reason)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO idempotency_records (id, user_id, key, request_hash, payment_id, response_snapshot) VALUES ($1, $2, $3, $4, $5, jsonb_build_object('paymentId', $6::text, 'state', $7::text))`, uuid.New(), payment.InitiatedByUserID, key, requestHash, payment.ID, payment.ID.String(), payment.State); err != nil {
 		if !isUniqueViolation(err) {
@@ -115,6 +146,11 @@ func (repository *Repository) CreateRoutedIdempotent(ctx context.Context, paymen
 		existing, duplicate, lookupErr := repository.GetIdempotent(ctx, payment.InitiatedByUserID, key, requestHash)
 		if lookupErr != nil || !duplicate {
 			return Payment{}, false, lookupErr
+		}
+		if repository.adapterResolver != nil {
+			if src, dst, ok := repository.adapterResolver(ctx, existing); ok {
+				sourceAdapter, destinationAdapter = src, dst
+			}
 		}
 		return repository.replayRoutedPayment(ctx, existing, true, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
 	}
@@ -209,6 +245,9 @@ processing:
 // operation identities through status lookup before making any new monetary
 // call. A retry never creates a replacement operation ID.
 func (repository *Repository) RecoverRoutedPayment(ctx context.Context, payment Payment, sourceAdapter, destinationAdapter bank.BankAdapter) error {
+	if repository.recoverRoutedFn != nil {
+		return repository.recoverRoutedFn(ctx, payment, sourceAdapter, destinationAdapter)
+	}
 	if payment.State != StateProcessing && payment.State != StatePendingReconciliation {
 		return nil
 	}
@@ -492,6 +531,34 @@ func (repository *Repository) RecoverBankSettledCentralPending(ctx context.Conte
 		return Payment{}, err
 	}
 	return repository.Get(ctx, paymentID)
+}
+
+// GetSelectedExecutionTargetID loads the latest selected execution_target_id
+// for a payment from payment_route_decisions.
+func (repository *Repository) GetSelectedExecutionTargetID(ctx context.Context, paymentID uuid.UUID) (string, bool, error) {
+	if repository == nil {
+		return "", false, nil
+	}
+	if repository.getSelectedExecutionTargetIDFn != nil {
+		return repository.getSelectedExecutionTargetIDFn(ctx, paymentID)
+	}
+	if repository.db == nil {
+		return "", false, nil
+	}
+	var targetID string
+	err := repository.db.QueryRow(ctx, `
+		SELECT execution_target_id
+		FROM payment_route_decisions
+		WHERE payment_id = $1
+		ORDER BY selected_at DESC, id DESC
+		LIMIT 1`, paymentID).Scan(&targetID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return targetID, true, nil
 }
 
 func (repository *Repository) getBankOperation(ctx context.Context, paymentID uuid.UUID, operationType string) (routedOperation, bool, error) {

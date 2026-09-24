@@ -1,4 +1,4 @@
-import type { Account, Payment, Recipient, User } from "./types";
+import type { Account, MerchantReceiveInfo, Payment, Recipient, User } from "./types";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 
@@ -17,7 +17,34 @@ export class ApiError extends Error {
 type ApiResponse<T> = { requestId: string; data: T };
 type ErrorResponse = { requestId?: string; error?: { code?: string; message?: string } };
 
+function safeErrorMessage(code: string | undefined, fallback: string): string {
+  switch (code) {
+    case "INVALID_CREDENTIALS":
+      return "Your username or password is incorrect.";
+    case "INVALID_REQUEST":
+      return "Please check your details and try again.";
+    case "USER_ALREADY_EXISTS":
+      return "An account with that payment ID already exists.";
+    case "UNAUTHORIZED":
+      return "Please sign in again.";
+    case "RECIPIENT_NOT_FOUND":
+      return "That payment ID could not be found.";
+    case "INSUFFICIENT_FUNDS":
+      return "Your balance is too low for this payment.";
+    case "BANK_UNAVAILABLE":
+      return "Payments are temporarily unavailable. Try again shortly.";
+    case "NETWORK_ERROR":
+      return "We couldn't reach TransactX. Check your connection and try again.";
+    default:
+      return fallback;
+  }
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  return (await apiRequestWithStatus<T>(path, options, token)).data;
+}
+
+export async function apiRequestWithStatus<T>(path: string, options: RequestInit = {}, token?: string): Promise<{ data: T; status: number }> {
   let response: Response;
   try {
     response = await fetch(`${apiBaseUrl}${path}`, {
@@ -30,15 +57,17 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, tok
       },
     });
   } catch {
-    throw new ApiError("We couldn't reach TransactX. Check your connection and try again.", "NETWORK_ERROR", 0);
+    throw new ApiError(safeErrorMessage("NETWORK_ERROR", "The request could not be completed."), "NETWORK_ERROR", 0);
   }
 
   const body = (await response.json().catch(() => ({}))) as ApiResponse<T> | ErrorResponse;
   if (!response.ok) {
     const error = body as ErrorResponse;
-    throw new ApiError(error.error?.message ?? "The request could not be completed.", error.error?.code, response.status);
+    const code = error.error?.code ?? "REQUEST_FAILED";
+    const message = safeErrorMessage(code, "The request could not be completed.");
+    throw new ApiError(message, code, response.status);
   }
-  return (body as ApiResponse<T>).data;
+  return { data: (body as ApiResponse<T>).data, status: response.status };
 }
 
 export const api = {
@@ -49,5 +78,8 @@ export const api = {
   resolveRecipient: (identifier: string, token: string) => apiRequest<Recipient>(`/api/recipients/${encodeURIComponent(identifier)}`, {}, token),
   payments: (token: string) => apiRequest<Payment[]>("/api/payments?limit=50", {}, token),
   payment: (id: string, token: string) => apiRequest<Payment>(`/api/payments/${encodeURIComponent(id)}`, {}, token),
-  createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }, token),
+  createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
+  createPaymentWithStatus: async (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequestWithStatus<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
+  merchantReceiveInfo: (token: string) => apiRequest<MerchantReceiveInfo>("/api/merchant/receive-info", {}, token),
 };
+

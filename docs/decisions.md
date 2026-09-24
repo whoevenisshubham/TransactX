@@ -107,7 +107,78 @@ Status: **IMPLEMENTED**
 
 Bank A owns its accounts, balances, operation records, and ledger entries. Bank operation idempotency validates payment, operation identity, idempotency key, operation type, account, amount, currency, and related operation IDs. A retry with a conflicting payload is rejected.
 
-## ADR-017: M3-1 Canonical Reconciliation Record
+## ADR-017: Deterministic Health Observation
+
+Status: **IMPLEMENTED**
+
+M2-3 stores explicit `SUCCESS`, `FAILURE`, or `TIMEOUT` samples for stable execution-target IDs. The default rolling window is 15 minutes with at most 500 samples, one sample minimum, a 2-second timeout threshold, weights availability `0.35`, success `0.35`, latency `0.20`, and timeout `0.10`; latency is normalized between 10ms and 1000ms using nearest-rank p95. Scores clamp to `[0,1]`. Health is observational only: it cannot mutate payment state, balances, participant financial state, or the ledger. The read-only snapshot contract is `GET /api/ops/health/{targetID}` and is restricted to `OPS_ADMIN`; customer and merchant roles are denied. Legacy or future routing/circuit decisions must consume stable target IDs rather than account ownership.
+
+## ADR-018: Deterministic Route Candidates and Genuine Execution Targets
+
+Status: **IMPLEMENTED**
+
+M2-4 selects legitimate switch-level route candidates without modifying logical bank ownership:
+- **ExecutionTarget vs Bank Ownership**: `ExecutionTargetID` represents a switch-level route, rail, or endpoint path identity. It is strictly distinct from `sourceBankID` and `destinationBankID` account ownership, which remain immutable across all candidates. Routing never swaps or alters sender/receiver bank authority.
+- **Multiple Genuine Execution Targets**: The live payment path supports multiple explicitly configured execution targets (e.g., `direct`, `RAIL-A`, `RAIL-B`) for the same logical source/destination bank pair, each providing genuine `SourceAdapter` and `DestinationAdapter` instances actually used during routed execution.
+- **Runtime Modes**:
+  - `STATIC`: Deterministically selects the configured baseline candidate ID (from `ROUTING_STATIC_BASELINE`) or falls back to alphabetical candidate ID order. If the baseline candidate is unavailable or not eligible, selection fails safely with `ErrNoRouteCandidate`.
+  - `ADAPTIVE`: Queries authoritative M2-3 health snapshots for each candidate's `ExecutionTargetID`, excludes unavailable (`availabilityScore == 0`) and unhealthy (`score <= 0`) targets, compares scores, and selects the highest health score.
+- **Deterministic Tie-Break**: Equal scores break ties stably by `ExecutionTargetID` ascending, then `CandidateID` ascending. Identical inputs produce identical decisions.
+- **Route History & Durable Recovery**: Persists an immutable `PAYMENT_ROUTED` fact to `payment_route_decisions` containing payment ID, candidate ID, source/destination bank IDs, execution target ID, score, health snapshot JSON, reason code, mode, and timestamp. During pending payment recovery or duplicate processing, the durable route decision is queried to resolve the originally selected execution target's adapters. If the selected execution target is no longer configured, recovery fails closed and leaves the payment pending; it never blindly defaults to `targets[0]`.
+- **Configuration**: Explicitly configured via `ROUTING_MODE`, `ROUTING_STATIC_BASELINE`, and `ROUTING_TARGETS` (delimited string or JSON). Configuration strictly requires `endpoint` as the dedicated health probe endpoint for `ExecutionTargetID` (missing or malformed health endpoints are rejected; execution endpoints are not silently substituted for health targets). Optional `sourceEndpoint` and `destinationEndpoint` specify execution adapters.
+- **Circuit Breaker**: Integrates with M2-5 circuit breaker through `CircuitEligibility` hook.
+
+## ADR-019: Deterministic Circuit Breaker and Gradual Recovery
+
+Status: **IMPLEMENTED**
+
+M2-5 implements a production-inspired, deterministic, thread-safe circuit breaker and gradual recovery architecture:
+- **State Identity**: Circuit state belongs strictly to switch-level `ExecutionTargetID` (e.g. `RAIL-A`, `RAIL-B`). It does not belong to logical bank ownership, accounts, balances, payments, or ledger transactions. Circuit states of different execution targets are strictly isolated; tripping `RAIL-A` never affects `RAIL-B`.
+- **State Machine & Transitions**:
+  - `CLOSED`: Target is healthy and eligible for routing. Transitions to `OPEN` when failures in the rolling window reach `failureThreshold` (or timeouts reach `timeoutThreshold`).
+  - `OPEN`: Target is excluded from routing. Transitions to `HALF_OPEN` when `now - openedAt >= openCooldown`.
+  - `HALF_OPEN`: Target enters recovery probing state. Excluded from payment routing; the bounded probe budget applies to recovery health probes. Transitions to `CLOSED` when `successfulProbes >= successThreshold`. Transitions back to `OPEN` immediately if any recovery probe fails.
+- **Concurrency & Probe Budget**: Thread-safe with per-target mutex protection. In `HALF_OPEN`, atomic probe budget counting ensures concurrent recovery health probes never exceed the configured probe limit. HALF_OPEN targets are excluded from payment routing; the bounded probe budget applies to recovery health probes. After successful recovery to CLOSED, payment traffic resumes with gradual restoration.
+- **Gradual Restoration**: When a target transitions `HALF_OPEN -> CLOSED`, it does not instantly absorb 100% of traffic if multiple execution targets exist. Restoration progresses through discrete steps (`1..RestorationSteps`). At step $k$ of $N$, the target admits $\frac{k}{N}$ of traffic and deterministically sheds the remainder (`GRADUAL_RESTORATION_SHED`) to alternate healthy route candidates.
+- **M2-4 Integration**: Plugs into `payments.SelectRoute` via the `CircuitEligibility` hook. The circuit breaker is purely an eligibility gate: it NEVER calls monetary `BankAdapter` operations (`Reserve`, `Settle`, `HoldFunds`, `ProvisionalCredit`) and NEVER alters central or participant balances.
+- **Observability**: Every state transition emits an immutable `TransitionEvent` persisted to `circuit_transition_events` and recorded in an in-memory audit trail. Snapshots and transition history are exposed only via authenticated `OPS_ADMIN` endpoints (`/api/ops/circuit`, `/api/ops/circuit/{targetID}`, `/api/ops/circuit/{targetID}/events`). Public `CUSTOMER` and `MERCHANT` roles are rejected with `403 Forbidden`.
+
+## ADR-020: Controlled Chaos Controller and Operational Fault Injection
+
+Status: **IMPLEMENTED**
+
+M2-6 implements a controlled, reversible, deterministic, target-isolated chaos controller for resilience engineering:
+- **Operational Simulation Boundary**: Chaos injection is strictly operational simulation (`mode = "SIMULATION"`). Faults are injected only at the network/service communication seam via `ChaosAdapter`, which decorates `bank.BankAdapter` and `health.HealthChecker`. Chaos NEVER touches the central payment ledger, account balances, holds, or settlements, and NEVER creates fake payments or fake settlements. The frozen 9-method `BankAdapter` interface remains strictly unchanged with zero methods added or removed.
+- **Four Supported Scenarios**:
+  1. `BANK_OUTAGE`: Simulates target endpoint downtime (`ErrBankOutage`). Downstream health checks observe failures; monetary operations fail safely with `ErrCodeBankUnavailable`.
+  2. `LATENCY`: Injects configurable, validated latency (1ms to 30s) via context-aware sleeps without uncontrolled thread blocking.
+  3. `TRANSIENT_DROP` (alias `TRANSIENT`, `MESSAGE_DROP`): Controlled transient/request-drop simulation. Injects deterministic pre-call transient failure (`ErrTransientDrop`, error code `ErrCodeTransientFailure`) without executing the downstream call. It does not falsely claim to prove an unknown bank execution outcome (`UNKNOWN != FAILURE`). Genuine unknown outcomes remain handled exclusively by the existing M1/M2 saga recovery path (`bank.OperationPending` -> `PENDING_RECONCILIATION` -> `GetOperationStatus`).
+  4. `TEMPORARY_PARTITION`: Simulates communication partition between the payment switch and the target (`ErrNetworkPartition`). Reversible upon stop, reset, or auto-expiry.
+- **Target Isolation & Validation**: All scenarios are keyed strictly to switch-level `executionTargetID` (e.g. `RAIL-A`) and explicit non-bank health target IDs via `BuildTargetValidator(explicitHealthTargetIDs, executionTargetIDs, bankCodes...)`. Injected faults on target $X$ never impact target $Y$, alternate routes, unrelated banks, or unrelated payment flows. Target IDs are validated on start against genuine execution/health target identities; bank codes (e.g., `BANK-A`, `BANK-B`, `sourceBankID`, `destinationBankID`) are strictly rejected unless explicitly configured as target IDs, preventing conflation between logical bank ownership and switch-level execution target identity. Unknown targets return `ErrTargetNotFound`.
+- **Fail-Closed Seam on Persistence Failure**:
+  - `GetActiveFault(ctx, targetID)` returns `(*ChaosScenario, bool, error)`, strictly distinguishing `ErrScenarioNotFound` from real database failures.
+  - If durable chaos state cannot be determined because the repository is unavailable, `GetActiveFault` returns `ErrRepoUnavailable` instead of falsely returning "no fault".
+  - In `ChaosAdapter`, database unavailability causes the operational seam to fail closed (`bank.ErrCodeBankUnavailable` wrapping `ErrRepoUnavailable`) rather than silently letting traffic bypass an un-inspectable chaos boundary.
+  - In `Start()`, durable active-state lookup must be trustworthy; if the repository query fails, `Start()` aborts and returns an error without activating an in-memory fault or persisting an inconsistent scenario.
+- **Fatal Startup Hydration**: Active chaos state survives process restarts. On startup, `Hydrate()` queries active scenarios from PostgreSQL, atomically finalizing any discovered stale scenarios where `expires_at <= now` to inactive with `SYSTEM_AUTO_EXPIRY` and a single `CHAOS_EXPIRED` event, while loading unexpired active scenarios into memory cache. Similarly, `Start()` inspects durable storage for active rows on the target and atomically finalizes stale expired scenarios before starting new ones. If hydration fails due to a database or connection error, startup logs a fatal error and terminates (`os.Exit(1)`) rather than running with incomplete, partitioned, or un-hydrated chaos state.
+- **Lifecycle & Exactly-Once Expiry Guarantees**:
+  - `START`: Explicit start with a validated duration (100ms to 10m). Scenario state and `CHAOS_STARTED` audit event are persisted atomically in PostgreSQL before in-memory activation.
+  - `INSPECT`: Inspect all active scenarios or a specific scenario by ID. Excludes expired scenarios (`expires_at <= now`).
+  - `STOP`: Immediately and safely terminates the active fault, persisted atomically with `CHAOS_STOPPED`. Repeated stops are safe and idempotent. Never resurrects an expired scenario.
+  - `RESET`: Clears active faults for a specific target or globally across all targets within a single atomic transaction. Crucially, `RESET` classifies active scenarios deterministically against current time:
+    - Active unexpired scenarios (`expires_at > now`): set `stopped_at = now`, `stopped_by = requesting OPS_ADMIN`, and emit exactly one `CHAOS_RESET` event.
+    - Already-expired scenarios (`expires_at <= now`): set `stopped_at = expires_at`, `stopped_by = "SYSTEM_AUTO_EXPIRY"`, and emit exactly one `CHAOS_EXPIRED` event (never `CHAOS_RESET`).
+    - Exactly-once terminal lifecycle event: each scenario receives either `CHAOS_RESET` or `CHAOS_EXPIRED`, never both. Repeated resets against already inactive scenarios emit no new terminal events.
+  - `AUTO-EXPIRY`: Evaluated against the unified boundary: `expires_at <= now => EXPIRED` (`!now.Before(expiresAt)`). Expired scenarios automatically become inactive in PostgreSQL and emit `CHAOS_EXPIRED` exactly once using a single atomic transaction with `WHERE scenario_id = $1 AND active = true AND expires_at <= $2 RETURNING scenario_id...`.
+  - Expiry persistence errors are surfaced to callers (`GetScenario`, `ListScenarios`, `GetActiveFault`, `Start`). If durable expiry fails, in-memory state is NOT prematurely cleared, preserving memory/database consistency without duplicate expiry events.
+- **Authorization Boundary**: All mutation and control endpoints (`/api/ops/chaos/start`, `/api/ops/chaos/scenarios/{scenarioID}/stop`, `/api/ops/chaos/reset`) and inspection endpoints require authenticated `OPS_ADMIN` role. Public roles (`CUSTOMER`, `MERCHANT`) receive `403 Forbidden`. Unauthenticated requests receive `401 Unauthorized`. Customer-facing payment APIs do NOT expose chaos controls.
+- **Durable Persistence & Audit**: Scenario definitions are persisted to `chaos_scenarios`, and all lifecycle transitions (`CHAOS_STARTED`, `CHAOS_STOPPED`, `CHAOS_RESET`, `CHAOS_EXPIRED`) are appended to `chaos_events` atomically in the same PostgreSQL transaction. If database persistence fails, the operation fails fast and in-memory faults are not activated.
+- **Integration with M2-3 / M2-4 / M2-5**:
+  - M2-3 Health Monitoring samples targets through `ChaosAdapter.GetHealth()`, observing outages, elevated latency, or timeouts.
+  - M2-5 Circuit Breaker observes health failure samples and trips `CLOSED -> OPEN` once the failure threshold is reached. `HALF_OPEN` remains recovery-health-probe-only and excludes payment routing.
+  - M2-4 Adaptive Routing naturally routes eligible traffic around unhealthy/open targets to healthy alternate rails. Routing never fabricates fake rerouting or mutates sender/receiver bank authority.
+
+## ADR-021: M3-1 Canonical Reconciliation Record
 
 Status: **IMPLEMENTED**
 
