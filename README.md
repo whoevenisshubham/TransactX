@@ -13,7 +13,7 @@ Implemented through the current routed-payment milestone:
 - Customer payment frontend and API contract: exact decimal-to-paise input, stable idempotency attempts, safe account/payment DTOs, notes, incoming/outgoing history, explicit pending status checks, and transaction details.
 - Unit, PostgreSQL-backed integration, and race-detector coverage for the critical payment and bank paths.
 
-Adaptive routing, circuit breakers, chaos orchestration, and offline queue UX are implemented. Reconciliation orchestration, reconciliation APIs, and later M3 work remain future work. Canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are implemented for research use and are not a production reconciliation service.
+Adaptive routing, circuit breakers, chaos orchestration, and offline queue UX are implemented. Reconciliation orchestration and the reconciliation API (M3-5) are implemented. Later M3 work (M3-6 and beyond) remains future work. Canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are in production use by the reconciliation engine.
 
 ## Local development
 
@@ -26,7 +26,6 @@ Prerequisites:
 Create a local database named `transactx`, apply migrations in order with `psql`, and configure the processes. The repository does not load a `.env` file automatically.
 
 ```powershell
-$env:DATABASE_URL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
 psql $env:DATABASE_URL -f backend/migrations/000001_phase1a_payment_core.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000002_account_opening_balance.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000003_local_settlement_state.up.sql
@@ -35,6 +34,11 @@ psql $env:DATABASE_URL -f backend/migrations/000005_m1_6_account_identity_harden
 psql $env:DATABASE_URL -f backend/migrations/000006_m1_6_bank_operation_identity.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000007_phase4_bank_b.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000008_m1_customer_payment_contract.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000009_m2_health_samples.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000010_m2_circuit_state.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000011_m2_circuit_snapshots.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000012_m2_chaos_scenarios.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000013_m3_5_recon_runs.up.sql
 ```
 
 Start Bank A, Bank B, and the API in separate terminals. Both participants may use the same PostgreSQL server because they use separate `bank_a` and `bank_b` schemas.
@@ -82,13 +86,45 @@ Normal API runs default to `APP_DEVELOPMENT=false`; enable development provision
 - Routed settlement is a durable saga, not a distributed ACID transaction. Unknown outcomes are resolved with the original operation ID; unresolved effects stay pending reconciliation.
 - Monetary values are integer paise (`BIGINT`). Docker, Redis, Kafka, Kubernetes, real banking integrations, AI/ML, blockchain, and real-money movement are intentionally excluded.
 
-## Reconciliation participant boundary
+## Reconciliation API (M3-5)
 
-The reconciliation package exposes a separate `ReconciliationParticipant` read boundary. `BankAdapter` remains frozen as the payment-switch contract and is not extended with reconciliation methods.
+Four OPS_ADMIN-only endpoints expose the reconciliation engine. All requests require a valid JWT with `role: OPS_ADMIN`.
 
-- A `Scope` is a normalized UTC half-open interval `[From, To)`. Node references carry a participant identifier, deterministic scope identity, and a path (`empty` or `L<level>/<index>`); bucket references carry the versioned `BucketID.String()` key.
-- `MemoryParticipant` is a deterministic fixture over logical `CanonicalRecord` values. `RepositoryParticipant` reads the existing participant ledger through `bankservice.Service.GetLedgerSnapshot`; the participant ledger remains authoritative and commitment state is derived, read-only data.
-- A participant captures one derived commitment per scope and reuses it across root, child, record, and metadata reads so one boundary read is coherent and does not rebuild the tree repeatedly. Repository-backed commitments must be explicitly initialized (or recovered with `Refresh`); only that path bootstraps from the authoritative ledger. Normal reads load maintained derived state through `IncrementalCommitmentStore` and never call `Bootstrap`.
-- Root, node, and bucket references include a process-local commitment generation. `Refresh` creates a new generation and invalidates old references, preventing a child or bucket request from mixing commitment snapshots. Generation values never enter canonical records or Merkle hash inputs. This is a process-local snapshot rule, not distributed transactionality.
-- Roots, child nodes, and bucket records use the existing canonical v1 and Merkle v1 implementations. Results are ordered deterministically and exclude snapshot IDs, capture times, and physical database row IDs from canonical content.
-- Missing or malformed references return typed reconciliation errors (`ErrNodeNotFound`, `ErrBucketNotFound`, and their invalid-reference counterparts). Participant mismatches are explicit. Every participant method checks and propagates context cancellation and source errors.
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/ops/reconciliation/runs` | Execute a reconciliation run for a participant and time scope |
+| `GET` | `/api/ops/reconciliation/runs` | List reconciliation runs (paginated, optional `participantId` filter) |
+| `GET` | `/api/ops/reconciliation/runs/{runID}` | Get a single run by UUID |
+| `GET` | `/api/ops/reconciliation/runs/{runID}/discrepancies` | List discrepancy evidence for a run |
+
+**Request body for `POST /api/ops/reconciliation/runs`:**
+
+```json
+{
+  "participantId": "BANK-A",
+  "scopeFrom": "2026-01-01T00:00:00Z",
+  "scopeTo":   "2026-01-01T01:00:00Z"
+}
+```
+
+`participantId` must be a known bank code configured at startup. Arbitrary IDs are rejected with 400. `scopeFrom` and `scopeTo` must be RFC 3339 timestamps; `scopeTo` must be strictly after `scopeFrom`.
+
+**Run status values:**
+
+- `RUNNING` — execution in progress
+- `COMPLETED` — run finished normally; may contain zero or more discrepancies
+- `FAILED` — operational execution failure prevented a meaningful comparison
+
+A `COMPLETED` run with discrepancies is not a failure. Discrepancies are evidence, not HTTP 500s. `FAILED` is reserved for participant unavailability, configuration errors, or context cancellations.
+
+**Mismatch categories** (on discrepancy objects):
+
+- `BUCKET_ROOT_MISMATCH` — a Merkle bucket hash differs between canonical and participant side
+- `CANONICAL_ROOT_MISMATCH` — the global commitment roots differ
+- `PARTICIPANT_UNAVAILABLE` — a tree node could not be fetched
+- `SCOPE_MISMATCH` — scope boundary incompatibility between the canonical model and participant
+- `VERSION_INCOMPATIBLE` — canonical version or algorithm version is not supported
+
+**Pagination:** All list endpoints accept `limit` (default 20, max 100 for runs; default 50, max 200 for discrepancies) and `offset` query parameters. The response includes `total` and `nextOffset` (when present).
+
+**Migration:** Apply `backend/migrations/000013_m3_5_recon_runs.up.sql` before starting the server. This creates the `recon_runs` and `recon_discrepancies` tables.

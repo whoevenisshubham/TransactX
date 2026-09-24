@@ -21,6 +21,7 @@ import (
 	"github.com/transactx/backend/internal/health"
 	apihttp "github.com/transactx/backend/internal/http"
 	"github.com/transactx/backend/internal/payments"
+	"github.com/transactx/backend/internal/reconciliation"
 )
 
 func main() {
@@ -162,11 +163,39 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Build the reconciliation engine backed by the configured adapters.
+	// Each configured bank code becomes a known participant that OPS_ADMIN
+	// can target in a reconciliation run.
+	knownParticipants := make(reconciliation.KnownParticipants)
+	participantAdapters := make(map[string]bank.BankAdapter)
+	for code, bankID := range bankIDs {
+		knownParticipants[code] = true
+		participantAdapters[code] = adapters[bankID]
+	}
+	reconRepo := reconciliation.NewRunRepository(db)
+	reconEngine := reconciliation.NewEngine(
+		knownParticipants,
+		reconRepo,
+		func(ctx context.Context, participantID string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			adapter, ok := participantAdapters[participantID]
+			if !ok {
+				return nil, reconciliation.ErrInvalidParticipant
+			}
+			p, err := reconciliation.NewRepositoryParticipant(
+				adapter, participantID, participantID, 15*time.Minute,
+			)
+			if err != nil {
+				return nil, err
+			}
+			return p, nil
+		},
+	)
+
 	var handler http.Handler
 	if len(adapters) == 0 {
-		handler = apihttp.NewHandlerWithChaos(db, logger, authService, jwtManager, chaosController)
+		handler = apihttp.NewHandlerWithReconciliation(db, logger, authService, jwtManager, chaosController, reconEngine)
 	} else if len(executionTargets) > 0 {
-		handler = apihttp.NewHandlerWithExecutionTargetsCircuitAndChaos(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController)
+		handler = apihttp.NewHandlerWithExecutionTargetsCircuitChaosAndReconciliation(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController, reconEngine)
 	} else {
 		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingAndChaos(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService, chaosController)
 	}

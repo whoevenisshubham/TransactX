@@ -17,6 +17,7 @@ import (
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/health"
 	"github.com/transactx/backend/internal/payments"
+	"github.com/transactx/backend/internal/reconciliation"
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/users"
 )
@@ -33,6 +34,7 @@ type Handler struct {
 	healthTargets   map[string]health.HealthChecker
 	circuitBreaker  *circuit.CircuitBreaker
 	chaosController *chaos.Controller
+	reconEngine     *reconciliation.Engine
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -79,8 +81,16 @@ func NewHandlerWithChaos(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	return newHandlerWithAdaptersAndChaos(db, logger, authService, jwtManager, nil, nil, nil, nil, nil, nil, payments.SelectionModeAdaptive, "", nil, chaosController)
 }
 
+func NewHandlerWithReconciliation(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, chaosController *chaos.Controller, engine *reconciliation.Engine) http.Handler {
+	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, nil, nil, nil, nil, nil, nil, payments.SelectionModeAdaptive, "", nil, chaosController, engine)
+}
+
 func NewHandlerWithExecutionTargetsCircuitAndChaos(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller) http.Handler {
 	return newHandlerWithAdaptersAndChaos(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, mode, staticBaseline, circuitBreaker, chaosController)
+}
+
+func NewHandlerWithExecutionTargetsCircuitChaosAndReconciliation(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, engine *reconciliation.Engine) http.Handler {
+	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, nil, mode, staticBaseline, circuitBreaker, chaosController, engine)
 }
 
 func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
@@ -96,6 +106,10 @@ func newHandlerWithAdapters(db *pgxpool.Pool, logger *slog.Logger, authService *
 }
 
 func newHandlerWithAdaptersAndChaos(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller) http.Handler {
+	return newHandlerWithRecon(db, logger, authService, jwtManager, adapter, adapters, healthTargets, routeTargets, executionTargets, healthService, nil, mode, staticBaseline, circuitBreaker, chaosController, nil)
+}
+
+func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, _ *circuit.CircuitBreaker, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, reconEngine *reconciliation.Engine) http.Handler {
 	handler := &Handler{
 		db:              db,
 		logger:          logger,
@@ -107,6 +121,7 @@ func newHandlerWithAdaptersAndChaos(db *pgxpool.Pool, logger *slog.Logger, authS
 		healthTargets:   healthTargets,
 		circuitBreaker:  circuitBreaker,
 		chaosController: chaosController,
+		reconEngine:     reconEngine,
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -145,6 +160,12 @@ func newHandlerWithAdaptersAndChaos(db *pgxpool.Pool, logger *slog.Logger, authS
 		mux.Handle("POST /api/ops/chaos/scenarios/{scenarioID}/stop", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosStop))))
 		mux.Handle("POST /api/ops/chaos/reset", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosReset))))
 	}
+	// Reconciliation endpoints are always registered; the handler returns
+	// NOT_FOUND gracefully when no engine is configured.
+	mux.Handle("POST /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationCreateRun))))
+	mux.Handle("GET /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationListRuns))))
+	mux.Handle("GET /api/ops/reconciliation/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationGetRun))))
+	mux.Handle("GET /api/ops/reconciliation/runs/{runID}/discrepancies", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationListDiscrepancies))))
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))

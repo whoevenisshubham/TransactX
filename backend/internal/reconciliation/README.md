@@ -122,3 +122,133 @@ ledger's operation lock. A bootstrap therefore either completes before an
 update begins or the update runs afterward; it cannot overwrite a concurrent
 committed update. This is local in-memory synchronization, not distributed
 transactionality.
+
+## Reconciliation Engine & API (M3-5)
+
+M3-5 implements the authoritative reconciliation runtime and REST API, building
+on top of the M3-0 through M3-4 foundations.
+
+### Run lifecycle
+
+Every reconciliation run transitions through an explicit, durable lifecycle:
+
+1. **RUNNING**: A durable record is inserted into `recon_runs` with a new UUID,
+   the target participant, normalized UTC `Scope [From, To)`, and `started_at`
+   timestamp.
+2. **COMPLETED**: The tree comparison completes. If financial divergences are
+   found, discrepancy records are written to `recon_discrepancies` and the run
+   records the total `discrepancy_count`. The run is marked `COMPLETED`. A run
+   with discrepancies is a successful operational execution that produced
+   divergence evidence; it is not an error.
+3. **FAILED**: Terminal state reached only on unrecoverable operational or
+   infrastructure failures (such as database connectivity loss, malformed scope,
+   or context cancellation).
+
+```
+   [POST /runs]
+        |
+        v
+    (RUNNING)
+     /      \
+    / (ok)   \ (operational failure)
+   v          v
+(COMPLETED) (FAILED)
+```
+
+### Participant boundary & isolation
+
+- The participant boundary is strictly isolated from central financial state.
+- Central PostgreSQL is the authoritative financial ledger; bank participant
+  state remains in the participant's domain and is accessed via the
+  `ReconciliationParticipant` read model (`GetRoot`, `GetChildren`, `GetRecords`,
+  `GetMetadata`).
+- The engine rejects any request for an unknown participant ID with
+  `ErrInvalidParticipant` before execution begins.
+- Participant boundaries cannot be crossed: a run targets exactly one
+  configured participant and compares only that participant's records against
+  canonical state.
+
+### Canonical vs participant state & non-mutation guarantee
+
+- Canonical state is derived deterministically from the canonical representation
+  using `v1` bytes and SHA-256 hashing.
+- Reconciliation is strictly read-only comparison: it **never** alters account
+  balances, modifies payment states, settles funds, or silently repairs ledger
+  values.
+- Financial settlement and dispute resolution are separate domain processes
+  outside reconciliation.
+
+### Discrepancy model & evidence preservation
+
+When the engine traverses Merkle commitment trees and finds mismatched nodes,
+it walks down to bucket leaves to identify all divergent regions.
+
+- Every mismatching region is preserved and persisted in `recon_discrepancies`
+  (the comparison does not truncate at the first mismatch).
+- Fields captured: `run_id`, `participant_id`, `bucket_key`, `bucket_partition`,
+  `bucket_start`, `bucket_width_ns`, `expected_root`, `observed_root`,
+  `mismatch_category`, `resolved`, and `evidence` (JSONB).
+- Mismatch categories include:
+  - `ROOT_MISMATCH`: Bucket root hash does not match canonical commitment.
+  - `RECORD_MISMATCH`: Record count or contents diverge within a bucket.
+  - `EXTRA_PARTICIPANT_RECORD`: Record exists on participant side but not in canonical ledger.
+  - `MISSING_PARTICIPANT_RECORD`: Canonical record is missing from participant side.
+- A discrepancy is evidence, never an HTTP 500 error.
+
+### API surface
+
+Reconciliation endpoints are accessible under `/api/ops/reconciliation/`:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/ops/reconciliation/runs` | Trigger a new reconciliation run for a participant and scope |
+| `GET` | `/api/ops/reconciliation/runs` | List reconciliation runs with bounded pagination |
+| `GET` | `/api/ops/reconciliation/runs/{runID}` | Get run details and summary metrics |
+| `GET` | `/api/ops/reconciliation/runs/{runID}/discrepancies` | List discrepancies for a specific run |
+
+#### Request body (`POST /runs`):
+```json
+{
+  "participant_id": "BANK-A",
+  "scope": {
+    "from": "2026-09-01T00:00:00Z",
+    "to": "2026-09-02T00:00:00Z"
+  }
+}
+```
+
+### Authorization
+
+- All reconciliation endpoints require the `OPS_ADMIN` role via server-validated
+  JWT bearer token (`auth.RequireRole(users.RoleOpsAdmin)`).
+- Authenticated `CUSTOMER` and `MERCHANT` roles receive `HTTP 403 Forbidden`.
+- Unauthenticated requests receive `HTTP 401 Unauthorized`.
+- Arbitrary client SQL, table selection, or file paths are prohibited.
+
+### Bounded reads & pagination
+
+List endpoints enforce bounded queries with deterministic ordering:
+- `GET /runs`: `limit` (default 20, max 100), `offset` (default 0).
+  Ordered by `started_at DESC, id DESC`.
+- `GET /runs/{runID}/discrepancies`: `limit` (default 50, max 200), `offset` (default 0).
+  Ordered by `created_at ASC, id ASC`.
+
+### What M3-5 implements
+
+- Authoritative reconciliation orchestrator (`Engine`) executing against
+  `ReconciliationParticipant` implementations.
+- Durable PostgreSQL models and migrations (`recon_runs`, `recon_discrepancies`
+  in migration `000013`).
+- Bounded, authenticated OPS_ADMIN REST API endpoints matching TransactX envelope.
+- Unit and HTTP handler test suites validating lifecycle, mismatch preservation,
+  determinism, bounded pagination, and authorization.
+
+### Future scope (M3-6+)
+
+The following capabilities are reserved for later milestones and are **not**
+part of M3-5:
+- **M3-6**: Integrity Engine (verifiable proofs, consistency auditing across intervals)
+- **M3-7**: Benchmark Harness (high-volume performance profiling)
+- **M3-8**: Corruption Fixture (controlled injection of ledger anomalies for detection testing)
+- **M3-9**: Merkle Visualization (interactive tree exploration in Network Console)
+- **M3-10**: Automated Scheduled Reconciliation (continuous background cron orchestration)
