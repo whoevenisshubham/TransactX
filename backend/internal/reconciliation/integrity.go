@@ -13,16 +13,18 @@ import (
 )
 
 var (
-	ErrInvalidProof              = errors.New("invalid integrity proof")
-	ErrRecordNotFound            = errors.New("record not found in commitment")
-	ErrProofRecordMismatch       = errors.New("proof record does not match leaf hash")
-	ErrProofBucketMismatch       = errors.New("proof record does not belong to bucket")
-	ErrProofScopeMismatch        = errors.New("proof record or bucket is outside scope")
-	ErrProofParticipantMismatch  = errors.New("proof participant mismatch")
-	ErrProofRootMismatch         = errors.New("reconstructed root does not match expected root")
-	ErrProofBucketRootMismatch   = errors.New("reconstructed bucket root does not match expected bucket root")
-	ErrProofMalformedPath        = errors.New("malformed proof sibling path")
-	ErrProofIncompatibleVersion  = errors.New("incompatible proof version")
+	ErrInvalidProof               = errors.New("invalid integrity proof")
+	ErrRecordNotFound             = errors.New("record not found in commitment")
+	ErrProofRecordMismatch        = errors.New("proof record does not match leaf hash")
+	ErrProofBucketMismatch        = errors.New("proof record does not belong to bucket")
+	ErrProofScopeMismatch         = errors.New("proof record or bucket is outside scope")
+	ErrProofParticipantMismatch   = errors.New("proof participant mismatch")
+	ErrProofGenerationMismatch    = errors.New("proof generation mismatch")
+	ErrProofRootMismatch          = errors.New("reconstructed root does not match expected root")
+	ErrProofBucketRootMismatch    = errors.New("reconstructed bucket root does not match expected bucket root")
+	ErrProofMalformedPath         = errors.New("malformed proof sibling path")
+	ErrProofIncompatibleVersion   = errors.New("incompatible proof version")
+	ErrMissingVerificationContext = errors.New("missing or incomplete trusted verification context")
 )
 
 // SiblingOrder specifies the position of a sibling relative to the current node
@@ -91,6 +93,51 @@ type VerificationResult struct {
 	Metrics                 ProofVerificationMetrics `json:"metrics"`
 }
 
+// ProofVerificationContext defines the trusted external expectations that an
+// IntegrityProof must satisfy. A proof cannot verify successfully if any of these
+// trusted expectations differ from the proof's metadata.
+type ProofVerificationContext struct {
+	ParticipantID    string   `json:"participantId"`
+	Scope            Scope    `json:"scope"`
+	BucketID         BucketID `json:"bucketId"`
+	Generation       string   `json:"generation"`
+	CanonicalVersion string   `json:"canonicalVersion"`
+	AlgorithmVersion string   `json:"algorithmVersion"`
+	ExpectedRoot     []byte   `json:"expectedRoot"`
+}
+
+// Validate ensures that all required trusted context fields are populated.
+func (c ProofVerificationContext) Validate() error {
+	if c.ParticipantID == "" {
+		return fmt.Errorf("%w: expected participant ID is required", ErrMissingVerificationContext)
+	}
+	if c.Generation == "" {
+		return fmt.Errorf("%w: expected generation is required", ErrMissingVerificationContext)
+	}
+	if err := c.Scope.Validate(); err != nil || (c.Scope.From.IsZero() && c.Scope.To.IsZero()) {
+		return fmt.Errorf("%w: valid expected scope is required", ErrMissingVerificationContext)
+	}
+	if err := c.BucketID.Validate(); err != nil {
+		return fmt.Errorf("%w: valid expected bucket ID is required", ErrMissingVerificationContext)
+	}
+	if c.CanonicalVersion == "" || c.AlgorithmVersion == "" {
+		return fmt.Errorf("%w: expected canonical and algorithm versions are required", ErrMissingVerificationContext)
+	}
+	if len(c.ExpectedRoot) != sha256.Size {
+		return fmt.Errorf("%w: expected root must be %d bytes", ErrMissingVerificationContext, sha256.Size)
+	}
+	return nil
+}
+
+// With returns a copy of the context with the given options applied.
+func (c ProofVerificationContext) With(opts ...VerifyOption) ProofVerificationContext {
+	copyCtx := c
+	for _, opt := range opts {
+		opt(&copyCtx)
+	}
+	return copyCtx
+}
+
 // IntegrityProof is the typed cryptographic proof that a canonical ledger record
 // belongs to a committed Merkle root.
 //
@@ -116,7 +163,8 @@ type IntegrityProof struct {
 	Scope Scope `json:"scope"`
 
 	// Generation is the participant commitment generation (e.g. "g1").
-	Generation string `json:"generation,omitempty"`
+	// Generation is mandatory and must not be empty.
+	Generation string `json:"generation"`
 
 	// CanonicalVersion is the frozen canonical record version ("v1").
 	CanonicalVersion string `json:"canonicalVersion"`
@@ -138,6 +186,19 @@ type IntegrityProof struct {
 
 	// GenerationMetrics contains non-cryptographic performance telemetry.
 	GenerationMetrics ProofGenerationMetrics `json:"generationMetrics"`
+}
+
+// VerificationContext extracts the trusted context corresponding to this proof.
+func (p IntegrityProof) VerificationContext() ProofVerificationContext {
+	return ProofVerificationContext{
+		ParticipantID:    p.ParticipantID,
+		Scope:            p.Scope.Normalize(),
+		BucketID:         p.BucketID,
+		Generation:       p.Generation,
+		CanonicalVersion: p.CanonicalVersion,
+		AlgorithmVersion: p.AlgorithmVersion,
+		ExpectedRoot:     hashCopy(p.ExpectedRoot),
+	}
 }
 
 // SerializedBytes returns the deterministic JSON representation of the proof.
@@ -164,6 +225,9 @@ func (p IntegrityProof) Validate() error {
 	}
 	if p.ParticipantID == "" {
 		return fmt.Errorf("%w: participant ID is required", ErrInvalidProof)
+	}
+	if p.Generation == "" {
+		return fmt.Errorf("%w: commitment generation is required", ErrInvalidProof)
 	}
 	if err := p.Scope.Validate(); err != nil {
 		return fmt.Errorf("%w: invalid scope: %v", ErrInvalidProof, err)
@@ -272,7 +336,6 @@ func (e *IntegrityEngine) GenerateProofByOperationID(ctx context.Context, partic
 		return IntegrityProof{}, fmt.Errorf("%w: operation_id %s (empty commitment)", ErrRecordNotFound, opID)
 	}
 
-	// Search via BFS or leaf buckets
 	var foundRecord *CanonicalRecord
 	queue := []NodeRef{rootRes.Ref}
 	for len(queue) > 0 {
@@ -330,6 +393,13 @@ func GenerateProofFromState(state IncrementalCommitmentState, participantID stri
 	}
 	if participantID == "" {
 		participantID = state.Partition
+	}
+	if generation == "" {
+		if state.RebuildCount > 0 {
+			generation = fmt.Sprintf("g%d", state.RebuildCount)
+		} else {
+			generation = "g1"
+		}
 	}
 
 	target = target.Normalize()
@@ -531,7 +601,6 @@ func (e *IntegrityEngine) generateProofByTraversal(ctx context.Context, particip
 			})
 			curr = children[1].Ref
 		} else {
-			// Fallback: pick child0 if instant is strictly before children[1].Region.Start
 			if target.OccurredAt.Before(children[1].Region.Start) {
 				globalStepsDown = append(globalStepsDown, ProofStep{
 					Order: SiblingRight,
@@ -628,7 +697,6 @@ func (e *IntegrityEngine) generateProofByTraversal(ctx context.Context, particip
 	}
 	bucketRoot := currentLevel[0]
 
-	// Reverse globalStepsDown to obtain bottom-up GlobalPath
 	globalPath := make([]ProofStep, len(globalStepsDown))
 	for i := range globalStepsDown {
 		globalPath[len(globalStepsDown)-1-i] = globalStepsDown[i]
@@ -664,66 +732,100 @@ func (e *IntegrityEngine) generateProofByTraversal(ctx context.Context, particip
 	return proof, nil
 }
 
-type verifyConfig struct {
-	expectedRoot          []byte
-	expectedParticipantID string
-	expectedScope         *Scope
-}
-
 // VerifyOption customizes the verification criteria for an IntegrityProof.
-type VerifyOption func(*verifyConfig)
-
-// WithExpectedRoot configures an expected global root to verify against.
-func WithExpectedRoot(root []byte) VerifyOption {
-	return func(c *verifyConfig) {
-		c.expectedRoot = hashCopy(root)
-	}
-}
+type VerifyOption func(*ProofVerificationContext)
 
 // WithExpectedParticipant configures an expected participant identity to verify against.
 func WithExpectedParticipant(participantID string) VerifyOption {
-	return func(c *verifyConfig) {
-		c.expectedParticipantID = participantID
+	return func(c *ProofVerificationContext) {
+		c.ParticipantID = participantID
 	}
 }
 
 // WithExpectedScope configures an expected scope to verify against.
 func WithExpectedScope(scope Scope) VerifyOption {
-	return func(c *verifyConfig) {
-		s := scope.Normalize()
-		c.expectedScope = &s
+	return func(c *ProofVerificationContext) {
+		c.Scope = scope.Normalize()
 	}
 }
 
-// VerifyProof verifies that an IntegrityProof is cryptographically and logically valid.
-func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof, opts ...VerifyOption) (VerificationResult, error) {
+// WithExpectedBucket configures an expected bucket ID to verify against.
+func WithExpectedBucket(bucketID BucketID) VerifyOption {
+	return func(c *ProofVerificationContext) {
+		c.BucketID = bucketID
+	}
+}
+
+// WithExpectedGeneration configures an expected generation to verify against.
+func WithExpectedGeneration(generation string) VerifyOption {
+	return func(c *ProofVerificationContext) {
+		c.Generation = generation
+	}
+}
+
+// WithExpectedCanonicalVersion configures an expected canonical version to verify against.
+func WithExpectedCanonicalVersion(version string) VerifyOption {
+	return func(c *ProofVerificationContext) {
+		c.CanonicalVersion = version
+	}
+}
+
+// WithExpectedAlgorithmVersion configures an expected algorithm version to verify against.
+func WithExpectedAlgorithmVersion(version string) VerifyOption {
+	return func(c *ProofVerificationContext) {
+		c.AlgorithmVersion = version
+	}
+}
+
+// WithExpectedRoot configures an expected global root to verify against.
+func WithExpectedRoot(root []byte) VerifyOption {
+	return func(c *ProofVerificationContext) {
+		c.ExpectedRoot = hashCopy(root)
+	}
+}
+
+// VerifyProof verifies that an IntegrityProof is cryptographically valid and strictly matches
+// the trusted expected verification context across all fields.
+func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof, expected ProofVerificationContext) (VerificationResult, error) {
 	start := time.Now()
 	if err := ctx.Err(); err != nil {
 		return VerificationResult{}, err
 	}
 
-	var cfg verifyConfig
-	for _, opt := range opts {
-		opt(&cfg)
+	// 1. Validate the trusted verification context
+	if err := expected.Validate(); err != nil {
+		return VerificationResult{}, err
 	}
 
-	// 1. Basic structural validation
+	// 2. Strict match against trusted context
+	if proof.ParticipantID != expected.ParticipantID {
+		return VerificationResult{}, fmt.Errorf("%w: proof participant %q != expected %q", ErrProofParticipantMismatch, proof.ParticipantID, expected.ParticipantID)
+	}
+	if !scopeEqual(proof.Scope, expected.Scope) {
+		return VerificationResult{}, fmt.Errorf("%w: proof scope %v != expected %v", ErrProofScopeMismatch, proof.Scope, expected.Scope)
+	}
+	if !proof.BucketID.Equal(expected.BucketID) {
+		return VerificationResult{}, fmt.Errorf("%w: proof bucket %s != expected %s", ErrProofBucketMismatch, proof.BucketID, expected.BucketID)
+	}
+	if proof.Generation != expected.Generation {
+		return VerificationResult{}, fmt.Errorf("%w: proof generation %q != expected %q", ErrProofGenerationMismatch, proof.Generation, expected.Generation)
+	}
+	if proof.CanonicalVersion != expected.CanonicalVersion {
+		return VerificationResult{}, fmt.Errorf("%w: proof canonical version %q != expected %q", ErrProofIncompatibleVersion, proof.CanonicalVersion, expected.CanonicalVersion)
+	}
+	if proof.AlgorithmVersion != expected.AlgorithmVersion {
+		return VerificationResult{}, fmt.Errorf("%w: proof algorithm version %q != expected %q", ErrProofIncompatibleVersion, proof.AlgorithmVersion, expected.AlgorithmVersion)
+	}
+	if !bytes.Equal(proof.ExpectedRoot, expected.ExpectedRoot) {
+		return VerificationResult{}, fmt.Errorf("%w: proof expected root %x != expected root %x", ErrProofRootMismatch, proof.ExpectedRoot, expected.ExpectedRoot)
+	}
+
+	// 3. Validate basic structural validity of the proof
 	if err := proof.Validate(); err != nil {
 		return VerificationResult{}, err
 	}
 
-	// 2. Validate external options if specified
-	if cfg.expectedParticipantID != "" && proof.ParticipantID != cfg.expectedParticipantID {
-		return VerificationResult{}, fmt.Errorf("%w: expected participant %q, proof has %q", ErrProofParticipantMismatch, cfg.expectedParticipantID, proof.ParticipantID)
-	}
-	if cfg.expectedScope != nil && !scopeEqual(proof.Scope, *cfg.expectedScope) {
-		return VerificationResult{}, fmt.Errorf("%w: expected scope %v, proof has %v", ErrProofScopeMismatch, *cfg.expectedScope, proof.Scope)
-	}
-	if len(cfg.expectedRoot) > 0 && !bytes.Equal(proof.ExpectedRoot, cfg.expectedRoot) {
-		return VerificationResult{}, fmt.Errorf("%w: expected root %x, proof has %x", ErrProofRootMismatch, cfg.expectedRoot, proof.ExpectedRoot)
-	}
-
-	// 3. Validate Scope contains record and bucket
+	// 4. Validate Scope contains record and bucket
 	if !scopeContains(proof.Scope, proof.Record.OccurredAt) {
 		return VerificationResult{}, fmt.Errorf("%w: record occurred_at %v is outside scope %v", ErrProofScopeMismatch, proof.Record.OccurredAt, proof.Scope)
 	}
@@ -731,7 +833,7 @@ func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof,
 		return VerificationResult{}, fmt.Errorf("%w: bucket start %v is outside scope %v", ErrProofScopeMismatch, proof.BucketID.Start, proof.Scope)
 	}
 
-	// 4. Validate record maps to claimed bucket
+	// 5. Validate record maps to claimed bucket
 	mappedBucket, err := BucketForRecord(proof.Record, proof.BucketID.Partition, proof.BucketID.Width)
 	if err != nil {
 		return VerificationResult{}, fmt.Errorf("%w: mapping record to bucket: %v", ErrInvalidProof, err)
@@ -740,7 +842,7 @@ func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof,
 		return VerificationResult{}, fmt.Errorf("%w: record maps to %s, proof claims %s", ErrProofBucketMismatch, mappedBucket, proof.BucketID)
 	}
 
-	// 5. Validate LeafHash against Record
+	// 6. Validate LeafHash against Record
 	computedLeafHash, err := LeafHash(proof.Record)
 	if err != nil {
 		return VerificationResult{}, fmt.Errorf("%w: compute leaf hash: %v", ErrInvalidProof, err)
@@ -751,7 +853,7 @@ func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof,
 
 	stepsEvaluated := 0
 
-	// 6. Reconstruct Bucket Root
+	// 7. Reconstruct Bucket Root
 	currHash := hashCopy(proof.LeafHash)
 	for i, step := range proof.BucketPath {
 		stepsEvaluated++
@@ -771,7 +873,7 @@ func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof,
 		return VerificationResult{}, fmt.Errorf("%w: reconstructed %x != expected bucket root %x", ErrProofBucketRootMismatch, reconstructedBucketRoot, proof.BucketRoot)
 	}
 
-	// 7. Reconstruct Global Root
+	// 8. Reconstruct Global Root
 	for i, step := range proof.GlobalPath {
 		stepsEvaluated++
 		switch step.Order {
@@ -804,12 +906,27 @@ func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof,
 	}, nil
 }
 
-// GenerateProof is a top-level package function providing the default engine proof generation.
+// VerifyProofWithOptions constructs a ProofVerificationContext from the given options
+// and verifies the proof using the canonical VerifyProof implementation.
+func (e *IntegrityEngine) VerifyProofWithOptions(ctx context.Context, proof IntegrityProof, opts ...VerifyOption) (VerificationResult, error) {
+	var expected ProofVerificationContext
+	for _, opt := range opts {
+		opt(&expected)
+	}
+	return e.VerifyProof(ctx, proof, expected)
+}
+
+// GenerateProof is a top-level package function providing default engine proof generation.
 func GenerateProof(ctx context.Context, participant ReconciliationParticipant, scope Scope, target CanonicalRecord) (IntegrityProof, error) {
 	return NewIntegrityEngine().GenerateProof(ctx, participant, scope, target)
 }
 
-// VerifyProof is a top-level package function providing default engine proof verification.
-func VerifyProof(ctx context.Context, proof IntegrityProof, opts ...VerifyOption) (VerificationResult, error) {
-	return NewIntegrityEngine().VerifyProof(ctx, proof, opts...)
+// VerifyProof is a top-level package function providing default engine proof verification against trusted context.
+func VerifyProof(ctx context.Context, proof IntegrityProof, expected ProofVerificationContext) (VerificationResult, error) {
+	return NewIntegrityEngine().VerifyProof(ctx, proof, expected)
+}
+
+// VerifyProofWithOptions is a top-level package function providing proof verification using functional options.
+func VerifyProofWithOptions(ctx context.Context, proof IntegrityProof, opts ...VerifyOption) (VerificationResult, error) {
+	return NewIntegrityEngine().VerifyProofWithOptions(ctx, proof, opts...)
 }
