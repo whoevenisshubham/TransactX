@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,6 +57,88 @@ type BenchmarkComparisonResult struct {
 	DiscrepanciesMatch     bool                                `json:"discrepanciesMatch"`
 	Naive                  reconciliation.NaiveInstrumentation `json:"naive"`
 	Optimized              OptimizedInstrumentation            `json:"optimized"`
+}
+
+// benchmarkRunStore implements reconciliation.RunStore without unbounded slice growth.
+// It resets discrepancy tracking on each CreateRun call to prevent benchmark state
+// accumulation across thousands of iterations while supporting safe object reuse.
+type benchmarkRunStore struct {
+	mu            sync.Mutex
+	currentRun    reconciliation.Run
+	discrepancies []reconciliation.Discrepancy
+}
+
+func newBenchmarkRunStore() *benchmarkRunStore {
+	return &benchmarkRunStore{
+		discrepancies: make([]reconciliation.Discrepancy, 0, 16),
+	}
+}
+
+func (s *benchmarkRunStore) CreateRun(_ context.Context, participantID string, scope reconciliation.Scope) (reconciliation.Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.discrepancies = s.discrepancies[:0] // Reuse pre-allocated slice without unbounded growth
+	s.currentRun = reconciliation.Run{
+		ID:            uuid.New(),
+		ParticipantID: participantID,
+		ScopeFrom:     scope.From.UTC(),
+		ScopeTo:       scope.To.UTC(),
+		Status:        reconciliation.RunStatusRunning,
+		StartedAt:     time.Now().UTC(),
+	}
+	return s.currentRun, nil
+}
+
+func (s *benchmarkRunStore) CompleteRun(_ context.Context, _ uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64) (reconciliation.Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.currentRun.Status = reconciliation.RunStatusCompleted
+	s.currentRun.CanonicalRoot = canonRoot
+	s.currentRun.ParticipantRoot = partRoot
+	s.currentRun.CanonicalVersion = canonVer
+	s.currentRun.AlgorithmVersion = algoVer
+	s.currentRun.RecordCount = recordCount
+	s.currentRun.DiscrepancyCount = discrepancyCount
+	now := time.Now().UTC()
+	s.currentRun.CompletedAt = &now
+	return s.currentRun, nil
+}
+
+func (s *benchmarkRunStore) FailRun(_ context.Context, _ uuid.UUID, errMsg string) (reconciliation.Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.currentRun.Status = reconciliation.RunStatusFailed
+	s.currentRun.ErrorMessage = errMsg
+	now := time.Now().UTC()
+	s.currentRun.CompletedAt = &now
+	return s.currentRun, nil
+}
+
+func (s *benchmarkRunStore) GetRun(_ context.Context, _ uuid.UUID) (reconciliation.Run, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentRun, nil
+}
+
+func (s *benchmarkRunStore) ListRuns(_ context.Context, _ reconciliation.ListRunsRequest) (reconciliation.RunListPage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return reconciliation.RunListPage{Items: []reconciliation.Run{s.currentRun}, Total: 1}, nil
+}
+
+func (s *benchmarkRunStore) SaveDiscrepancy(_ context.Context, disc reconciliation.Discrepancy) (reconciliation.Discrepancy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	disc.ID = uuid.New()
+	disc.DetectedAt = time.Now().UTC()
+	s.discrepancies = append(s.discrepancies, disc)
+	return disc, nil
+}
+
+func (s *benchmarkRunStore) ListDiscrepancies(_ context.Context, _ reconciliation.ListDiscrepanciesRequest) (reconciliation.DiscrepancyListPage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return reconciliation.DiscrepancyListPage{Items: s.discrepancies, Total: len(s.discrepancies)}, nil
 }
 
 // generateDeterministicRecords generates repeatable, deterministic records
@@ -234,7 +317,7 @@ func newBenchmarkEngine(
 	return reconciliation.NewEngineWithRepo(knownParticipants, repo, canonicalFactory, participantFactory), repo
 }
 
-// sortDiscrepancies sorts discrepancies by BucketStart, Category, OperationID, and Field for deterministic equivalence checks.
+// sortDiscrepancies sorts discrepancies by BucketStart, Category, BucketKey, OperationID, and Field for deterministic checks.
 func sortDiscrepancies(discs []reconciliation.Discrepancy) {
 	sort.SliceStable(discs, func(i, j int) bool {
 		if !discs[i].BucketStart.Equal(discs[j].BucketStart) {
@@ -243,6 +326,9 @@ func sortDiscrepancies(discs []reconciliation.Discrepancy) {
 		if discs[i].MismatchCategory != discs[j].MismatchCategory {
 			return discs[i].MismatchCategory < discs[j].MismatchCategory
 		}
+		if discs[i].BucketKey != discs[j].BucketKey {
+			return discs[i].BucketKey < discs[j].BucketKey
+		}
 		opI := discs[i].Evidence["operation_id"]
 		opJ := discs[j].Evidence["operation_id"]
 		if opI != opJ {
@@ -250,6 +336,67 @@ func sortDiscrepancies(discs []reconciliation.Discrepancy) {
 		}
 		return discs[i].Evidence["field"] < discs[j].Evidence["field"]
 	})
+}
+
+// compareDiscrepanciesDetailed verifies logical equivalence across all 7 non-volatile discrepancy fields:
+// MismatchCategory, BucketKey, BucketStart, BucketWidthNs, operation_id, field, and reason.
+// Volatile fields (ID, RunID, DetectedAt, duration) are deliberately excluded.
+func compareDiscrepanciesDetailed(tb testing.TB, datasetName string, naiveDiscs, optDiscs []reconciliation.Discrepancy) bool {
+	tb.Helper()
+	if len(naiveDiscs) != len(optDiscs) {
+		tb.Errorf("%s: discrepancy count mismatch: naive=%d, opt=%d", datasetName, len(naiveDiscs), len(optDiscs))
+		return false
+	}
+
+	for i := range naiveDiscs {
+		nD, oD := naiveDiscs[i], optDiscs[i]
+
+		// 1. MismatchCategory
+		if nD.MismatchCategory != oD.MismatchCategory {
+			tb.Errorf("%s[%d]: MismatchCategory mismatch: naive=%q, opt=%q", datasetName, i, nD.MismatchCategory, oD.MismatchCategory)
+			return false
+		}
+
+		// 2. BucketKey
+		if nD.BucketKey != oD.BucketKey {
+			tb.Errorf("%s[%d]: BucketKey mismatch: naive=%q, opt=%q", datasetName, i, nD.BucketKey, oD.BucketKey)
+			return false
+		}
+
+		// 3. BucketStart
+		if !nD.BucketStart.Equal(oD.BucketStart) {
+			tb.Errorf("%s[%d]: BucketStart mismatch: naive=%v, opt=%v", datasetName, i, nD.BucketStart, oD.BucketStart)
+			return false
+		}
+
+		// 4. BucketWidthNs
+		if nD.BucketWidthNs != oD.BucketWidthNs {
+			tb.Errorf("%s[%d]: BucketWidthNs mismatch: naive=%d, opt=%d", datasetName, i, nD.BucketWidthNs, oD.BucketWidthNs)
+			return false
+		}
+
+		// 5. operation_id where present
+		nOp, oOp := nD.Evidence["operation_id"], oD.Evidence["operation_id"]
+		if nOp != oOp {
+			tb.Errorf("%s[%d]: operation_id mismatch: naive=%q, opt=%q", datasetName, i, nOp, oOp)
+			return false
+		}
+
+		// 6. field where present
+		nField, oField := nD.Evidence["field"], oD.Evidence["field"]
+		if nField != oField {
+			tb.Errorf("%s[%d]: field mismatch: naive=%q, opt=%q", datasetName, i, nField, oField)
+			return false
+		}
+
+		// 7. reason where present
+		nReason, oReason := nD.Evidence["reason"], oD.Evidence["reason"]
+		if nReason != oReason {
+			tb.Errorf("%s[%d]: reason mismatch: naive=%q, opt=%q", datasetName, i, nReason, oReason)
+			return false
+		}
+	}
+	return true
 }
 
 // runBenchmarkComparison executes both naive and optimized algorithms against the same dataset
@@ -295,26 +442,14 @@ func runBenchmarkComparison(tb testing.TB, ds BenchmarkDataset) BenchmarkCompari
 	optDiscs := make([]reconciliation.Discrepancy, len(repo.discrepancies))
 	copy(optDiscs, repo.discrepancies)
 
-	// 3. Equivalence Verification
+	// 3. Detailed Equivalence Verification
 	naiveDiscs := make([]reconciliation.Discrepancy, len(naiveRes.Discrepancies))
 	copy(naiveDiscs, naiveRes.Discrepancies)
 
 	sortDiscrepancies(naiveDiscs)
 	sortDiscrepancies(optDiscs)
 
-	discrepanciesMatch := len(naiveDiscs) == len(optDiscs)
-	if discrepanciesMatch {
-		for i := range naiveDiscs {
-			nD, oD := naiveDiscs[i], optDiscs[i]
-			if nD.MismatchCategory != oD.MismatchCategory ||
-				nD.Evidence["operation_id"] != oD.Evidence["operation_id"] ||
-				nD.Evidence["field"] != oD.Evidence["field"] ||
-				!nD.BucketStart.Equal(oD.BucketStart) {
-				discrepanciesMatch = false
-				break
-			}
-		}
-	}
+	discrepanciesMatch := compareDiscrepanciesDetailed(tb, ds.Name, naiveDiscs, optDiscs)
 
 	// 4. Capture Optimized Instrumentation
 	nodesVisited := int64(0)
@@ -454,6 +589,9 @@ func TestNaiveMissingExtraRecords(t *testing.T) {
 		if d.MismatchCategory != reconciliation.MismatchMissingRecord {
 			t.Errorf("category = %q, want MISSING_PARTICIPANT_RECORD", d.MismatchCategory)
 		}
+		if d.Evidence["reason"] != "missing participant record" {
+			t.Errorf("evidence reason = %q, want missing participant record", d.Evidence["reason"])
+		}
 	}
 
 	// Test extra
@@ -478,6 +616,9 @@ func TestNaiveMissingExtraRecords(t *testing.T) {
 	}
 	if resExtra.Discrepancies[0].MismatchCategory != reconciliation.MismatchExtraRecord {
 		t.Errorf("category = %q, want EXTRA_PARTICIPANT_RECORD", resExtra.Discrepancies[0].MismatchCategory)
+	}
+	if resExtra.Discrepancies[0].Evidence["reason"] != "extra participant record" {
+		t.Errorf("evidence reason = %q, want extra participant record", resExtra.Discrepancies[0].Evidence["reason"])
 	}
 }
 
@@ -508,27 +649,91 @@ func TestDeterministicBenchmarkFixtureGeneration(t *testing.T) {
 	}
 }
 
+// TestBenchmarkInstrumentationPopulated strengthens validation across EVERY dataset (A through F):
+// Validates:
+// NAIVE:
+//   - RecordsConsidered > 0
+//   - RecordsCompared > 0
+//   - DiscrepanciesCount == expected discrepancy count
+//   - Duration >= 0
+// OPTIMIZED:
+//   - RecordsConsidered > 0
+//   - RecordsInspected >= 0
+//   - NodesVisited >= 0
+//   - DiscrepanciesCount == expected discrepancy count
+//   - Duration >= 0
+//   - RootEqual is true for identical and false for divergent datasets
+//   - NodesVisited / RecordsInspected are 0 when RootEqual == true (Merkle pruning) and > 0 when divergent
 func TestBenchmarkInstrumentationPopulated(t *testing.T) {
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	datasets := GetBenchmarkDatasets(base)
 
 	for _, ds := range datasets {
-		result := runBenchmarkComparison(t, ds)
+		t.Run(ds.Name, func(t *testing.T) {
+			result := runBenchmarkComparison(t, ds)
 
-		if result.Naive.RecordsConsidered == 0 {
-			t.Errorf("%s: Naive.RecordsConsidered = 0", ds.Name)
-		}
-		if result.Naive.RecordsCompared == 0 {
-			t.Errorf("%s: Naive.RecordsCompared = 0", ds.Name)
-		}
-		if result.Optimized.RecordsConsidered == 0 {
-			t.Errorf("%s: Optimized.RecordsConsidered = 0", ds.Name)
-		}
+			// NAIVE assertions:
+			if result.Naive.RecordsConsidered <= 0 {
+				t.Errorf("%s: Naive.RecordsConsidered = %d, want > 0", ds.Name, result.Naive.RecordsConsidered)
+			}
+			if result.Naive.RecordsCompared <= 0 {
+				t.Errorf("%s: Naive.RecordsCompared = %d, want > 0", ds.Name, result.Naive.RecordsCompared)
+			}
+			if result.Naive.DiscrepanciesCount != int64(ds.ExpectedDiscs) {
+				t.Errorf("%s: Naive.DiscrepanciesCount = %d, want %d", ds.Name, result.Naive.DiscrepanciesCount, ds.ExpectedDiscs)
+			}
+			if result.Naive.Duration < 0 {
+				t.Errorf("%s: Naive.Duration = %v, want >= 0", ds.Name, result.Naive.Duration)
+			}
+
+			// OPTIMIZED assertions:
+			if result.Optimized.RecordsConsidered <= 0 {
+				t.Errorf("%s: Optimized.RecordsConsidered = %d, want > 0", ds.Name, result.Optimized.RecordsConsidered)
+			}
+			if result.Optimized.RecordsInspected < 0 {
+				t.Errorf("%s: Optimized.RecordsInspected = %d, want >= 0", ds.Name, result.Optimized.RecordsInspected)
+			}
+			if result.Optimized.NodesVisited < 0 {
+				t.Errorf("%s: Optimized.NodesVisited = %d, want >= 0", ds.Name, result.Optimized.NodesVisited)
+			}
+			if result.Optimized.DiscrepanciesCount != int64(ds.ExpectedDiscs) {
+				t.Errorf("%s: Optimized.DiscrepanciesCount = %d, want %d", ds.Name, result.Optimized.DiscrepanciesCount, ds.ExpectedDiscs)
+			}
+			if result.Optimized.Duration < 0 {
+				t.Errorf("%s: Optimized.Duration = %v, want >= 0", ds.Name, result.Optimized.Duration)
+			}
+
+			// RootEqual verification:
+			if ds.CaseType == CaseIdentical {
+				if !result.Optimized.RootEqual {
+					t.Errorf("%s: expected RootEqual = true for identical dataset, got false", ds.Name)
+				}
+				// Merkle pruning legitimately avoids traversal when roots match
+				if result.Optimized.NodesVisited != 0 {
+					t.Errorf("%s: expected NodesVisited = 0 for identical root early exit, got %d", ds.Name, result.Optimized.NodesVisited)
+				}
+				if result.Optimized.RecordsInspected != 0 {
+					t.Errorf("%s: expected RecordsInspected = 0 for identical root early exit, got %d", ds.Name, result.Optimized.RecordsInspected)
+				}
+			} else {
+				if result.Optimized.RootEqual {
+					t.Errorf("%s: expected RootEqual = false for divergent dataset, got true", ds.Name)
+				}
+				// For divergent cases, traversal and leaf inspection MUST have occurred
+				if result.Optimized.NodesVisited <= 0 {
+					t.Errorf("%s: expected NodesVisited > 0 for divergent dataset, got %d", ds.Name, result.Optimized.NodesVisited)
+				}
+				if result.Optimized.RecordsInspected <= 0 {
+					t.Errorf("%s: expected RecordsInspected > 0 for divergent dataset, got %d", ds.Name, result.Optimized.RecordsInspected)
+				}
+			}
+		})
 	}
 }
 
 // TestNaiveVsOptimizedEquivalence asserts exact logical equivalence between
 // naive and optimized algorithms across all benchmark cases A through F.
+// Compares: MismatchCategory, BucketKey, BucketStart, BucketWidthNs, operation_id, field, reason.
 func TestNaiveVsOptimizedEquivalence(t *testing.T) {
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	datasets := GetBenchmarkDatasets(base)
@@ -542,7 +747,7 @@ func TestNaiveVsOptimizedEquivalence(t *testing.T) {
 			result := runBenchmarkComparison(t, ds)
 
 			if !result.DiscrepanciesMatch {
-				t.Fatalf("%s: naive and optimized discrepancies do not match", ds.Name)
+				t.Fatalf("%s: naive and optimized discrepancies do not match across all 7 fields (MismatchCategory, BucketKey, BucketStart, BucketWidthNs, operation_id, field, reason)", ds.Name)
 			}
 			if result.DiscrepancyCount != ds.ExpectedDiscs {
 				t.Fatalf("%s: discrepancyCount = %d, want %d", ds.Name, result.DiscrepancyCount, ds.ExpectedDiscs)
@@ -551,6 +756,11 @@ func TestNaiveVsOptimizedEquivalence(t *testing.T) {
 			// Verify no financial mutation
 			if len(ds.CanonicalRecords) != origCanonLen || len(ds.ParticipantRecords) != origPartLen {
 				t.Fatalf("%s: input records mutated during reconciliation", ds.Name)
+			}
+
+			// Verify same normalized scope
+			if !result.ScopeFrom.Equal(ds.Scope.From.UTC()) || !result.ScopeTo.Equal(ds.Scope.To.UTC()) {
+				t.Fatalf("%s: normalized scope mismatch: [%v, %v) vs [%v, %v)", ds.Name, result.ScopeFrom, result.ScopeTo, ds.Scope.From, ds.Scope.To)
 			}
 		})
 	}
@@ -596,16 +806,18 @@ func TestBenchmarkResearchEvidenceReport(t *testing.T) {
 
 // --- Go Benchmarks ---
 
+// BenchmarkReconciliation measures cold-start reconciliation where participant instances are constructed per iteration.
 func BenchmarkReconciliation(b *testing.B) {
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	datasets := GetBenchmarkDatasets(base)
+	ctx := context.Background()
 
 	for _, ds := range datasets {
 		ds := ds
 
+		// Naive Path
+		reconciler := reconciliation.NewNaiveReconciler(time.Hour)
 		b.Run(ds.Name+"/Naive", func(b *testing.B) {
-			reconciler := reconciliation.NewNaiveReconciler(time.Hour)
-			ctx := context.Background()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				res, err := reconciler.Reconcile(ctx, "BANK-A", ds.Scope, ds.CanonicalRecords, ds.ParticipantRecords)
@@ -616,25 +828,29 @@ func BenchmarkReconciliation(b *testing.B) {
 			}
 		})
 
+		// Optimized Path (Engine and bounded store pre-constructed outside timed loop; participant factory constructs instances)
+		store := newBenchmarkRunStore()
+		knownParticipants := reconciliation.KnownParticipants{"BANK-A": true}
+		engine := reconciliation.NewEngineWithRepo(
+			knownParticipants,
+			store,
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return makeBenchmarkParticipant(b, id, ds.CanonicalRecords), nil
+			},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return makeBenchmarkParticipant(b, id, ds.ParticipantRecords), nil
+			},
+		)
+		req := reconciliation.RunRequest{
+			ParticipantID: "BANK-A",
+			ScopeFrom:     ds.Scope.From,
+			ScopeTo:       ds.Scope.To,
+		}
+
 		b.Run(ds.Name+"/Optimized", func(b *testing.B) {
-			ctx := context.Background()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				engine, _ := newBenchmarkEngine(
-					b,
-					[]string{"BANK-A"},
-					func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-						return makeBenchmarkParticipant(b, id, ds.CanonicalRecords), nil
-					},
-					func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-						return makeBenchmarkParticipant(b, id, ds.ParticipantRecords), nil
-					},
-				)
-				res, err := engine.Execute(ctx, reconciliation.RunRequest{
-					ParticipantID: "BANK-A",
-					ScopeFrom:     ds.Scope.From,
-					ScopeTo:       ds.Scope.To,
-				})
+				res, err := engine.Execute(ctx, req)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -646,6 +862,36 @@ func BenchmarkReconciliation(b *testing.B) {
 
 // BenchmarkReconciliationPrebuilt measures the pure reconciliation query traversal phase
 // when participant commitment state is already maintained (as in the live production architecture).
+//
+// TIMED REGION DOCUMENTATION:
+//
+// 1. NAIVE TIMED REGION:
+//    reconciler.Reconcile(ctx, "BANK-A", ds.Scope, ds.CanonicalRecords, ds.ParticipantRecords)
+//    - Scope validation and UTC normalization.
+//    - Filtering canonical and participant records by normalized [From, To).
+//    - Deterministic SortRecords on both datasets.
+//    - Full O(N) map indexing and record-by-record comparison across all records.
+//    - Discrepancy slice construction and execution timing.
+//
+// 2. OPTIMIZED TIMED REGION:
+//    engine.Execute(ctx, req)
+//    - Scope validation and UTC normalization.
+//    - store.CreateRun (persisting RUNNING status in the bounded benchmarkRunStore).
+//    - Participant GetRoot calls (retrieving pre-maintained commitments).
+//    - Version validation and participant GetMetadata calls.
+//    - Root hash equality check: if equal, stops immediately in O(1) and calls store.CompleteRun.
+//    - If divergent: BFS queue traversal, logical region matching, subtree hash pruning,
+//      GetRecords for divergent leaf buckets, compareBucketRecords, store.SaveDiscrepancy,
+//      and store.CompleteRun.
+//
+// HARNESS FAIRNESS & SETUP CONTROLS:
+//   - Pre-initialization: pCanon and pPart compute and cache their Merkle commitment states
+//     before b.ResetTimer().
+//   - Engine Reuse: The Engine and participant factories are constructed ONCE outside the timed loop.
+//   - State Accumulation Prevention: benchmarkRunStore resets its discrepancy slice in O(1)
+//     on each CreateRun call, avoiding unbounded slice growth across thousands of benchmark iterations.
+//   - RunStore Persistence Limitation: store.CreateRun / CompleteRun calls remain inside the
+//     optimized timed path as required by the production engine.Execute contract.
 func BenchmarkReconciliationPrebuilt(b *testing.B) {
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	datasets := GetBenchmarkDatasets(base)
@@ -654,7 +900,7 @@ func BenchmarkReconciliationPrebuilt(b *testing.B) {
 	for _, ds := range datasets {
 		ds := ds
 
-		// Pre-initialize participant state so the benchmark isolates reconciliation query execution
+		// 1. Pre-initialize participant state so the benchmark isolates reconciliation query execution
 		pCanon := makeBenchmarkParticipant(b, "BANK-A", ds.CanonicalRecords)
 		if _, err := pCanon.GetRoot(ctx, ds.Scope); err != nil {
 			b.Fatal(err)
@@ -664,8 +910,10 @@ func BenchmarkReconciliationPrebuilt(b *testing.B) {
 			b.Fatal(err)
 		}
 
+		// 2. Pre-create Naive Reconciler outside the timed loop
+		reconciler := reconciliation.NewNaiveReconciler(time.Hour)
+
 		b.Run(ds.Name+"/Naive", func(b *testing.B) {
-			reconciler := reconciliation.NewNaiveReconciler(time.Hour)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				res, err := reconciler.Reconcile(ctx, "BANK-A", ds.Scope, ds.CanonicalRecords, ds.ParticipantRecords)
@@ -676,24 +924,29 @@ func BenchmarkReconciliationPrebuilt(b *testing.B) {
 			}
 		})
 
+		// 3. Pre-create Optimized Engine and bounded RunStore outside the timed loop
+		store := newBenchmarkRunStore()
+		knownParticipants := reconciliation.KnownParticipants{"BANK-A": true}
+		engine := reconciliation.NewEngineWithRepo(
+			knownParticipants,
+			store,
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return pCanon, nil
+			},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return pPart, nil
+			},
+		)
+		req := reconciliation.RunRequest{
+			ParticipantID: "BANK-A",
+			ScopeFrom:     ds.Scope.From,
+			ScopeTo:       ds.Scope.To,
+		}
+
 		b.Run(ds.Name+"/OptimizedPrebuilt", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				engine, _ := newBenchmarkEngine(
-					b,
-					[]string{"BANK-A"},
-					func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-						return pCanon, nil
-					},
-					func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-						return pPart, nil
-					},
-				)
-				res, err := engine.Execute(ctx, reconciliation.RunRequest{
-					ParticipantID: "BANK-A",
-					ScopeFrom:     ds.Scope.From,
-					ScopeTo:       ds.Scope.To,
-				})
+				res, err := engine.Execute(ctx, req)
 				if err != nil {
 					b.Fatal(err)
 				}
