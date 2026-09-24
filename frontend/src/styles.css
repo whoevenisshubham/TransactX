@@ -424,3 +424,382 @@ p { font-size: var(--font-size-body); line-height: var(--line-height-normal); co
   .merchant-payment-expanded { padding-left: 0; }
   .merchant-ref { margin-left: 0; width: 100%; }
 }
+
+/* ==========================================================================
+   Network Console Surface (OPS_ADMIN Operational Dark Theme)
+   ========================================================================== */
+
+.console-shell {
+  min-height: 100vh;
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+
+.console-sidebar {
+  background: #141917;
+  border-right: 1px solid var(--line);
+}
+
+.console-sidebar .nav-item {
+  color: var(--muted);
+  border-radius: 6px;
+  font-family: var(--font-sans);
+}
+
+.console-sidebar .nav-item:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.console-sidebar .nav-item.is-active {
+  background: var(--surface-soft);
+  color: var(--accent);
+  font-weight: 600;
+  border-left: 3px solid var(--accent);
+}
+
+.console-badge-role {
+  display: inline-flex;
+  align-items: center;
+  padding: .15rem .5rem;
+  border-radius: 4px;
+  background: #14352b;
+  color: var(--accent-strong);
+  font-family: "DM Mono", monospace;
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-left: .4rem;
+  border: 1px solid rgba(43, 179, 143, 0.3);
+}
+
+.console-mobile-header {
+  background: #141917;
+  border-bottom: 1px solid var(--line);
+}
+
+.console-mobile-nav {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .console-mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: #141917;
+    border-top: 1px solid var(--line);
+    z-index: 100;
+    padding: .2rem .4rem calc(env(safe-area-inset-bottom, 0px) + .2rem);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: .25rem;
+  }
+  .console-mobile-nav .mobile-nav-item {
+    flex: 0 0 auto;
+    min-width: 72px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .15rem;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: .65rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .console-mobile-nav .mobile-nav-item.is-active {
+    color: var(--accent);
+    font-weight: 700;
+  }
+}
+
+/* Console layout & metric grids */
+.console-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.console-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.console-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.console-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: .25rem;
+}
+
+.console-card-kicker {
+  font-size: .68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+
+.console-val-large {
+  font-family: "DM Mono", monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.02em;
+}
+
+.console-meta-text {
+  font-size: .75rem;
+  color: var(--muted);
+}
+
+/* Status pills */
+.console-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .2rem .6rem;
+  border-radius: 4px;
+  font-family: "DM Mono", monospace;
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.console-pill-success {
+  background: rgba(52, 168, 122, 0.15);
+  color: #3ecea5;
+  border: 1px solid rgba(52, 168, 122, 0.3);
+}
+
+.console-pill-warning {
+  background: rgba(212, 139, 59, 0.15);
+  color: #f5a742;
+  border: 1px solid rgba(212, 139, 59, 0.3);
+}
+
+.console-pill-error {
+  background: rgba(224, 93, 82, 0.15);
+  color: #ff7b70;
+  border: 1px solid rgba(224, 93, 82, 0.3);
+}
+
+.console-pill-neutral {
+  background: rgba(149, 163, 157, 0.12);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+/* Console dense table */
+.console-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  margin-top: .75rem;
+}
+
+.console-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .78rem;
+  text-align: left;
+}
+
+.console-table th {
+  background: #141917;
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.console-table td {
+  padding: .75rem 1rem;
+  border-bottom: 1px solid rgba(43, 53, 49, 0.6);
+  color: var(--ink);
+}
+
+.console-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.console-table tr:hover td {
+  background: var(--surface-soft);
+}
+
+.console-table .mono {
+  font-family: "DM Mono", monospace;
+}
+
+/* Unavailable / milestone pending notice box */
+.console-notice-box {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .85rem;
+  max-width: 720px;
+}
+
+.console-notice-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .25rem .65rem;
+  border-radius: 4px;
+  background: rgba(212, 139, 59, 0.15);
+  color: #f5a742;
+  font-family: "DM Mono", monospace;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  border: 1px solid rgba(212, 139, 59, 0.3);
+}
+
+.console-notice-box h3 {
+  font-size: 1.15rem;
+  margin: 0;
+  color: var(--ink);
+}
+
+.console-notice-box p {
+  color: var(--muted);
+  font-size: .84rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.console-spec-list {
+  display: grid;
+  gap: .5rem;
+  width: 100%;
+  padding-top: .75rem;
+  border-top: 1px solid var(--line);
+}
+
+.console-spec-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: .75rem;
+}
+
+.console-spec-label {
+  color: var(--muted);
+}
+
+.console-spec-val {
+  font-family: "DM Mono", monospace;
+  color: var(--ink);
+}
+
+/* Console interactive forms & tabs */
+.console-tabs {
+  display: inline-flex;
+  padding: 3px;
+  background: #141917;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  gap: 3px;
+  margin-bottom: 1.25rem;
+}
+
+.console-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .4rem .8rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: .76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.console-tab:hover {
+  color: var(--ink);
+}
+
+.console-tab.is-active {
+  background: var(--surface-soft);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.console-form-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .75rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.console-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  min-width: 160px;
+}
+
+.console-form-label {
+  font-size: .7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+
+.console-input, .console-select {
+  height: 38px;
+  padding: .4rem .75rem;
+  background: #141917;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: .8rem;
+  font-family: inherit;
+}
+
+.console-input:focus, .console-select:focus {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 2px var(--focus-color);
+}

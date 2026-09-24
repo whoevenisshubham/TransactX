@@ -1,6 +1,17 @@
-import type { Account, MerchantReceiveInfo, Payment, Recipient, User } from "./types";
+import type {
+  Account,
+  ChaosScenario,
+  CircuitTargetSnapshot,
+  CircuitTransitionEvent,
+  HealthSample,
+  HealthSnapshot,
+  MerchantReceiveInfo,
+  Payment,
+  Recipient,
+  User,
+} from "./types";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
+const apiBaseUrl = (typeof import.meta !== "undefined" && (import.meta as any)?.env?.VITE_API_BASE_URL) || "http://localhost:8080";
 
 export class ApiError extends Error {
   code: string;
@@ -81,5 +92,19 @@ export const api = {
   createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
   createPaymentWithStatus: async (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequestWithStatus<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
   merchantReceiveInfo: (token: string) => apiRequest<MerchantReceiveInfo>("/api/merchant/receive-info", {}, token),
+
+  // OPS_ADMIN / Network Console APIs (real M2 endpoints)
+  opsCircuits: (token: string) => apiRequest<Record<string, CircuitTargetSnapshot>>("/api/ops/circuit", {}, token),
+  opsCircuit: (targetId: string, token: string) => apiRequest<CircuitTargetSnapshot>(`/api/ops/circuit/${encodeURIComponent(targetId)}`, {}, token),
+  opsCircuitEvents: (targetId: string, token: string) => apiRequest<CircuitTransitionEvent[]>(`/api/ops/circuit/${encodeURIComponent(targetId)}/events`, {}, token),
+  opsHealthSnapshot: (targetId: string, token: string) => apiRequest<HealthSnapshot>(`/api/ops/health/${encodeURIComponent(targetId)}`, {}, token),
+  opsHealthSample: (targetId: string, token: string) => apiRequest<HealthSample>(`/api/ops/health/${encodeURIComponent(targetId)}/sample`, { method: "POST" }, token),
+  opsChaosScenarios: (token: string, activeOnly = false) => apiRequest<ChaosScenario[]>(`/api/ops/chaos/scenarios${activeOnly ? "?active=true" : ""}`, {}, token),
+  opsChaosScenario: (scenarioId: string, token: string) => apiRequest<ChaosScenario>(`/api/ops/chaos/scenarios/${encodeURIComponent(scenarioId)}`, {}, token),
+  opsChaosStart: (req: { scenarioId: string; type: string; targetId: string; parameters: Record<string, unknown> }, token: string) => apiRequest<ChaosScenario>("/api/ops/chaos/start", { method: "POST", body: JSON.stringify(req) }, token),
+  opsChaosStop: (scenarioId: string, token: string) => apiRequest<ChaosScenario>(`/api/ops/chaos/scenarios/${encodeURIComponent(scenarioId)}/stop`, { method: "POST" }, token),
+  opsChaosReset: (targetId: string | undefined, token: string) => apiRequest<{ status: string; targetId?: string }>("/api/ops/chaos/reset", { method: "POST", body: JSON.stringify({ targetId: targetId || "" }) }, token),
+  opsGlobalHealth: () => apiRequest<{ status: string; service: string }>("/health", {}),
+  opsDbHealth: () => apiRequest<{ status: string }>("/health/db", {}),
 };
 
