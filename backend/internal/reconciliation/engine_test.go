@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,54 @@ import (
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/reconciliation"
 )
+
+// countingParticipant wraps a ReconciliationParticipant and records all method calls
+// to provide deterministic verification of traversal and pruning.
+type countingParticipant struct {
+	reconciliation.ReconciliationParticipant
+	mu               sync.Mutex
+	getChildrenCalls int
+	getBucketIDCalls int
+	getRecordsCalls  int
+	visitedNodes     []string
+}
+
+func newCountingParticipant(p reconciliation.ReconciliationParticipant) *countingParticipant {
+	return &countingParticipant{ReconciliationParticipant: p}
+}
+
+func (c *countingParticipant) GetChildren(ctx context.Context, ref reconciliation.NodeRef) ([]reconciliation.NodeResult, error) {
+	c.mu.Lock()
+	c.getChildrenCalls++
+	c.visitedNodes = append(c.visitedNodes, ref.Path)
+	c.mu.Unlock()
+	return c.ReconciliationParticipant.GetChildren(ctx, ref)
+}
+
+func (c *countingParticipant) GetBucketID(ctx context.Context, ref reconciliation.NodeRef) (reconciliation.BucketID, error) {
+	c.mu.Lock()
+	c.getBucketIDCalls++
+	c.mu.Unlock()
+	return c.ReconciliationParticipant.GetBucketID(ctx, ref)
+}
+
+func (c *countingParticipant) GetRecords(ctx context.Context, ref reconciliation.BucketRef) ([]reconciliation.CanonicalRecord, error) {
+	c.mu.Lock()
+	c.getRecordsCalls++
+	c.mu.Unlock()
+	return c.ReconciliationParticipant.GetRecords(ctx, ref)
+}
+
+func (c *countingParticipant) HasVisited(path string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, p := range c.visitedNodes {
+		if p == path {
+			return true
+		}
+	}
+	return false
+}
 
 type mutableSnapshotSource struct {
 	bankID  string
@@ -211,6 +260,22 @@ func makeSampleRecords(base time.Time) []reconciliation.CanonicalRecord {
 			OccurredAt:  base.Add(3*time.Hour + 30*time.Minute), // Bucket 3: [base+3h, base+4h)
 		},
 	}
+}
+
+func makeNRecords(base time.Time, n int) []reconciliation.CanonicalRecord {
+	records := make([]reconciliation.CanonicalRecord, n)
+	for i := 0; i < n; i++ {
+		records[i] = reconciliation.CanonicalRecord{
+			OperationID: uuid.New(),
+			PaymentID:   uuid.New(),
+			AccountID:   uuid.New(),
+			EntryType:   "DEBIT",
+			AmountPaise: int64((i + 1) * 1000),
+			Currency:    "INR",
+			OccurredAt:  base.Add(time.Duration(i)*time.Hour + 30*time.Minute),
+		}
+	}
+	return records
 }
 
 // --- Required Tests ---
@@ -789,13 +854,103 @@ func TestTwoSidedOneSidedParticipantNodeCoverage(t *testing.T) {
 	}
 }
 
-// Regression test: proves tree-height mismatch does not create false discrepancies
-// for unrelated identical buckets.
-// Case 1: Canonical has 4 buckets (height 3: L2 root) vs Participant has 2 buckets (height 2: L1 root).
-// Buckets 0 and 1 are identical.
-// Case 2: Canonical has 1 bucket (height 1: L0 root) vs Participant has 2 buckets (height 2: L1 root).
-// Bucket 0 is identical.
-func TestTreeHeightMismatchDoesNotCreateFalseDiscrepancies(t *testing.T) {
+// Requirement 6: TestEqualSubtreeIsPruned proves that identical subtrees are pruned in O(1)
+// by comparing child hashes BEFORE any recursive descendant enumeration or leaf fetching.
+func TestEqualSubtreeIsPruned(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(8 * time.Hour)}
+	const pid = "BANK-A"
+
+	// 8 buckets (0..7)
+	canonRecords := makeNRecords(base, 8)
+	partRecords := make([]reconciliation.CanonicalRecord, len(canonRecords))
+	copy(partRecords, canonRecords)
+
+	// Make branch 1 (right branch) diverge at Bucket 6:
+	// Left branch covering Buckets 0..3 (node L2/0) is 100% IDENTICAL on both sides.
+	partRecords[6].AmountPaise = 999999
+
+	var canonCounting, partCounting *countingParticipant
+	engine, repo := newTestEngine(
+		t,
+		[]string{pid},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			canonCounting = newCountingParticipant(makeTestParticipant(t, id, canonRecords))
+			return canonCounting, nil
+		},
+		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			partCounting = newCountingParticipant(makeTestParticipant(t, id, partRecords))
+			return partCounting, nil
+		},
+	)
+
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     scope.From,
+		ScopeTo:       scope.To,
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+
+	if run.Status != reconciliation.RunStatusCompleted {
+		t.Fatalf("status = %q, want COMPLETED", run.Status)
+	}
+	if run.DiscrepancyCount != 1 {
+		t.Fatalf("discrepancyCount = %d, want 1", run.DiscrepancyCount)
+	}
+	if len(repo.discrepancies) != 1 {
+		t.Fatalf("saved discrepancies = %d, want 1", len(repo.discrepancies))
+	}
+
+	// Verify the discrepancy is indeed Bucket 6
+	if !repo.discrepancies[0].BucketStart.Equal(base.Add(6 * time.Hour)) {
+		t.Fatalf("discrepancy BucketStart = %v, want %v", repo.discrepancies[0].BucketStart, base.Add(6*time.Hour))
+	}
+
+	// PROVE TRUE MERKLE PRUNING via deterministic call counters:
+	// For both canonical and participant:
+	// - Root L3/0 was evaluated and children (L2/0 and L2/1) were returned.
+	// - L2/0 covers [0, 4h). Because Buckets 0..3 are identical, its hashes match!
+	// - L2/0 was PRUNED immediately without calling GetChildren on L2/0 or any of its descendants.
+	// - L2/1 covers [4h, 8h). Its hashes differ, so L2/1 was descended into.
+	for _, p := range []*countingParticipant{canonCounting, partCounting} {
+		if !p.HasVisited("L3/0") {
+			t.Errorf("expected root L3/0 to be visited")
+		}
+		if !p.HasVisited("L2/1") {
+			t.Errorf("expected divergent node L2/1 to be visited")
+		}
+		if !p.HasVisited("L1/3") {
+			t.Errorf("expected divergent node L1/3 to be visited")
+		}
+		if !p.HasVisited("L0/6") {
+			t.Errorf("expected divergent leaf L0/6 to be visited")
+		}
+
+		// PROOF: Identical subtree L2/0 (and its descendants L1/0, L1/1, L0/0, L0/1, L0/2, L0/3)
+		// must NEVER have been visited or passed to GetChildren!
+		unvisitedIdenticalNodes := []string{"L2/0", "L1/0", "L1/1", "L0/0", "L0/1", "L0/2", "L0/3"}
+		for _, node := range unvisitedIdenticalNodes {
+			if p.HasVisited(node) {
+				t.Fatalf("MERKLE PRUNING VIOLATION: identical node %s was enumerated via GetChildren!", node)
+			}
+		}
+	}
+
+	// Furthermore, verify that leaf bucket records were only fetched for the divergent bucket (Bucket 6),
+	// never for the identical buckets 0..3:
+	if partCounting.getRecordsCalls != 1 {
+		t.Errorf("partCounting.getRecordsCalls = %d, want 1 (only mutated Bucket 6)", partCounting.getRecordsCalls)
+	}
+	if canonCounting.getRecordsCalls != 1 {
+		t.Errorf("canonCounting.getRecordsCalls = %d, want 1 (only mutated Bucket 6)", canonCounting.getRecordsCalls)
+	}
+}
+
+// Requirement 6: TestTreeHeightMismatchStillUsesBucketIDs preserves 4-vs-2 and 1-vs-2 cases
+// with exact discrepancy counts and proves traversal via deterministic call counters.
+func TestTreeHeightMismatchStillUsesBucketIDs(t *testing.T) {
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	const pid = "BANK-A"
 
@@ -805,14 +960,17 @@ func TestTreeHeightMismatchDoesNotCreateFalseDiscrepancies(t *testing.T) {
 		canonRecords := allRecords             // buckets 0, 1, 2, 3
 		partRecords := allRecords[:2]          // buckets 0, 1 only (identical to canon)
 
+		var canonCounting, partCounting *countingParticipant
 		engine, repo := newTestEngine(
 			t,
 			[]string{pid},
 			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-				return makeTestParticipant(t, id, canonRecords), nil
+				canonCounting = newCountingParticipant(makeTestParticipant(t, id, canonRecords))
+				return canonCounting, nil
 			},
 			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-				return makeTestParticipant(t, id, partRecords), nil
+				partCounting = newCountingParticipant(makeTestParticipant(t, id, partRecords))
+				return partCounting, nil
 			},
 		)
 
@@ -855,6 +1013,14 @@ func TestTreeHeightMismatchDoesNotCreateFalseDiscrepancies(t *testing.T) {
 		if !missingStarts[base.Add(3*time.Hour)] {
 			t.Errorf("missing expected discrepancy for Bucket 3 at %v", base.Add(3*time.Hour))
 		}
+
+		// Deterministic call counters prove traversal occurred
+		if canonCounting.getChildrenCalls == 0 || partCounting.getChildrenCalls == 0 {
+			t.Errorf("expected tree traversal calls for 4-vs-2 height mismatch")
+		}
+		if canonCounting.getBucketIDCalls == 0 || partCounting.getBucketIDCalls == 0 {
+			t.Errorf("expected GetBucketID calls during 4-vs-2 height mismatch reconciliation")
+		}
 	})
 
 	t.Run("Canonical1BucketVsParticipant2Buckets", func(t *testing.T) {
@@ -863,14 +1029,17 @@ func TestTreeHeightMismatchDoesNotCreateFalseDiscrepancies(t *testing.T) {
 		canonRecords := allRecords[:1] // bucket 0 only
 		partRecords := allRecords[:2]  // bucket 0 (identical) + bucket 1 (extra)
 
+		var canonCounting, partCounting *countingParticipant
 		engine, repo := newTestEngine(
 			t,
 			[]string{pid},
 			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-				return makeTestParticipant(t, id, canonRecords), nil
+				canonCounting = newCountingParticipant(makeTestParticipant(t, id, canonRecords))
+				return canonCounting, nil
 			},
 			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-				return makeTestParticipant(t, id, partRecords), nil
+				partCounting = newCountingParticipant(makeTestParticipant(t, id, partRecords))
+				return partCounting, nil
 			},
 		)
 
@@ -902,6 +1071,149 @@ func TestTreeHeightMismatchDoesNotCreateFalseDiscrepancies(t *testing.T) {
 		}
 		if !d.BucketStart.Equal(base.Add(time.Hour)) {
 			t.Errorf("discrepancy BucketStart = %v, want %v", d.BucketStart, base.Add(time.Hour))
+		}
+
+		// Deterministic call counters prove traversal occurred
+		if canonCounting.getBucketIDCalls == 0 || partCounting.getBucketIDCalls == 0 {
+			t.Errorf("expected GetBucketID calls during 1-vs-2 height mismatch reconciliation")
+		}
+	})
+}
+
+// Preserved test alias for backwards compatibility
+func TestTreeHeightMismatchDoesNotCreateFalseDiscrepancies(t *testing.T) {
+	TestTreeHeightMismatchStillUsesBucketIDs(t)
+}
+
+// Requirement 6: TestOneSidedSubtreeStillUsesBucketIDs preserves both canonical-only
+// and participant-only cases and verifies deterministic call counters.
+func TestOneSidedSubtreeStillUsesBucketIDs(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	const pid = "BANK-A"
+
+	t.Run("CanonicalOnlySubtree", func(t *testing.T) {
+		scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+		canonRecords := makeSampleRecords(base)
+		partRecords := []reconciliation.CanonicalRecord{
+			canonRecords[0],
+			canonRecords[1],
+			canonRecords[2],
+		}
+		partRecords[0].AmountPaise = 999999 // mutated Bucket 0
+
+		var canonCounting, partCounting *countingParticipant
+		engine, repo := newTestEngine(
+			t,
+			[]string{pid},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				canonCounting = newCountingParticipant(makeTestParticipant(t, id, canonRecords))
+				return canonCounting, nil
+			},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				partCounting = newCountingParticipant(makeTestParticipant(t, id, partRecords))
+				return partCounting, nil
+			},
+		)
+
+		run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+			ParticipantID: pid,
+			ScopeFrom:     scope.From,
+			ScopeTo:       scope.To,
+		})
+		if err != nil {
+			t.Fatalf("unexpected execute error: %v", err)
+		}
+
+		if run.Status != reconciliation.RunStatusCompleted {
+			t.Fatalf("status = %q, want COMPLETED", run.Status)
+		}
+		if run.DiscrepancyCount != 2 {
+			t.Fatalf("discrepancyCount = %d, want 2", run.DiscrepancyCount)
+		}
+
+		var foundOneSided, foundBucket0 bool
+		for _, d := range repo.discrepancies {
+			if d.MismatchCategory == reconciliation.MismatchMissingRecord && d.Evidence["reason"] == "node exists only in canonical ledger" {
+				foundOneSided = true
+			}
+			if d.MismatchCategory == reconciliation.MismatchRecordDifference && d.Evidence["field"] == "amount_paise" {
+				foundBucket0 = true
+			}
+		}
+		if !foundOneSided {
+			t.Fatal("expected one-sided node discrepancy")
+		}
+		if !foundBucket0 {
+			t.Fatal("expected mutated bucket 0 discrepancy")
+		}
+
+		// Deterministic call counter proof: traversal occurred
+		if canonCounting.getChildrenCalls == 0 || partCounting.getChildrenCalls == 0 {
+			t.Errorf("expected tree traversal calls for canonical-only subtree")
+		}
+		if canonCounting.getBucketIDCalls == 0 {
+			t.Errorf("expected GetBucketID calls for canonical-only subtree")
+		}
+	})
+
+	t.Run("ParticipantOnlySubtree", func(t *testing.T) {
+		scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+		canonRecords := makeSampleRecords(base)[:3]
+		partRecords := makeSampleRecords(base)
+		partRecords[0].AmountPaise = 888888 // mutated Bucket 0
+
+		var canonCounting, partCounting *countingParticipant
+		engine, repo := newTestEngine(
+			t,
+			[]string{pid},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				canonCounting = newCountingParticipant(makeTestParticipant(t, id, canonRecords))
+				return canonCounting, nil
+			},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				partCounting = newCountingParticipant(makeTestParticipant(t, id, partRecords))
+				return partCounting, nil
+			},
+		)
+
+		run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+			ParticipantID: pid,
+			ScopeFrom:     scope.From,
+			ScopeTo:       scope.To,
+		})
+		if err != nil {
+			t.Fatalf("unexpected execute error: %v", err)
+		}
+
+		if run.Status != reconciliation.RunStatusCompleted {
+			t.Fatalf("status = %q, want COMPLETED", run.Status)
+		}
+		if run.DiscrepancyCount != 2 {
+			t.Fatalf("discrepancyCount = %d, want 2", run.DiscrepancyCount)
+		}
+
+		var foundExtraNode, foundBucket0 bool
+		for _, d := range repo.discrepancies {
+			if d.MismatchCategory == reconciliation.MismatchExtraRecord && d.Evidence["reason"] == "node exists only in participant ledger" {
+				foundExtraNode = true
+			}
+			if d.MismatchCategory == reconciliation.MismatchRecordDifference && d.Evidence["field"] == "amount_paise" {
+				foundBucket0 = true
+			}
+		}
+		if !foundExtraNode {
+			t.Fatal("expected extra participant node discrepancy")
+		}
+		if !foundBucket0 {
+			t.Fatal("expected mutated bucket 0 discrepancy")
+		}
+
+		// Deterministic call counter proof: traversal occurred
+		if canonCounting.getChildrenCalls == 0 || partCounting.getChildrenCalls == 0 {
+			t.Errorf("expected tree traversal calls for participant-only subtree")
+		}
+		if partCounting.getBucketIDCalls == 0 {
+			t.Errorf("expected GetBucketID calls for participant-only subtree")
 		}
 	})
 }

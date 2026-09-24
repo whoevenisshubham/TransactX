@@ -467,12 +467,50 @@ func validateRepositoryScope(scope Scope) error {
 	return nil
 }
 
+func nodeRegionFromState(level, index int, state IncrementalCommitmentState) LogicalRegion {
+	if len(state.Buckets) == 0 {
+		return LogicalRegion{}
+	}
+	firstLeaf := index << level
+	lastLeaf := ((index + 1) << level) - 1
+	if firstLeaf >= len(state.Buckets) {
+		firstLeaf = len(state.Buckets) - 1
+	}
+	if lastLeaf >= len(state.Buckets) {
+		lastLeaf = len(state.Buckets) - 1
+	}
+	return LogicalRegion{
+		Start: state.Buckets[firstLeaf].ID.Start,
+		End:   state.Buckets[lastLeaf].ID.Start.Add(state.Buckets[lastLeaf].ID.Width),
+	}
+}
+
 func rootResult(participantID string, scope Scope, generation string, state IncrementalCommitmentState) RootResult {
 	path := emptyNodePath
+	var region LogicalRegion
+	if len(state.Buckets) > 0 {
+		region = LogicalRegion{
+			Start: state.Buckets[0].ID.Start,
+			End:   state.Buckets[len(state.Buckets)-1].ID.Start.Add(state.Buckets[len(state.Buckets)-1].ID.Width),
+		}
+	}
 	if len(state.Levels) > 0 {
 		path = fmt.Sprintf("L%d/0", len(state.Levels)-1)
 	}
-	return RootResult{Root: hashCopy(state.Root), Algorithm: state.AlgorithmVersion, Version: state.CanonicalVersion, Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Generation: generation, Path: path}}
+	ref := NodeRef{
+		ParticipantID: participantID,
+		ScopeID:       ScopeIdentity(scope),
+		Generation:    generation,
+		Path:          path,
+		Region:        region,
+	}
+	return RootResult{
+		Root:      hashCopy(state.Root),
+		Algorithm: state.AlgorithmVersion,
+		Version:   state.CanonicalVersion,
+		Ref:       ref,
+		Region:    region,
+	}
 }
 
 func childrenFromState(participantID string, scope Scope, generation string, state IncrementalCommitmentState, ref NodeRef) ([]NodeResult, error) {
@@ -499,7 +537,19 @@ func childrenFromState(participantID string, scope Scope, generation string, sta
 	first := index * 2
 	children := make([]NodeResult, 0, 2)
 	for childIndex := first; childIndex < first+2 && childIndex < len(state.Levels[childLevel]); childIndex++ {
-		children = append(children, NodeResult{Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Generation: generation, Path: fmt.Sprintf("L%d/%d", childLevel, childIndex)}, Hash: hashCopy(state.Levels[childLevel][childIndex])})
+		region := nodeRegionFromState(childLevel, childIndex, state)
+		childRef := NodeRef{
+			ParticipantID: participantID,
+			ScopeID:       ScopeIdentity(scope),
+			Generation:    generation,
+			Path:          fmt.Sprintf("L%d/%d", childLevel, childIndex),
+			Region:        region,
+		}
+		children = append(children, NodeResult{
+			Ref:    childRef,
+			Hash:   hashCopy(state.Levels[childLevel][childIndex]),
+			Region: region,
+		})
 	}
 	return children, nil
 }

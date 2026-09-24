@@ -129,15 +129,11 @@ type leafBucket struct {
 	bucketID BucketID
 }
 
-type nodeRegion struct {
-	node   NodeResult
-	leaves []leafBucket
-	start  time.Time
-	end    time.Time
-}
-
-func regionKey(start, end time.Time) string {
-	return fmt.Sprintf("%d_%d", start.UTC().UnixNano(), end.UTC().UnixNano())
+func childLogicalRegion(node NodeResult) LogicalRegion {
+	if !node.Region.IsZero() {
+		return node.Region
+	}
+	return node.Ref.Region
 }
 
 func collectLeafBuckets(ctx context.Context, p ReconciliationParticipant, ref NodeRef, hash []byte) ([]leafBucket, error) {
@@ -173,28 +169,6 @@ func collectLeafBuckets(ctx context.Context, p ReconciliationParticipant, ref No
 		leaves = append(leaves, childLeaves...)
 	}
 	return leaves, nil
-}
-
-func getChildRegions(ctx context.Context, p ReconciliationParticipant, children []NodeResult) ([]nodeRegion, error) {
-	regions := make([]nodeRegion, len(children))
-	for i, c := range children {
-		leaves, err := collectLeafBuckets(ctx, p, c.Ref, c.Hash)
-		if err != nil {
-			return nil, err
-		}
-		var start, end time.Time
-		if len(leaves) > 0 {
-			start = leaves[0].bucketID.Start
-			end = leaves[len(leaves)-1].bucketID.Start.Add(leaves[len(leaves)-1].bucketID.Width)
-		}
-		regions[i] = nodeRegion{
-			node:   c,
-			leaves: leaves,
-			start:  start,
-			end:    end,
-		}
-	}
-	return regions, nil
 }
 
 func (engine *Engine) reconcileLeavesByBucketID(
@@ -490,58 +464,87 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 		}
 
 		// Internal node level: both have children.
-		// Group children by their logical ledger time region [start, end),
-		// NOT by absolute implementation tree coordinates (NodeRef.Path).
-		canonRegions, cErr := getChildRegions(ctx, canonicalParticipant, canonChildren)
-		if cErr != nil {
-			return Run{}, cErr
-		}
-		partRegions, pErr := getChildRegions(ctx, participantParticipant, partChildren)
-		if pErr != nil {
-			return Run{}, pErr
-		}
-
-		partByRegion := make(map[string]nodeRegion, len(partRegions))
-		for _, pr := range partRegions {
-			partByRegion[regionKey(pr.start, pr.end)] = pr
+		// Group children by their logical ledger time region [start, end)
+		// without recursively walking descendants.
+		partByRegionKey := make(map[string]NodeResult, len(partChildren))
+		for _, pr := range partChildren {
+			reg := childLogicalRegion(pr)
+			if !reg.IsZero() {
+				partByRegionKey[reg.Key()] = pr
+			}
 		}
 
-		matchedPartRegions := make(map[string]bool)
-		var unmatchedCanonLeaves []leafBucket
+		matchedPartKeys := make(map[string]bool)
+		var unmatchedCanonNodes []NodeResult
 
-		for _, cr := range canonRegions {
-			rk := regionKey(cr.start, cr.end)
-			pr, found := partByRegion[rk]
-			if found {
-				matchedPartRegions[rk] = true
-				if bytes.Equal(cr.node.Hash, pr.node.Hash) {
-					// Hashes equal: entire subtree is identical, skip (O(1) pruning)
+		for _, cr := range canonChildren {
+			crReg := childLogicalRegion(cr)
+			if !crReg.IsZero() {
+				rk := crReg.Key()
+				pr, found := partByRegionKey[rk]
+				if found {
+					matchedPartKeys[rk] = true
+					// REQUIREMENT 1:
+					// A structurally compatible child pair must be hash-compared
+					// BEFORE recursively enumerating its descendants.
+					if bytes.Equal(cr.Hash, pr.Hash) {
+						// Hashes equal: STOP.
+						// Entire subtree is identical. Pruned in O(1)!
+						// Do NOT call collectLeafBuckets() merely to discover whether hashes match.
+						continue
+					}
+
+					// Hashes differ: descend by enqueuing into work queue.
+					// Still NO recursive leaf enumeration!
+					queue = append(queue, nodePair{
+						canonical:       cr.Ref,
+						canonicalHash:   cr.Hash,
+						participant:     pr.Ref,
+						participantHash: pr.Hash,
+					})
 					continue
 				}
-				// Hashes differ: enqueue pair into work queue to descend
-				queue = append(queue, nodePair{
-					canonical:       cr.node.Ref,
-					canonicalHash:   cr.node.Hash,
-					participant:     pr.node.Ref,
-					participantHash: pr.node.Hash,
-				})
-			} else {
-				// No participant child covers this exact region: structurally incompatible
-				unmatchedCanonLeaves = append(unmatchedCanonLeaves, cr.leaves...)
+			}
+
+			// No matching participant child covers this exact region:
+			// Structurally incompatible canonical node.
+			unmatchedCanonNodes = append(unmatchedCanonNodes, cr)
+		}
+
+		var unmatchedPartNodes []NodeResult
+		for _, pr := range partChildren {
+			prReg := childLogicalRegion(pr)
+			rk := ""
+			if !prReg.IsZero() {
+				rk = prReg.Key()
+			}
+			if rk == "" || !matchedPartKeys[rk] {
+				unmatchedPartNodes = append(unmatchedPartNodes, pr)
 			}
 		}
 
-		var unmatchedPartLeaves []leafBucket
-		for _, pr := range partRegions {
-			rk := regionKey(pr.start, pr.end)
-			if !matchedPartRegions[rk] {
-				unmatchedPartLeaves = append(unmatchedPartLeaves, pr.leaves...)
+		// REQUIREMENT 5:
+		// For structurally incompatible subtrees:
+		// only then enumerate descendant leaves and reconcile them by BucketID.
+		if len(unmatchedCanonNodes) > 0 || len(unmatchedPartNodes) > 0 {
+			var unmatchedCanonLeaves []leafBucket
+			for _, cn := range unmatchedCanonNodes {
+				leaves, err := collectLeafBuckets(ctx, canonicalParticipant, cn.Ref, cn.Hash)
+				if err != nil {
+					return Run{}, err
+				}
+				unmatchedCanonLeaves = append(unmatchedCanonLeaves, leaves...)
 			}
-		}
 
-		// At structurally incompatible subtrees, enumerate descendant leaf/bucket regions
-		// on both sides and match them by logical BucketID.
-		if len(unmatchedCanonLeaves) > 0 || len(unmatchedPartLeaves) > 0 {
+			var unmatchedPartLeaves []leafBucket
+			for _, pn := range unmatchedPartNodes {
+				leaves, err := collectLeafBuckets(ctx, participantParticipant, pn.Ref, pn.Hash)
+				if err != nil {
+					return Run{}, err
+				}
+				unmatchedPartLeaves = append(unmatchedPartLeaves, leaves...)
+			}
+
 			newDiscs, err := engine.reconcileLeavesByBucketID(
 				ctx, runID, participantID, canonicalParticipant, participantParticipant,
 				unmatchedCanonLeaves, unmatchedPartLeaves,

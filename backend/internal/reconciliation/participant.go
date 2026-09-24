@@ -84,6 +84,28 @@ func parseScopeTime(value string) (time.Time, error) {
 	return parsed.UTC(), nil
 }
 
+// LogicalRegion identifies the half-open logical ledger time range [Start, End)
+// covered by a commitment node or bucket.
+type LogicalRegion struct {
+	Start time.Time
+	End   time.Time
+}
+
+// IsZero reports whether the region represents an empty/unset range.
+func (r LogicalRegion) IsZero() bool {
+	return r.Start.IsZero() && r.End.IsZero()
+}
+
+// Equal reports whether two logical regions cover the exact same time range.
+func (r LogicalRegion) Equal(other LogicalRegion) bool {
+	return r.Start.Equal(other.Start) && r.End.Equal(other.End)
+}
+
+// Key returns a deterministic string key for map indexing.
+func (r LogicalRegion) Key() string {
+	return fmt.Sprintf("%d_%d", r.Start.UTC().UnixNano(), r.End.UTC().UnixNano())
+}
+
 // RootResult is the participant's current commitment for a scope. The root is
 // opaque at this layer; tree construction is intentionally deferred to M3-2.
 type RootResult struct {
@@ -91,20 +113,23 @@ type RootResult struct {
 	Algorithm string
 	Version   string
 	Ref       NodeRef
+	Region    LogicalRegion
 }
 
-// NodeRef identifies a commitment node for the future hierarchical tree.
+// NodeRef identifies a commitment node for the hierarchical tree.
 type NodeRef struct {
 	ParticipantID string
 	ScopeID       string
 	Generation    string
 	Path          string
+	Region        LogicalRegion
 }
 
 // NodeResult is a child commitment returned for a node reference.
 type NodeResult struct {
-	Ref  NodeRef
-	Hash []byte
+	Ref    NodeRef
+	Hash   []byte
+	Region LogicalRegion
 }
 
 // BucketRef identifies a deterministic ledger bucket. Bucket allocation is
