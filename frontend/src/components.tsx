@@ -158,13 +158,13 @@ export function PaymentRow({ payment, onClick }: { payment: Payment; onClick: ()
   const counterparty = payment.direction === "RECEIVED" ? payment.senderName : payment.receiverName;
   const sign = payment.direction === "RECEIVED" ? "+ " : "− ";
   return (
-    <button className="payment-row" onClick={onClick}>
+    <button type="button" className="payment-row" onClick={onClick}>
       <Avatar name={counterparty} />
       <span className="payment-main">
         <strong>{counterparty}</strong>
-        <small>{payment.direction === "RECEIVED" ? "Received" : "Sent"} · {formatDate(payment.createdAt)}</small>
+        <small>{payment.direction === "RECEIVED" ? "Received from" : "Sent to"} · {formatDate(payment.createdAt)}</small>
       </span>
-      <span className={`payment-amount ${completed ? "" : "payment-muted"}`}>
+      <span className={`payment-amount ${completed ? "" : "payment-muted"} ${payment.direction === "RECEIVED" ? "payment-received" : ""}`.trim()}>
         <Amount paise={payment.amountPaise} sign={sign} />
         <small><StatusBadge state={payment.state} /></small>
       </span>
