@@ -177,3 +177,43 @@ M2-6 implements a controlled, reversible, deterministic, target-isolated chaos c
   - M2-3 Health Monitoring samples targets through `ChaosAdapter.GetHealth()`, observing outages, elevated latency, or timeouts.
   - M2-5 Circuit Breaker observes health failure samples and trips `CLOSED -> OPEN` once the failure threshold is reached. `HALF_OPEN` remains recovery-health-probe-only and excludes payment routing.
   - M2-4 Adaptive Routing naturally routes eligible traffic around unhealthy/open targets to healthy alternate rails. Routing never fabricates fake rerouting or mutates sender/receiver bank authority.
+
+## ADR-021: M3-1 Canonical Reconciliation Record
+
+Status: **IMPLEMENTED**
+
+M3-1 freezes canonical reconciliation records at version `v1`. A canonical
+record contains exactly these logical fields, in this serialization order:
+
+1. operation UUID
+2. payment UUID
+3. account UUID
+4. entry type
+5. signed integer amount in paise
+6. currency
+7. occurred-at timestamp
+
+The serializer emits the ASCII header `TXCANON|v1`, followed by each field as
+a uint32 big-endian byte length and UTF-8 bytes. UUIDs use their standard
+lowercase string form. Amounts use base-10 `int64` text with no padding or
+floating-point representation. Currency and entry type are preserved as the
+logical participant values, including case; no locale or implicit formatting
+is applied. Timestamps are converted to UTC and formatted with
+`time.RFC3339Nano`.
+
+Leaf hashing is domain-separated and exact:
+
+`SHA-256("TXLEAF|v1|" || canonical_bytes)`
+
+Before future Merkle construction, records are ordered by UTC occurrence time,
+operation UUID, entry type, account UUID, payment UUID, amount, and currency.
+This total logical ordering does not use database row IDs or other physical
+storage metadata. Snapshot IDs, snapshot capture timestamps, and physical row
+IDs are excluded from canonical content and cannot affect a leaf hash.
+
+Bank participants must produce byte-for-byte identical canonical bytes and leaf
+hashes for logically identical records, regardless of participant, database,
+snapshot, or time-zone representation. Any incompatible change to fields,
+ordering, encoding, normalization, or the domain separator requires a new
+canonical version and an explicit compatibility decision; version `v1` remains
+readable and verifiable for existing commitments.
