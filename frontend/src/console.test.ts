@@ -6,8 +6,15 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readConsoleView, consoleViewPath } from "./console";
-import type { ConsoleView } from "./types";
+import {
+  readConsoleView,
+  consoleViewPath,
+  deriveOperationalTargets,
+  buildChaosPayload,
+  SUPPORTED_CHAOS_TYPES,
+  type ChaosFaultType,
+} from "./console";
+import type { ConsoleView, CircuitTargetSnapshot } from "./types";
 
 // ---------------------------------------------------------------------------
 // Role routing resolution helper matching App's exact logic in main.tsx
@@ -129,5 +136,118 @@ describe("Network Console: Route URL generator (consoleViewPath)", () => {
       const parsed = readConsoleView(path);
       assert.equal(parsed, v, `Expected ${path} to parse back to ${v}`);
     }
+  });
+});
+
+describe("Network Console: Operational target derivation and grounding", () => {
+  it("chaos target list comes only from actual circuit targets", () => {
+    const circuitMap: Record<string, CircuitTargetSnapshot> = {
+      "GW-DIRECT-A": {
+        executionTargetId: "GW-DIRECT-A",
+        state: "CLOSED",
+        failureCount: 0,
+        timeoutCount: 0,
+        consecutiveSuccesses: 5,
+        activeProbes: 0,
+        successfulProbes: 0,
+        restorationStep: 0,
+        maxRestorationSteps: 3,
+        restorationProgress: 1,
+        lastEvaluatedAt: new Date().toISOString(),
+      },
+      "GW-DIRECT-B": {
+        executionTargetId: "GW-DIRECT-B",
+        state: "HALF_OPEN",
+        failureCount: 1,
+        timeoutCount: 0,
+        consecutiveSuccesses: 1,
+        activeProbes: 1,
+        successfulProbes: 1,
+        restorationStep: 1,
+        maxRestorationSteps: 3,
+        restorationProgress: 0.33,
+        lastEvaluatedAt: new Date().toISOString(),
+      },
+    };
+
+    const derived = deriveOperationalTargets(circuitMap);
+    assert.deepEqual(derived, ["GW-DIRECT-A", "GW-DIRECT-B"]);
+  });
+
+  it("BANK-A/B are not automatically inserted when absent from circuit targets", () => {
+    const circuitMap: Record<string, CircuitTargetSnapshot> = {
+      "CUSTOM-ROUTE-99": {
+        executionTargetId: "CUSTOM-ROUTE-99",
+        state: "CLOSED",
+        failureCount: 0,
+        timeoutCount: 0,
+        consecutiveSuccesses: 2,
+        activeProbes: 0,
+        successfulProbes: 0,
+        restorationStep: 0,
+        maxRestorationSteps: 3,
+        restorationProgress: 1,
+        lastEvaluatedAt: new Date().toISOString(),
+      },
+    };
+
+    const derived = deriveOperationalTargets(circuitMap);
+    assert.equal(derived.length, 1);
+    assert.equal(derived[0], "CUSTOM-ROUTE-99");
+    assert.equal(derived.includes("BANK-A"), false);
+    assert.equal(derived.includes("BANK-B"), false);
+  });
+
+  it("empty circuit target list produces safe empty state", () => {
+    assert.deepEqual(deriveOperationalTargets({}), []);
+    assert.deepEqual(deriveOperationalTargets(null), []);
+    assert.deepEqual(deriveOperationalTargets(undefined), []);
+  });
+});
+
+describe("Network Console: Chaos scenario support & TEMPORARY_PARTITION", () => {
+  it("TEMPORARY_PARTITION is an accepted console scenario type", () => {
+    assert.equal(SUPPORTED_CHAOS_TYPES.includes("TEMPORARY_PARTITION"), true);
+    assert.deepEqual(SUPPORTED_CHAOS_TYPES, [
+      "BANK_OUTAGE",
+      "LATENCY",
+      "TRANSIENT_DROP",
+      "TEMPORARY_PARTITION",
+    ]);
+  });
+
+  it("TEMPORARY_PARTITION payload conforms to backend schema without unsupported parameters", () => {
+    const payload = buildChaosPayload("part-1", "TARGET-EXEC-A", "TEMPORARY_PARTITION", {
+      durationMs: 45000,
+      latencyMs: 9999,
+      dropRate: 0.8,
+    });
+
+    assert.equal(payload.scenarioId, "part-1");
+    assert.equal(payload.targetId, "TARGET-EXEC-A");
+    assert.equal(payload.type, "TEMPORARY_PARTITION");
+    assert.equal(payload.parameters.durationMs, 45000);
+    assert.equal((payload.parameters as any).latencyMs, undefined);
+    assert.equal((payload.parameters as any).dropRate, undefined);
+  });
+
+  it("LATENCY and TRANSIENT_DROP payloads attach only their applicable parameters", () => {
+    const latencyPayload = buildChaosPayload("lat-1", "TARGET-EXEC-A", "LATENCY", {
+      durationMs: 20000,
+      latencyMs: 2500,
+    });
+    assert.equal(latencyPayload.type, "LATENCY");
+    assert.equal(latencyPayload.parameters.durationMs, 20000);
+    assert.equal(latencyPayload.parameters.latencyMs, 2500);
+    assert.equal((latencyPayload.parameters as any).dropRate, undefined);
+
+    const dropPayload = buildChaosPayload("drop-1", "TARGET-EXEC-B", "TRANSIENT_DROP", {
+      durationMs: 15000,
+      dropRate: 0.25,
+    });
+    assert.equal(dropPayload.type, "TRANSIENT_DROP");
+    assert.equal(dropPayload.parameters.durationMs, 15000);
+    assert.equal(dropPayload.parameters.dropRate, 0.25);
+    assert.equal((dropPayload.parameters as any).latencyMs, undefined);
   });
 });

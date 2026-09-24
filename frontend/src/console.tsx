@@ -36,6 +36,61 @@ export function consoleViewPath(view: ConsoleView): string {
 }
 
 // ---------------------------------------------------------------------------
+// Operational Target & Chaos Types
+// ---------------------------------------------------------------------------
+
+export type ChaosFaultType = "BANK_OUTAGE" | "LATENCY" | "TRANSIENT_DROP" | "TEMPORARY_PARTITION";
+
+export const SUPPORTED_CHAOS_TYPES: readonly ChaosFaultType[] = [
+  "BANK_OUTAGE",
+  "LATENCY",
+  "TRANSIENT_DROP",
+  "TEMPORARY_PARTITION",
+] as const;
+
+export function deriveOperationalTargets(
+  circuitMap: Record<string, CircuitTargetSnapshot> | null | undefined
+): string[] {
+  if (!circuitMap || typeof circuitMap !== "object") return [];
+  const targets = new Set<string>();
+  for (const [key, snapshot] of Object.entries(circuitMap)) {
+    const k = key.trim();
+    if (k) targets.add(k);
+    if (snapshot?.executionTargetId?.trim()) {
+      targets.add(snapshot.executionTargetId.trim());
+    }
+  }
+  return Array.from(targets).sort();
+}
+
+export function buildChaosPayload(
+  scenarioId: string,
+  targetId: string,
+  faultType: ChaosFaultType,
+  options: { durationMs?: number; latencyMs?: number; dropRate?: number }
+): {
+  scenarioId: string;
+  targetId: string;
+  type: ChaosFaultType;
+  parameters: Record<string, unknown>;
+} {
+  const params: Record<string, unknown> = {
+    durationMs: options.durationMs ?? 30000,
+  };
+  if (faultType === "LATENCY") {
+    params.latencyMs = options.latencyMs ?? 1500;
+  } else if (faultType === "TRANSIENT_DROP") {
+    params.dropRate = options.dropRate ?? 0.5;
+  }
+  return {
+    scenarioId: scenarioId.trim(),
+    targetId: targetId.trim(),
+    type: faultType,
+    parameters: params,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Shell
 // ---------------------------------------------------------------------------
 
@@ -208,8 +263,7 @@ function ConsoleMobileNav({ view, onNavigate }: { view: ConsoleView; onNavigate:
 function ConsoleOverviewView({ token, onNavigate }: { token: string; onNavigate: (v: ConsoleView) => void }) {
   const [circuits, setCircuits] = useState<Record<string, CircuitTargetSnapshot>>({});
   const [chaosScenarios, setChaosScenarios] = useState<ChaosScenario[]>([]);
-  const [healthA, setHealthA] = useState<HealthSnapshot | null>(null);
-  const [healthB, setHealthB] = useState<HealthSnapshot | null>(null);
+  const [healthMap, setHealthMap] = useState<Record<string, HealthSnapshot | null>>({});
   const [apiOnline, setApiOnline] = useState(true);
   const [dbOnline, setDbOnline] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -221,18 +275,28 @@ function ConsoleOverviewView({ token, onNavigate }: { token: string; onNavigate:
     Promise.all([
       api.opsCircuits(token).catch(() => ({})),
       api.opsChaosScenarios(token, true).catch(() => []),
-      api.opsHealthSnapshot("BANK-A", token).catch(() => null),
-      api.opsHealthSnapshot("BANK-B", token).catch(() => null),
       api.opsGlobalHealth().catch(() => ({ status: "error", service: "api" })),
       api.opsDbHealth().catch(() => ({ status: "error" })),
     ])
-      .then(([circuitMap, activeChaos, snapA, snapB, globalHealth, dbHealth]) => {
+      .then(async ([circuitMap, activeChaos, globalHealth, dbHealth]) => {
         setCircuits(circuitMap);
         setChaosScenarios(activeChaos);
-        setHealthA(snapA);
-        setHealthB(snapB);
         setApiOnline(globalHealth.status === "ok");
         setDbOnline(dbHealth.status === "ok");
+
+        const targetIds = deriveOperationalTargets(circuitMap);
+        if (targetIds.length > 0) {
+          const snapshots = await Promise.all(
+            targetIds.map((tid) => api.opsHealthSnapshot(tid, token).catch(() => null))
+          );
+          const map: Record<string, HealthSnapshot | null> = {};
+          targetIds.forEach((tid, i) => {
+            map[tid] = snapshots[i];
+          });
+          setHealthMap(map);
+        } else {
+          setHealthMap({});
+        }
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load operational snapshot.");
@@ -244,7 +308,7 @@ function ConsoleOverviewView({ token, onNavigate }: { token: string; onNavigate:
     loadOverview();
   }, [token]);
 
-  const targetKeys = Object.keys(circuits);
+  const targetKeys = deriveOperationalTargets(circuits);
   const openCircuits = targetKeys.filter((k) => circuits[k]?.state === "OPEN");
 
   return (
@@ -270,13 +334,26 @@ function ConsoleOverviewView({ token, onNavigate }: { token: string; onNavigate:
           <section className="console-grid-4">
             <div className="console-card">
               <div className="console-card-header">
-                <span className="console-card-kicker">Core System</span>
+                <span className="console-card-kicker">Core System Readiness</span>
                 <span className={`console-pill ${apiOnline && dbOnline ? "console-pill-success" : "console-pill-error"}`}>
                   {apiOnline && dbOnline ? "ONLINE" : "DEGRADED"}
                 </span>
               </div>
-              <span className="console-val-large">2 / 2</span>
-              <span className="console-meta-text">API & Database Readiness Verified</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: ".35rem", margin: ".35rem 0" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: ".82rem" }}>
+                  <span style={{ color: "var(--muted)" }}>API Engine</span>
+                  <span className={`console-pill ${apiOnline ? "console-pill-success" : "console-pill-error"}`}>
+                    {apiOnline ? "READY" : "UNAVAILABLE"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: ".82rem" }}>
+                  <span style={{ color: "var(--muted)" }}>Database Ledger</span>
+                  <span className={`console-pill ${dbOnline ? "console-pill-success" : "console-pill-error"}`}>
+                    {dbOnline ? "READY" : "UNAVAILABLE"}
+                  </span>
+                </div>
+              </div>
+              <span className="console-meta-text">Authoritative: GET /health & /health/db</span>
             </div>
 
             <div className="console-card">
@@ -373,17 +450,24 @@ function ConsoleOverviewView({ token, onNavigate }: { token: string; onNavigate:
           <section className="section-block">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Bank Health</p>
-                <h2>Participant Telemetry Summary</h2>
+                <p className="eyebrow">Target Health</p>
+                <h2>Operational Telemetry Summary</h2>
               </div>
               <button type="button" className="text-link" onClick={() => onNavigate("c-health")}>
                 Manage health probes →
               </button>
             </div>
-            <div className="console-grid-2">
-              <ParticipantHealthCard targetId="BANK-A" snapshot={healthA} />
-              <ParticipantHealthCard targetId="BANK-B" snapshot={healthB} />
-            </div>
+            {targetKeys.length === 0 ? (
+              <div className="console-card">
+                <p className="console-meta-text">No execution targets configured on circuit breaker.</p>
+              </div>
+            ) : (
+              <div className="console-grid-2">
+                {targetKeys.map((k) => (
+                  <ParticipantHealthCard key={k} targetId={k} snapshot={healthMap[k] ?? null} />
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="section-block">
@@ -513,18 +597,31 @@ function ParticipantHealthCard({ targetId, snapshot }: { targetId: string; snaps
 // ---------------------------------------------------------------------------
 
 function ConsoleHealthView({ token }: { token: string }) {
-  const [targetId, setTargetId] = useState<"BANK-A" | "BANK-B">("BANK-A");
+  const [targetId, setTargetId] = useState("");
+  const [targetKeys, setTargetKeys] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
   const [probing, setProbing] = useState(false);
   const [lastProbe, setLastProbe] = useState<HealthSample | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  function loadSnapshot(target: string) {
+  function loadTargetsAndSnapshot(currentTarget?: string) {
     setLoading(true);
     setError("");
-    api.opsHealthSnapshot(target, token)
-      .then(setSnapshot)
+    api.opsCircuits(token)
+      .then((circuitMap) => {
+        const derived = deriveOperationalTargets(circuitMap);
+        setTargetKeys(derived);
+        const nextTarget = currentTarget && derived.includes(currentTarget)
+          ? currentTarget
+          : derived[0] ?? "";
+        setTargetId(nextTarget);
+        if (nextTarget) {
+          return api.opsHealthSnapshot(nextTarget, token).then(setSnapshot);
+        } else {
+          setSnapshot(null);
+        }
+      })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Health data unavailable.");
         setSnapshot(null);
@@ -533,16 +630,30 @@ function ConsoleHealthView({ token }: { token: string }) {
   }
 
   useEffect(() => {
-    loadSnapshot(targetId);
-  }, [targetId, token]);
+    loadTargetsAndSnapshot();
+  }, [token]);
+
+  function switchTarget(t: string) {
+    setTargetId(t);
+    setLoading(true);
+    setError("");
+    api.opsHealthSnapshot(t, token)
+      .then(setSnapshot)
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : `Health data unavailable for ${t}.`);
+        setSnapshot(null);
+      })
+      .finally(() => setLoading(false));
+  }
 
   function handleProbe() {
+    if (!targetId) return;
     setProbing(true);
     setError("");
     api.opsHealthSample(targetId, token)
       .then((sample) => {
         setLastProbe(sample);
-        loadSnapshot(targetId);
+        return api.opsHealthSnapshot(targetId, token).then(setSnapshot);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to record health probe.");
@@ -557,29 +668,32 @@ function ConsoleHealthView({ token }: { token: string }) {
         title="Bank Health Diagnostics"
         description="Real-time participant availability and latency scoring evaluated over rolling observation windows."
         action={
-          <Button onClick={handleProbe} disabled={probing}>
+          <Button onClick={handleProbe} disabled={probing || !targetId}>
             <ConsoleIcon name="pulse" size={15} />
-            {probing ? "Probing Target…" : `Trigger ${targetId} Probe`}
+            {probing ? "Probing Target…" : targetId ? `Trigger ${targetId} Probe` : "Probe Unavailable"}
           </Button>
         }
       />
 
-      <div className="console-tabs">
-        <button
-          type="button"
-          className={`console-tab ${targetId === "BANK-A" ? "is-active" : ""}`}
-          onClick={() => setTargetId("BANK-A")}
-        >
-          Target: BANK-A
-        </button>
-        <button
-          type="button"
-          className={`console-tab ${targetId === "BANK-B" ? "is-active" : ""}`}
-          onClick={() => setTargetId("BANK-B")}
-        >
-          Target: BANK-B
-        </button>
-      </div>
+      {targetKeys.length === 0 ? (
+        <div className="console-card" style={{ marginBottom: "1.25rem" }}>
+          <span className="console-card-kicker">Target Telemetry</span>
+          <p className="console-meta-text">No operational targets registered. Health probes require registered execution targets.</p>
+        </div>
+      ) : (
+        <div className="console-tabs">
+          {targetKeys.map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={`console-tab ${targetId === k ? "is-active" : ""}`}
+              onClick={() => switchTarget(k)}
+            >
+              Target: {k}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <InlineError message={error} />}
 
@@ -1005,6 +1119,7 @@ function ConsoleIntegrityView() {
 
 function ConsoleChaosView({ token }: { token: string }) {
   const [scenarios, setScenarios] = useState<ChaosScenario[]>([]);
+  const [circuitTargets, setCircuitTargets] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1012,47 +1127,58 @@ function ConsoleChaosView({ token }: { token: string }) {
 
   // Form states for creating a real scenario
   const [scenarioId, setScenarioId] = useState(`chaos-${Date.now().toString(36)}`);
-  const [targetId, setTargetId] = useState("BANK-A");
-  const [faultType, setFaultType] = useState<"BANK_OUTAGE" | "LATENCY" | "TRANSIENT_DROP">("BANK_OUTAGE");
+  const [targetId, setTargetId] = useState("");
+  const [faultType, setFaultType] = useState<ChaosFaultType>("BANK_OUTAGE");
   const [durationMs, setDurationMs] = useState(30000);
   const [latencyMs, setLatencyMs] = useState(1500);
   const [dropRate, setDropRate] = useState(0.5);
 
-  function loadScenarios() {
+  function loadData() {
     setLoading(true);
-    api.opsChaosScenarios(token)
-      .then(setScenarios)
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load chaos scenarios."))
+    setError("");
+    Promise.all([
+      api.opsChaosScenarios(token),
+      api.opsCircuits(token).catch(() => ({})),
+    ])
+      .then(([loadedScenarios, circuitMap]) => {
+        setScenarios(loadedScenarios);
+        const derived = deriveOperationalTargets(circuitMap);
+        setCircuitTargets(derived);
+        if (derived.length > 0) {
+          setTargetId((prev) => (derived.includes(prev) ? prev : derived[0]));
+        } else {
+          setTargetId("");
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load chaos status."))
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
-    loadScenarios();
+    loadData();
   }, [token]);
 
   function handleStart(e: React.FormEvent) {
     e.preventDefault();
+    if (!targetId || circuitTargets.length === 0) {
+      setError("Cannot submit scenario: no valid operational target available.");
+      return;
+    }
     setSubmitting(true);
     setError("");
     setFeedback("");
 
-    const params: Record<string, unknown> = { durationMs };
-    if (faultType === "LATENCY") params.latencyMs = latencyMs;
-    if (faultType === "TRANSIENT_DROP") params.dropRate = dropRate;
+    const payload = buildChaosPayload(scenarioId, targetId, faultType, {
+      durationMs,
+      latencyMs,
+      dropRate,
+    });
 
-    api.opsChaosStart(
-      {
-        scenarioId: scenarioId.trim(),
-        targetId: targetId.trim(),
-        type: faultType,
-        parameters: params,
-      },
-      token
-    )
+    api.opsChaosStart(payload, token)
       .then((created) => {
         setFeedback(`Scenario ${created.scenarioId} engaged on target ${created.targetId}.`);
         setScenarioId(`chaos-${Date.now().toString(36)}`);
-        loadScenarios();
+        loadData();
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to start scenario."))
       .finally(() => setSubmitting(false));
@@ -1064,7 +1190,7 @@ function ConsoleChaosView({ token }: { token: string }) {
     api.opsChaosStop(id, token)
       .then(() => {
         setFeedback(`Scenario ${id} stopped.`);
-        loadScenarios();
+        loadData();
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to stop scenario."));
   }
@@ -1075,7 +1201,7 @@ function ConsoleChaosView({ token }: { token: string }) {
     api.opsChaosReset(undefined, token)
       .then(() => {
         setFeedback("All active chaos faults reset.");
-        loadScenarios();
+        loadData();
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to reset chaos."));
   }
@@ -1094,7 +1220,7 @@ function ConsoleChaosView({ token }: { token: string }) {
             <Button variant="secondary" onClick={handleReset}>
               Reset All Faults
             </Button>
-            <Button variant="secondary" onClick={loadScenarios}>
+            <Button variant="secondary" onClick={loadData}>
               <ConsoleIcon name="refresh" size={14} />
               Refresh
             </Button>
@@ -1106,6 +1232,15 @@ function ConsoleChaosView({ token }: { token: string }) {
       {feedback && (
         <div className="console-card" style={{ borderColor: "var(--accent)", color: "var(--accent)" }}>
           {feedback}
+        </div>
+      )}
+
+      {circuitTargets.length === 0 && !loading && (
+        <div className="console-notice-box" style={{ marginBottom: "1.25rem", padding: "1rem" }}>
+          <span className="console-notice-tag">TARGET REGISTRATION REQUIRED</span>
+          <p style={{ margin: 0 }}>
+            No execution targets are registered with the circuit breaker (<code>GET /api/ops/circuit</code> returned 0 targets). Scenario submission is disabled until operational targets are available.
+          </p>
         </div>
       )}
 
@@ -1128,9 +1263,18 @@ function ConsoleChaosView({ token }: { token: string }) {
             className="console-select"
             value={targetId}
             onChange={(e) => setTargetId(e.target.value)}
+            disabled={circuitTargets.length === 0}
+            required
           >
-            <option value="BANK-A">BANK-A</option>
-            <option value="BANK-B">BANK-B</option>
+            {circuitTargets.length === 0 ? (
+              <option value="" disabled>No operational targets</option>
+            ) : (
+              circuitTargets.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))
+            )}
           </select>
         </div>
 
@@ -1140,11 +1284,12 @@ function ConsoleChaosView({ token }: { token: string }) {
             id="chaos-type"
             className="console-select"
             value={faultType}
-            onChange={(e) => setFaultType(e.target.value as any)}
+            onChange={(e) => setFaultType(e.target.value as ChaosFaultType)}
           >
             <option value="BANK_OUTAGE">BANK_OUTAGE (Total Outage)</option>
             <option value="LATENCY">LATENCY (Delay Injection)</option>
             <option value="TRANSIENT_DROP">TRANSIENT_DROP (Packet Drops)</option>
+            <option value="TEMPORARY_PARTITION">TEMPORARY_PARTITION (Network Partition)</option>
           </select>
         </div>
 
@@ -1196,7 +1341,7 @@ function ConsoleChaosView({ token }: { token: string }) {
           </div>
         )}
 
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" disabled={submitting || circuitTargets.length === 0 || !targetId}>
           {submitting ? "Engaging…" : "Engage Scenario"}
         </Button>
       </form>
@@ -1307,19 +1452,34 @@ function ConsoleChaosView({ token }: { token: string }) {
 // ---------------------------------------------------------------------------
 
 function ConsoleActivityView({ token }: { token: string }) {
-  const [eventsA, setEventsA] = useState<CircuitTransitionEvent[]>([]);
-  const [eventsB, setEventsB] = useState<CircuitTransitionEvent[]>([]);
+  const [events, setEvents] = useState<CircuitTransitionEvent[]>([]);
+  const [configuredTargets, setConfiguredTargets] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   function loadEvents() {
     setLoading(true);
-    Promise.all([
-      api.opsCircuitEvents("BANK-A", token).catch(() => []),
-      api.opsCircuitEvents("BANK-B", token).catch(() => []),
-    ])
-      .then(([a, b]) => {
-        setEventsA(a);
-        setEventsB(b);
+    setError("");
+    api.opsCircuits(token)
+      .then((circuitMap) => {
+        const targetIds = deriveOperationalTargets(circuitMap);
+        setConfiguredTargets(targetIds);
+        if (targetIds.length === 0) {
+          setEvents([]);
+          return;
+        }
+        return Promise.all(
+          targetIds.map((tid) => api.opsCircuitEvents(tid, token).catch(() => []))
+        ).then((results) => {
+          const combined = results.flat();
+          combined.sort(
+            (a, b) => new Date(b.transitionedAt).getTime() - new Date(a.transitionedAt).getTime()
+          );
+          setEvents(combined);
+        });
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load circuit events.");
       })
       .finally(() => setLoading(false));
   }
@@ -1328,16 +1488,12 @@ function ConsoleActivityView({ token }: { token: string }) {
     loadEvents();
   }, [token]);
 
-  const allEvents = [...eventsA, ...eventsB].sort(
-    (a, b) => new Date(b.transitionedAt).getTime() - new Date(a.transitionedAt).getTime()
-  );
-
   return (
     <>
       <PageHeader
         eyebrow="Audit Feed"
         title="Operational Activity Log"
-        description="Chronological log of adaptive circuit state transitions, trips, and restoration events across participant banks."
+        description="Chronological log of adaptive circuit state transitions, trips, and restoration events across operational targets."
         action={
           <Button variant="secondary" onClick={loadEvents}>
             <ConsoleIcon name="refresh" size={14} />
@@ -1346,12 +1502,24 @@ function ConsoleActivityView({ token }: { token: string }) {
         }
       />
 
+      {error && <InlineError message={error} />}
+
       {loading ? (
         <ConsoleSkeleton />
-      ) : allEvents.length === 0 ? (
+      ) : configuredTargets.length === 0 ? (
+        <div className="console-card">
+          <div className="console-card-header">
+            <span className="console-card-kicker">Activity Log</span>
+            <span className="console-pill console-pill-warning">NO TARGETS CONFIGURED</span>
+          </div>
+          <p className="console-meta-text">
+            No execution targets were returned by <code>GET /api/ops/circuit</code>. Circuit transition events cannot be streamed until operational targets are registered.
+          </p>
+        </div>
+      ) : events.length === 0 ? (
         <div className="console-card">
           <span className="console-card-kicker">Activity Log</span>
-          <p className="console-meta-text">No circuit state transitions or recovery events recorded yet.</p>
+          <p className="console-meta-text">No circuit state transitions or recovery events recorded yet for configured targets ({configuredTargets.join(", ")}).</p>
         </div>
       ) : (
         <section className="section-block">
@@ -1369,7 +1537,7 @@ function ConsoleActivityView({ token }: { token: string }) {
                 </tr>
               </thead>
               <tbody>
-                {allEvents.map((ev, i) => (
+                {events.map((ev, i) => (
                   <tr key={ev.id ?? i}>
                     <td className="mono">{formatIso(ev.transitionedAt)}</td>
                     <td className="mono" style={{ fontWeight: 600 }}>{ev.executionTargetId}</td>
