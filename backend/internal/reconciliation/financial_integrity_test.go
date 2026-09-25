@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/reconciliation"
 )
@@ -142,9 +145,22 @@ func newValidBaselineStore(t *testing.T) (*reconciliation.MemoryFinancialDataSto
 		t.Fatalf("Bootstrap: %v", err)
 	}
 
+	snapshot := ledger.Snapshot()
 	key := reconciliationScopeKey(participantID, scope)
 	store.MerkleRoots[key] = rebuild.ResultingRoot
 	store.MerkleRecords[key] = records
+	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+		ParticipantID:    participantID,
+		Partition:        participantID,
+		BucketWidth:      1 * time.Hour,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		Generation:       snapshot.Generation,
+		Root:             rebuild.ResultingRoot,
+		RecordCount:      len(records),
+		Scope:            scope,
+		CapturedAt:       time.Now().UTC(),
+	}
 
 	return store, scope, participantID
 }
@@ -428,6 +444,10 @@ func TestMerkleCommitmentMismatch(t *testing.T) {
 	tampered := append([]byte(nil), store.MerkleRoots[key]...)
 	tampered[0] ^= 0xFF
 	store.MerkleRoots[key] = tampered
+	if mc, ok := store.MaintainedCommitments[key]; ok {
+		mc.Root = tampered
+		store.MaintainedCommitments[key] = mc
+	}
 
 	engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
 	res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
@@ -788,7 +808,7 @@ func TestMaintainedCommitmentBucketWidthNotHardcoded(t *testing.T) {
 		BucketWidth:      bucketWidth,
 		CanonicalVersion: reconciliation.CanonicalVersion,
 		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-		Generation:       "gen-15m",
+		Generation:       uuid.New().String(),
 		Root:             rebuild.ResultingRoot,
 		RecordCount:      len(records),
 		Scope:            scope,
@@ -856,7 +876,7 @@ func TestMerkleCommitmentTamperedRootFails(t *testing.T) {
 		BucketWidth:      1 * time.Hour,
 		CanonicalVersion: reconciliation.CanonicalVersion,
 		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-		Generation:       "gen-tamper",
+		Generation:       uuid.New().String(),
 		Root:             tamperedRoot,
 		RecordCount:      len(store.MerkleRecords[key]),
 		Scope:            scope,
@@ -898,7 +918,7 @@ func TestMerkleCommitmentStaleRootFails(t *testing.T) {
 		BucketWidth:      1 * time.Hour,
 		CanonicalVersion: reconciliation.CanonicalVersion,
 		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-		Generation:       "gen-stale",
+		Generation:       uuid.New().String(),
 		Root:             store.MerkleRoots[key],
 		RecordCount:      1,
 		Scope:            scope,
@@ -943,13 +963,15 @@ func TestMerkleCommitmentWrongGenerationFails(t *testing.T) {
 	store, scope, participantID := newValidBaselineStore(t)
 
 	key := reconciliationScopeKey(participantID, scope)
+	realGen := uuid.New().String()
+	wrongGen := uuid.New().String()
 	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
 		ParticipantID:    participantID,
 		Partition:        participantID,
 		BucketWidth:      1 * time.Hour,
 		CanonicalVersion: reconciliation.CanonicalVersion,
 		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-		Generation:       "gen-1",
+		Generation:       realGen,
 		Root:             store.MerkleRoots[key],
 		RecordCount:      len(store.MerkleRecords[key]),
 		Scope:            scope,
@@ -961,7 +983,7 @@ func TestMerkleCommitmentWrongGenerationFails(t *testing.T) {
 		Scope:              &scope,
 		ParticipantID:      participantID,
 		CheckCodes:         []string{reconciliation.CheckMerkleCommitmentConsistency},
-		ExpectedGeneration: "gen-2", // Expected gen-2, observed gen-1
+		ExpectedGeneration: wrongGen, // Expected wrongGen, observed realGen
 	})
 	if err != nil {
 		t.Fatalf("engine.Run: %v", err)
@@ -973,7 +995,7 @@ func TestMerkleCommitmentWrongGenerationFails(t *testing.T) {
 	}
 	var foundGen bool
 	for _, v := range check.Violations {
-		if v.Details["observedGeneration"] == "gen-1" && v.Details["expectedGeneration"] == "gen-2" {
+		if v.Details["observedGeneration"] == realGen && v.Details["expectedGeneration"] == wrongGen {
 			foundGen = true
 			break
 		}
@@ -997,7 +1019,7 @@ func TestMerkleCommitmentConfigurationMismatchFails(t *testing.T) {
 			BucketWidth:      1 * time.Hour,
 			CanonicalVersion: reconciliation.CanonicalVersion,
 			AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-			Generation:       "gen-1",
+			Generation:       uuid.New().String(),
 			Root:             store.MerkleRoots[key],
 			RecordCount:      len(store.MerkleRecords[key]),
 			Scope:            scope,
@@ -1028,7 +1050,7 @@ func TestMerkleCommitmentConfigurationMismatchFails(t *testing.T) {
 			BucketWidth:      1 * time.Hour,
 			CanonicalVersion: "v99-incompatible",
 			AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-			Generation:       "gen-1",
+			Generation:       uuid.New().String(),
 			Root:             store.MerkleRoots[key],
 			RecordCount:      len(store.MerkleRecords[key]),
 			Scope:            scope,
@@ -1058,7 +1080,7 @@ func TestMerkleCommitmentConfigurationMismatchFails(t *testing.T) {
 			BucketWidth:      1 * time.Hour,
 			CanonicalVersion: reconciliation.CanonicalVersion,
 			AlgorithmVersion: "algo-custom-unsupported",
-			Generation:       "gen-1",
+			Generation:       uuid.New().String(),
 			Root:             store.MerkleRoots[key],
 			RecordCount:      len(store.MerkleRecords[key]),
 			Scope:            scope,
@@ -1093,7 +1115,7 @@ func TestMerkleCommitmentAuthoritativeRecordMutationFails(t *testing.T) {
 		BucketWidth:      1 * time.Hour,
 		CanonicalVersion: reconciliation.CanonicalVersion,
 		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-		Generation:       "gen-orig",
+		Generation:       uuid.New().String(),
 		Root:             store.MerkleRoots[key],
 		RecordCount:      len(store.MerkleRecords[key]),
 		Scope:            scope,
@@ -1295,5 +1317,326 @@ func TestPostgresIntegrityRunStoreViolationsRoundTrip(t *testing.T) {
 	}
 	if v.Details["accountNumber"] != "ACC-TEST-999" {
 		t.Errorf("violation Details[accountNumber] = %v, want %q", v.Details["accountNumber"], "ACC-TEST-999")
+	}
+}
+
+// -----------------------------------------------------------------------------
+// M3-7-C5: Durable Commitment Generation & Production Source Tests
+// -----------------------------------------------------------------------------
+
+type testLedgerSnapshotSource struct {
+	snapshot bank.LedgerSnapshot
+	err      error
+}
+
+func (s testLedgerSnapshotSource) GetLedgerSnapshot(ctx context.Context, _ bank.LedgerScope) (bank.LedgerSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return bank.LedgerSnapshot{}, err
+	}
+	if s.err != nil {
+		return bank.LedgerSnapshot{}, s.err
+	}
+	return s.snapshot, nil
+}
+
+func TestPersistedCommitmentGenerationRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	scope := reconciliation.Scope{
+		From: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+	}
+	ledger, err := reconciliation.NewIncrementalMerkleLedger("BANK-A", 1*time.Hour, scope)
+	if err != nil {
+		t.Fatalf("NewIncrementalMerkleLedger: %v", err)
+	}
+	record := reconciliation.CanonicalRecord{
+		OperationID: uuid.New(),
+		PaymentID:   uuid.New(),
+		AccountID:   uuid.New(),
+		EntryType:   "DEBIT",
+		AmountPaise: 1000,
+		OccurredAt:  scope.From.Add(10 * time.Minute),
+	}
+	if _, err := ledger.AppendRecord(ctx, record); err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+
+	state := ledger.Snapshot()
+	gen := state.Generation
+	if gen == "" {
+		t.Fatalf("expected non-empty snapshot generation")
+	}
+
+	store := reconciliation.NewMemoryIncrementalCommitmentStore()
+	if err := store.SaveState(ctx, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	loaded, found, err := store.LoadState(ctx, "BANK-A", 1*time.Hour, scope)
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected commitment state to be found")
+	}
+	if loaded.Generation != gen {
+		t.Fatalf("generation mismatch: loaded %q != saved %q", loaded.Generation, gen)
+	}
+
+	// Also verify FindState returns the exact generation
+	foundState, ok, err := store.FindState(ctx, "BANK-A", scope)
+	if err != nil {
+		t.Fatalf("FindState: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected FindState to locate state")
+	}
+	if foundState.Generation != gen {
+		t.Fatalf("FindState generation mismatch: %q != %q", foundState.Generation, gen)
+	}
+}
+
+func TestEmptyCommitmentGenerationRejected(t *testing.T) {
+	ctx := context.Background()
+	scope := reconciliation.Scope{
+		From: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+	}
+	ledger, err := reconciliation.NewIncrementalMerkleLedger("BANK-A", 1*time.Hour, scope)
+	if err != nil {
+		t.Fatalf("NewIncrementalMerkleLedger: %v", err)
+	}
+	state := ledger.Snapshot()
+	state.Generation = "" // explicitly clear generation
+
+	// ValidateIncrementalState must reject empty generation
+	if err := reconciliation.ValidateIncrementalState(state); err == nil {
+		t.Fatalf("expected error from ValidateIncrementalState with empty generation")
+	}
+
+	// SaveState must reject empty generation
+	store := reconciliation.NewMemoryIncrementalCommitmentStore()
+	if err := store.SaveState(ctx, state); err == nil {
+		t.Fatalf("expected error from SaveState with empty generation")
+	}
+}
+
+func TestCommitmentGenerationChangesOnRefresh(t *testing.T) {
+	ctx := context.Background()
+	scope := reconciliation.Scope{
+		From: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+	}
+	entry := bank.LedgerEntry{
+		OperationID: uuid.New(),
+		PaymentID:   uuid.New(),
+		AccountID:   uuid.New(),
+		EntryType:   "DEBIT",
+		AmountPaise: 5000,
+		Currency:    "INR",
+		OccurredAt:  scope.From.Add(30 * time.Minute),
+	}
+	source := testLedgerSnapshotSource{
+		snapshot: bank.LedgerSnapshot{
+			BankID:     "BANK-A",
+			CapturedAt: scope.To,
+			Entries:    []bank.LedgerEntry{entry},
+		},
+	}
+	commitStore := reconciliation.NewMemoryIncrementalCommitmentStore()
+	participant, err := reconciliation.NewRepositoryParticipantWithCommitmentStore(source, "BANK-A", "BANK-A", 1*time.Hour, commitStore)
+	if err != nil {
+		t.Fatalf("NewRepositoryParticipantWithCommitmentStore: %v", err)
+	}
+
+	if err := participant.Initialize(ctx, scope); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	root1, err := participant.GetRoot(ctx, scope)
+	if err != nil {
+		t.Fatalf("GetRoot: %v", err)
+	}
+	g1 := root1.Ref.Generation
+	if g1 == "" {
+		t.Fatalf("expected non-empty generation G1")
+	}
+
+	// Now refresh / reinitialize
+	if err := participant.Refresh(ctx, scope); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	root2, err := participant.GetRoot(ctx, scope)
+	if err != nil {
+		t.Fatalf("GetRoot: %v", err)
+	}
+	g2 := root2.Ref.Generation
+	if g2 == "" {
+		t.Fatalf("expected non-empty generation G2")
+	}
+
+	if g1 == g2 {
+		t.Fatalf("expected generation to change on refresh: G1=%q == G2=%q", g1, g2)
+	}
+
+	// Verify old generation G1 is no longer reported as current
+	_, err = participant.GetChildren(ctx, reconciliation.NodeRef{
+		ParticipantID: "BANK-A",
+		ScopeID:       reconciliation.ScopeIdentity(scope),
+		Generation:    g1,
+		Path:          root1.Ref.Path,
+	})
+	if err == nil || !errors.Is(err, reconciliation.ErrStaleReference) {
+		t.Fatalf("expected ErrStaleReference for old generation %q, got %v", g1, err)
+	}
+}
+
+func TestProductionMaintainedCommitmentSource(t *testing.T) {
+	ctx := context.Background()
+	scope := reconciliation.Scope{
+		From: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		To:   time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+	}
+	participantID := "BANK-PROD"
+
+	ledger, err := reconciliation.NewIncrementalMerkleLedger(participantID, 1*time.Hour, scope)
+	if err != nil {
+		t.Fatalf("NewIncrementalMerkleLedger: %v", err)
+	}
+	rec := reconciliation.CanonicalRecord{
+		OperationID: uuid.New(),
+		PaymentID:   uuid.New(),
+		AccountID:   uuid.New(),
+		EntryType:   "DEBIT",
+		AmountPaise: 2500,
+		OccurredAt:  scope.From.Add(15 * time.Minute),
+	}
+	if _, err := ledger.AppendRecord(ctx, rec); err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+	state := ledger.Snapshot()
+	rebuildCountBefore := ledger.FullRebuildCount()
+
+	// 1. Verify with memory commitment store through production constructor
+	memStore := reconciliation.NewMemoryIncrementalCommitmentStore()
+	if err := memStore.SaveState(ctx, state); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+
+	dataStore := reconciliation.NewPostgresFinancialDataStore(nil, memStore)
+	mc, found, err := dataStore.GetMaintainedCommitment(ctx, participantID, scope)
+	if err != nil {
+		t.Fatalf("GetMaintainedCommitment: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected maintained commitment to be found")
+	}
+	if !reconciliation.EqualBytes(mc.Root, state.Root) {
+		t.Fatalf("root mismatch: got %x, want %x", mc.Root, state.Root)
+	}
+	if mc.Generation != state.Generation {
+		t.Fatalf("generation mismatch: got %q, want %q", mc.Generation, state.Generation)
+	}
+	if mc.BucketWidth != state.BucketWidth {
+		t.Fatalf("bucket width mismatch: got %v, want %v", mc.BucketWidth, state.BucketWidth)
+	}
+	if mc.CanonicalVersion != state.CanonicalVersion {
+		t.Fatalf("canonical version mismatch: got %s, want %s", mc.CanonicalVersion, state.CanonicalVersion)
+	}
+	if mc.AlgorithmVersion != state.AlgorithmVersion {
+		t.Fatalf("algorithm version mismatch: got %s, want %s", mc.AlgorithmVersion, state.AlgorithmVersion)
+	}
+	if mc.RecordCount != state.RecordCount {
+		t.Fatalf("record count mismatch: got %d, want %d", mc.RecordCount, state.RecordCount)
+	}
+
+	// Verify no bootstrap or rebuild occurred
+	if ledger.FullRebuildCount() != rebuildCountBefore {
+		t.Fatalf("expected 0 full rebuilds, got %d", ledger.FullRebuildCount())
+	}
+
+	// 2. If DATABASE_URL is available, run live PostgreSQL commitment store integration test
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Log("DATABASE_URL not set; skipping live Postgres integration for production source")
+		return
+	}
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	pgCommitStore := reconciliation.NewPostgresIncrementalCommitmentStore(pool)
+	if err := pgCommitStore.SaveState(ctx, state); err != nil {
+		t.Fatalf("pgCommitStore.SaveState: %v", err)
+	}
+
+	prodDataStore := reconciliation.NewProductionPostgresFinancialDataStore(pool)
+	pgMC, found, err := prodDataStore.GetMaintainedCommitment(ctx, participantID, scope)
+	if err != nil {
+		t.Fatalf("prodDataStore.GetMaintainedCommitment: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected pg maintained commitment to be found")
+	}
+	if !reconciliation.EqualBytes(pgMC.Root, state.Root) {
+		t.Fatalf("pg root mismatch: got %x, want %x", pgMC.Root, state.Root)
+	}
+	if pgMC.Generation != state.Generation {
+		t.Fatalf("pg generation mismatch: got %q, want %q", pgMC.Generation, state.Generation)
+	}
+	if pgMC.BucketWidth != state.BucketWidth {
+		t.Fatalf("pg bucket width mismatch: got %v, want %v", pgMC.BucketWidth, state.BucketWidth)
+	}
+	if pgMC.CanonicalVersion != state.CanonicalVersion {
+		t.Fatalf("pg canonical version mismatch: got %s, want %s", pgMC.CanonicalVersion, state.CanonicalVersion)
+	}
+	if pgMC.AlgorithmVersion != state.AlgorithmVersion {
+		t.Fatalf("pg algorithm version mismatch: got %s, want %s", pgMC.AlgorithmVersion, state.AlgorithmVersion)
+	}
+	if pgMC.RecordCount != state.RecordCount {
+		t.Fatalf("pg record count mismatch: got %d, want %d", pgMC.RecordCount, state.RecordCount)
+	}
+}
+
+func TestNoSyntheticGeneration(t *testing.T) {
+	prodFiles := []string{
+		"incremental.go",
+		"participant_impl.go",
+		"financial_integrity.go",
+		"postgres_commitment_store.go",
+		"integrity.go",
+		"central.go",
+		"engine.go",
+	}
+
+	forbiddenPatterns := []string{
+		`"gen-1"`,
+		`"gen-legacy"`,
+		`fmt.Sprintf("gen%d"`,
+		`fmt.Sprintf("g%d"`,
+	}
+
+	for _, file := range prodFiles {
+		path := filepath.Join(".", file)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			path = filepath.Join("internal", "reconciliation", file)
+			content, err = os.ReadFile(path)
+			if err != nil {
+				path = filepath.Join("..", "reconciliation", file)
+				content, err = os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("failed to locate and read production file %s: %v", file, err)
+				}
+			}
+		}
+		str := string(content)
+		for _, pat := range forbiddenPatterns {
+			if strings.Contains(str, pat) {
+				t.Errorf("production file %s contains forbidden synthetic generation pattern %q", file, pat)
+			}
+		}
 	}
 }

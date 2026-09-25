@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/transactx/backend/internal/bank"
 )
 
@@ -27,15 +28,14 @@ type LedgerSnapshotSource interface {
 // caller-provided logical ledger data; no random identifiers or metrics are
 // generated. Every commitment uses the shared canonical/Merkle implementation.
 type MemoryParticipant struct {
-	mu             sync.RWMutex
-	participantID  string
-	partition      string
-	bucketWidth    time.Duration
-	capturedAt     time.Time
-	records        []CanonicalRecord
-	snapshots      map[string]participantSnapshot
-	current        map[string]string
-	nextGeneration uint64
+	mu            sync.RWMutex
+	participantID string
+	partition     string
+	bucketWidth   time.Duration
+	capturedAt    time.Time
+	records       []CanonicalRecord
+	snapshots     map[string]participantSnapshot
+	current       map[string]string
 }
 
 type participantSnapshot struct {
@@ -207,8 +207,11 @@ func (participant *MemoryParticipant) installSnapshot(scope Scope, state Increme
 	if old, ok := participant.current[key]; ok {
 		delete(participant.snapshots, old)
 	}
-	participant.nextGeneration++
-	generation := fmt.Sprintf("g%d", participant.nextGeneration)
+	generation := state.Generation
+	if generation == "" {
+		generation = uuid.New().String()
+		state.Generation = generation
+	}
 	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
 	participant.current[key] = generation
 	return generation
@@ -241,15 +244,14 @@ func (participant *MemoryParticipant) validateParticipant(requested string) erro
 // write participant state. The source remains authoritative for initialization
 // and explicit refresh; normal reads consume maintained derived state only.
 type RepositoryParticipant struct {
-	mu             sync.RWMutex
-	source         LedgerSnapshotSource
-	commitments    IncrementalCommitmentStore
-	participantID  string
-	partition      string
-	bucketWidth    time.Duration
-	snapshots      map[string]participantSnapshot
-	current        map[string]string
-	nextGeneration uint64
+	mu            sync.RWMutex
+	source        LedgerSnapshotSource
+	commitments   IncrementalCommitmentStore
+	participantID string
+	partition     string
+	bucketWidth   time.Duration
+	snapshots     map[string]participantSnapshot
+	current       map[string]string
 }
 
 func NewRepositoryParticipant(source LedgerSnapshotSource, participantID, partition string, bucketWidth time.Duration) (*RepositoryParticipant, error) {
@@ -449,8 +451,11 @@ func (participant *RepositoryParticipant) installSnapshot(scope Scope, state Inc
 	if old, ok := participant.current[key]; ok {
 		delete(participant.snapshots, old)
 	}
-	participant.nextGeneration++
-	generation := fmt.Sprintf("g%d", participant.nextGeneration)
+	generation := state.Generation
+	if generation == "" {
+		generation = uuid.New().String()
+		state.Generation = generation
+	}
 	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
 	participant.current[key] = generation
 	return generation

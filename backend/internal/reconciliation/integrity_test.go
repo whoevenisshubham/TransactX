@@ -1202,6 +1202,7 @@ func TestVulnerabilityProofRelabelingRejected(t *testing.T) {
 	relabelledProof := proofA
 	relabelledProof.ParticipantID = "BANK-B"
 	relabelledProof.BucketID.Partition = "BANK-B"
+	relabelledProof.Generation = trustedCtxB.Generation
 	// Sibling hashes, record, leaf hash, bucket root, expected root all left unchanged!
 
 	// Verifier expecting BANK-A rejects the relabelled proof

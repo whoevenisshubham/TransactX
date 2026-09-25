@@ -91,6 +91,7 @@ type IncrementalMerkleLedger struct {
 	partition    string
 	bucketWidth  time.Duration
 	scope        Scope
+	generation   string
 	buckets      []incrementalBucket
 	bucketIndex  map[string]int
 	records      map[recordIdentity]string
@@ -114,6 +115,7 @@ func NewIncrementalMerkleLedger(partition string, width time.Duration, scope Sco
 		partition:   partition,
 		bucketWidth: width,
 		scope:       scope,
+		generation:  uuid.New().String(),
 		bucketIndex: make(map[string]int),
 		records:     make(map[recordIdentity]string),
 	}, nil
@@ -211,6 +213,7 @@ func (ledger *IncrementalMerkleLedger) applyRecord(ctx context.Context, record C
 	}
 	ledger.records[identity] = bucketID.String()
 	ancestors := ledger.updateAncestorPath(bucketIndex)
+	ledger.generation = uuid.New().String()
 	return IncrementalUpdate{
 		Bucket:                  bucketID,
 		BucketsRecomputed:       1,
@@ -290,6 +293,7 @@ func (ledger *IncrementalMerkleLedger) Bootstrap(ctx context.Context, records []
 	ledger.levels = newLevels
 	ledger.totalRecords = len(records)
 	ledger.fullRebuilds++
+	ledger.generation = uuid.New().String()
 	result := IncrementalRebuildResult{
 		BucketsRecomputed:       len(newBuckets),
 		AncestorNodesRecomputed: countInternalHashes(newLevels),
@@ -348,6 +352,7 @@ func (ledger *IncrementalMerkleLedger) Restore(state IncrementalCommitmentState)
 	ledger.levels = cloneLevels(state.Levels)
 	ledger.totalRecords = state.RecordCount
 	ledger.fullRebuilds = state.RebuildCount
+	ledger.generation = state.Generation
 	ledger.mu.Unlock()
 	return nil
 }
@@ -415,6 +420,7 @@ func (ledger *IncrementalMerkleLedger) snapshotLocked() IncrementalCommitmentSta
 		CanonicalVersion: CanonicalVersion,
 		AlgorithmVersion: MerkleAlgorithmVersion,
 		Scope:            ledger.scope,
+		Generation:       ledger.generation,
 		Buckets:          buckets,
 		BucketRecords:    cloneBucketRecords(ledger.buckets),
 		Levels:           cloneLevels(ledger.levels),
@@ -558,6 +564,7 @@ type IncrementalCommitmentState struct {
 	CanonicalVersion string
 	AlgorithmVersion string
 	Scope            Scope
+	Generation       string
 	// CapturedAt is derived snapshot metadata. It is never part of canonical
 	// record bytes or any Merkle hash input.
 	CapturedAt    time.Time
@@ -655,6 +662,15 @@ func (store *MemoryIncrementalCommitmentStore) FindState(ctx context.Context, pa
 }
 
 func validateIncrementalState(state IncrementalCommitmentState) error {
+	return ValidateIncrementalState(state)
+}
+
+// ValidateIncrementalState validates that an IncrementalCommitmentState is internally consistent
+// and has all mandatory metadata, including non-empty Generation.
+func ValidateIncrementalState(state IncrementalCommitmentState) error {
+	if state.Generation == "" {
+		return fmt.Errorf("%w: incremental commitment generation is required", ErrInvalidIncrementalConfig)
+	}
 	if state.Partition == "" || state.BucketWidth <= 0 {
 		return fmt.Errorf("%w: persisted partition and positive bucket width are required", ErrInvalidIncrementalConfig)
 	}

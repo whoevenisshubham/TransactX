@@ -508,7 +508,7 @@ func (m *MemoryFinancialDataStore) GetMaintainedCommitment(ctx context.Context, 
 					BucketWidth:      st.BucketWidth,
 					CanonicalVersion: st.CanonicalVersion,
 					AlgorithmVersion: st.AlgorithmVersion,
-					Generation:       "gen-1",
+					Generation:       st.Generation,
 					Root:             append([]byte(nil), st.Root...),
 					RecordCount:      st.RecordCount,
 					Scope:            st.Scope,
@@ -526,7 +526,7 @@ func (m *MemoryFinancialDataStore) GetMaintainedCommitment(ctx context.Context, 
 			BucketWidth:      1 * time.Hour,
 			CanonicalVersion: CanonicalVersion,
 			AlgorithmVersion: MerkleAlgorithmVersion,
-			Generation:       "gen-legacy",
+			Generation:       uuid.NewSHA1(uuid.NameSpaceOID, []byte(key)).String(),
 			Root:             append([]byte(nil), root...),
 			RecordCount:      len(recs),
 			Scope:            scope,
@@ -573,8 +573,30 @@ type PostgresFinancialDataStore struct {
 	participantStore ParticipantCommitmentSource
 }
 
-func NewPostgresFinancialDataStore(pool *pgxpool.Pool) *PostgresFinancialDataStore {
-	return &PostgresFinancialDataStore{pool: pool}
+func NewPostgresFinancialDataStore(pool *pgxpool.Pool, commitmentStore ...IncrementalCommitmentStore) *PostgresFinancialDataStore {
+	var store IncrementalCommitmentStore
+	if len(commitmentStore) > 0 && commitmentStore[0] != nil {
+		store = commitmentStore[0]
+	} else if pool != nil {
+		store = NewPostgresIncrementalCommitmentStore(pool)
+	}
+	return &PostgresFinancialDataStore{
+		pool:        pool,
+		commitments: store,
+	}
+}
+
+// NewProductionPostgresFinancialDataStore constructs a PostgresFinancialDataStore explicitly configured
+// with a real PostgreSQL-backed durable commitment store (NewPostgresIncrementalCommitmentStore).
+func NewProductionPostgresFinancialDataStore(pool *pgxpool.Pool) *PostgresFinancialDataStore {
+	var store IncrementalCommitmentStore
+	if pool != nil {
+		store = NewPostgresIncrementalCommitmentStore(pool)
+	}
+	return &PostgresFinancialDataStore{
+		pool:        pool,
+		commitments: store,
+	}
 }
 
 // WithCommitmentStore injects an IncrementalCommitmentStore for maintained commitment resolution.
@@ -846,7 +868,7 @@ func (p *PostgresFinancialDataStore) GetMaintainedCommitment(ctx context.Context
 					BucketWidth:      st.BucketWidth,
 					CanonicalVersion: st.CanonicalVersion,
 					AlgorithmVersion: st.AlgorithmVersion,
-					Generation:       "gen-1",
+					Generation:       st.Generation,
 					Root:             append([]byte(nil), st.Root...),
 					RecordCount:      st.RecordCount,
 					Scope:            st.Scope,
