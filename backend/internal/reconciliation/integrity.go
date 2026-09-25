@@ -25,6 +25,7 @@ var (
 	ErrProofMalformedPath         = errors.New("malformed proof sibling path")
 	ErrProofIncompatibleVersion   = errors.New("incompatible proof version")
 	ErrMissingVerificationContext = errors.New("missing or incomplete trusted verification context")
+	ErrMissingProofGeneration     = errors.New("proof generation is required")
 )
 
 // SiblingOrder specifies the position of a sibling relative to the current node
@@ -162,7 +163,7 @@ type IntegrityProof struct {
 	// Scope identifies the ledger time window [From, To).
 	Scope Scope `json:"scope"`
 
-	// Generation is the participant commitment generation (e.g. "g1").
+	// Generation is the participant commitment generation.
 	// Generation is mandatory and must not be empty.
 	Generation string `json:"generation"`
 
@@ -186,19 +187,6 @@ type IntegrityProof struct {
 
 	// GenerationMetrics contains non-cryptographic performance telemetry.
 	GenerationMetrics ProofGenerationMetrics `json:"generationMetrics"`
-}
-
-// VerificationContext extracts the trusted context corresponding to this proof.
-func (p IntegrityProof) VerificationContext() ProofVerificationContext {
-	return ProofVerificationContext{
-		ParticipantID:    p.ParticipantID,
-		Scope:            p.Scope.Normalize(),
-		BucketID:         p.BucketID,
-		Generation:       p.Generation,
-		CanonicalVersion: p.CanonicalVersion,
-		AlgorithmVersion: p.AlgorithmVersion,
-		ExpectedRoot:     hashCopy(p.ExpectedRoot),
-	}
 }
 
 // SerializedBytes returns the deterministic JSON representation of the proof.
@@ -395,11 +383,7 @@ func GenerateProofFromState(state IncrementalCommitmentState, participantID stri
 		participantID = state.Partition
 	}
 	if generation == "" {
-		if state.RebuildCount > 0 {
-			generation = fmt.Sprintf("g%d", state.RebuildCount)
-		} else {
-			generation = "g1"
-		}
+		return IntegrityProof{}, fmt.Errorf("%w: commitment generation is required", ErrMissingProofGeneration)
 	}
 
 	target = target.Normalize()
@@ -559,6 +543,9 @@ func (e *IntegrityEngine) generateProofByTraversal(ctx context.Context, particip
 	rootRes, err := participant.GetRoot(ctx, scope)
 	if err != nil {
 		return IntegrityProof{}, err
+	}
+	if rootRes.Ref.Generation == "" {
+		return IntegrityProof{}, fmt.Errorf("%w: commitment generation is required", ErrMissingProofGeneration)
 	}
 	target = target.Normalize()
 	if !scopeContains(scope, target.OccurredAt) {

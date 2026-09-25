@@ -55,6 +55,34 @@ func buildTestParticipant(t *testing.T, participantID string, bucketWidth time.D
 	return p
 }
 
+// buildTrustedContext constructs a ProofVerificationContext from independent trusted sources:
+// participant.GetRoot (providing ParticipantID, actual commitment Generation, and expected Root),
+// independently known Scope, independently computed BucketID via BucketForRecord, and known
+// supported canonical and algorithm versions.
+//
+// CRITICAL SECURITY INVARIANT: No fields are ever copied or derived from an IntegrityProof.
+func buildTrustedContext(t *testing.T, ctx context.Context, participant reconciliation.ReconciliationParticipant, scope reconciliation.Scope, bucketWidth time.Duration, target reconciliation.CanonicalRecord) reconciliation.ProofVerificationContext {
+	t.Helper()
+	rootRes, err := participant.GetRoot(ctx, scope)
+	if err != nil {
+		t.Fatalf("failed to get root for trusted context: %v", err)
+	}
+	participantID := rootRes.Ref.ParticipantID
+	expectedBucket, err := reconciliation.BucketForRecord(target, participantID, bucketWidth)
+	if err != nil {
+		t.Fatalf("failed to calculate bucket for trusted context: %v", err)
+	}
+	return reconciliation.ProofVerificationContext{
+		ParticipantID:    participantID,
+		Scope:            scope.Normalize(),
+		BucketID:         expectedBucket,
+		Generation:       rootRes.Ref.Generation,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		ExpectedRoot:     rootRes.Root,
+	}
+}
+
 // TestGenerateProof verifies proof generation produces a valid, complete typed proof structure with mandatory Generation.
 func TestGenerateProof(t *testing.T) {
 	ctx := context.Background()
@@ -127,8 +155,8 @@ func TestVerifyProof(t *testing.T) {
 		t.Fatalf("GenerateProof: %v", err)
 	}
 
-	// 1. Direct verification using ProofVerificationContext
-	trustedCtx := proof.VerificationContext()
+	// 1. Direct verification using ProofVerificationContext from independent trusted sources
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 6*time.Hour, target)
 	res, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
 	if err != nil {
 		t.Fatalf("VerifyProof failed: %v", err)
@@ -152,17 +180,17 @@ func TestVerifyProof(t *testing.T) {
 		t.Errorf("rootVerified = false, want true")
 	}
 
-	// 2. Verification using full typed options
+	// 2. Verification using full typed options from independent trusted sources
 	resOpt, err := reconciliation.VerifyProofWithOptions(
 		ctx,
 		proof,
-		reconciliation.WithExpectedParticipant("BANK-A"),
+		reconciliation.WithExpectedParticipant(trustedCtx.ParticipantID),
 		reconciliation.WithExpectedScope(scope),
-		reconciliation.WithExpectedBucket(proof.BucketID),
-		reconciliation.WithExpectedGeneration(proof.Generation),
+		reconciliation.WithExpectedBucket(trustedCtx.BucketID),
+		reconciliation.WithExpectedGeneration(trustedCtx.Generation),
 		reconciliation.WithExpectedCanonicalVersion(reconciliation.CanonicalVersion),
 		reconciliation.WithExpectedAlgorithmVersion(reconciliation.MerkleAlgorithmVersion),
-		reconciliation.WithExpectedRoot(proof.ExpectedRoot),
+		reconciliation.WithExpectedRoot(trustedCtx.ExpectedRoot),
 	)
 	if err != nil {
 		t.Fatalf("VerifyProofWithOptions failed: %v", err)
@@ -184,7 +212,7 @@ func TestVerifyModifiedRecordFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[3])
 
 	// Mutate AmountPaise
 	tampered := proof
@@ -224,7 +252,7 @@ func TestVerifyModifiedLeafFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[2])
 
 	tampered := proof
 	tampered.LeafHash = append([]byte(nil), proof.LeafHash...)
@@ -247,7 +275,7 @@ func TestVerifyModifiedSiblingFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 6*time.Hour, records[5])
 
 	// 1. Mutate BucketPath sibling
 	if len(proof.BucketPath) > 0 {
@@ -296,7 +324,7 @@ func TestVerifyWrongRootFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[1])
 
 	// Case A: proof.ExpectedRoot is modified
 	tampered := proof
@@ -308,7 +336,7 @@ func TestVerifyWrongRootFails(t *testing.T) {
 
 	// Case B: Trusted context has wrong expected root
 	wrongRootCtx := trustedCtx
-	wrongRootCtx.ExpectedRoot = append([]byte(nil), proof.ExpectedRoot...)
+	wrongRootCtx.ExpectedRoot = append([]byte(nil), trustedCtx.ExpectedRoot...)
 	wrongRootCtx.ExpectedRoot[0] ^= 0xEE
 	if _, err := reconciliation.VerifyProof(ctx, proof, wrongRootCtx); err == nil || !errors.Is(err, reconciliation.ErrProofRootMismatch) {
 		t.Errorf("expected ErrProofRootMismatch when context ExpectedRoot differs, got %v", err)
@@ -327,7 +355,7 @@ func TestVerifyWrongBucketFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	// Case A: Mutate BucketID start time
 	tampered := proof
@@ -363,7 +391,7 @@ func TestVerifyWrongScopeFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	// Case A: proof.Scope modified so record is outside scope
 	tampered := proof
@@ -392,7 +420,7 @@ func TestVerifyWrongParticipantFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	// Case A: proof.ParticipantID changed to BANK-B while bucket partition is BANK-A
 	tampered := proof
@@ -422,7 +450,7 @@ func TestVerifyWrongVersionFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	tampered := proof
 	tampered.CanonicalVersion = "v2"
@@ -443,7 +471,7 @@ func TestVerifyWrongAlgorithmFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	tampered := proof
 	tampered.AlgorithmVersion = "merkle-v2"
@@ -464,7 +492,7 @@ func TestVerifyTruncatedProofFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 6*time.Hour, records[4])
 
 	// Truncate BucketPath
 	if len(proof.BucketPath) > 0 {
@@ -497,7 +525,7 @@ func TestVerifySiblingOrderFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 6*time.Hour, records[2])
 
 	// Case A: Swap LEFT and RIGHT order
 	swapped := proof
@@ -547,7 +575,7 @@ func TestVerifyOddTreeProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateProof on odd tree: %v", err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, time.Hour, target)
 
 	// Verify that proof contains at least one SiblingPromoted step
 	hasPromoted := false
@@ -607,7 +635,8 @@ func TestProofForFirstBucket(t *testing.T) {
 		t.Errorf("bucket start = %v, want %v", proof.BucketID.Start, base)
 	}
 
-	res, err := reconciliation.VerifyProof(ctx, proof, proof.VerificationContext())
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, time.Hour, target)
+	res, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
 	if err != nil || !res.Valid {
 		t.Fatalf("VerifyProof for first bucket failed: %v", err)
 	}
@@ -632,7 +661,8 @@ func TestProofForMiddleBucket(t *testing.T) {
 		t.Errorf("bucket start = %v, want %v", proof.BucketID.Start, expectedStart)
 	}
 
-	res, err := reconciliation.VerifyProof(ctx, proof, proof.VerificationContext())
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, time.Hour, target)
+	res, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
 	if err != nil || !res.Valid {
 		t.Fatalf("VerifyProof for middle bucket failed: %v", err)
 	}
@@ -657,7 +687,8 @@ func TestProofForLastBucket(t *testing.T) {
 		t.Errorf("bucket start = %v, want %v", proof.BucketID.Start, expectedStart)
 	}
 
-	res, err := reconciliation.VerifyProof(ctx, proof, proof.VerificationContext())
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, time.Hour, target)
+	res, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
 	if err != nil || !res.Valid {
 		t.Fatalf("VerifyProof for last bucket failed: %v", err)
 	}
@@ -734,7 +765,8 @@ func TestProofGenerationDoesNotMutateFinancialState(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GenerateProof: %v", err)
 		}
-		res, err := reconciliation.VerifyProof(ctx, proof, proof.VerificationContext())
+		trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, rec)
+		res, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
 		if err != nil || !res.Valid {
 			t.Fatalf("VerifyProof: %v", err)
 		}
@@ -798,7 +830,8 @@ func TestProofOneRecordBucket(t *testing.T) {
 		t.Errorf("bucket root must equal global root in 1-bucket tree")
 	}
 
-	res, err := reconciliation.VerifyProof(ctx, proof, proof.VerificationContext())
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 2*time.Hour, records[0])
+	res, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
 	if err != nil || !res.Valid {
 		t.Fatalf("VerifyProof on 1-record bucket failed: %v", err)
 	}
@@ -820,7 +853,8 @@ func TestProofLeftAndRightChild(t *testing.T) {
 	if len(proof0.BucketPath) != 1 || proof0.BucketPath[0].Order != reconciliation.SiblingRight {
 		t.Errorf("proof0 step 0 order = %q, want %q", proof0.BucketPath[0].Order, reconciliation.SiblingRight)
 	}
-	if res, err := reconciliation.VerifyProof(ctx, proof0, proof0.VerificationContext()); err != nil || !res.Valid {
+	trustedCtx0 := buildTrustedContext(t, ctx, participant, scope, 1*time.Hour, records[0])
+	if res, err := reconciliation.VerifyProof(ctx, proof0, trustedCtx0); err != nil || !res.Valid {
 		t.Fatalf("VerifyProof proof0: %v", err)
 	}
 
@@ -832,7 +866,8 @@ func TestProofLeftAndRightChild(t *testing.T) {
 	if len(proof1.BucketPath) != 1 || proof1.BucketPath[0].Order != reconciliation.SiblingLeft {
 		t.Errorf("proof1 step 0 order = %q, want %q", proof1.BucketPath[0].Order, reconciliation.SiblingLeft)
 	}
-	if res, err := reconciliation.VerifyProof(ctx, proof1, proof1.VerificationContext()); err != nil || !res.Valid {
+	trustedCtx1 := buildTrustedContext(t, ctx, participant, scope, 1*time.Hour, records[1])
+	if res, err := reconciliation.VerifyProof(ctx, proof1, trustedCtx1); err != nil || !res.Valid {
 		t.Fatalf("VerifyProof proof1: %v", err)
 	}
 }
@@ -849,7 +884,7 @@ func TestVerifyExtraProofElementsFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 2*time.Hour, records[0])
 
 	tampered := proof
 	extraStep := reconciliation.ProofStep{
@@ -885,7 +920,8 @@ func TestProofSerializeRoundTrip(t *testing.T) {
 		t.Fatalf("DeserializeProof: %v", err)
 	}
 
-	res, err := reconciliation.VerifyProof(ctx, restored, restored.VerificationContext())
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 2*time.Hour, records[3])
+	res, err := reconciliation.VerifyProof(ctx, restored, trustedCtx)
 	if err != nil || !res.Valid {
 		t.Fatalf("VerifyProof on restored proof failed: %v", err)
 	}
@@ -930,8 +966,8 @@ func TestVerifyRelabeledParticipantAndBucketFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Trusted context strictly expects BANK-A
-	trustedCtx := proof.VerificationContext()
+	// Trusted context strictly expects BANK-A from independent source
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 	if trustedCtx.ParticipantID != "BANK-A" {
 		t.Fatalf("expected trustedCtx.ParticipantID to be BANK-A, got %q", trustedCtx.ParticipantID)
 	}
@@ -963,7 +999,7 @@ func TestVerifyWrongBroaderScopeFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	// Attacker broadens scope to 24 hours (record at base + 10s is still within this broader scope)
 	tampered := proof
@@ -988,7 +1024,7 @@ func TestVerifyWrongContainingScopeFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	// Attacker shifts scope endpoints by 1 hour backwards/forwards: [base - 1h, base + 13h)
 	// Record at base + 10s is still contained, and bucket [base, base + 4h) is still contained
@@ -1014,14 +1050,14 @@ func TestVerifyWrongGenerationFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trustedCtx := proof.VerificationContext()
-	if trustedCtx.Generation != "g1" {
-		t.Fatalf("expected generation to be g1, got %q", trustedCtx.Generation)
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
+	if trustedCtx.Generation == "" {
+		t.Fatalf("expected non-empty generation in trusted context")
 	}
 
-	// Change Generation to g2 while all Merkle paths and roots remain valid
+	// Change Generation to different generation string while all Merkle paths and roots remain valid
 	tampered := proof
-	tampered.Generation = "g2"
+	tampered.Generation = "different-generation"
 
 	if _, err := reconciliation.VerifyProof(ctx, tampered, trustedCtx); err == nil || !errors.Is(err, reconciliation.ErrProofGenerationMismatch) {
 		t.Errorf("expected ErrProofGenerationMismatch, got %v", err)
@@ -1042,7 +1078,7 @@ func TestVerifyWrongBucketIdentityFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	// Trusted context expects bucket 0: [base, base + 4h)
 	// Attacker provides proof claiming bucket 1: [base + 4h, base + 8h)
@@ -1068,7 +1104,7 @@ func TestVerifyWrongVersionContextFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	trustedCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
 
 	// Mismatched CanonicalVersion in trusted context
 	wrongCanonCtx := trustedCtx
@@ -1106,20 +1142,28 @@ func TestVerifyMissingTrustedContextFails(t *testing.T) {
 	}
 
 	// 2. Context missing generation
-	partialCtx := proof.VerificationContext()
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, records[0])
+	partialCtx := trustedCtx
 	partialCtx.Generation = ""
 	if _, err := reconciliation.VerifyProof(ctx, proof, partialCtx); err == nil || !errors.Is(err, reconciliation.ErrMissingVerificationContext) {
 		t.Errorf("expected ErrMissingVerificationContext when generation is missing, got %v", err)
 	}
 
 	// 3. Context missing expected root
-	partialCtx = proof.VerificationContext()
+	partialCtx = trustedCtx
 	partialCtx.ExpectedRoot = nil
 	if _, err := reconciliation.VerifyProof(ctx, proof, partialCtx); err == nil || !errors.Is(err, reconciliation.ErrMissingVerificationContext) {
 		t.Errorf("expected ErrMissingVerificationContext when expected root is nil, got %v", err)
 	}
 
-	// 4. VerifyProofWithOptions with zero options
+	// 4. Context missing participant
+	partialCtx = trustedCtx
+	partialCtx.ParticipantID = ""
+	if _, err := reconciliation.VerifyProof(ctx, proof, partialCtx); err == nil || !errors.Is(err, reconciliation.ErrMissingVerificationContext) {
+		t.Errorf("expected ErrMissingVerificationContext when participant ID is missing, got %v", err)
+	}
+
+	// 5. VerifyProofWithOptions with zero options
 	if _, err := reconciliation.VerifyProofWithOptions(ctx, proof); err == nil || !errors.Is(err, reconciliation.ErrMissingVerificationContext) {
 		t.Errorf("expected ErrMissingVerificationContext when no options provided, got %v", err)
 	}
@@ -1142,10 +1186,11 @@ func TestVulnerabilityProofRelabelingRejected(t *testing.T) {
 	recordsB[0].AmountPaise = 9999999
 	partB := buildTestParticipant(t, "BANK-B", 4*time.Hour, recordsB)
 
-	rootResB, err := partB.GetRoot(ctx, scope)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 1. Build BANK-A trusted context from BANK-A root/reference
+	trustedCtxA := buildTrustedContext(t, ctx, partA, scope, 4*time.Hour, records[0])
+
+	// 2. Build BANK-B trusted context from BANK-B root/reference
+	trustedCtxB := buildTrustedContext(t, ctx, partB, scope, 4*time.Hour, records[0])
 
 	// Generate authentic proof from BANK-A
 	proofA, err := reconciliation.GenerateProof(ctx, partA, scope, records[0])
@@ -1159,23 +1204,99 @@ func TestVulnerabilityProofRelabelingRejected(t *testing.T) {
 	relabelledProof.BucketID.Partition = "BANK-B"
 	// Sibling hashes, record, leaf hash, bucket root, expected root all left unchanged!
 
-	// 1. Verifier expecting BANK-A rejects the relabelled proof
-	trustedCtxA := proofA.VerificationContext()
+	// Verifier expecting BANK-A rejects the relabelled proof
 	if _, err := reconciliation.VerifyProof(ctx, relabelledProof, trustedCtxA); err == nil || !errors.Is(err, reconciliation.ErrProofParticipantMismatch) {
 		t.Fatalf("expected ErrProofParticipantMismatch when relabelled proof is verified against BANK-A context, got %v", err)
 	}
 
-	// 2. Verifier expecting BANK-B rejects the relabelled proof because the Merkle root belongs to BANK-A
-	trustedCtxB := reconciliation.ProofVerificationContext{
-		ParticipantID:    "BANK-B",
-		Scope:            scope,
-		BucketID:         relabelledProof.BucketID,
-		Generation:       rootResB.Ref.Generation,
-		CanonicalVersion: reconciliation.CanonicalVersion,
-		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
-		ExpectedRoot:     rootResB.Root,
-	}
+	// Verifier expecting BANK-B rejects the relabelled proof because the Merkle root belongs to BANK-A
 	if _, err := reconciliation.VerifyProof(ctx, relabelledProof, trustedCtxB); err == nil || !errors.Is(err, reconciliation.ErrProofRootMismatch) {
 		t.Fatalf("expected ErrProofRootMismatch when relabelled proof is verified against BANK-B context, got %v", err)
+	}
+}
+
+// TestTrustedContextIsIndependentFromProof proves that the trusted verification context
+// is constructed independently from the proof and that tampering with any proof context
+// field (ParticipantID, BucketID, Scope, Generation, ExpectedRoot) is rejected.
+func TestTrustedContextIsIndependentFromProof(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(12 * time.Hour)}
+	records := createIntegrityRecords(base, 12, 12*time.Hour)
+	participant := buildTestParticipant(t, "BANK-A", 4*time.Hour, records)
+
+	target := records[0]
+	proof, err := reconciliation.GenerateProof(ctx, participant, scope, target)
+	if err != nil {
+		t.Fatalf("GenerateProof: %v", err)
+	}
+
+	// Construct trusted context independently from participant and test parameters (never copying from proof)
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 4*time.Hour, target)
+
+	// Baseline: unmodified proof against independent trusted context verifies successfully
+	res, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
+	if err != nil || !res.Valid {
+		t.Fatalf("VerifyProof with independent trusted context failed: %v", err)
+	}
+
+	// 1. Mutate proof ParticipantID
+	tamperedPart := proof
+	tamperedPart.ParticipantID = "BANK-B"
+	if _, err := reconciliation.VerifyProof(ctx, tamperedPart, trustedCtx); err == nil || !errors.Is(err, reconciliation.ErrProofParticipantMismatch) {
+		t.Errorf("expected ErrProofParticipantMismatch on mutated ParticipantID, got %v", err)
+	}
+
+	// 2. Mutate proof BucketID
+	tamperedBucket := proof
+	tamperedBucket.BucketID.Start = tamperedBucket.BucketID.Start.Add(4 * time.Hour)
+	if _, err := reconciliation.VerifyProof(ctx, tamperedBucket, trustedCtx); err == nil || !errors.Is(err, reconciliation.ErrProofBucketMismatch) {
+		t.Errorf("expected ErrProofBucketMismatch on mutated BucketID, got %v", err)
+	}
+
+	// 3. Mutate proof Scope
+	tamperedScope := proof
+	tamperedScope.Scope = reconciliation.Scope{From: base.Add(time.Hour), To: base.Add(13 * time.Hour)}
+	if _, err := reconciliation.VerifyProof(ctx, tamperedScope, trustedCtx); err == nil || !errors.Is(err, reconciliation.ErrProofScopeMismatch) {
+		t.Errorf("expected ErrProofScopeMismatch on mutated Scope, got %v", err)
+	}
+
+	// 4. Mutate proof Generation
+	tamperedGen := proof
+	tamperedGen.Generation = "mutated-generation"
+	if _, err := reconciliation.VerifyProof(ctx, tamperedGen, trustedCtx); err == nil || !errors.Is(err, reconciliation.ErrProofGenerationMismatch) {
+		t.Errorf("expected ErrProofGenerationMismatch on mutated Generation, got %v", err)
+	}
+
+	// 5. Mutate proof ExpectedRoot
+	tamperedRoot := proof
+	tamperedRoot.ExpectedRoot = append([]byte(nil), proof.ExpectedRoot...)
+	tamperedRoot.ExpectedRoot[0] ^= 0xFF
+	if _, err := reconciliation.VerifyProof(ctx, tamperedRoot, trustedCtx); err == nil || !errors.Is(err, reconciliation.ErrProofRootMismatch) {
+		t.Errorf("expected ErrProofRootMismatch on mutated ExpectedRoot, got %v", err)
+	}
+}
+
+// TestGenerateProofMissingGenerationFails asserts that GenerateProofFromState with empty generation fails.
+func TestGenerateProofMissingGenerationFails(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
+	records := createIntegrityRecords(base, 4, 4*time.Hour)
+
+	ledger, err := reconciliation.NewIncrementalMerkleLedger("BANK-A", 2*time.Hour, scope)
+	if err != nil {
+		t.Fatalf("NewIncrementalMerkleLedger: %v", err)
+	}
+	if _, err := ledger.Bootstrap(ctx, records); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	state := ledger.Snapshot()
+
+	// Call GenerateProofFromState with empty generation string
+	_, err = reconciliation.GenerateProofFromState(state, "BANK-A", "", records[0])
+	if err == nil || !errors.Is(err, reconciliation.ErrMissingProofGeneration) {
+		t.Fatalf("expected ErrMissingProofGeneration when generation is empty, got %v", err)
 	}
 }
