@@ -276,6 +276,20 @@ func NewRepositoryParticipantWithCommitmentStore(source LedgerSnapshotSource, pa
 	return &RepositoryParticipant{source: source, commitments: commitments, participantID: participantID, partition: partition, bucketWidth: bucketWidth, snapshots: make(map[string]participantSnapshot), current: make(map[string]string)}, nil
 }
 
+// BucketWidth returns the configured bucket width for the participant.
+func (participant *RepositoryParticipant) BucketWidth() time.Duration {
+	participant.mu.RLock()
+	defer participant.mu.RUnlock()
+	return participant.bucketWidth
+}
+
+// Partition returns the configured partition for the participant.
+func (participant *RepositoryParticipant) Partition() string {
+	participant.mu.RLock()
+	defer participant.mu.RUnlock()
+	return participant.partition
+}
+
 // Initialize explicitly materializes a commitment from the authoritative
 // participant ledger. This is the only normal API path that may call
 // Bootstrap; it is intended for initial population or recovery.

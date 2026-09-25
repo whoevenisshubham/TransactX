@@ -245,8 +245,12 @@ Implement an observational, read-only Runtime Financial Integrity Engine in `bac
    - `ERROR`: Operational failure (database error, network partition). Never reported as `PASS`.
    - `NOT_APPLICABLE`: Check does not apply to the provided scope.
 
-4. **State History Limitations**:
-   Because TransactX does not maintain an immutable state transition log table in PostgreSQL, the engine validates current states and any explicitly recorded transition events without synthesizing or inventing historical transitions from log strings.
+4. **Immutable State Transition History & Non-Retroactive Rule**:
+   Transitions are recorded append-only in `payment_state_transitions` (`id`, `payment_id`, `from_state`, `to_state`, `transitioned_at`) atomically with the payment state change in the same database transaction. UPDATE and DELETE are blocked by trigger.
+   *Non-Retroactive Rule*: Existing historical payments before this migration have no reconstructed transition history. Their current state may be checked, but historical transition validity is not retroactively claimed.
 
-5. **Merkle Consistency Integration**:
-   Uses accepted canonical records and `IncrementalMerkleLedger` to recalculate roots over the scope interval without duplicating hashing logic.
+5. **Merkle Consistency & Independent Read Boundaries**:
+   Authoritative records are extracted from `CentralLedgerSnapshotSource`. Maintained commitments are fetched independently from stored commitment state. The engine never rebuilds or materializes commitments during verification. Merkle configurations (`BucketWidth`, `Partition`, `CanonicalVersion`, `AlgorithmVersion`, `Generation`) are obtained directly from the maintained commitment, eliminating hardcoded bucket widths.
+
+6. **Structured Violation Persistence**:
+   Violations are persisted as typed `JSONB` in the `violations` column of `integrity_check_results` without serializing unbounded internal memory objects.

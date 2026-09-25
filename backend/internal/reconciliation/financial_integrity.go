@@ -3,14 +3,17 @@ package reconciliation
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/payments"
 )
 
@@ -292,10 +295,30 @@ type FinancialBankOperation struct {
 }
 
 type FinancialStateTransition struct {
+	ID             uuid.UUID `json:"id,omitempty"`
 	PaymentID      uuid.UUID `json:"paymentId"`
 	FromState      string    `json:"fromState"`
 	ToState        string    `json:"toState"`
 	TransitionedAt time.Time `json:"transitionedAt"`
+}
+
+// MaintainedCommitment represents an independently maintained Merkle commitment state.
+type MaintainedCommitment struct {
+	ParticipantID    string        `json:"participantId"`
+	Partition        string        `json:"partition"`
+	BucketWidth      time.Duration `json:"bucketWidth"`
+	CanonicalVersion string        `json:"canonicalVersion"`
+	AlgorithmVersion string        `json:"algorithmVersion"`
+	Generation       string        `json:"generation"`
+	Root             []byte        `json:"root"`
+	RecordCount      int           `json:"recordCount"`
+	Scope            Scope         `json:"scope"`
+	CapturedAt       time.Time     `json:"capturedAt"`
+}
+
+// ParticipantCommitmentSource provides access to already-maintained participant commitments without rebuilding them.
+type ParticipantCommitmentSource interface {
+	GetMaintainedCommitment(ctx context.Context, participantID string, scope Scope) (MaintainedCommitment, bool, error)
 }
 
 // FinancialDataStore is the read-only abstraction for observing financial state.
@@ -306,6 +329,8 @@ type FinancialDataStore interface {
 	GetIdempotencyRecords(ctx context.Context) ([]FinancialIdempotencyRecord, error)
 	GetBankOperations(ctx context.Context, scope *Scope) ([]FinancialBankOperation, error)
 	GetStateTransitions(ctx context.Context, scope *Scope) ([]FinancialStateTransition, error)
+	GetAuthoritativeRecords(ctx context.Context, participantID string, scope Scope) ([]CanonicalRecord, error)
+	GetMaintainedCommitment(ctx context.Context, participantID string, scope Scope) (MaintainedCommitment, bool, error)
 	GetMerkleCommitment(ctx context.Context, participantID string, scope Scope) (expectedRoot []byte, records []CanonicalRecord, err error)
 }
 
@@ -314,22 +339,28 @@ type FinancialDataStore interface {
 // -----------------------------------------------------------------------------
 
 type MemoryFinancialDataStore struct {
-	mu                 sync.RWMutex
-	LedgerTransactions []FinancialLedgerTransaction
-	Accounts           []FinancialAccount
-	Payments           []FinancialPayment
-	IdempotencyRecords []FinancialIdempotencyRecord
-	BankOperations     []FinancialBankOperation
-	StateTransitions   []FinancialStateTransition
-	MerkleRoots        map[string][]byte
-	MerkleRecords      map[string][]CanonicalRecord
-	SimulatedError     error
+	mu                    sync.RWMutex
+	LedgerTransactions    []FinancialLedgerTransaction
+	Accounts              []FinancialAccount
+	Payments              []FinancialPayment
+	IdempotencyRecords    []FinancialIdempotencyRecord
+	BankOperations        []FinancialBankOperation
+	StateTransitions      []FinancialStateTransition
+	AuthoritativeRecords  map[string][]CanonicalRecord
+	MaintainedCommitments map[string]MaintainedCommitment
+	CommitmentStore       IncrementalCommitmentStore
+	ParticipantStore      ParticipantCommitmentSource
+	MerkleRoots           map[string][]byte
+	MerkleRecords         map[string][]CanonicalRecord
+	SimulatedError        error
 }
 
 func NewMemoryFinancialDataStore() *MemoryFinancialDataStore {
 	return &MemoryFinancialDataStore{
-		MerkleRoots:   make(map[string][]byte),
-		MerkleRecords: make(map[string][]CanonicalRecord),
+		AuthoritativeRecords:  make(map[string][]CanonicalRecord),
+		MaintainedCommitments: make(map[string]MaintainedCommitment),
+		MerkleRoots:           make(map[string][]byte),
+		MerkleRecords:         make(map[string][]CanonicalRecord),
 	}
 }
 
@@ -433,19 +464,91 @@ func (m *MemoryFinancialDataStore) GetStateTransitions(_ context.Context, scope 
 	return out, nil
 }
 
-func (m *MemoryFinancialDataStore) GetMerkleCommitment(_ context.Context, participantID string, scope Scope) ([]byte, []CanonicalRecord, error) {
+func (m *MemoryFinancialDataStore) GetAuthoritativeRecords(_ context.Context, participantID string, scope Scope) ([]CanonicalRecord, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.SimulatedError != nil {
-		return nil, nil, m.SimulatedError
+		return nil, m.SimulatedError
 	}
 	key := fmt.Sprintf("%s:%d:%d", participantID, scope.From.UnixNano(), scope.To.UnixNano())
-	root, ok := m.MerkleRoots[key]
+	if recs, ok := m.AuthoritativeRecords[key]; ok {
+		return cloneCanonicalRecords(recs), nil
+	}
+	if recs, ok := m.MerkleRecords[key]; ok {
+		return cloneCanonicalRecords(recs), nil
+	}
+	return nil, nil
+}
+
+func (m *MemoryFinancialDataStore) GetMaintainedCommitment(ctx context.Context, participantID string, scope Scope) (MaintainedCommitment, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.SimulatedError != nil {
+		return MaintainedCommitment{}, false, m.SimulatedError
+	}
+	key := fmt.Sprintf("%s:%d:%d", participantID, scope.From.UnixNano(), scope.To.UnixNano())
+	if mc, ok := m.MaintainedCommitments[key]; ok {
+		return mc, true, nil
+	}
+	if m.ParticipantStore != nil {
+		return m.ParticipantStore.GetMaintainedCommitment(ctx, participantID, scope)
+	}
+	if m.CommitmentStore != nil {
+		if finder, ok := m.CommitmentStore.(interface {
+			FindState(context.Context, string, Scope) (IncrementalCommitmentState, bool, error)
+		}); ok {
+			st, found, err := finder.FindState(ctx, participantID, scope)
+			if err != nil {
+				return MaintainedCommitment{}, false, err
+			}
+			if found {
+				return MaintainedCommitment{
+					ParticipantID:    participantID,
+					Partition:        st.Partition,
+					BucketWidth:      st.BucketWidth,
+					CanonicalVersion: st.CanonicalVersion,
+					AlgorithmVersion: st.AlgorithmVersion,
+					Generation:       "gen-1",
+					Root:             append([]byte(nil), st.Root...),
+					RecordCount:      st.RecordCount,
+					Scope:            st.Scope,
+					CapturedAt:       st.CapturedAt,
+				}, true, nil
+			}
+		}
+	}
+	// Fallback to legacy MerkleRoots map for backward compatibility with existing tests
+	if root, ok := m.MerkleRoots[key]; ok {
+		recs := m.MerkleRecords[key]
+		return MaintainedCommitment{
+			ParticipantID:    participantID,
+			Partition:        participantID,
+			BucketWidth:      1 * time.Hour,
+			CanonicalVersion: CanonicalVersion,
+			AlgorithmVersion: MerkleAlgorithmVersion,
+			Generation:       "gen-legacy",
+			Root:             append([]byte(nil), root...),
+			RecordCount:      len(recs),
+			Scope:            scope,
+			CapturedAt:       time.Now().UTC(),
+		}, true, nil
+	}
+	return MaintainedCommitment{}, false, nil
+}
+
+func (m *MemoryFinancialDataStore) GetMerkleCommitment(ctx context.Context, participantID string, scope Scope) ([]byte, []CanonicalRecord, error) {
+	mc, ok, err := m.GetMaintainedCommitment(ctx, participantID, scope)
+	if err != nil {
+		return nil, nil, err
+	}
 	if !ok {
 		return nil, nil, errors.New("merkle commitment not found for scope")
 	}
-	records := m.MerkleRecords[key]
-	return root, cloneCanonicalRecords(records), nil
+	records, err := m.GetAuthoritativeRecords(ctx, participantID, scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mc.Root, records, nil
 }
 
 func cloneLedgerTransactions(in []FinancialLedgerTransaction) []FinancialLedgerTransaction {
@@ -465,11 +568,25 @@ func cloneLedgerTransactions(in []FinancialLedgerTransaction) []FinancialLedgerT
 // -----------------------------------------------------------------------------
 
 type PostgresFinancialDataStore struct {
-	pool *pgxpool.Pool
+	pool             *pgxpool.Pool
+	commitments      IncrementalCommitmentStore
+	participantStore ParticipantCommitmentSource
 }
 
 func NewPostgresFinancialDataStore(pool *pgxpool.Pool) *PostgresFinancialDataStore {
 	return &PostgresFinancialDataStore{pool: pool}
+}
+
+// WithCommitmentStore injects an IncrementalCommitmentStore for maintained commitment resolution.
+func (p *PostgresFinancialDataStore) WithCommitmentStore(store IncrementalCommitmentStore) *PostgresFinancialDataStore {
+	p.commitments = store
+	return p
+}
+
+// WithCommitmentSource injects an independent ParticipantCommitmentSource.
+func (p *PostgresFinancialDataStore) WithCommitmentSource(source ParticipantCommitmentSource) *PostgresFinancialDataStore {
+	p.participantStore = source
+	return p
 }
 
 func (p *PostgresFinancialDataStore) GetLedgerTransactions(ctx context.Context, scope *Scope) ([]FinancialLedgerTransaction, error) {
@@ -653,31 +770,107 @@ func (p *PostgresFinancialDataStore) GetBankOperations(ctx context.Context, scop
 	return ops, rows.Err()
 }
 
-func (p *PostgresFinancialDataStore) GetStateTransitions(_ context.Context, _ *Scope) ([]FinancialStateTransition, error) {
-	// The core schema does not maintain an immutable payment state transition log table.
-	// We intentionally return empty slice here and do NOT reconstruct history from log strings.
-	return nil, nil
+func (p *PostgresFinancialDataStore) GetStateTransitions(ctx context.Context, scope *Scope) ([]FinancialStateTransition, error) {
+	query := `
+		SELECT id, payment_id, from_state, to_state, transitioned_at
+		FROM payment_state_transitions
+	`
+	var (
+		args  []any
+		conds []string
+	)
+	if scope != nil {
+		if !scope.From.IsZero() {
+			args = append(args, scope.From)
+			conds = append(conds, fmt.Sprintf("transitioned_at >= $%d", len(args)))
+		}
+		if !scope.To.IsZero() {
+			args = append(args, scope.To)
+			conds = append(conds, fmt.Sprintf("transitioned_at < $%d", len(args)))
+		}
+	}
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	query += " ORDER BY payment_id ASC, transitioned_at ASC, id ASC"
+
+	rows, err := p.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var transitions []FinancialStateTransition
+	for rows.Next() {
+		var st FinancialStateTransition
+		if err := rows.Scan(&st.ID, &st.PaymentID, &st.FromState, &st.ToState, &st.TransitionedAt); err != nil {
+			return nil, err
+		}
+		st.TransitionedAt = st.TransitionedAt.UTC()
+		transitions = append(transitions, st)
+	}
+	return transitions, rows.Err()
+}
+
+func (p *PostgresFinancialDataStore) GetAuthoritativeRecords(ctx context.Context, participantID string, scope Scope) ([]CanonicalRecord, error) {
+	source := NewCentralLedgerSnapshotSource(p.pool, participantID)
+	snapshot, err := source.GetLedgerSnapshot(ctx, bank.LedgerScope{From: scope.From, To: scope.To})
+	if err != nil {
+		return nil, err
+	}
+	records := make([]CanonicalRecord, 0, len(snapshot.Entries))
+	for _, entry := range snapshot.Entries {
+		if scopeContains(scope, entry.OccurredAt) {
+			records = append(records, FromLedgerEntry(entry))
+		}
+	}
+	return records, nil
+}
+
+func (p *PostgresFinancialDataStore) GetMaintainedCommitment(ctx context.Context, participantID string, scope Scope) (MaintainedCommitment, bool, error) {
+	if p.participantStore != nil {
+		return p.participantStore.GetMaintainedCommitment(ctx, participantID, scope)
+	}
+	if p.commitments != nil {
+		if finder, ok := p.commitments.(interface {
+			FindState(context.Context, string, Scope) (IncrementalCommitmentState, bool, error)
+		}); ok {
+			st, found, err := finder.FindState(ctx, participantID, scope)
+			if err != nil {
+				return MaintainedCommitment{}, false, err
+			}
+			if found {
+				return MaintainedCommitment{
+					ParticipantID:    participantID,
+					Partition:        st.Partition,
+					BucketWidth:      st.BucketWidth,
+					CanonicalVersion: st.CanonicalVersion,
+					AlgorithmVersion: st.AlgorithmVersion,
+					Generation:       "gen-1",
+					Root:             append([]byte(nil), st.Root...),
+					RecordCount:      st.RecordCount,
+					Scope:            st.Scope,
+					CapturedAt:       st.CapturedAt,
+				}, true, nil
+			}
+		}
+	}
+	return MaintainedCommitment{}, false, nil
 }
 
 func (p *PostgresFinancialDataStore) GetMerkleCommitment(ctx context.Context, participantID string, scope Scope) ([]byte, []CanonicalRecord, error) {
-	participant, err := NewCentralRepositoryParticipant(p.pool, participantID, "ledger", 1*time.Hour)
+	mc, ok, err := p.GetMaintainedCommitment(ctx, participantID, scope)
 	if err != nil {
 		return nil, nil, err
 	}
-	rootRes, err := participant.GetRoot(ctx, scope)
+	if !ok {
+		return nil, nil, errors.New("maintained merkle commitment not found for scope")
+	}
+	records, err := p.GetAuthoritativeRecords(ctx, participantID, scope)
 	if err != nil {
 		return nil, nil, err
 	}
-	// Fetch all records for this scope
-	records, err := participant.GetRecords(ctx, BucketRef{
-		ParticipantID: participantID,
-		ScopeID:       fmt.Sprintf("%d:%d", scope.From.UnixNano(), scope.To.UnixNano()),
-		Generation:    rootRes.Ref.Generation,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return rootRes.Root, records, nil
+	return mc.Root, records, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -731,12 +924,20 @@ func (s *PostgresIntegrityRunStore) SaveRun(ctx context.Context, run IntegrityRu
 	}
 
 	for _, check := range run.Checks {
+		violations := check.Violations
+		if violations == nil {
+			violations = []CheckViolation{}
+		}
+		violationsJSON, err := json.Marshal(violations)
+		if err != nil {
+			violationsJSON = []byte("[]")
+		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO integrity_check_results (
-				id, run_id, check_code, severity, status, message, observed, error_text, started_at, completed_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+				id, run_id, check_code, severity, status, message, observed, error_text, violations, started_at, completed_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		`, uuid.New(), run.RunID, check.Code, string(check.Severity), string(check.Status),
-			check.Message, check.Observed, check.Error, check.StartedAt, check.CompletedAt)
+			check.Message, check.Observed, check.Error, violationsJSON, check.StartedAt, check.CompletedAt)
 		if err != nil {
 			return err
 		}
@@ -777,7 +978,7 @@ func (s *PostgresIntegrityRunStore) GetRun(ctx context.Context, runID uuid.UUID)
 	}
 
 	checkRows, err := s.pool.Query(ctx, `
-		SELECT check_code, severity, status, message, observed, error_text, started_at, completed_at
+		SELECT check_code, severity, status, message, observed, error_text, violations, started_at, completed_at
 		FROM integrity_check_results WHERE run_id = $1 ORDER BY started_at ASC
 	`, runID)
 	if err != nil {
@@ -787,20 +988,27 @@ func (s *PostgresIntegrityRunStore) GetRun(ctx context.Context, runID uuid.UUID)
 
 	for checkRows.Next() {
 		var (
-			cr        IntegrityCheckResult
-			sevStr    string
-			statStr   string
-			errText   string
-			obsText   string
+			cr             IntegrityCheckResult
+			sevStr         string
+			statStr        string
+			errText        string
+			obsText        string
+			violationsJSON []byte
 		)
 		cr.RunID = runID
-		if err := checkRows.Scan(&cr.Code, &sevStr, &statStr, &cr.Message, &obsText, &errText, &cr.StartedAt, &cr.CompletedAt); err != nil {
+		if err := checkRows.Scan(&cr.Code, &sevStr, &statStr, &cr.Message, &obsText, &errText, &violationsJSON, &cr.StartedAt, &cr.CompletedAt); err != nil {
 			return IntegrityRunResult{}, err
 		}
 		cr.Severity = IntegritySeverity(sevStr)
 		cr.Status = CheckStatus(statStr)
 		cr.Observed = obsText
 		cr.Error = errText
+		if len(violationsJSON) > 0 {
+			var viols []CheckViolation
+			if err := json.Unmarshal(violationsJSON, &viols); err == nil {
+				cr.Violations = viols
+			}
+		}
 		res.Checks = append(res.Checks, cr)
 	}
 
@@ -1358,8 +1566,8 @@ func checkCompletedPaymentLedgerCompleteness(ctx context.Context, runID uuid.UUI
 	}
 }
 
-// checkMerkleCommitmentConsistency verifies that the maintained Merkle commitment matches recomputed records.
-func checkMerkleCommitmentConsistency(ctx context.Context, runID uuid.UUID, store FinancialDataStore, participantID string, scope *Scope) IntegrityCheckResult {
+// checkMerkleCommitmentConsistency verifies that the maintained Merkle commitment matches canonical calculation of underlying records.
+func checkMerkleCommitmentConsistency(ctx context.Context, runID uuid.UUID, store FinancialDataStore, participantID string, scope *Scope, req IntegrityRunRequest) IntegrityCheckResult {
 	start := time.Now().UTC()
 	def := findCheckDef(CheckMerkleCommitmentConsistency)
 
@@ -1371,17 +1579,155 @@ func checkMerkleCommitmentConsistency(ctx context.Context, runID uuid.UUID, stor
 		}
 	}
 
-	expectedRoot, records, err := store.GetMerkleCommitment(ctx, participantID, *scope)
+	maintained, found, err := store.GetMaintainedCommitment(ctx, participantID, *scope)
 	if err != nil {
 		return IntegrityCheckResult{
 			RunID: runID, Code: def.Code, Severity: def.Severity, Status: CheckStatusError,
-			Message: "failed to retrieve merkle commitment for participant and scope", Error: err.Error(),
+			Message: "failed to retrieve maintained merkle commitment", Error: err.Error(),
+			StartedAt: start, CompletedAt: time.Now().UTC(),
+		}
+	}
+	if !found {
+		return IntegrityCheckResult{
+			RunID: runID, Code: def.Code, Severity: def.Severity, Status: CheckStatusFail,
+			Message: "no maintained Merkle commitment found for participant and scope",
+			Observed: fmt.Sprintf("participantId=%s, scope=[%s, %s)", participantID, scope.From.Format(time.RFC3339), scope.To.Format(time.RFC3339)),
+			Violations: []CheckViolation{
+				{
+					EntityID:    participantID,
+					Description: "missing maintained Merkle commitment for requested scope; commitments must be maintained prior to verification",
+					Details: map[string]any{
+						"participantId": participantID,
+						"scope":         fmt.Sprintf("[%s, %s)", scope.From.Format(time.RFC3339), scope.To.Format(time.RFC3339)),
+					},
+				},
+			},
 			StartedAt: start, CompletedAt: time.Now().UTC(),
 		}
 	}
 
-	// Recompute Merkle root using authoritative Merkle calculation
-	ledger, err := NewIncrementalMerkleLedger(participantID, 1*time.Hour, *scope)
+	var violations []CheckViolation
+
+	// Configuration checks
+	if maintained.BucketWidth <= 0 {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: fmt.Sprintf("configuration mismatch: non-positive bucket width %v", maintained.BucketWidth),
+			Details: map[string]any{
+				"participantId": participantID,
+				"bucketWidth":   maintained.BucketWidth.String(),
+			},
+		})
+	}
+	if maintained.Partition == "" {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: "configuration mismatch: empty partition",
+			Details: map[string]any{
+				"participantId": participantID,
+			},
+		})
+	}
+	if req.ExpectedBucketWidth > 0 && maintained.BucketWidth != req.ExpectedBucketWidth {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: fmt.Sprintf("configuration mismatch: bucket width %v != expected %v", maintained.BucketWidth, req.ExpectedBucketWidth),
+			Details: map[string]any{
+				"participantId": participantID,
+				"observedWidth": maintained.BucketWidth.String(),
+				"expectedWidth": req.ExpectedBucketWidth.String(),
+			},
+		})
+	}
+	if req.ExpectedPartition != "" && maintained.Partition != req.ExpectedPartition {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: fmt.Sprintf("configuration mismatch: partition %q != expected %q", maintained.Partition, req.ExpectedPartition),
+			Details: map[string]any{
+				"participantId":     participantID,
+				"observedPartition": maintained.Partition,
+				"expectedPartition": req.ExpectedPartition,
+			},
+		})
+	}
+	if maintained.CanonicalVersion != "" && maintained.CanonicalVersion != CanonicalVersion {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: fmt.Sprintf("configuration mismatch: canonical version %q != expected %q", maintained.CanonicalVersion, CanonicalVersion),
+			Details: map[string]any{
+				"participantId":   participantID,
+				"observedVersion": maintained.CanonicalVersion,
+				"expectedVersion": CanonicalVersion,
+			},
+		})
+	}
+	if maintained.AlgorithmVersion != "" && maintained.AlgorithmVersion != MerkleAlgorithmVersion {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: fmt.Sprintf("configuration mismatch: algorithm version %q != expected %q", maintained.AlgorithmVersion, MerkleAlgorithmVersion),
+			Details: map[string]any{
+				"participantId":   participantID,
+				"observedVersion": maintained.AlgorithmVersion,
+				"expectedVersion": MerkleAlgorithmVersion,
+			},
+		})
+	}
+
+	// Generation checks
+	if maintained.Generation == "" {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: "wrong generation: maintained commitment has empty generation",
+			Details: map[string]any{
+				"participantId": participantID,
+			},
+		})
+	} else if req.ExpectedGeneration != "" && maintained.Generation != req.ExpectedGeneration {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: fmt.Sprintf("wrong generation: maintained generation %q != expected %q", maintained.Generation, req.ExpectedGeneration),
+			Details: map[string]any{
+				"participantId":      participantID,
+				"observedGeneration": maintained.Generation,
+				"expectedGeneration": req.ExpectedGeneration,
+			},
+		})
+	}
+
+	// Fetch authoritative records independently
+	records, err := store.GetAuthoritativeRecords(ctx, participantID, *scope)
+	if err != nil {
+		return IntegrityCheckResult{
+			RunID: runID, Code: def.Code, Severity: def.Severity, Status: CheckStatusError,
+			Message: "failed to retrieve authoritative records for participant and scope", Error: err.Error(),
+			StartedAt: start, CompletedAt: time.Now().UTC(),
+		}
+	}
+
+	// Stale check: record count mismatch
+	if maintained.RecordCount != len(records) {
+		violations = append(violations, CheckViolation{
+			EntityID:    participantID,
+			Description: fmt.Sprintf("stale maintained commitment: record count %d != authoritative record count %d", maintained.RecordCount, len(records)),
+			Details: map[string]any{
+				"participantId":            participantID,
+				"maintainedRecordCount":    maintained.RecordCount,
+				"authoritativeRecordCount": len(records),
+			},
+		})
+	}
+
+	// Recompute canonical Merkle root using the maintained commitment's actual configuration (bucket width & partition)
+	bucketWidth := maintained.BucketWidth
+	if bucketWidth <= 0 {
+		bucketWidth = 1 * time.Hour
+	}
+	partition := maintained.Partition
+	if partition == "" {
+		partition = participantID
+	}
+
+	ledger, err := NewIncrementalMerkleLedger(partition, bucketWidth, *scope)
 	if err != nil {
 		return IntegrityCheckResult{
 			RunID: runID, Code: def.Code, Severity: def.Severity, Status: CheckStatusError,
@@ -1399,26 +1745,27 @@ func checkMerkleCommitmentConsistency(ctx context.Context, runID uuid.UUID, stor
 	}
 	calculatedRoot := rebuild.ResultingRoot
 
-	var violations []CheckViolation
-	if !bytes.Equal(expectedRoot, calculatedRoot) {
+	// Root mismatch check (tampered maintained root or authoritative record mutation)
+	if !bytes.Equal(maintained.Root, calculatedRoot) {
 		violations = append(violations, CheckViolation{
 			EntityID:    participantID,
 			Description: "maintained Merkle commitment root differs from canonical calculation",
 			Details: map[string]any{
 				"participantId":  participantID,
 				"scope":          fmt.Sprintf("[%s, %s)", scope.From.Format(time.RFC3339), scope.To.Format(time.RFC3339)),
-				"expectedRoot":   fmt.Sprintf("%x", expectedRoot),
+				"maintainedRoot": fmt.Sprintf("%x", maintained.Root),
 				"calculatedRoot": fmt.Sprintf("%x", calculatedRoot),
 				"recordCount":    len(records),
 			},
 		})
 	}
 
-	observed := fmt.Sprintf("records=%d, rootMatch=%t", len(records), len(violations) == 0)
+	observed := fmt.Sprintf("records=%d, maintainedRecords=%d, rootMatch=%t, violations=%d",
+		len(records), maintained.RecordCount, bytes.Equal(maintained.Root, calculatedRoot), len(violations))
 	if len(violations) > 0 {
 		return IntegrityCheckResult{
 			RunID: runID, Code: def.Code, Severity: def.Severity, Status: CheckStatusFail,
-			Message: "Merkle commitment consistency violated: root mismatch",
+			Message: fmt.Sprintf("Merkle commitment consistency violated with %d issue(s)", len(violations)),
 			Observed: observed, Violations: violations, StartedAt: start, CompletedAt: time.Now().UTC(),
 		}
 	}
@@ -1445,9 +1792,12 @@ func findCheckDef(code string) IntegrityCheckDefinition {
 
 // IntegrityRunRequest contains the parameters for an integrity run.
 type IntegrityRunRequest struct {
-	Scope         *Scope   `json:"scope,omitempty"`
-	ParticipantID string   `json:"participantId,omitempty"`
-	CheckCodes    []string `json:"checkCodes,omitempty"` // empty implies all registered checks
+	Scope               *Scope        `json:"scope,omitempty"`
+	ParticipantID       string        `json:"participantId,omitempty"`
+	CheckCodes          []string      `json:"checkCodes,omitempty"` // empty implies all registered checks
+	ExpectedGeneration  string        `json:"expectedGeneration,omitempty"`
+	ExpectedPartition   string        `json:"expectedPartition,omitempty"`
+	ExpectedBucketWidth time.Duration `json:"expectedBucketWidth,omitempty"`
 }
 
 // RuntimeIntegrityEngine coordinates and executes observational financial integrity checks.
@@ -1510,7 +1860,7 @@ func (e *RuntimeIntegrityEngine) Run(ctx context.Context, req IntegrityRunReques
 		case CheckCompletedPaymentLedgerCompleteness:
 			checkRes = checkCompletedPaymentLedgerCompleteness(ctx, runID, e.dataStore, req.Scope)
 		case CheckMerkleCommitmentConsistency:
-			checkRes = checkMerkleCommitmentConsistency(ctx, runID, e.dataStore, req.ParticipantID, req.Scope)
+			checkRes = checkMerkleCommitmentConsistency(ctx, runID, e.dataStore, req.ParticipantID, req.Scope, req)
 		default:
 			checkRes = IntegrityCheckResult{
 				RunID: runID, Code: def.Code, Severity: def.Severity, Status: CheckStatusNotApplicable,

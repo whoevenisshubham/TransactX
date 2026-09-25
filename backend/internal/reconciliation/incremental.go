@@ -629,6 +629,31 @@ func (store *MemoryIncrementalCommitmentStore) LoadState(ctx context.Context, pa
 	return cloneIncrementalState(state), true, nil
 }
 
+// FindState finds an incremental commitment state for the given partition and scope, regardless of bucket width.
+func (store *MemoryIncrementalCommitmentStore) FindState(ctx context.Context, partition string, scope Scope) (IncrementalCommitmentState, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return IncrementalCommitmentState{}, false, err
+	}
+	if partition == "" {
+		return IncrementalCommitmentState{}, false, fmt.Errorf("%w: partition is required", ErrInvalidIncrementalConfig)
+	}
+	scope = normalizeScope(scope)
+	if err := validateScope(scope); err != nil {
+		return IncrementalCommitmentState{}, false, err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	for _, state := range store.entries {
+		if state.Partition == partition && scopeEqual(state.Scope, scope) {
+			if err := validateIncrementalState(state); err != nil {
+				return IncrementalCommitmentState{}, false, err
+			}
+			return cloneIncrementalState(state), true, nil
+		}
+	}
+	return IncrementalCommitmentState{}, false, nil
+}
+
 func validateIncrementalState(state IncrementalCommitmentState) error {
 	if state.Partition == "" || state.BucketWidth <= 0 {
 		return fmt.Errorf("%w: persisted partition and positive bucket width are required", ErrInvalidIncrementalConfig)

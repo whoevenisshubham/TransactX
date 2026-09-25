@@ -30,6 +30,7 @@ CREATE TABLE integrity_check_results (
     message           TEXT         NOT NULL,
     observed          TEXT         NULL,
     error_text        TEXT         NULL,
+    violations        JSONB        NOT NULL DEFAULT '[]'::jsonb,
     started_at        TIMESTAMPTZ  NOT NULL,
     completed_at      TIMESTAMPTZ  NOT NULL
 );

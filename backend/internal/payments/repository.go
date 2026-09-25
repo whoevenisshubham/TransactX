@@ -195,7 +195,7 @@ func (repository *Repository) CreateAndSettleIdempotent(ctx context.Context, pay
 	if err != nil {
 		return Payment{}, false, err
 	}
-	if err := settlePayment(ctx, tx, &created, accountRepository, ledgerRepository); err != nil {
+	if err := repository.settlePayment(ctx, tx, &created, accountRepository, ledgerRepository); err != nil {
 		return Payment{}, false, err
 	}
 	_, err = tx.Exec(ctx, `
@@ -224,9 +224,13 @@ func (repository *Repository) CreateAndSettleIdempotent(ctx context.Context, pay
 	return existing, true, nil
 }
 
-func settlePayment(ctx context.Context, tx pgx.Tx, payment *Payment, accountRepository *accounts.Repository, ledgerRepository *ledger.Repository) error {
+func (repository *Repository) settlePayment(ctx context.Context, tx pgx.Tx, payment *Payment, accountRepository *accounts.Repository, ledgerRepository *ledger.Repository) error {
 	for _, next := range []string{StateValidating, StateLocalSettlement} {
+		from := payment.State
 		if err := Transition(payment, next); err != nil {
+			return err
+		}
+		if err := repository.RecordTransition(ctx, tx, payment.ID, from, next); err != nil {
 			return err
 		}
 	}
@@ -254,14 +258,62 @@ func settlePayment(ctx context.Context, tx pgx.Tx, payment *Payment, accountRepo
 	}); err != nil {
 		return err
 	}
+	from := payment.State
 	if err := Transition(payment, StateCommitted); err != nil {
 		return err
 	}
+	if err := repository.RecordTransition(ctx, tx, payment.ID, from, StateCommitted); err != nil {
+		return err
+	}
+	from = payment.State
 	if err := Transition(payment, StateCompleted); err != nil {
+		return err
+	}
+	if err := repository.RecordTransition(ctx, tx, payment.ID, from, StateCompleted); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `UPDATE payments SET state = $2, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, payment.ID, payment.State)
 	return err
+}
+
+// RecordTransition records one immutable history row in the same transaction as the payment state change.
+func (repository *Repository) RecordTransition(ctx context.Context, tx pgx.Tx, paymentID uuid.UUID, fromState, toState string) error {
+	if !CanTransition(fromState, toState) {
+		return ErrInvalidTransition
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO payment_state_transitions (id, payment_id, from_state, to_state, transitioned_at)
+		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+	`, uuid.New(), paymentID, fromState, toState)
+	return err
+}
+
+// GetTransitions returns the immutable transition history for a payment in deterministic order.
+func (repository *Repository) GetTransitions(ctx context.Context, paymentID uuid.UUID) ([]PaymentStateTransition, error) {
+	if repository.db == nil {
+		return nil, nil
+	}
+	rows, err := repository.db.Query(ctx, `
+		SELECT id, payment_id, from_state, to_state, transitioned_at
+		FROM payment_state_transitions
+		WHERE payment_id = $1
+		ORDER BY transitioned_at ASC, id ASC
+	`, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var transitions []PaymentStateTransition
+	for rows.Next() {
+		var tr PaymentStateTransition
+		if err := rows.Scan(&tr.ID, &tr.PaymentID, &tr.FromState, &tr.ToState, &tr.TransitionedAt); err != nil {
+			return nil, err
+		}
+		tr.TransitionedAt = tr.TransitionedAt.UTC()
+		transitions = append(transitions, tr)
+	}
+	return transitions, rows.Err()
 }
 
 func (repository *Repository) Get(ctx context.Context, paymentID uuid.UUID) (Payment, error) {

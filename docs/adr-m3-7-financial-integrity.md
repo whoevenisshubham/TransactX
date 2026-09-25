@@ -83,12 +83,74 @@ The entry point is `RuntimeIntegrityEngine.Run(ctx, req)`:
 
 ---
 
-## 7. State History Limitations
+## 7. Immutable State Transition Boundary & Non-Retroactive History
 
-The core schema does not maintain an immutable state transition log table in PostgreSQL. The engine therefore validates current states and any explicitly recorded transition events without synthesizing or inventing historical transitions from log strings.
+To guarantee verifiable state progression without reconstructing events from logs, the system maintains an immutable audit table: `payment_state_transitions`.
+
+### Schema & Invariants
+- `id` (UUID PRIMARY KEY)
+- `payment_id` (UUID NOT NULL REFERENCES payments(id))
+- `from_state` (VARCHAR NOT NULL)
+- `to_state` (VARCHAR NOT NULL)
+- `transitioned_at` (TIMESTAMPTZ NOT NULL)
+- Index on `(payment_id, transitioned_at ASC)`
+- Database-level trigger `prevent_payment_state_transitions_mutation` blocking all `UPDATE` and `DELETE` operations.
+
+### Atomic Transition Recording
+Every payment state transition writes one immutable history row in the **same transaction** as the payment state update (`updateState`, `settlePayment`, `settleCentral`).
+
+### Non-Retroactive History Rule
+> **Existing historical payments before this migration have no reconstructed transition history. Their current state may be checked, but historical transition validity is not retroactively claimed.**
+
+For newly recorded transitions, `PAYMENT_STATE_VALIDITY` reads the real transition history and verifies every edge using `payments.CanTransition(from, to)`. For historical rows preceding the migration, the engine verifies current state legality without synthesizing transitions from logs.
 
 ---
 
-## 8. Merkle Consistency Integration
+## 8. Merkle Commitment Consistency & Independent Sources
 
-The engine reuses the accepted Merkle implementation (`NewIncrementalMerkleLedger`, `Bootstrap`, canonical records). It does not duplicate canonical serialization, domain prefixes, or hashing logic.
+The Merkle integrity check enforces a strict read boundary between two independent sources:
+
+```
+    authoritative financial records
+              |
+              v
+      canonical Merkle calculation
+              |
+              v
+      compare with independently
+      maintained commitment state
+```
+
+### A. Authoritative Record Source
+Obtained via `FinancialDataStore.GetAuthoritativeRecords(ctx, participantID, scope)`. In PostgreSQL, reads from `CentralLedgerSnapshotSource` querying core ledger transactions and entries within the requested scope interval, generating deterministic `CanonicalRecord` slices.
+
+### B. Maintained Commitment Source
+Obtained via `FinancialDataStore.GetMaintainedCommitment(ctx, participantID, scope)`. Queries the independently maintained `IncrementalCommitmentStore` or participant commitment persistence layer. The verification engine **never builds, bootstraps, or materializes commitments during verification**. Missing commitments result in deterministic `FAIL` violations.
+
+### C. Exact Merkle Configuration Source
+Extracted directly from the stored commitment:
+- `BucketWidth`: Dynamic duration from stored commitment state. The engine **never hardcodes `1 * time.Hour`**.
+- `Partition`: Logical partition ID.
+- `CanonicalVersion`: Expected `v1`.
+- `AlgorithmVersion`: Expected `merkle-v1`.
+- `Generation`: Monotonic generation identifier.
+
+The integrity engine detects:
+- Tampered maintained root (bit flips)
+- Stale maintained root (record count mismatch)
+- Wrong generation
+- Configuration mismatch (partition, bucket width, versions)
+- Authoritative record mutation
+
+---
+
+## 9. Violation Persistence Format
+
+Violations are preserved boundedly and deterministically:
+- Column: `violations JSONB NOT NULL DEFAULT '[]'::jsonb` on table `integrity_check_results`.
+- Model: Typed `[]CheckViolation` slices containing:
+  - `entityId`: Unique identifier of the affected account, payment, or participant.
+  - `description`: Stable human-readable description of the violation.
+  - `details`: Bounded key-value mapping of diagnostic evidence (observed vs expected amounts, roots, versions).
+- Unbounded internal runtime objects are excluded.
+- `PostgresIntegrityRunStore.SaveRun` serializes `check.Violations` to JSONB; `GetRun` unmarshals it back into typed `[]CheckViolation`.

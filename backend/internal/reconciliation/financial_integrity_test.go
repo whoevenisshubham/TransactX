@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/reconciliation"
 )
@@ -671,5 +673,627 @@ func TestUnknownStateHistoryDoesNotInventTransition(t *testing.T) {
 	}
 	if res.Checks[0].Status != reconciliation.CheckStatusPass {
 		t.Fatalf("expected PAYMENT_STATE_VALIDITY to PASS on valid current state, got %s (violations: %+v)", res.Checks[0].Status, res.Checks[0].Violations)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Production Hardened Merkle & Consistency Tests (M3-7-C4)
+// -----------------------------------------------------------------------------
+
+// TestMaintainedCommitmentNotRebuiltDuringVerification verifies that if a maintained
+// commitment does not already exist, the integrity verification fails rather than
+// silently rebuilding or materializing a commitment on the fly.
+func TestMaintainedCommitmentNotRebuiltDuringVerification(t *testing.T) {
+	ctx := context.Background()
+	store, scope, participantID := newValidBaselineStore(t)
+
+	// Ensure no maintained commitment exists in either maintained commitments or legacy roots
+	store.MaintainedCommitments = make(map[string]reconciliation.MaintainedCommitment)
+	store.MerkleRoots = make(map[string][]byte)
+	store.CommitmentStore = nil
+	store.ParticipantStore = nil
+
+	engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+	res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+		Scope:         &scope,
+		ParticipantID: participantID,
+		CheckCodes:    []string{reconciliation.CheckMerkleCommitmentConsistency},
+	})
+	if err != nil {
+		t.Fatalf("engine.Run: %v", err)
+	}
+
+	if len(res.Checks) != 1 {
+		t.Fatalf("expected 1 check result, got %d", len(res.Checks))
+	}
+	check := res.Checks[0]
+	if check.Status != reconciliation.CheckStatusFail {
+		t.Fatalf("expected MERKLE_COMMITMENT_CONSISTENCY to FAIL when commitment is missing, got %s", check.Status)
+	}
+	if len(check.Violations) == 0 {
+		t.Fatalf("expected violations to be recorded for missing commitment")
+	}
+
+	// Verify that the maintained commitment was NOT created as a side effect
+	comm, found, err := store.GetMaintainedCommitment(ctx, participantID, scope)
+	if err != nil {
+		t.Fatalf("store.GetMaintainedCommitment: %v", err)
+	}
+	if found {
+		t.Fatalf("maintained commitment was improperly materialized/rebuilt during verification: %+v", comm)
+	}
+}
+
+// TestMaintainedCommitmentBucketWidthNotHardcoded verifies that commitments configured
+// with a non-1-hour bucket width (e.g. 15 minutes) are verified using their own configured
+// bucket width rather than assuming a hardcoded 1 hour.
+func TestMaintainedCommitmentBucketWidthNotHardcoded(t *testing.T) {
+	ctx := context.Background()
+	store := reconciliation.NewMemoryFinancialDataStore()
+
+	base := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{
+		From: base,
+		To:   base.Add(2 * time.Hour),
+	}
+	participantID := "BANK-CUSTOM-BUCKET"
+	bucketWidth := 15 * time.Minute
+
+	// Create canonical records across multiple 15-minute buckets
+	records := []reconciliation.CanonicalRecord{
+		{
+			OperationID: uuid.New(),
+			PaymentID:   uuid.New(),
+			AccountID:   uuid.New(),
+			EntryType:   "DEBIT",
+			AmountPaise: 1000,
+			Currency:    "INR",
+			OccurredAt:  base.Add(5 * time.Minute), // Bucket 0
+		},
+		{
+			OperationID: uuid.New(),
+			PaymentID:   uuid.New(),
+			AccountID:   uuid.New(),
+			EntryType:   "CREDIT",
+			AmountPaise: 1000,
+			Currency:    "INR",
+			OccurredAt:  base.Add(20 * time.Minute), // Bucket 1
+		},
+		{
+			OperationID: uuid.New(),
+			PaymentID:   uuid.New(),
+			AccountID:   uuid.New(),
+			EntryType:   "HOLD",
+			AmountPaise: 500,
+			Currency:    "INR",
+			OccurredAt:  base.Add(40 * time.Minute), // Bucket 2
+		},
+	}
+
+	// Build the maintained commitment with the non-1-hour bucket width
+	ledger, err := reconciliation.NewIncrementalMerkleLedger(participantID, bucketWidth, scope)
+	if err != nil {
+		t.Fatalf("NewIncrementalMerkleLedger: %v", err)
+	}
+	rebuild, err := ledger.Bootstrap(ctx, records)
+	if err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	key := reconciliationScopeKey(participantID, scope)
+	store.AuthoritativeRecords[key] = records
+	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+		ParticipantID:    participantID,
+		Partition:        participantID,
+		BucketWidth:      bucketWidth,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		Generation:       "gen-15m",
+		Root:             rebuild.ResultingRoot,
+		RecordCount:      len(records),
+		Scope:            scope,
+		CapturedAt:       time.Now().UTC(),
+	}
+
+	engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+
+	// Subtest 1: Verify passing with matching ExpectedBucketWidth
+	t.Run("PassWith15MinBucketWidth", func(t *testing.T) {
+		res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+			Scope:               &scope,
+			ParticipantID:       participantID,
+			CheckCodes:          []string{reconciliation.CheckMerkleCommitmentConsistency},
+			ExpectedBucketWidth: bucketWidth,
+		})
+		if err != nil {
+			t.Fatalf("engine.Run: %v", err)
+		}
+		if res.Checks[0].Status != reconciliation.CheckStatusPass {
+			t.Fatalf("expected PASS with 15m bucket width, got %s (violations: %+v)", res.Checks[0].Status, res.Checks[0].Violations)
+		}
+	})
+
+	// Subtest 2: Verify failure when ExpectedBucketWidth expects 1 hour
+	t.Run("DetectBucketWidthMismatch", func(t *testing.T) {
+		res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+			Scope:               &scope,
+			ParticipantID:       participantID,
+			CheckCodes:          []string{reconciliation.CheckMerkleCommitmentConsistency},
+			ExpectedBucketWidth: 1 * time.Hour,
+		})
+		if err != nil {
+			t.Fatalf("engine.Run: %v", err)
+		}
+		if res.Checks[0].Status != reconciliation.CheckStatusFail {
+			t.Fatalf("expected FAIL on bucket width mismatch, got %s", res.Checks[0].Status)
+		}
+		var foundMismatch bool
+		for _, v := range res.Checks[0].Violations {
+			if v.Description != "" && (v.Details["expectedWidth"] != nil || v.Details["observedWidth"] != nil) {
+				foundMismatch = true
+				break
+			}
+		}
+		if !foundMismatch {
+			t.Fatalf("expected bucket width mismatch violation detail, got %+v", res.Checks[0].Violations)
+		}
+	})
+}
+
+// TestMerkleCommitmentTamperedRootFails verifies that a bit flip in the maintained root is detected.
+func TestMerkleCommitmentTamperedRootFails(t *testing.T) {
+	ctx := context.Background()
+	store, scope, participantID := newValidBaselineStore(t)
+
+	key := reconciliationScopeKey(participantID, scope)
+	origRoot := store.MerkleRoots[key]
+	tamperedRoot := append([]byte(nil), origRoot...)
+	tamperedRoot[len(tamperedRoot)-1] ^= 0x01
+
+	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+		ParticipantID:    participantID,
+		Partition:        participantID,
+		BucketWidth:      1 * time.Hour,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		Generation:       "gen-tamper",
+		Root:             tamperedRoot,
+		RecordCount:      len(store.MerkleRecords[key]),
+		Scope:            scope,
+		CapturedAt:       time.Now().UTC(),
+	}
+
+	engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+	res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+		Scope:         &scope,
+		ParticipantID: participantID,
+		CheckCodes:    []string{reconciliation.CheckMerkleCommitmentConsistency},
+	})
+	if err != nil {
+		t.Fatalf("engine.Run: %v", err)
+	}
+
+	check := res.Checks[0]
+	if check.Status != reconciliation.CheckStatusFail {
+		t.Fatalf("expected FAIL on tampered root, got %s", check.Status)
+	}
+	if len(check.Violations) == 0 {
+		t.Fatalf("expected violation to be recorded")
+	}
+}
+
+// TestMerkleCommitmentStaleRootFails verifies that a record count mismatch between maintained
+// root and authoritative records is detected.
+func TestMerkleCommitmentStaleRootFails(t *testing.T) {
+	ctx := context.Background()
+	store, scope, participantID := newValidBaselineStore(t)
+
+	key := reconciliationScopeKey(participantID, scope)
+	records := store.MerkleRecords[key]
+
+	// Maintained commitment claims 1 record
+	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+		ParticipantID:    participantID,
+		Partition:        participantID,
+		BucketWidth:      1 * time.Hour,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		Generation:       "gen-stale",
+		Root:             store.MerkleRoots[key],
+		RecordCount:      1,
+		Scope:            scope,
+		CapturedAt:       time.Now().UTC(),
+	}
+
+	// But authoritative store has 2 records
+	extraRec := records[0]
+	extraRec.OperationID = uuid.New()
+	extraRec.OccurredAt = extraRec.OccurredAt.Add(5 * time.Minute)
+	store.AuthoritativeRecords[key] = append(records, extraRec)
+
+	engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+	res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+		Scope:         &scope,
+		ParticipantID: participantID,
+		CheckCodes:    []string{reconciliation.CheckMerkleCommitmentConsistency},
+	})
+	if err != nil {
+		t.Fatalf("engine.Run: %v", err)
+	}
+
+	check := res.Checks[0]
+	if check.Status != reconciliation.CheckStatusFail {
+		t.Fatalf("expected FAIL on stale root record count mismatch, got %s", check.Status)
+	}
+	var foundStale bool
+	for _, v := range check.Violations {
+		if v.Details["observedRecordCount"] != nil || v.Details["authoritativeRecordCount"] != nil {
+			foundStale = true
+			break
+		}
+	}
+	if !foundStale {
+		t.Fatalf("expected stale root violation details, got %+v", check.Violations)
+	}
+}
+
+// TestMerkleCommitmentWrongGenerationFails verifies that an unexpected commitment generation is detected.
+func TestMerkleCommitmentWrongGenerationFails(t *testing.T) {
+	ctx := context.Background()
+	store, scope, participantID := newValidBaselineStore(t)
+
+	key := reconciliationScopeKey(participantID, scope)
+	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+		ParticipantID:    participantID,
+		Partition:        participantID,
+		BucketWidth:      1 * time.Hour,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		Generation:       "gen-1",
+		Root:             store.MerkleRoots[key],
+		RecordCount:      len(store.MerkleRecords[key]),
+		Scope:            scope,
+		CapturedAt:       time.Now().UTC(),
+	}
+
+	engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+	res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+		Scope:              &scope,
+		ParticipantID:      participantID,
+		CheckCodes:         []string{reconciliation.CheckMerkleCommitmentConsistency},
+		ExpectedGeneration: "gen-2", // Expected gen-2, observed gen-1
+	})
+	if err != nil {
+		t.Fatalf("engine.Run: %v", err)
+	}
+
+	check := res.Checks[0]
+	if check.Status != reconciliation.CheckStatusFail {
+		t.Fatalf("expected FAIL on wrong generation, got %s", check.Status)
+	}
+	var foundGen bool
+	for _, v := range check.Violations {
+		if v.Details["observedGeneration"] == "gen-1" && v.Details["expectedGeneration"] == "gen-2" {
+			foundGen = true
+			break
+		}
+	}
+	if !foundGen {
+		t.Fatalf("expected wrong generation violation details, got %+v", check.Violations)
+	}
+}
+
+// TestMerkleCommitmentConfigurationMismatchFails verifies partition, canonical version,
+// and algorithm version mismatches are detected.
+func TestMerkleCommitmentConfigurationMismatchFails(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("PartitionMismatch", func(t *testing.T) {
+		store, scope, participantID := newValidBaselineStore(t)
+		key := reconciliationScopeKey(participantID, scope)
+		store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+			ParticipantID:    participantID,
+			Partition:        "BANK-A",
+			BucketWidth:      1 * time.Hour,
+			CanonicalVersion: reconciliation.CanonicalVersion,
+			AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+			Generation:       "gen-1",
+			Root:             store.MerkleRoots[key],
+			RecordCount:      len(store.MerkleRecords[key]),
+			Scope:            scope,
+			CapturedAt:       time.Now().UTC(),
+		}
+
+		engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+		res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+			Scope:             &scope,
+			ParticipantID:     participantID,
+			CheckCodes:        []string{reconciliation.CheckMerkleCommitmentConsistency},
+			ExpectedPartition: "BANK-B",
+		})
+		if err != nil {
+			t.Fatalf("engine.Run: %v", err)
+		}
+		if res.Checks[0].Status != reconciliation.CheckStatusFail {
+			t.Fatalf("expected FAIL on partition mismatch, got %s", res.Checks[0].Status)
+		}
+	})
+
+	t.Run("CanonicalVersionMismatch", func(t *testing.T) {
+		store, scope, participantID := newValidBaselineStore(t)
+		key := reconciliationScopeKey(participantID, scope)
+		store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+			ParticipantID:    participantID,
+			Partition:        participantID,
+			BucketWidth:      1 * time.Hour,
+			CanonicalVersion: "v99-incompatible",
+			AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+			Generation:       "gen-1",
+			Root:             store.MerkleRoots[key],
+			RecordCount:      len(store.MerkleRecords[key]),
+			Scope:            scope,
+			CapturedAt:       time.Now().UTC(),
+		}
+
+		engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+		res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+			Scope:         &scope,
+			ParticipantID: participantID,
+			CheckCodes:    []string{reconciliation.CheckMerkleCommitmentConsistency},
+		})
+		if err != nil {
+			t.Fatalf("engine.Run: %v", err)
+		}
+		if res.Checks[0].Status != reconciliation.CheckStatusFail {
+			t.Fatalf("expected FAIL on canonical version mismatch, got %s", res.Checks[0].Status)
+		}
+	})
+
+	t.Run("AlgorithmVersionMismatch", func(t *testing.T) {
+		store, scope, participantID := newValidBaselineStore(t)
+		key := reconciliationScopeKey(participantID, scope)
+		store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+			ParticipantID:    participantID,
+			Partition:        participantID,
+			BucketWidth:      1 * time.Hour,
+			CanonicalVersion: reconciliation.CanonicalVersion,
+			AlgorithmVersion: "algo-custom-unsupported",
+			Generation:       "gen-1",
+			Root:             store.MerkleRoots[key],
+			RecordCount:      len(store.MerkleRecords[key]),
+			Scope:            scope,
+			CapturedAt:       time.Now().UTC(),
+		}
+
+		engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+		res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+			Scope:         &scope,
+			ParticipantID: participantID,
+			CheckCodes:    []string{reconciliation.CheckMerkleCommitmentConsistency},
+		})
+		if err != nil {
+			t.Fatalf("engine.Run: %v", err)
+		}
+		if res.Checks[0].Status != reconciliation.CheckStatusFail {
+			t.Fatalf("expected FAIL on algorithm version mismatch, got %s", res.Checks[0].Status)
+		}
+	})
+}
+
+// TestMerkleCommitmentAuthoritativeRecordMutationFails verifies that a mutation in the authoritative
+// financial records produces a root mismatch against the maintained commitment.
+func TestMerkleCommitmentAuthoritativeRecordMutationFails(t *testing.T) {
+	ctx := context.Background()
+	store, scope, participantID := newValidBaselineStore(t)
+
+	key := reconciliationScopeKey(participantID, scope)
+	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
+		ParticipantID:    participantID,
+		Partition:        participantID,
+		BucketWidth:      1 * time.Hour,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		Generation:       "gen-orig",
+		Root:             store.MerkleRoots[key],
+		RecordCount:      len(store.MerkleRecords[key]),
+		Scope:            scope,
+		CapturedAt:       time.Now().UTC(),
+	}
+
+	// Mutate the authoritative financial record amount (e.g. from 1000 to 9999 paise)
+	mutatedRecs := make([]reconciliation.CanonicalRecord, len(store.MerkleRecords[key]))
+	copy(mutatedRecs, store.MerkleRecords[key])
+	mutatedRecs[0].AmountPaise = 9999
+	store.AuthoritativeRecords[key] = mutatedRecs
+
+	engine := reconciliation.NewRuntimeIntegrityEngine(store, nil)
+	res, err := engine.Run(ctx, reconciliation.IntegrityRunRequest{
+		Scope:         &scope,
+		ParticipantID: participantID,
+		CheckCodes:    []string{reconciliation.CheckMerkleCommitmentConsistency},
+	})
+	if err != nil {
+		t.Fatalf("engine.Run: %v", err)
+	}
+
+	check := res.Checks[0]
+	if check.Status != reconciliation.CheckStatusFail {
+		t.Fatalf("expected FAIL on authoritative record mutation, got %s", check.Status)
+	}
+	var foundMismatch bool
+	for _, v := range check.Violations {
+		if v.Details["calculatedRoot"] != nil && v.Details["maintainedRoot"] != nil {
+			foundMismatch = true
+			break
+		}
+	}
+	if !foundMismatch {
+		t.Fatalf("expected canonical vs maintained root mismatch violation detail, got %+v", check.Violations)
+	}
+}
+
+// TestMemoryIntegrityRunStoreViolationsRoundTrip verifies that structured violations are preserved
+// deterministically in the in-memory run store.
+func TestMemoryIntegrityRunStoreViolationsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	store := reconciliation.NewMemoryIntegrityRunStore()
+
+	runID := uuid.New()
+	now := time.Now().UTC()
+	scope := reconciliation.Scope{From: now.Add(-1 * time.Hour), To: now}
+	run := reconciliation.IntegrityRunResult{
+		RunID:         runID,
+		Scope:         &scope,
+		ParticipantID: "BANK-TEST",
+		Status:        reconciliation.IntegrityRunStatusCompleted,
+		Summary: reconciliation.IntegrityRunSummary{
+			TotalChecks: 1,
+			Failed:      1,
+		},
+		Checks: []reconciliation.IntegrityCheckResult{
+			{
+				RunID:       runID,
+				Code:        reconciliation.CheckDebitCreditConservation,
+				Severity:    reconciliation.SeverityCritical,
+				Status:      reconciliation.CheckStatusFail,
+				Message:     "Conservation check failed",
+				Violations: []reconciliation.CheckViolation{
+					{
+						EntityID:    "acc-001",
+						Description: "debit/credit imbalance of 200 paise",
+						Details: map[string]any{
+							"debits":  1000,
+							"credits": 800,
+							"diff":    200,
+						},
+					},
+				},
+				StartedAt:   now,
+				CompletedAt: now,
+			},
+		},
+		StartedAt:   now,
+		CompletedAt: now,
+	}
+
+	if err := store.SaveRun(ctx, run); err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+
+	retrieved, err := store.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+
+	if len(retrieved.Checks) != 1 || len(retrieved.Checks[0].Violations) != 1 {
+		t.Fatalf("expected 1 check with 1 violation, got %+v", retrieved.Checks)
+	}
+	v := retrieved.Checks[0].Violations[0]
+	if v.EntityID != "acc-001" || v.Description != "debit/credit imbalance of 200 paise" {
+		t.Fatalf("violation mismatch: %+v", v)
+	}
+}
+
+// TestPostgresIntegrityRunStoreViolationsRoundTrip verifies that when a real PostgreSQL database
+// is available, structured violations in a FAIL result are serialized to JSONB and deserialized
+// identically by GetRun.
+func TestPostgresIntegrityRunStoreViolationsRoundTrip(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("pool.Ping: %v", err)
+	}
+
+	// Verify table exists
+	var tableExists bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.integrity_check_results') IS NOT NULL`).Scan(&tableExists); err != nil || !tableExists {
+		t.Skip("integrity_check_results table not available in test database")
+	}
+
+	store := reconciliation.NewPostgresIntegrityRunStore(pool)
+
+	runID := uuid.New()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	scope := reconciliation.Scope{From: now.Add(-1 * time.Hour), To: now}
+
+	originalRun := reconciliation.IntegrityRunResult{
+		RunID:         runID,
+		Scope:         &scope,
+		ParticipantID: "BANK-PERSISTENCE-TEST",
+		Status:        reconciliation.IntegrityRunStatusCompleted,
+		Summary: reconciliation.IntegrityRunSummary{
+			TotalChecks: 1,
+			Failed:      1,
+		},
+		Checks: []reconciliation.IntegrityCheckResult{
+			{
+				RunID:       runID,
+				Code:        reconciliation.CheckDebitCreditConservation,
+				Severity:    reconciliation.SeverityCritical,
+				Status:      reconciliation.CheckStatusFail,
+				Message:     "Conservation check failed",
+				Violations: []reconciliation.CheckViolation{
+					{
+						EntityID:    "acc-test-roundtrip",
+						Description: "debit/credit imbalance of 500 paise",
+						Details: map[string]any{
+							"accountNumber": "ACC-TEST-999",
+							"imbalance":     float64(500),
+						},
+					},
+				},
+				StartedAt:   now,
+				CompletedAt: now,
+			},
+		},
+		StartedAt:   now,
+		CompletedAt: now,
+	}
+
+	defer func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM integrity_check_results WHERE id = $1`, runID)
+	}()
+
+	if err := store.SaveRun(ctx, originalRun); err != nil {
+		t.Fatalf("SaveRun: %v", err)
+	}
+
+	retrieved, err := store.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+
+	if retrieved.RunID != runID {
+		t.Fatalf("retrieved RunID = %s, want %s", retrieved.RunID, runID)
+	}
+	if len(retrieved.Checks) != 1 {
+		t.Fatalf("retrieved checks count = %d, want 1", len(retrieved.Checks))
+	}
+	chk := retrieved.Checks[0]
+	if chk.Status != reconciliation.CheckStatusFail {
+		t.Fatalf("retrieved check status = %s, want FAIL", chk.Status)
+	}
+	if len(chk.Violations) != 1 {
+		t.Fatalf("retrieved violations count = %d, want 1", len(chk.Violations))
+	}
+	v := chk.Violations[0]
+	if v.EntityID != "acc-test-roundtrip" {
+		t.Errorf("violation EntityID = %q, want %q", v.EntityID, "acc-test-roundtrip")
+	}
+	if v.Description != "debit/credit imbalance of 500 paise" {
+		t.Errorf("violation Description = %q, want %q", v.Description, "debit/credit imbalance of 500 paise")
+	}
+	if v.Details["accountNumber"] != "ACC-TEST-999" {
+		t.Errorf("violation Details[accountNumber] = %v, want %q", v.Details["accountNumber"], "ACC-TEST-999")
 	}
 }

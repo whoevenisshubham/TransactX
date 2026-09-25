@@ -472,10 +472,16 @@ func (repository *Repository) settleRoutedCentral(ctx context.Context, payment P
 		if _, err := tx.Exec(ctx, `UPDATE payments SET state = $2, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, payment.ID, current.State); err != nil {
 			return err
 		}
+		if err := repository.RecordTransition(ctx, tx, payment.ID, currentState, StateCompleted); err != nil {
+			return err
+		}
 		return tx.Commit(ctx)
 	}
 	current := Payment{State: currentState}
 	if err := Transition(&current, StateCommitted); err != nil {
+		return err
+	}
+	if err := repository.RecordTransition(ctx, tx, payment.ID, currentState, StateCommitted); err != nil {
 		return err
 	}
 	accountsRepository := accounts.NewRepository(repository.db)
@@ -503,6 +509,9 @@ func (repository *Repository) settleRoutedCentral(ctx context.Context, payment P
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payments SET state = $2, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, payment.ID, current.State); err != nil {
+		return err
+	}
+	if err := repository.RecordTransition(ctx, tx, payment.ID, StateCommitted, StateCompleted); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -590,6 +599,9 @@ func (repository *Repository) updateState(ctx context.Context, paymentID uuid.UU
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE payments SET state = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, paymentID, state); err != nil {
+			return err
+		}
+		if err := repository.RecordTransition(ctx, tx, paymentID, currentState, state); err != nil {
 			return err
 		}
 		requestID := common.RequestIDFromContext(ctx)
