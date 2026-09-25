@@ -217,3 +217,36 @@ snapshot, or time-zone representation. Any incompatible change to fields,
 ordering, encoding, normalization, or the domain separator requires a new
 canonical version and an explicit compatibility decision; version `v1` remains
 readable and verifiable for existing commitments.
+## ADR-022: M3-7 Runtime Financial Integrity Engine
+
+Status: **IMPLEMENTED**
+
+### Context
+Reconciliation (M3-5) verifies consistency between canonical central ledger records and participant bank ledgers using Merkle commitments (M3-2..M3-4) and cryptographic proofs (M3-7-C1/C2). However, internal financial invariants must also be verifiable at runtime without relying solely on two-sided reconciliation runs.
+
+### Decision
+Implement an observational, read-only Runtime Financial Integrity Engine in `backend/internal/reconciliation`:
+
+1. **Typed Check Registry**:
+   - `DEBIT_CREDIT_CONSERVATION` (CRITICAL): Aggregate and per-transaction debit/credit balance.
+   - `NON_NEGATIVE_BALANCES` (CRITICAL): Materialized and spendable account balances must be non-negative.
+   - `TRANSACTION_UNIQUENESS` (CRITICAL): Uniqueness of payment identities and bank operation IDs.
+   - `IDEMPOTENCY_MAPPING` (HIGH): Consistent mapping between users, keys, and payments.
+   - `PAYMENT_STATE_VALIDITY` (HIGH): Adherence to the authoritative payment state machine.
+   - `COMPLETED_PAYMENT_LEDGER_COMPLETENESS` (CRITICAL): Completed payments must possess balanced ledger rows.
+   - `MERKLE_COMMITMENT_CONSISTENCY` (CRITICAL): Maintained Merkle commitment roots match recomputed records.
+
+2. **Observational & Read-Only Guarantee**:
+   Checks inspect current state. They never mutate balances, create missing rows, repair data, or alter routing.
+
+3. **Status & Result Semantics**:
+   - `PASS`: Invariant held.
+   - `FAIL`: Financial or data invariant violated (recorded in `Violations`).
+   - `ERROR`: Operational failure (database error, network partition). Never reported as `PASS`.
+   - `NOT_APPLICABLE`: Check does not apply to the provided scope.
+
+4. **State History Limitations**:
+   Because TransactX does not maintain an immutable state transition log table in PostgreSQL, the engine validates current states and any explicitly recorded transition events without synthesizing or inventing historical transitions from log strings.
+
+5. **Merkle Consistency Integration**:
+   Uses accepted canonical records and `IncrementalMerkleLedger` to recalculate roots over the scope interval without duplicating hashing logic.
