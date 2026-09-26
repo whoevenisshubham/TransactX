@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/transactx/backend/internal/common"
 )
 
 type HTTPClient struct {
@@ -94,6 +96,9 @@ func (client *HTTPClient) do(ctx context.Context, method, path, payload string, 
 	}
 	if payload != "" {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if reqID := common.RequestIDFromContext(ctx); reqID != "" {
+		request.Header.Set("X-Request-ID", reqID)
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {

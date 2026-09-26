@@ -61,3 +61,26 @@ func TestHTTPClientMapsUnavailableBankError(t *testing.T) {
 		t.Fatalf("error = %v, want typed unavailable error", err)
 	}
 }
+
+func TestHTTPClientPropagatesRequestID(t *testing.T) {
+	var capturedRequestID string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		capturedRequestID = request.Header.Get("X-Request-ID")
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+
+	client, err := bank.NewHTTPClient(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := bank.ContextWithRequestIDForTest(context.Background(), "req-test-12345")
+	_, err = client.GetHealth(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capturedRequestID != "req-test-12345" {
+		t.Fatalf("capturedRequestID = %q, want %q", capturedRequestID, "req-test-12345")
+	}
+}

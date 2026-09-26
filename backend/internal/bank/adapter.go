@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/transactx/backend/internal/common"
 )
 
 // BankAdapter is the domain contract used by the payment switch to communicate
@@ -161,3 +162,7 @@ func (err *AdapterError) Error() string {
 }
 
 func (err *AdapterError) Unwrap() error { return err.Err }
+
+func ContextWithRequestIDForTest(ctx context.Context, requestID string) context.Context {
+	return common.ContextWithRequestID(ctx, requestID)
+}
