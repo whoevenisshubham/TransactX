@@ -173,6 +173,7 @@ func main() {
 		participantAdapters[code] = adapters[bankID]
 	}
 	reconRepo := reconciliation.NewRunRepository(db)
+	commitStore := reconciliation.NewPostgresIncrementalCommitmentStore(db)
 	reconEngine := reconciliation.NewEngine(
 		knownParticipants,
 		reconRepo,
@@ -182,9 +183,7 @@ func main() {
 			if err != nil {
 				return nil, err
 			}
-			if initErr := p.Initialize(ctx, scope); initErr != nil {
-				return nil, initErr
-			}
+			p = p.WithCommitmentStore(commitStore)
 			return p, nil
 		},
 		// Participant factory: bank participant adapter
@@ -193,14 +192,11 @@ func main() {
 			if !ok {
 				return nil, reconciliation.ErrInvalidParticipant
 			}
-			p, err := reconciliation.NewRepositoryParticipant(
-				adapter, participantID, participantID, 15*time.Minute,
+			p, err := reconciliation.NewRepositoryParticipantWithCommitmentStore(
+				adapter, participantID, participantID, 15*time.Minute, commitStore,
 			)
 			if err != nil {
 				return nil, err
-			}
-			if initErr := p.Initialize(ctx, scope); initErr != nil {
-				return nil, initErr
 			}
 			return p, nil
 		},

@@ -33,8 +33,10 @@ type Handler struct {
 	healthService   *health.Service
 	healthTargets   map[string]health.HealthChecker
 	circuitBreaker  *circuit.CircuitBreaker
-	chaosController *chaos.Controller
-	reconEngine     *reconciliation.Engine
+	chaosController    *chaos.Controller
+	reconEngine        *reconciliation.Engine
+	integrityEngine    *reconciliation.RuntimeIntegrityEngine
+	integrityRunStore  reconciliation.IntegrityRunStore
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -115,17 +117,22 @@ func newHandlerWithAdaptersAndChaos(db *pgxpool.Pool, logger *slog.Logger, authS
 
 func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, _ *circuit.CircuitBreaker, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, reconEngine *reconciliation.Engine) http.Handler {
 	handler := &Handler{
-		db:              db,
-		logger:          logger,
-		auth:            authService,
-		users:           users.NewRepository(db),
-		accountsRepo:    accounts.NewRepository(db),
-		recipients:      recipients.NewRepository(db),
-		healthService:   healthService,
-		healthTargets:   healthTargets,
-		circuitBreaker:  circuitBreaker,
-		chaosController: chaosController,
-		reconEngine:     reconEngine,
+		db:                db,
+		logger:            logger,
+		auth:              authService,
+		users:             users.NewRepository(db),
+		accountsRepo:      accounts.NewRepository(db),
+		recipients:        recipients.NewRepository(db),
+		healthService:     healthService,
+		healthTargets:     healthTargets,
+		circuitBreaker:    circuitBreaker,
+		chaosController:   chaosController,
+		reconEngine:       reconEngine,
+	}
+	if db != nil {
+		handler.integrityRunStore = reconciliation.NewPostgresIntegrityRunStore(db)
+		dataStore := reconciliation.NewProductionPostgresFinancialDataStore(db)
+		handler.integrityEngine = reconciliation.NewRuntimeIntegrityEngine(dataStore, handler.integrityRunStore)
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -170,6 +177,10 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("GET /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationListRuns))))
 	mux.Handle("GET /api/ops/reconciliation/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationGetRun))))
 	mux.Handle("GET /api/ops/reconciliation/runs/{runID}/discrepancies", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationListDiscrepancies))))
+	mux.Handle("POST /api/ops/integrity/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityCreateRun))))
+	mux.Handle("GET /api/ops/integrity/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityListRuns))))
+	mux.Handle("GET /api/ops/integrity/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityGetRun))))
+	mux.Handle("GET /api/ops/integrity/checks", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityListChecks))))
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))

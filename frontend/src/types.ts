@@ -135,3 +135,81 @@ export type ChaosScenario = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type ReconciliationRun = {
+  id: string;
+  participantId: string;
+  scopeFrom: string;
+  scopeTo: string;
+  status: string;
+  recordCount: number;
+  discrepancyCount: number;
+  startedAt: string;
+  completedAt?: string;
+  canonicalRootHex?: string;
+  canonicalVersion?: string;
+  algorithmVersion?: string;
+  errorMessage?: string;
+};
+
+export type Discrepancy = {
+  id: string;
+  runId: string;
+  participantId: string;
+  bucketKey: string;
+  bucketPartition: string;
+  bucketStart: string;
+  bucketWidthNs: number;
+  expectedRoot?: string;
+  observedRoot?: string;
+  mismatchCategory: string;
+  evidence?: Record<string, string>;
+  detectedAt: string;
+};
+
+export type IntegrityCheckDefinition = {
+  code: string;
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+  description: string;
+};
+
+export type CheckViolation = {
+  entityId?: string;
+  description: string;
+  details?: Record<string, unknown>;
+};
+
+export type IntegrityCheckResult = {
+  runId: string;
+  code: string;
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+  status: "PASS" | "FAIL" | "ERROR" | "NOT_APPLICABLE";
+  message: string;
+  observed?: string;
+  violations?: CheckViolation[];
+  error?: string;
+  startedAt: string;
+  completedAt: string;
+};
+
+export type IntegrityRunSummary = {
+  totalChecks: number;
+  passed: number;
+  failed: number;
+  errors: number;
+  notApplicable: number;
+};
+
+export type IntegrityRunResult = {
+  id: string;
+  runId: string;
+  participantId?: string;
+  scopeFrom?: string;
+  scopeTo?: string;
+  status: "RUNNING" | "COMPLETED" | "FAILED";
+  summary: IntegrityRunSummary;
+  checks: IntegrityCheckResult[];
+  errorMessage?: string;
+  startedAt: string;
+  completedAt: string;
+}; // EOF

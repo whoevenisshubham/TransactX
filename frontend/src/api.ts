@@ -3,11 +3,15 @@ import type {
   ChaosScenario,
   CircuitTargetSnapshot,
   CircuitTransitionEvent,
+  Discrepancy,
   HealthSample,
   HealthSnapshot,
+  IntegrityCheckDefinition,
+  IntegrityRunResult,
   MerchantReceiveInfo,
   Payment,
   Recipient,
+  ReconciliationRun,
   User,
 } from "./types";
 
@@ -106,5 +110,16 @@ export const api = {
   opsChaosReset: (targetId: string | undefined, token: string) => apiRequest<{ status: string; targetId?: string }>("/api/ops/chaos/reset", { method: "POST", body: JSON.stringify({ targetId: targetId || "" }) }, token),
   opsGlobalHealth: () => apiRequest<{ status: string; service: string }>("/health", {}),
   opsDbHealth: () => apiRequest<{ status: string }>("/health/db", {}),
-};
 
+  // OPS_ADMIN Reconciliation APIs (M3)
+  opsReconciliationCreateRun: (req: { participantId: string; scopeFrom: string; scopeTo: string }, token: string) => apiRequest<ReconciliationRun>("/api/ops/reconciliation/runs", { method: "POST", body: JSON.stringify(req) }, token),
+  opsReconciliationListRuns: (token: string, participantId?: string, limit = 20, offset = 0) => apiRequest<{ items: ReconciliationRun[]; total: number; limit: number; nextOffset?: number }>(`/api/ops/reconciliation/runs?limit=${limit}&offset=${offset}${participantId ? `&participantId=${encodeURIComponent(participantId)}` : ""}`, {}, token),
+  opsReconciliationGetRun: (runId: string, token: string) => apiRequest<ReconciliationRun>(`/api/ops/reconciliation/runs/${encodeURIComponent(runId)}`, {}, token),
+  opsReconciliationListDiscrepancies: (runId: string, token: string, limit = 50, offset = 0) => apiRequest<{ items: Discrepancy[]; total: number; limit: number; offset: number }>(`/api/ops/reconciliation/runs/${encodeURIComponent(runId)}/discrepancies?limit=${limit}&offset=${offset}`, {}, token),
+
+  // OPS_ADMIN Financial Integrity APIs (M3)
+  opsIntegrityCreateRun: (req: { participantId?: string; scopeFrom?: string; scopeTo?: string; checkCodes?: string[] }, token: string) => apiRequest<IntegrityRunResult>("/api/ops/integrity/runs", { method: "POST", body: JSON.stringify(req) }, token),
+  opsIntegrityListRuns: (token: string, limit = 20, offset = 0) => apiRequest<{ items: IntegrityRunResult[]; total: number; limit: number }>(`/api/ops/integrity/runs?limit=${limit}&offset=${offset}`, {}, token),
+  opsIntegrityGetRun: (runId: string, token: string) => apiRequest<IntegrityRunResult>(`/api/ops/integrity/runs/${encodeURIComponent(runId)}`, {}, token),
+  opsIntegrityListChecks: (token: string) => apiRequest<IntegrityCheckDefinition[]>("/api/ops/integrity/checks", {}, token),
+};

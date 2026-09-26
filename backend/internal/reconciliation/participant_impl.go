@@ -278,6 +278,14 @@ func NewRepositoryParticipantWithCommitmentStore(source LedgerSnapshotSource, pa
 	return &RepositoryParticipant{source: source, commitments: commitments, participantID: participantID, partition: partition, bucketWidth: bucketWidth, snapshots: make(map[string]participantSnapshot), current: make(map[string]string)}, nil
 }
 
+// WithCommitmentStore sets the IncrementalCommitmentStore on RepositoryParticipant.
+func (participant *RepositoryParticipant) WithCommitmentStore(store IncrementalCommitmentStore) *RepositoryParticipant {
+	participant.mu.Lock()
+	defer participant.mu.Unlock()
+	participant.commitments = store
+	return participant
+}
+
 // BucketWidth returns the configured bucket width for the participant.
 func (participant *RepositoryParticipant) BucketWidth() time.Duration {
 	participant.mu.RLock()

@@ -460,3 +460,90 @@ func TestParticipantBoundaryRejectsForeignParticipantRef(t *testing.T) {
 		t.Fatalf("RepositoryParticipant.GetBucketID expected ErrParticipantMismatch, got: %v", err)
 	}
 }
+
+func TestDurableCommitmentRestartWithoutRebuild(t *testing.T) {
+	records := participantRecords()
+	entries := make([]bank.LedgerEntry, 0, len(records))
+	for _, record := range records {
+		entries = append(entries, bank.LedgerEntry{
+			OperationID: record.OperationID,
+			PaymentID:   record.PaymentID,
+			AccountID:   record.AccountID,
+			EntryType:   record.EntryType,
+			AmountPaise: record.AmountPaise,
+			Currency:    record.Currency,
+			OccurredAt:  record.OccurredAt,
+		})
+	}
+	snapshot := bank.LedgerSnapshot{BankID: "BANK-A", CapturedAt: time.Date(2026, 1, 2, 2, 0, 0, 0, time.UTC), Entries: entries}
+
+	sourceCalls := 0
+	source := &fakeSnapshotSource{snapshot: snapshot, calls: &sourceCalls}
+	durableStore := NewMemoryIncrementalCommitmentStore()
+
+	// 1. Initial participant instance writes state to durableStore via Initialize
+	participant1, err := NewRepositoryParticipantWithCommitmentStore(source, "BANK-A", "ledger", time.Hour, durableStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := participantScope()
+	if err := participant1.Initialize(context.Background(), scope); err != nil {
+		t.Fatal(err)
+	}
+	root1, err := participant1.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourceCalls != 1 {
+		t.Fatalf("expected 1 call to snapshot source during initialization, got %d", sourceCalls)
+	}
+
+	// 2. Disallow any further snapshot source calls (simulate backend process restart with failing snapshot source)
+	source.err = errors.New("source MUST NOT be called after restart during normal reconciliation reads")
+
+	// 3. New participant instance created (simulating server process restart)
+	participant2, err := NewRepositoryParticipantWithCommitmentStore(source, "BANK-A", "ledger", time.Hour, durableStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. GetRoot loads existing commitment from durableStore without materializing / rebuilding from authoritative source
+	root2, err := participant2.GetRoot(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("GetRoot on new instance failed: %v", err)
+	}
+	if !bytes.Equal(root1.Root, root2.Root) {
+		t.Fatalf("root mismatch after restart: root1=%x, root2=%x", root1.Root, root2.Root)
+	}
+	if root1.Ref.Generation != root2.Ref.Generation {
+		t.Fatalf("generation mismatch after restart: gen1=%q, gen2=%q", root1.Ref.Generation, root2.Ref.Generation)
+	}
+
+	// 5. Children and records reads work seamlessly without source calls
+	children, err := participant2.GetChildren(context.Background(), root2.Ref)
+	if err != nil {
+		t.Fatalf("GetChildren failed on restarted instance: %v", err)
+	}
+	if len(children) == 0 {
+		t.Fatal("expected children from restarted instance")
+	}
+
+	recordsRead, err := participant2.GetRecords(context.Background(), BucketRef{
+		ParticipantID: "BANK-A",
+		ScopeID:       root2.Ref.ScopeID,
+		Generation:    root2.Ref.Generation,
+		Key:           bucketKeyForRecord(t, records[0]),
+	})
+	if err != nil {
+		t.Fatalf("GetRecords failed on restarted instance: %v", err)
+	}
+	if len(recordsRead) == 0 {
+		t.Fatal("expected records from restarted instance")
+	}
+
+	if sourceCalls != 1 {
+		t.Fatalf("expected snapshot source calls to remain exactly 1, got %d", sourceCalls)
+	}
+}
+
+// End of participant test file

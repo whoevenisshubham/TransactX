@@ -6,8 +6,13 @@ import type {
   CircuitTargetSnapshot,
   CircuitTransitionEvent,
   ConsoleView,
+  Discrepancy,
   HealthSample,
   HealthSnapshot,
+  IntegrityCheckDefinition,
+  IntegrityCheckResult,
+  IntegrityRunResult,
+  ReconciliationRun,
   User,
 } from "./types";
 
@@ -119,9 +124,9 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
           {view === "c-overview" && <ConsoleOverviewView token={token} onNavigate={navigate} />}
           {view === "c-health" && <ConsoleHealthView token={token} />}
           {view === "c-routing" && <ConsoleRoutingView token={token} />}
-          {view === "c-reconciliation" && <ConsoleReconciliationView />}
-          {view === "c-merkle" && <ConsoleMerkleView />}
-          {view === "c-integrity" && <ConsoleIntegrityView />}
+          {view === "c-reconciliation" && <ConsoleReconciliationView token={token} />}
+          {view === "c-merkle" && <ConsoleMerkleView token={token} />}
+          {view === "c-integrity" && <ConsoleIntegrityView token={token} />}
           {view === "c-chaos" && <ConsoleChaosView token={token} />}
           {view === "c-activity" && <ConsoleActivityView token={token} />}
         </div>
@@ -1002,113 +1007,590 @@ function ConsoleRoutingView({ token }: { token: string }) {
 // 4. Reconciliation View (M3-5 Placeholder)
 // ---------------------------------------------------------------------------
 
-function ConsoleReconciliationView() {
+// ---------------------------------------------------------------------------
+// 4. Reconciliation View (Functional M3)
+// ---------------------------------------------------------------------------
+
+function ConsoleReconciliationView({ token }: { token: string }) {
+  const [runs, setRuns] = useState<ReconciliationRun[]>([]);
+  const [selectedRun, setSelectedRun] = useState<ReconciliationRun | null>(null);
+  const [discrepancies, setDiscrepancies] = useState<Discrepancy[]>([]);
+  const [participantId, setParticipantId] = useState("BANK-A");
+  const [scopeFrom, setScopeFrom] = useState(() => {
+    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 16);
+  });
+  const [scopeTo, setScopeTo] = useState(() => new Date().toISOString().slice(0, 16));
+
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [discrepanciesLoading, setDiscrepanciesLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+
+  function loadRuns() {
+    setLoading(true);
+    setError("");
+    api.opsReconciliationListRuns(token)
+      .then((page) => {
+        setRuns(page.items);
+        if (page.items.length > 0 && (!selectedRun || !page.items.find((r) => r.id === selectedRun.id))) {
+          inspectRun(page.items[0]);
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load reconciliation runs."))
+      .finally(() => setLoading(false));
+  }
+
+  function inspectRun(run: ReconciliationRun) {
+    setSelectedRun(run);
+    setDiscrepanciesLoading(true);
+    api.opsReconciliationListDiscrepancies(run.id, token)
+      .then((page) => setDiscrepancies(page.items))
+      .catch(() => setDiscrepancies([]))
+      .finally(() => setDiscrepanciesLoading(false));
+  }
+
+  useEffect(() => {
+    loadRuns();
+  }, [token]);
+
+  function handleTriggerRun(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+    setFeedback("");
+
+    const fromDate = new Date(scopeFrom);
+    const toDate = new Date(scopeTo);
+
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+      setError("Please select valid scope timestamps.");
+      setSubmitting(false);
+      return;
+    }
+    if (toDate.getTime() <= fromDate.getTime()) {
+      setError("Scope End timestamp must be strictly after Scope Start.");
+      setSubmitting(false);
+      return;
+    }
+
+    api.opsReconciliationCreateRun(
+      {
+        participantId: participantId.trim(),
+        scopeFrom: fromDate.toISOString(),
+        scopeTo: toDate.toISOString(),
+      },
+      token
+    )
+      .then((createdRun) => {
+        setFeedback(`Reconciliation run ${createdRun.id} created (${createdRun.status}, ${createdRun.discrepancyCount} discrepancies detected).`);
+        loadRuns();
+        inspectRun(createdRun);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to execute reconciliation run."))
+      .finally(() => setSubmitting(false));
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="Reconciliation"
         title="Reconciliation Orchestration"
-        description="Automated multi-participant ledger comparison, discrepancy identification, and settlement convergence."
+        description="Automated bilateral ledger comparison, Merkle root verification, and localized discrepancy discovery."
+        action={
+          <Button variant="secondary" onClick={loadRuns}>
+            <ConsoleIcon name="refresh" size={14} />
+            Refresh Runs
+          </Button>
+        }
       />
-      <div className="console-notice-box">
-        <span className="console-notice-tag">MODULE NOT AVAILABLE YET · MILESTONE M3-5</span>
-        <h3>Backend reconciliation orchestration is not available yet.</h3>
-        <p>
-          The underlying data foundation (canonical transaction commitments, deterministic Merkle buckets, and incremental tree models) has been verified in internal packages, but operator-facing reconciliation run orchestration, discrepancy APIs, and automatic settlement batches are scheduled for future milestone integration.
-        </p>
-        <div className="console-spec-list">
-          <div className="console-spec-item">
-            <span className="console-spec-label">Canonical Commitment Foundation</span>
-            <span className="console-spec-val">Implemented (internal/reconciliation/canonical.go)</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Merkle Bucket Partitioning</span>
-            <span className="console-spec-val">Implemented (internal/reconciliation/merkle_bucket.go)</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Reconciliation Execution Seam</span>
-            <span className="console-spec-val">Pending M3-5 Backend Integration</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Recorded Run History</span>
-            <span className="console-spec-val">0 runs (no fabricated records)</span>
-          </div>
+
+      {error && <InlineError message={error} />}
+      {feedback && (
+        <div className="console-card" style={{ borderColor: "var(--accent)", color: "var(--accent)", marginBottom: "1rem" }}>
+          {feedback}
         </div>
-      </div>
+      )}
+
+      <form className="console-form-inline" onSubmit={handleTriggerRun} style={{ marginBottom: "1.5rem" }}>
+        <div className="console-form-group">
+          <label className="console-form-label" htmlFor="recon-participant">Participant Bank</label>
+          <select
+            id="recon-participant"
+            className="console-select"
+            value={participantId}
+            onChange={(e) => setParticipantId(e.target.value)}
+          >
+            <option value="BANK-A">BANK-A</option>
+            <option value="BANK-B">BANK-B</option>
+          </select>
+        </div>
+
+        <div className="console-form-group">
+          <label className="console-form-label" htmlFor="recon-from">Scope From</label>
+          <input
+            id="recon-from"
+            type="datetime-local"
+            className="console-input"
+            value={scopeFrom}
+            onChange={(e) => setScopeFrom(e.target.value)}
+            required
+          />
+        </div>
+
+        <div className="console-form-group">
+          <label className="console-form-label" htmlFor="recon-to">Scope To</label>
+          <input
+            id="recon-to"
+            type="datetime-local"
+            className="console-input"
+            value={scopeTo}
+            onChange={(e) => setScopeTo(e.target.value)}
+            required
+          />
+        </div>
+
+        <Button type="submit" disabled={submitting}>
+          {submitting ? "Executing Run…" : "Trigger Reconciliation Run"}
+        </Button>
+      </form>
+
+      {loading ? (
+        <ConsoleSkeleton />
+      ) : (
+        <>
+          <section className="section-block">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Run History</p>
+                <h2>Executed Reconciliation Runs ({runs.length})</h2>
+              </div>
+            </div>
+            {runs.length === 0 ? (
+              <div className="console-card">
+                <p className="console-meta-text">No reconciliation runs executed yet. Use the form above to run a bilateral reconciliation check.</p>
+              </div>
+            ) : (
+              <div className="console-table-wrap">
+                <table className="console-table">
+                  <thead>
+                    <tr>
+                      <th>Run ID</th>
+                      <th>Participant</th>
+                      <th>Status</th>
+                      <th>Scope From / To</th>
+                      <th>Records</th>
+                      <th>Discrepancies</th>
+                      <th>Canonical Root</th>
+                      <th>Started</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runs.map((r) => (
+                      <tr key={r.id} style={selectedRun?.id === r.id ? { backgroundColor: "rgba(99, 102, 241, 0.05)" } : undefined}>
+                        <td className="mono" style={{ fontWeight: 600, fontSize: ".75rem" }}>{r.id.slice(0, 8)}…</td>
+                        <td className="mono">{r.participantId}</td>
+                        <td>
+                          <span className={`console-pill ${r.status === "COMPLETED" ? (r.discrepancyCount === 0 ? "console-pill-success" : "console-pill-warning") : "console-pill-error"}`}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td className="mono" style={{ fontSize: ".72rem" }}>
+                          {formatIso(r.scopeFrom)}<br />→ {formatIso(r.scopeTo)}
+                        </td>
+                        <td className="mono">{r.recordCount}</td>
+                        <td className="mono" style={{ fontWeight: r.discrepancyCount > 0 ? 600 : 400, color: r.discrepancyCount > 0 ? "var(--warning)" : "inherit" }}>
+                          {r.discrepancyCount}
+                        </td>
+                        <td className="mono" style={{ fontSize: ".7rem" }}>
+                          {r.canonicalRootHex ? r.canonicalRootHex.slice(0, 12) + "…" : "—"}
+                        </td>
+                        <td className="mono" style={{ fontSize: ".72rem" }}>{formatIso(r.startedAt)}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="button button-sm button-secondary"
+                            onClick={() => inspectRun(r)}
+                          >
+                            Inspect
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {selectedRun && (
+            <section className="section-block">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Discrepancy Evidence</p>
+                  <h2>Run Evidence for {selectedRun.id.slice(0, 8)}… ({selectedRun.participantId})</h2>
+                </div>
+              </div>
+              {discrepanciesLoading ? (
+                <ConsoleSkeleton />
+              ) : discrepancies.length === 0 ? (
+                <div className="console-card">
+                  <span className="console-card-kicker">Discrepancy Status</span>
+                  <p className="console-meta-text">No discrepancies detected for this run. Canonical PostgreSQL ledger and participant records match perfectly.</p>
+                </div>
+              ) : (
+                <div className="console-table-wrap">
+                  <table className="console-table">
+                    <thead>
+                      <tr>
+                        <th>Mismatch Category</th>
+                        <th>Bucket Key</th>
+                        <th>Bucket Partition</th>
+                        <th>Detected At</th>
+                        <th>Evidence Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {discrepancies.map((d) => (
+                        <tr key={d.id || d.bucketKey + d.mismatchCategory}>
+                          <td>
+                            <span className="console-pill console-pill-error">
+                              {d.mismatchCategory}
+                            </span>
+                          </td>
+                          <td className="mono" style={{ fontSize: ".75rem" }}>{d.bucketKey}</td>
+                          <td className="mono">{d.bucketPartition}</td>
+                          <td className="mono" style={{ fontSize: ".72rem" }}>{formatIso(d.detectedAt)}</td>
+                          <td className="mono" style={{ fontSize: ".72rem" }}>
+                            {d.evidence ? (
+                              <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                                {JSON.stringify(d.evidence, null, 2)}
+                              </pre>
+                            ) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+        </>
+      )}
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 5. Merkle View (M3-2 / M3-3 Explorer Placeholder)
+// 5. Merkle View (Functional Commitment Explorer)
 // ---------------------------------------------------------------------------
 
-function ConsoleMerkleView() {
+function ConsoleMerkleView({ token }: { token: string }) {
+  const [runs, setRuns] = useState<ReconciliationRun[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    api.opsReconciliationListRuns(token)
+      .then((page) => setRuns(page.items))
+      .catch(() => setRuns([]))
+      .finally(() => setLoading(false));
+  }, [token]);
+
   return (
     <>
       <PageHeader
         eyebrow="Cryptographic Proofs"
-        title="Merkle Tree Verification"
-        description="Root hash commitment structures, bucket partition trees, and cryptographic membership inclusion verification."
+        title="Merkle Commitment Explorer"
+        description="Authoritative Merkle roots, canonical versions, and generation state derived from persistent Postgres commitments."
       />
-      <div className="console-notice-box">
-        <span className="console-notice-tag">MODULE NOT AVAILABLE YET · MILESTONE M3-8</span>
-        <h3>Operator Merkle visualization API is not available yet.</h3>
-        <p>
-          Incremental binary Merkle trees and bucket digest generation are implemented and tested within the core ledger engine. Live operator tree traversal endpoints have not yet been exposed by the backend API. In accordance with zero-fabrication safety rules, tree visualizations are not synthesized on the client.
-        </p>
-        <div className="console-spec-list">
-          <div className="console-spec-item">
-            <span className="console-spec-label">Tree Topology</span>
-            <span className="console-spec-val">Binary incremental Merkle tree with prefix-bucket leaves</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Hash Algorithm</span>
-            <span className="console-spec-val">SHA-256 (64 hex characters)</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Operator Visualizer Seam</span>
-            <span className="console-spec-val">Pending M3-8 Backend Integration</span>
-          </div>
-        </div>
-      </div>
+
+      {loading ? (
+        <ConsoleSkeleton />
+      ) : (
+        <>
+          <section className="console-grid-4">
+            <div className="console-card">
+              <span className="console-card-kicker">Merkle Tree Topology</span>
+              <span className="console-val-large" style={{ fontSize: "1.2rem" }}>Binary Incremental</span>
+              <span className="console-meta-text">Prefix-bucket leaves with SHA-256</span>
+            </div>
+            <div className="console-card">
+              <span className="console-card-kicker">Canonical Version</span>
+              <span className="console-val-large" style={{ fontSize: "1.2rem" }}>v1.0</span>
+              <span className="console-meta-text">Canonical integer paise schema</span>
+            </div>
+            <div className="console-card">
+              <span className="console-card-kicker">Hash Algorithm</span>
+              <span className="console-val-large" style={{ fontSize: "1.2rem" }}>SHA-256</span>
+              <span className="console-meta-text">256-bit cryptographic digest</span>
+            </div>
+            <div className="console-card">
+              <span className="console-card-kicker">Commitments Tracked</span>
+              <span className="console-val-large">{runs.length}</span>
+              <span className="console-meta-text">Persisted run roots</span>
+            </div>
+          </section>
+
+          <section className="section-block">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Active Commitments</p>
+                <h2>Recent Merkle Root Commitments</h2>
+              </div>
+            </div>
+            {runs.length === 0 ? (
+              <div className="console-card">
+                <p className="console-meta-text">No active Merkle commitments recorded. Run a reconciliation check to generate commitments.</p>
+              </div>
+            ) : (
+              <div className="console-table-wrap">
+                <table className="console-table">
+                  <thead>
+                    <tr>
+                      <th>Participant</th>
+                      <th>Canonical Merkle Root (Hex)</th>
+                      <th>Canonical Version</th>
+                      <th>Algorithm</th>
+                      <th>Record Count</th>
+                      <th>Scope Window</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runs.map((r) => (
+                      <tr key={r.id}>
+                        <td className="mono" style={{ fontWeight: 600 }}>{r.participantId}</td>
+                        <td className="mono" style={{ fontSize: ".75rem", wordBreak: "break-all" }}>
+                          {r.canonicalRootHex ? r.canonicalRootHex : "—"}
+                        </td>
+                        <td className="mono">{r.canonicalVersion || "v1.0"}</td>
+                        <td className="mono">{r.algorithmVersion || "SHA-256"}</td>
+                        <td className="mono">{r.recordCount}</td>
+                        <td className="mono" style={{ fontSize: ".72rem" }}>
+                          {formatIso(r.scopeFrom)} → {formatIso(r.scopeTo)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 6. Integrity View (M3-7 Placeholder)
+// 6. Integrity View (Functional M3 Integrity Engine)
 // ---------------------------------------------------------------------------
 
-function ConsoleIntegrityView() {
+function ConsoleIntegrityView({ token }: { token: string }) {
+  const [runs, setRuns] = useState<IntegrityRunResult[]>([]);
+  const [selectedRun, setSelectedRun] = useState<IntegrityRunResult | null>(null);
+  const [checks, setChecks] = useState<IntegrityCheckDefinition[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
+
+  function loadIntegrityState() {
+    setLoading(true);
+    setError("");
+    Promise.all([
+      api.opsIntegrityListRuns(token).catch(() => ({ items: [], total: 0, limit: 20 })),
+      api.opsIntegrityListChecks(token).catch(() => []),
+    ])
+      .then(([runsPage, checkDefs]) => {
+        setRuns(runsPage.items);
+        setChecks(checkDefs);
+        if (runsPage.items.length > 0 && (!selectedRun || !runsPage.items.find((r) => r.id === selectedRun.id))) {
+          setSelectedRun(runsPage.items[0]);
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load integrity data."))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadIntegrityState();
+  }, [token]);
+
+  function handleTriggerScan() {
+    setSubmitting(true);
+    setError("");
+    setFeedback("");
+    api.opsIntegrityCreateRun({}, token)
+      .then((run) => {
+        setFeedback(`Financial integrity scan completed (${run.status}: ${run.summary.passed} passed, ${run.summary.failed} failed, ${run.summary.errors} errors).`);
+        setSelectedRun(run);
+        loadIntegrityState();
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to run integrity scan."))
+      .finally(() => setSubmitting(false));
+  }
+
   return (
     <>
       <PageHeader
         eyebrow="Invariant Verification"
         title="Ledger Integrity Engine"
-        description="Continuous verification of financial invariants across double-entry participant books."
+        description="Continuous verification of financial invariants: debit/credit conservation, non-negative balances, transaction uniqueness, and Merkle consistency."
+        action={
+          <div style={{ display: "flex", gap: ".5rem" }}>
+            <Button onClick={handleTriggerScan} disabled={submitting}>
+              <ConsoleIcon name="pulse" size={15} />
+              {submitting ? "Scanning Invariants…" : "Run Invariant Scan"}
+            </Button>
+            <Button variant="secondary" onClick={loadIntegrityState}>
+              <ConsoleIcon name="refresh" size={14} />
+              Refresh
+            </Button>
+          </div>
+        }
       />
-      <div className="console-notice-box">
-        <span className="console-notice-tag">MODULE NOT AVAILABLE YET · MILESTONE M3-7</span>
-        <h3>Automated integrity invariant scans are not available yet.</h3>
-        <p>
-          Backend verification routines for money conservation, double-entry completeness, non-negative balance checks, and idempotent uniqueness are scheduled for integration in Milestone M3-7. Live invariant pass/fail metrics will be rendered when authoritative endpoints are active.
-        </p>
-        <div className="console-spec-list">
-          <div className="console-spec-item">
-            <span className="console-spec-label">Conservation of Money Invariant</span>
-            <span className="console-spec-val">∑ Debits == ∑ Credits (Pending M3-7)</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Account Non-Negative Balance Invariant</span>
-            <span className="console-spec-val">Enforced at DB seam (Console scan pending M3-7)</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Transaction Uniqueness Invariant</span>
-            <span className="console-spec-val">Deterministic clientRequestId (Pending M3-7)</span>
-          </div>
+
+      {error && <InlineError message={error} />}
+      {feedback && (
+        <div className="console-card" style={{ borderColor: "var(--accent)", color: "var(--accent)", marginBottom: "1rem" }}>
+          {feedback}
         </div>
-      </div>
+      )}
+
+      {loading ? (
+        <ConsoleSkeleton />
+      ) : (
+        <>
+          {selectedRun && (
+            <section className="console-grid-4">
+              <div className="console-card">
+                <span className="console-card-kicker">Overall Invariant Status</span>
+                <span className={`console-pill ${selectedRun.summary.failed === 0 && selectedRun.summary.errors === 0 ? "console-pill-success" : "console-pill-error"}`} style={{ alignSelf: "flex-start", marginTop: ".25rem" }}>
+                  {selectedRun.summary.failed === 0 && selectedRun.summary.errors === 0 ? "NOMINAL PASS" : "INVARIANT VIOLATION"}
+                </span>
+                <span className="console-meta-text">Run ID: {selectedRun.runId.slice(0, 8)}…</span>
+              </div>
+
+              <div className="console-card">
+                <span className="console-card-kicker">Passed Checks</span>
+                <span className="console-val-large" style={{ color: "var(--success)" }}>
+                  {selectedRun.summary.passed} / {selectedRun.summary.totalChecks}
+                </span>
+                <span className="console-meta-text">Checks evaluated clean</span>
+              </div>
+
+              <div className="console-card">
+                <span className="console-card-kicker">Failed Checks</span>
+                <span className="console-val-large" style={{ color: selectedRun.summary.failed > 0 ? "var(--error)" : "inherit" }}>
+                  {selectedRun.summary.failed}
+                </span>
+                <span className="console-meta-text">Invariant violations detected</span>
+              </div>
+
+              <div className="console-card">
+                <span className="console-card-kicker">Execution Errors</span>
+                <span className="console-val-large" style={{ color: selectedRun.summary.errors > 0 ? "var(--warning)" : "inherit" }}>
+                  {selectedRun.summary.errors}
+                </span>
+                <span className="console-meta-text">Query / evaluation errors</span>
+              </div>
+            </section>
+          )}
+
+          {selectedRun && selectedRun.checks && (
+            <section className="section-block">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Check Results</p>
+                  <h2>Invariant Verification Results for Run {selectedRun.runId.slice(0, 8)}…</h2>
+                </div>
+              </div>
+              <div className="console-table-wrap">
+                <table className="console-table">
+                  <thead>
+                    <tr>
+                      <th>Check Code</th>
+                      <th>Severity</th>
+                      <th>Status</th>
+                      <th>Message / Details</th>
+                      <th>Violations</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedRun.checks.map((c) => (
+                      <tr key={c.code}>
+                        <td className="mono" style={{ fontWeight: 600 }}>{c.code}</td>
+                        <td>
+                          <span className={`console-pill ${c.severity === "CRITICAL" ? "console-pill-error" : c.severity === "HIGH" ? "console-pill-warning" : "console-pill-neutral"}`}>
+                            {c.severity}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`console-pill ${c.status === "PASS" ? "console-pill-success" : c.status === "FAIL" ? "console-pill-error" : "console-pill-warning"}`}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: ".82rem" }}>{c.message || c.error || "—"}</td>
+                        <td className="mono" style={{ fontSize: ".75rem" }}>
+                          {c.violations && c.violations.length > 0 ? (
+                            <details>
+                              <summary style={{ cursor: "pointer", color: "var(--error)" }}>
+                                {c.violations.length} violation(s)
+                              </summary>
+                              <pre style={{ margin: ".25rem 0 0 0", whiteSpace: "pre-wrap" }}>
+                                {JSON.stringify(c.violations, null, 2)}
+                              </pre>
+                            </details>
+                          ) : (
+                            "0"
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          <section className="section-block">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Check Registry</p>
+                <h2>Authoritative Financial Invariant Definitions ({checks.length})</h2>
+              </div>
+            </div>
+            <div className="console-table-wrap">
+              <table className="console-table">
+                <thead>
+                  <tr>
+                    <th>Check Code</th>
+                    <th>Severity</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {checks.map((chk) => (
+                    <tr key={chk.code}>
+                      <td className="mono" style={{ fontWeight: 600 }}>{chk.code}</td>
+                      <td>
+                        <span className={`console-pill ${chk.severity === "CRITICAL" ? "console-pill-error" : chk.severity === "HIGH" ? "console-pill-warning" : "console-pill-neutral"}`}>
+                          {chk.severity}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: ".82rem" }}>{chk.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </>
   );
 }
