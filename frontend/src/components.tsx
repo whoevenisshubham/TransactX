@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import { useState, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import type { Payment, View } from "./types";
 
 export type IconName = "home" | "send" | "activity" | "arrow" | "chevron" | "check" | "alert" | "close";
@@ -58,8 +58,8 @@ export function Badge({ children, tone = "neutral", className = "" }: BadgeProps
 
 export function StatusBadge({ state }: { state: string }) {
   const normalized = state.toLowerCase();
-  const label = normalized === "completed" ? "Completed" : normalized === "failed" ? "Not completed" : normalized === "pending_reconciliation" || normalized === "bank_settled_central_pending" ? "Confirming" : normalized === "processing" ? "Processing" : state.replaceAll("_", " ").toLowerCase();
-  const tone = normalized === "completed" ? "success" : normalized === "failed" || normalized === "reversed" ? "error" : normalized.includes("pending") || normalized === "processing" ? "warning" : "neutral";
+  let label = normalized === "completed" ? "Completed" : normalized === "failed" ? "Not completed" : normalized === "pending_reconciliation" || normalized === "bank_settled_central_pending" ? "Confirming" : normalized === "processing" ? "Processing" : normalized === "synced" ? "Synced" : state.replaceAll("_", " ").toLowerCase();
+  let tone = normalized === "completed" ? "success" : normalized === "failed" || normalized === "reversed" ? "error" : normalized.includes("pending") || normalized === "processing" ? "warning" : "neutral";
   return <span className={`status-badge status-${tone}`}><span className="status-dot" />{label}</span>;
 }
 
@@ -157,14 +157,15 @@ export function PaymentRow({ payment, onClick }: { payment: Payment; onClick: ()
   const completed = payment.state === "COMPLETED";
   const counterparty = payment.direction === "RECEIVED" ? payment.senderName : payment.receiverName;
   const sign = payment.direction === "RECEIVED" ? "+ " : "− ";
+  const dirClass = payment.direction === "RECEIVED" ? "payment-received" : "payment-sent";
   return (
-    <button type="button" className="payment-row" onClick={onClick}>
+    <button type="button" className={`payment-row ${dirClass}`} onClick={onClick}>
       <Avatar name={counterparty} />
       <span className="payment-main">
         <strong>{counterparty}</strong>
         <small>{payment.direction === "RECEIVED" ? "Received from" : "Sent to"} · {formatDate(payment.createdAt)}</small>
       </span>
-      <span className={`payment-amount ${completed ? "" : "payment-muted"} ${payment.direction === "RECEIVED" ? "payment-received" : ""}`.trim()}>
+      <span className={`payment-amount ${completed ? "" : "payment-muted"}`.trim()}>
         <Amount paise={payment.amountPaise} sign={sign} />
         <small><StatusBadge state={payment.state} /></small>
       </span>
@@ -181,13 +182,31 @@ export function formatShortDate(value: string) {
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short" }).format(new Date(value));
 }
 
+export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    if (!text) return;
+    void navigator.clipboard?.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button type="button" className="copy-button" onClick={handleCopy} title={`Copy ${text}`}>
+      {copied ? "Copied!" : label}
+    </button>
+  );
+}
+
 export function paymentResultCopy(payment: Payment) {
-  if (payment.state === "COMPLETED") return { title: "Payment complete", description: "Your payment has been completed.", tone: "success" as const };
+  if (payment.state === "COMPLETED") return { title: "Payment complete", description: "Your payment was processed and settled successfully.", tone: "success" as const };
   if (payment.state === "FAILED" || payment.state === "REVERSED") return { title: "Payment not completed", description: payment.failureReason ?? "The payment could not be completed.", tone: "error" as const };
-  if (payment.state === "PROCESSING") return { title: "Payment being processed", description: "The payment is still being processed. It has not been marked complete yet.", tone: "pending" as const };
-  return { title: "Payment still being confirmed", description: "The outcome is not known yet. This payment is not marked complete; check its status again later.", tone: "pending" as const };
+  if (payment.state === "PROCESSING") return { title: "Payment processing", description: "The network is processing this payment. Outcome is not confirmed yet.", tone: "pending" as const };
+  if (payment.state === "PENDING_RECONCILIATION") return { title: "Pending confirmation", description: "Network verification in progress. Money may have moved downstream; status will update upon status resolution.", tone: "pending" as const };
+  if (payment.state === "BANK_SETTLED_CENTRAL_PENDING") return { title: "Syncing ledger", description: "Bank transfer completed successfully. Central ledger records are being updated.", tone: "pending" as const };
+  return { title: "Status unconfirmed", description: "The outcome is not yet known. Do not initiate a duplicate payment attempt.", tone: "pending" as const };
 }
 
 export function navLabel(view: View) {
   return view === "home" ? "Overview" : view === "pay" ? "Pay" : "Transactions";
 }
+

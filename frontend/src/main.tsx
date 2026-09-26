@@ -1,7 +1,7 @@
 import { FormEvent, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, ApiError } from "./api";
-import { Amount, Avatar, Badge, BrandMark, Button, EmptyState, Field, formatDate, Icon, InlineError, PageHeader, PaymentRow, paymentResultCopy, Skeleton, StatusBadge } from "./components";
+import { Amount, Avatar, Badge, BrandMark, Button, CopyButton, EmptyState, Field, formatDate, Icon, InlineError, PageHeader, PaymentRow, paymentResultCopy, Skeleton, StatusBadge } from "./components";
 import { parsePaise } from "./money";
 import { OfflineIntentQueue, type OfflineIntent } from "./offlineQueue";
 import { OfflineReplayWorker } from "./offlineReplay";
@@ -602,7 +602,7 @@ function HomeView({
     <>
       <PageHeader
         eyebrow="Personal account"
-        title={`Good day, ${firstName(user?.name)}`}
+        title={`${timeGreeting()}, ${firstName(user?.name)}`}
         description="Your TransactX balance and recent activity."
         action={
           <Button onClick={() => onNavigate("pay")}>
@@ -1117,8 +1117,7 @@ function UncertainPayment({ onRetry, onEdit }: { onRetry: () => void; onEdit: ()
       <p className="eyebrow">Payment status</p>
       <h1>We couldn't confirm the response</h1>
       <p className="state-description">
-        Your transfer may still be processing on the ledger. We preserved your payment request ID and idempotency key
-        so you can safely check status or retry without duplicate debit.
+        Your payment attempt timed out or lost connection. <strong>Money may have already moved downstream.</strong> We have preserved your original payment attempt ID so you can safely verify status without risk of a duplicate charge.
       </p>
       <div className="confirm-actions">
         <Button variant="secondary" onClick={onEdit}>
@@ -1428,7 +1427,12 @@ function DetailsView({
           )}
           {payment.note && <Record label="Note" value={payment.note} />}
           <Record label="Network origin" value={payment.origin} />
-          <Record label="Payment reference" value={payment.id} mono />
+          <Record label="Payment reference">
+            <div className="record-reference">
+              <strong className="mono">{payment.id}</strong>
+              <CopyButton text={payment.id} />
+            </div>
+          </Record>
         </div>
       </section>
       {payment.failureReason && (
@@ -2306,6 +2310,7 @@ function merchantViewPath(view: MerchantView): string {
 // ---------------------------------------------------------------------------
 
 function firstName(name?: string) { return name?.trim().split(" ")[0] || "there"; }
+function timeGreeting() { const h = new Date().getHours(); if (h < 12) return "Good morning"; if (h < 17) return "Good afternoon"; return "Good evening"; }
 function readView(): View { const path = window.location.pathname; if (path.startsWith("/pay")) return "pay"; if (path.startsWith("/transactions/")) return "details"; if (path.startsWith("/transactions")) return "transactions"; return "home"; }
 function readPaymentID() { const match = window.location.pathname.match(/^\/transactions\/([^/]+)/); return match?.[1] ?? null; }
 function paymentError(caught: unknown) { if (!(caught instanceof ApiError)) return "We couldn't complete the payment. Please try again."; if (caught.code === "INSUFFICIENT_FUNDS") return "Your balance is too low for this payment."; if (caught.code === "RECIPIENT_NOT_FOUND") return "That payment ID could not be found."; if (caught.code === "BANK_UNAVAILABLE") return "Payments are temporarily unavailable. Try again shortly."; return "We couldn't complete the payment. Please try again."; }
