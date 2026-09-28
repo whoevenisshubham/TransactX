@@ -120,8 +120,8 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
           {view === "c-health" && <ConsoleHealthView token={token} />}
           {view === "c-routing" && <ConsoleRoutingView token={token} />}
           {view === "c-reconciliation" && <ConsoleReconciliationView />}
-          {view === "c-merkle" && <ConsoleMerkleView />}
-          {view === "c-integrity" && <ConsoleIntegrityView />}
+          {view === "c-merkle" && <ConsoleMerkleView token={token} />}
+          {view === "c-integrity" && <ConsoleIntegrityView token={token} />}
           {view === "c-chaos" && <ConsoleChaosView token={token} />}
           {view === "c-activity" && <ConsoleActivityView token={token} />}
         </div>
@@ -1043,7 +1043,44 @@ function ConsoleReconciliationView() {
 // 5. Merkle View (M3-2 / M3-3 Explorer Placeholder)
 // ---------------------------------------------------------------------------
 
-function ConsoleMerkleView() {
+function ConsoleMerkleView({ token }: { token: string }) {
+  const [participantId, setParticipantId] = useState("");
+  const [scopeFrom, setScopeFrom] = useState("");
+  const [scopeTo, setScopeTo] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [root, setRoot] = useState<import("./types").MerkleTreeRoot | null>(null);
+  const [childrenMap, setChildrenMap] = useState<Record<string, import("./types").MerkleTreeChild[]>>({});
+
+  async function fetchRoot(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setRoot(null);
+    setChildrenMap({});
+    try {
+      const res = await api.opsReconciliationTreeRoot(participantId, scopeFrom, scopeTo, token);
+      setRoot(res);
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message);
+      else setError("Failed to fetch Merkle root");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchChildren(generation: string, path: string) {
+    const key = `${generation}:${path}`;
+    if (childrenMap[key]) return; // already fetched
+    try {
+      const res = await api.opsReconciliationTreeChildren(participantId, scopeFrom, scopeTo, generation, path, token);
+      setChildrenMap(prev => ({ ...prev, [key]: res }));
+    } catch (err) {
+      console.error("Failed to fetch children", err);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -1051,27 +1088,91 @@ function ConsoleMerkleView() {
         title="Merkle Tree Verification"
         description="Root hash commitment structures, bucket partition trees, and cryptographic membership inclusion verification."
       />
-      <div className="console-notice-box">
-        <span className="console-notice-tag">MODULE NOT AVAILABLE YET · MILESTONE M3-8</span>
-        <h3>Operator Merkle visualization API is not available yet.</h3>
-        <p>
-          Incremental binary Merkle trees and bucket digest generation are implemented and tested within the core ledger engine. Live operator tree traversal endpoints have not yet been exposed by the backend API. In accordance with zero-fabrication safety rules, tree visualizations are not synthesized on the client.
-        </p>
-        <div className="console-spec-list">
-          <div className="console-spec-item">
-            <span className="console-spec-label">Tree Topology</span>
-            <span className="console-spec-val">Binary incremental Merkle tree with prefix-bucket leaves</span>
+      <div className="console-card">
+        <h3>Inspect Tree Root</h3>
+        <form className="admin-form" onSubmit={fetchRoot}>
+          <div className="form-group">
+            <label>Participant ID</label>
+            <input value={participantId} onChange={(e) => setParticipantId(e.target.value)} required />
           </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Hash Algorithm</span>
-            <span className="console-spec-val">SHA-256 (64 hex characters)</span>
+          <div className="form-group">
+            <label>Scope From (ISO8601)</label>
+            <input value={scopeFrom} onChange={(e) => setScopeFrom(e.target.value)} required />
           </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Operator Visualizer Seam</span>
-            <span className="console-spec-val">Pending M3-8 Backend Integration</span>
+          <div className="form-group">
+            <label>Scope To (ISO8601)</label>
+            <input value={scopeTo} onChange={(e) => setScopeTo(e.target.value)} required />
           </div>
-        </div>
+          <div className="form-actions">
+            <Button type="submit" disabled={loading}>Fetch Root</Button>
+          </div>
+        </form>
+        {error && <InlineError message={error} />}
       </div>
+
+      {root && (
+        <div className="console-card">
+          <h3>Merkle Root</h3>
+          <div className="console-spec-list">
+            <div className="console-spec-item">
+              <span className="console-spec-label">Root Hash</span>
+              <span className="console-spec-val" style={{fontFamily: "monospace", wordBreak: "break-all"}}>{root.rootHex}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Algorithm</span>
+              <span className="console-spec-val">{root.algorithm}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Version</span>
+              <span className="console-spec-val">{root.version}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Generation</span>
+              <span className="console-spec-val">{root.ref.Generation}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Logical Region</span>
+              <span className="console-spec-val">{root.region.Start} - {root.region.End}</span>
+            </div>
+          </div>
+          <div style={{marginTop: "1.5rem"}}>
+            <Button variant="secondary" onClick={() => fetchChildren(root.ref.Generation, root.ref.Path)}>
+              Load Children
+            </Button>
+          </div>
+
+          {childrenMap[`${root.ref.Generation}:${root.ref.Path}`] && (
+            <div style={{marginTop: "1rem"}}>
+              <h4>Children:</h4>
+              {childrenMap[`${root.ref.Generation}:${root.ref.Path}`].map((c, i) => (
+                <div key={i} className="console-spec-list" style={{background: "var(--bg-subtle)", padding: "0.5rem", marginBottom: "0.5rem", borderRadius: "4px"}}>
+                  <div className="console-spec-item">
+                    <span className="console-spec-label">Hash</span>
+                    <span className="console-spec-val" style={{fontFamily: "monospace", fontSize: "0.85rem"}}>{c.hashHex}</span>
+                  </div>
+                  <div className="console-spec-item">
+                    <span className="console-spec-label">Path</span>
+                    <span className="console-spec-val">{c.ref.Path}</span>
+                  </div>
+                  <Button variant="quiet" onClick={() => fetchChildren(c.ref.Generation, c.ref.Path)} style={{marginTop: "0.5rem"}}>
+                    Expand
+                  </Button>
+                  {childrenMap[`${c.ref.Generation}:${c.ref.Path}`] && (
+                    <div style={{paddingLeft: "1rem", marginTop: "0.5rem", borderLeft: "2px solid var(--border-color)"}}>
+                      {childrenMap[`${c.ref.Generation}:${c.ref.Path}`].map((cc, ci) => (
+                        <div key={ci} className="console-spec-item" style={{display: "block", marginBottom: "0.25rem"}}>
+                          <span className="console-spec-label">Child {cc.ref.Path}:</span>
+                          <span className="console-spec-val" style={{fontFamily: "monospace", fontSize: "0.85rem", display: "block"}}>{cc.hashHex}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -1080,7 +1181,54 @@ function ConsoleMerkleView() {
 // 6. Integrity View (M3-7 Placeholder)
 // ---------------------------------------------------------------------------
 
-function ConsoleIntegrityView() {
+function ConsoleIntegrityView({ token }: { token: string }) {
+  const [operationId, setOperationId] = useState("");
+  const [participantId, setParticipantId] = useState("");
+  const [scopeFrom, setScopeFrom] = useState("");
+  const [scopeTo, setScopeTo] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [proof, setProof] = useState<import("./types").IntegrityProof | null>(null);
+
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [verifyError, setVerifyError] = useState("");
+
+  async function fetchProof(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setProof(null);
+    setVerifyResult(null);
+    setVerifyError("");
+    try {
+      const res = await api.opsReconciliationGetProof(operationId, participantId, scopeFrom, scopeTo, token);
+      setProof(res);
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message);
+      else setError("Failed to fetch integrity proof");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify() {
+    if (!proof) return;
+    setVerifying(true);
+    setVerifyError("");
+    setVerifyResult(null);
+    try {
+      const res = await api.opsReconciliationVerifyProof(participantId, scopeFrom, scopeTo, proof, token);
+      setVerifyResult(res);
+    } catch (err) {
+      if (err instanceof ApiError) setVerifyError(err.message);
+      else setVerifyError("Failed to verify proof");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -1088,27 +1236,109 @@ function ConsoleIntegrityView() {
         title="Ledger Integrity Engine"
         description="Continuous verification of financial invariants across double-entry participant books."
       />
-      <div className="console-notice-box">
-        <span className="console-notice-tag">MODULE NOT AVAILABLE YET · MILESTONE M3-7</span>
-        <h3>Automated integrity invariant scans are not available yet.</h3>
-        <p>
-          Backend verification routines for money conservation, double-entry completeness, non-negative balance checks, and idempotent uniqueness are scheduled for integration in Milestone M3-7. Live invariant pass/fail metrics will be rendered when authoritative endpoints are active.
-        </p>
-        <div className="console-spec-list">
-          <div className="console-spec-item">
-            <span className="console-spec-label">Conservation of Money Invariant</span>
-            <span className="console-spec-val">∑ Debits == ∑ Credits (Pending M3-7)</span>
+      <div className="console-card">
+        <h3>Fetch Integrity Proof</h3>
+        <form className="admin-form" onSubmit={fetchProof}>
+          <div className="form-group">
+            <label>Operation ID</label>
+            <input value={operationId} onChange={(e) => setOperationId(e.target.value)} required />
           </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Account Non-Negative Balance Invariant</span>
-            <span className="console-spec-val">Enforced at DB seam (Console scan pending M3-7)</span>
+          <div className="form-group">
+            <label>Participant ID</label>
+            <input value={participantId} onChange={(e) => setParticipantId(e.target.value)} required />
           </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Transaction Uniqueness Invariant</span>
-            <span className="console-spec-val">Deterministic clientRequestId (Pending M3-7)</span>
+          <div className="form-group">
+            <label>Scope From (ISO8601)</label>
+            <input value={scopeFrom} onChange={(e) => setScopeFrom(e.target.value)} required />
+          </div>
+          <div className="form-group">
+            <label>Scope To (ISO8601)</label>
+            <input value={scopeTo} onChange={(e) => setScopeTo(e.target.value)} required />
+          </div>
+          <div className="form-actions">
+            <Button type="submit" disabled={loading}>Fetch Proof</Button>
+          </div>
+        </form>
+        {error && <InlineError message={error} />}
+      </div>
+
+      {proof && (
+        <div className="console-card">
+          <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+            <h3>Integrity Proof Result</h3>
+            <Button variant="secondary" onClick={handleVerify} disabled={verifying}>
+              {verifying ? "Verifying..." : "Verify Proof Against Trusted State"}
+            </Button>
+          </div>
+
+          {verifyError && <InlineError message={verifyError} />}
+          {verifyResult && (
+            <div className="console-notice-box" style={{marginBottom: "1.5rem", padding: "1rem", borderColor: verifyResult.valid ? "var(--success)" : "var(--error)", color: verifyResult.valid ? "var(--success)" : "var(--error)"}}>
+              <h4 style={{margin: "0 0 0.5rem 0"}}>{verifyResult.valid ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED"}</h4>
+              <p style={{margin: 0, fontSize: "0.85rem"}}>
+                Reconstructed Root: <span style={{fontFamily: "monospace"}}>{verifyResult.reconstructedRoot}</span>
+              </p>
+            </div>
+          )}
+
+          <div className="console-spec-list">
+            <div className="console-spec-item">
+              <span className="console-spec-label">Leaf Hash</span>
+              <span className="console-spec-val" style={{fontFamily: "monospace"}}>{proof.leafHashHex}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Generation</span>
+              <span className="console-spec-val">{proof.generation}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Expected Root</span>
+              <span className="console-spec-val" style={{fontFamily: "monospace"}}>{proof.expectedRootHex}</span>
+            </div>
+          </div>
+
+          <h4>Bucket Path ({proof.bucketPath?.length || 0} nodes)</h4>
+          {proof.bucketPath?.length > 0 ? (
+            <ul style={{fontFamily: "monospace", fontSize: "0.85rem", listStyle: "none", paddingLeft: 0}}>
+              {proof.bucketPath.map((p, i) => (
+                <li key={i} style={{marginBottom: "0.25rem"}}>
+                  <strong>{p.order}</strong>: {p.hashHex || "PROMOTED"}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No bucket path needed.</p>
+          )}
+
+          <h4>Global Path ({proof.globalPath?.length || 0} nodes)</h4>
+          {proof.globalPath?.length > 0 ? (
+            <ul style={{fontFamily: "monospace", fontSize: "0.85rem", listStyle: "none", paddingLeft: 0}}>
+              {proof.globalPath.map((p, i) => (
+                <li key={i} style={{marginBottom: "0.25rem"}}>
+                  <strong>{p.order}</strong>: {p.hashHex || "PROMOTED"}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No global path needed.</p>
+          )}
+
+          <h4>Generation Metrics</h4>
+          <div className="console-spec-list">
+            <div className="console-spec-item">
+              <span className="console-spec-label">Duration (ns)</span>
+              <span className="console-spec-val">{proof.generationMetrics.durationNs}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Bucket Siblings</span>
+              <span className="console-spec-val">{proof.generationMetrics.bucketSiblingCount}</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Global Siblings</span>
+              <span className="console-spec-val">{proof.generationMetrics.globalSiblingCount}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </>
   );
 }
