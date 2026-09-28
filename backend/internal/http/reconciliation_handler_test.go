@@ -632,17 +632,33 @@ func TestReconciliationM38API(t *testing.T) {
 	t.Run("VerifyProof_Regressions", func(t *testing.T) {
 		manager, _ := auth.NewJWTManager(strings.Repeat("r", 32), "recon-test", time.Minute)
 		opID := uuid.New()
+		opID2 := uuid.New()
+		opID3 := uuid.New()
 		scope := reconciliation.Scope{
 			From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			To:   time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 		}
 		records := []reconciliation.CanonicalRecord{
 			{
-				OperationID:   opID,
-				EntryType:     "CREDIT",
-				AmountPaise:   10000,
-				Currency:      "USD",
-				OccurredAt:    time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+				OperationID: opID,
+				EntryType:   "CREDIT",
+				AmountPaise: 10000,
+				Currency:    "USD",
+				OccurredAt:  time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			},
+			{
+				OperationID: opID2,
+				EntryType:   "DEBIT",
+				AmountPaise: 5000,
+				Currency:    "USD",
+				OccurredAt:  time.Date(2024, 1, 1, 12, 30, 0, 0, time.UTC),
+			},
+			{
+				OperationID: opID3,
+				EntryType:   "CREDIT",
+				AmountPaise: 2000,
+				Currency:    "USD",
+				OccurredAt:  time.Date(2024, 1, 1, 13, 0, 0, 0, time.UTC),
 			},
 		}
 		canonP, _ := reconciliation.NewMemoryParticipant("BANK-A", "BANK-A", time.Hour, records)
@@ -673,6 +689,12 @@ func TestReconciliationM38API(t *testing.T) {
 		if err != nil {
 			t.Fatal("failed to generate proof:", err)
 		}
+		if len(proof.BucketPath) == 0 {
+			t.Fatal("expected bucket proof path to contain at least one sibling")
+		}
+		if len(proof.GlobalPath) == 0 {
+			t.Fatal("expected global proof path to contain at least one sibling")
+		}
 		validProofJSON, _ := json.Marshal(proof)
 
 		runReqDetailed := func(name, url string, payload []byte, tok string, expectStatus int, checkValid bool) {
@@ -690,17 +712,17 @@ func TestReconciliationM38API(t *testing.T) {
 				}
 
 				if expectStatus == http.StatusOK && checkValid {
-				    var out map[string]any
-				    if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-				        t.Fatalf("failed to decode response: %v", err)
-				    }
-				    data, ok := out["data"].(map[string]any)
-				    if !ok {
-				        t.Fatalf("expected data object, got %v", out["data"])
-				    }
-				    if valid, ok := data["valid"].(bool); !ok || !valid {
-				        t.Fatalf("expected valid=true, got valid=%v", data["valid"])
-				    }
+					var out map[string]any
+					if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+						t.Fatalf("failed to decode response: %v", err)
+					}
+					data, ok := out["data"].(map[string]any)
+					if !ok {
+						t.Fatalf("expected data object, got %v", out["data"])
+					}
+					if valid, ok := data["valid"].(bool); !ok || !valid {
+						t.Fatalf("expected valid=true, got valid=%v", data["valid"])
+					}
 				}
 			})
 		}
@@ -729,20 +751,16 @@ func TestReconciliationM38API(t *testing.T) {
 		// 4. Tampered BucketPath -> verification failure
 		var tamperedBPath reconciliation.IntegrityProof
 		json.Unmarshal(validProofJSON, &tamperedBPath)
-		if len(tamperedBPath.BucketPath) > 0 {
-		    tamperedBPath.BucketPath[0].Hash = bytes.Repeat([]byte("c"), 32)
-		    tamperedBPathJSON, _ := json.Marshal(tamperedBPath)
-		    runReq("TamperedBucketPath", tamperedBPathJSON, http.StatusConflict)
-		}
+		tamperedBPath.BucketPath[0].Hash = bytes.Repeat([]byte("c"), 32)
+		tamperedBPathJSON, _ := json.Marshal(tamperedBPath)
+		runReq("TamperedBucketPath", tamperedBPathJSON, http.StatusConflict)
 
 		// 5. Tampered GlobalPath -> verification failure
 		var tamperedGPath reconciliation.IntegrityProof
 		json.Unmarshal(validProofJSON, &tamperedGPath)
-		if len(tamperedGPath.GlobalPath) > 0 {
-		    tamperedGPath.GlobalPath[0].Hash = bytes.Repeat([]byte("d"), 32)
-		    tamperedGPathJSON, _ := json.Marshal(tamperedGPath)
-		    runReq("TamperedGlobalPath", tamperedGPathJSON, http.StatusConflict)
-		}
+		tamperedGPath.GlobalPath[0].Hash = bytes.Repeat([]byte("d"), 32)
+		tamperedGPathJSON, _ := json.Marshal(tamperedGPath)
+		runReq("TamperedGlobalPath", tamperedGPathJSON, http.StatusConflict)
 
 		// 6. Stale Generation -> verification failure
 		// 16. Trusted-context independence (request unchanged, proof generation mutated)
@@ -780,11 +798,9 @@ func TestReconciliationM38API(t *testing.T) {
 		// 11. Malformed proof path -> HTTP 400
 		var malformedPath reconciliation.IntegrityProof
 		json.Unmarshal(validProofJSON, &malformedPath)
-		if len(malformedPath.GlobalPath) > 0 {
-		    malformedPath.GlobalPath[0].Hash = []byte("short")
-		    malformedPathJSON, _ := json.Marshal(malformedPath)
-		    runReq("MalformedPath", malformedPathJSON, http.StatusBadRequest)
-		}
+		malformedPath.GlobalPath[0].Hash = []byte("short")
+		malformedPathJSON, _ := json.Marshal(malformedPath)
+		runReq("MalformedPath", malformedPathJSON, http.StatusBadRequest)
 
 		// 12. Missing participantId -> HTTP 400
 		runReqDetailed("MissingParticipant", "/api/ops/reconciliation/proof/verify?scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokOps, http.StatusBadRequest, false)
@@ -802,7 +818,7 @@ func TestReconciliationM38API(t *testing.T) {
 		rootAfter, _ := canonP.GetRoot(context.Background(), scope)
 		rootAfterJSON, _ := json.Marshal(rootAfter)
 		if !bytes.Equal(rootBeforeJSON, rootAfterJSON) {
-		    t.Fatalf("authoritative state changed after verification, before: %s, after: %s", string(rootBeforeJSON), string(rootAfterJSON))
+			t.Fatalf("authoritative state changed after verification, before: %s, after: %s", string(rootBeforeJSON), string(rootAfterJSON))
 		}
 	})
 }
