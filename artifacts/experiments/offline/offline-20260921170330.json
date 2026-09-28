@@ -1,0 +1,579 @@
+{
+  "experimentId": "offline",
+  "title": "Experiment 4: Durable Offline Queue and Deterministic Replay",
+  "environment": {
+    "gitCommit": "25d24e5c1af5bd0fa88cda51efce7809f3246377",
+    "platform": "win32/x64",
+    "os": "win32",
+    "arch": "x64",
+    "nodeVersion": "v24.14.0",
+    "goVersion": "go version go1.27.0 windows/amd64",
+    "deterministicSeed": 42,
+    "datasetSize": 50,
+    "runTimestamp": "2026-09-21T17:03:30.743Z",
+    "runId": "run-1790010210743-win32",
+    "scenarioParams": {
+      "totalIntents": "50",
+      "immediateSuccesses": "30",
+      "transientRetries": "10",
+      "pendingStatusChecks": "5",
+      "permanentFailures": "5",
+      "replayClientType": "Deterministic ReplayClient Test Double (Option B)",
+      "measuredScope": "Client-side IndexedDB persistence, worker leasing, backoff timers, idempotency preservation"
+    }
+  },
+  "summary": {
+    "totalQueued": 50,
+    "replayAttempts": 65,
+    "successfulSyncCount": 45,
+    "permanentFailures": 5,
+    "duplicateProcessingCount": 0,
+    "sameKeyReplayCount": 10,
+    "latency": {
+      "meanMs": 18050,
+      "p50Ms": 9100,
+      "p95Ms": 41800,
+      "maxMs": 42000
+    },
+    "invariants": [
+      {
+        "invariantName": "No duplicate successful processing for one logical idempotency key",
+        "passed": true,
+        "details": "duplicate processing count = 0"
+      },
+      {
+        "invariantName": "Same-key replay behavior preserved on retries",
+        "passed": true,
+        "details": "10 retry attempts reused their original idempotency keys"
+      },
+      {
+        "invariantName": "Terminal state completeness (no intents left in transient SYNCING/QUEUED state)",
+        "passed": true,
+        "details": "synced=45, failed=5, total=50"
+      },
+      {
+        "invariantName": "All intents replayed through ReplayClient contract seam",
+        "passed": true,
+        "details": "total ReplayClient test double invocations = 65"
+      }
+    ],
+    "allInvariantsSatisfied": true
+  },
+  "samples": [
+    {
+      "index": 0,
+      "clientRequestId": "exp4-client-s42-succ-0000",
+      "idempotencyKey": "exp4-idemp-s42-succ-0000",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 10000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 1,
+      "clientRequestId": "exp4-client-s42-succ-0001",
+      "idempotencyKey": "exp4-idemp-s42-succ-0001",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 2,
+      "clientRequestId": "exp4-client-s42-succ-0002",
+      "idempotencyKey": "exp4-idemp-s42-succ-0002",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 3,
+      "clientRequestId": "exp4-client-s42-succ-0003",
+      "idempotencyKey": "exp4-idemp-s42-succ-0003",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 4,
+      "clientRequestId": "exp4-client-s42-succ-0004",
+      "idempotencyKey": "exp4-idemp-s42-succ-0004",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 5,
+      "clientRequestId": "exp4-client-s42-succ-0005",
+      "idempotencyKey": "exp4-idemp-s42-succ-0005",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 6,
+      "clientRequestId": "exp4-client-s42-succ-0006",
+      "idempotencyKey": "exp4-idemp-s42-succ-0006",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 7,
+      "clientRequestId": "exp4-client-s42-succ-0007",
+      "idempotencyKey": "exp4-idemp-s42-succ-0007",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 8,
+      "clientRequestId": "exp4-client-s42-succ-0008",
+      "idempotencyKey": "exp4-idemp-s42-succ-0008",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 9,
+      "clientRequestId": "exp4-client-s42-succ-0009",
+      "idempotencyKey": "exp4-idemp-s42-succ-0009",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 10,
+      "clientRequestId": "exp4-client-s42-succ-0010",
+      "idempotencyKey": "exp4-idemp-s42-succ-0010",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 9000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 11,
+      "clientRequestId": "exp4-client-s42-succ-0011",
+      "idempotencyKey": "exp4-idemp-s42-succ-0011",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 12,
+      "clientRequestId": "exp4-client-s42-succ-0012",
+      "idempotencyKey": "exp4-idemp-s42-succ-0012",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 13,
+      "clientRequestId": "exp4-client-s42-succ-0013",
+      "idempotencyKey": "exp4-idemp-s42-succ-0013",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 14,
+      "clientRequestId": "exp4-client-s42-succ-0014",
+      "idempotencyKey": "exp4-idemp-s42-succ-0014",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 15,
+      "clientRequestId": "exp4-client-s42-succ-0015",
+      "idempotencyKey": "exp4-idemp-s42-succ-0015",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 16,
+      "clientRequestId": "exp4-client-s42-succ-0016",
+      "idempotencyKey": "exp4-idemp-s42-succ-0016",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 17,
+      "clientRequestId": "exp4-client-s42-succ-0017",
+      "idempotencyKey": "exp4-idemp-s42-succ-0017",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 18,
+      "clientRequestId": "exp4-client-s42-succ-0018",
+      "idempotencyKey": "exp4-idemp-s42-succ-0018",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 19,
+      "clientRequestId": "exp4-client-s42-succ-0019",
+      "idempotencyKey": "exp4-idemp-s42-succ-0019",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 20,
+      "clientRequestId": "exp4-client-s42-succ-0020",
+      "idempotencyKey": "exp4-idemp-s42-succ-0020",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 8000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 21,
+      "clientRequestId": "exp4-client-s42-succ-0021",
+      "idempotencyKey": "exp4-idemp-s42-succ-0021",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 22,
+      "clientRequestId": "exp4-client-s42-succ-0022",
+      "idempotencyKey": "exp4-idemp-s42-succ-0022",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 23,
+      "clientRequestId": "exp4-client-s42-succ-0023",
+      "idempotencyKey": "exp4-idemp-s42-succ-0023",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 24,
+      "clientRequestId": "exp4-client-s42-succ-0024",
+      "idempotencyKey": "exp4-idemp-s42-succ-0024",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 25,
+      "clientRequestId": "exp4-client-s42-succ-0025",
+      "idempotencyKey": "exp4-idemp-s42-succ-0025",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 26,
+      "clientRequestId": "exp4-client-s42-succ-0026",
+      "idempotencyKey": "exp4-idemp-s42-succ-0026",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 27,
+      "clientRequestId": "exp4-client-s42-succ-0027",
+      "idempotencyKey": "exp4-idemp-s42-succ-0027",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 28,
+      "clientRequestId": "exp4-client-s42-succ-0028",
+      "idempotencyKey": "exp4-idemp-s42-succ-0028",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 29,
+      "clientRequestId": "exp4-client-s42-succ-0029",
+      "idempotencyKey": "exp4-idemp-s42-succ-0029",
+      "category": "IMMEDIATE_SUCCESS",
+      "attempts": 0,
+      "syncDelayMs": 7100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 30,
+      "clientRequestId": "exp4-client-s42-transient-0030",
+      "idempotencyKey": "exp4-idemp-s42-transient-0030",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 42000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 31,
+      "clientRequestId": "exp4-client-s42-transient-0031",
+      "idempotencyKey": "exp4-idemp-s42-transient-0031",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 32,
+      "clientRequestId": "exp4-client-s42-transient-0032",
+      "idempotencyKey": "exp4-idemp-s42-transient-0032",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 33,
+      "clientRequestId": "exp4-client-s42-transient-0033",
+      "idempotencyKey": "exp4-idemp-s42-transient-0033",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 34,
+      "clientRequestId": "exp4-client-s42-transient-0034",
+      "idempotencyKey": "exp4-idemp-s42-transient-0034",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 35,
+      "clientRequestId": "exp4-client-s42-transient-0035",
+      "idempotencyKey": "exp4-idemp-s42-transient-0035",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41500,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 36,
+      "clientRequestId": "exp4-client-s42-transient-0036",
+      "idempotencyKey": "exp4-idemp-s42-transient-0036",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41400,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 37,
+      "clientRequestId": "exp4-client-s42-transient-0037",
+      "idempotencyKey": "exp4-idemp-s42-transient-0037",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41300,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 38,
+      "clientRequestId": "exp4-client-s42-transient-0038",
+      "idempotencyKey": "exp4-idemp-s42-transient-0038",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41200,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 39,
+      "clientRequestId": "exp4-client-s42-transient-0039",
+      "idempotencyKey": "exp4-idemp-s42-transient-0039",
+      "category": "TRANSIENT_RETRY",
+      "attempts": 1,
+      "syncDelayMs": 41100,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED",
+      "errorMessage": "Bank temporarily unavailable"
+    },
+    {
+      "index": 40,
+      "clientRequestId": "exp4-client-s42-pending-0040",
+      "idempotencyKey": "exp4-idemp-s42-pending-0040",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 41000,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 41,
+      "clientRequestId": "exp4-client-s42-pending-0041",
+      "idempotencyKey": "exp4-idemp-s42-pending-0041",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40900,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 42,
+      "clientRequestId": "exp4-client-s42-pending-0042",
+      "idempotencyKey": "exp4-idemp-s42-pending-0042",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40800,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 43,
+      "clientRequestId": "exp4-client-s42-pending-0043",
+      "idempotencyKey": "exp4-idemp-s42-pending-0043",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40700,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 44,
+      "clientRequestId": "exp4-client-s42-pending-0044",
+      "idempotencyKey": "exp4-idemp-s42-pending-0044",
+      "category": "PENDING_STATUS",
+      "attempts": 1,
+      "syncDelayMs": 40600,
+      "finalState": "SYNCED",
+      "outcome": "SYNCED"
+    },
+    {
+      "index": 45,
+      "clientRequestId": "exp4-client-s42-fail-0045",
+      "idempotencyKey": "exp4-idemp-s42-fail-0045",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5500,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 46,
+      "clientRequestId": "exp4-client-s42-fail-0046",
+      "idempotencyKey": "exp4-idemp-s42-fail-0046",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5400,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 47,
+      "clientRequestId": "exp4-client-s42-fail-0047",
+      "idempotencyKey": "exp4-idemp-s42-fail-0047",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5300,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 48,
+      "clientRequestId": "exp4-client-s42-fail-0048",
+      "idempotencyKey": "exp4-idemp-s42-fail-0048",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5200,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    },
+    {
+      "index": 49,
+      "clientRequestId": "exp4-client-s42-fail-0049",
+      "idempotencyKey": "exp4-idemp-s42-fail-0049",
+      "category": "PERMANENT_FAILURE",
+      "attempts": 0,
+      "syncDelayMs": 5100,
+      "finalState": "FAILED",
+      "outcome": "FAILED",
+      "errorMessage": "Invalid account number"
+    }
+  ]
+}

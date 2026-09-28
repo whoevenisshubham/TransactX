@@ -2,6 +2,7 @@ package reconciliation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,15 +28,14 @@ type LedgerSnapshotSource interface {
 // caller-provided logical ledger data; no random identifiers or metrics are
 // generated. Every commitment uses the shared canonical/Merkle implementation.
 type MemoryParticipant struct {
-	mu             sync.RWMutex
-	participantID  string
-	partition      string
-	bucketWidth    time.Duration
-	capturedAt     time.Time
-	records        []CanonicalRecord
-	snapshots      map[string]participantSnapshot
-	current        map[string]string
-	nextGeneration uint64
+	mu            sync.RWMutex
+	participantID string
+	partition     string
+	bucketWidth   time.Duration
+	capturedAt    time.Time
+	records       []CanonicalRecord
+	snapshots     map[string]participantSnapshot
+	current       map[string]string
 }
 
 type participantSnapshot struct {
@@ -76,7 +76,9 @@ func (participant *MemoryParticipant) Refresh(ctx context.Context, scope Scope) 
 	if err != nil {
 		return err
 	}
-	participant.installSnapshot(scope, state, participant.capturedAt)
+	if _, err := participant.installSnapshot(scope, state, participant.capturedAt); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -124,6 +126,24 @@ func (participant *MemoryParticipant) GetRecords(ctx context.Context, ref Bucket
 	return recordsFromState(scope, ref.Generation, state, ref)
 }
 
+func (participant *MemoryParticipant) GetBucketID(ctx context.Context, ref NodeRef) (BucketID, error) {
+	if err := participant.validateParticipant(ref.ParticipantID); err != nil {
+		return BucketID{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return BucketID{}, err
+	}
+	scope, err := parseScopeIdentity(ref.ScopeID)
+	if err != nil {
+		return BucketID{}, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
+	}
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
+	if err != nil {
+		return BucketID{}, err
+	}
+	return bucketIDFromState(scope, ref.Generation, state, ref)
+}
+
 func (participant *MemoryParticipant) GetMetadata(ctx context.Context, scope Scope) (ParticipantMetadata, error) {
 	state, _, _, err := participant.state(ctx, scope)
 	if err != nil {
@@ -152,7 +172,10 @@ func (participant *MemoryParticipant) state(ctx context.Context, scope Scope) (I
 	if err != nil {
 		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
-	generation = participant.installSnapshot(scope, state, participant.capturedAt)
+	generation, err = participant.installSnapshot(scope, state, participant.capturedAt)
+	if err != nil {
+		return IncrementalCommitmentState{}, "", Scope{}, err
+	}
 	return state, generation, scope, nil
 }
 
@@ -182,18 +205,20 @@ func (participant *MemoryParticipant) buildState(ctx context.Context, scope Scop
 	return state, nil
 }
 
-func (participant *MemoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) string {
+func (participant *MemoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) (string, error) {
 	key := ScopeIdentity(scope)
 	participant.mu.Lock()
 	defer participant.mu.Unlock()
 	if old, ok := participant.current[key]; ok {
 		delete(participant.snapshots, old)
 	}
-	participant.nextGeneration++
-	generation := fmt.Sprintf("g%d", participant.nextGeneration)
+	generation := state.Generation
+	if generation == "" {
+		return "", errors.New("invalid commitment state: generation cannot be empty")
+	}
 	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
 	participant.current[key] = generation
-	return generation
+	return generation, nil
 }
 
 func (participant *MemoryParticipant) referenceState(generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {
@@ -223,15 +248,14 @@ func (participant *MemoryParticipant) validateParticipant(requested string) erro
 // write participant state. The source remains authoritative for initialization
 // and explicit refresh; normal reads consume maintained derived state only.
 type RepositoryParticipant struct {
-	mu             sync.RWMutex
-	source         LedgerSnapshotSource
-	commitments    IncrementalCommitmentStore
-	participantID  string
-	partition      string
-	bucketWidth    time.Duration
-	snapshots      map[string]participantSnapshot
-	current        map[string]string
-	nextGeneration uint64
+	mu            sync.RWMutex
+	source        LedgerSnapshotSource
+	commitments   IncrementalCommitmentStore
+	participantID string
+	partition     string
+	bucketWidth   time.Duration
+	snapshots     map[string]participantSnapshot
+	current       map[string]string
 }
 
 func NewRepositoryParticipant(source LedgerSnapshotSource, participantID, partition string, bucketWidth time.Duration) (*RepositoryParticipant, error) {
@@ -258,6 +282,20 @@ func NewRepositoryParticipantWithCommitmentStore(source LedgerSnapshotSource, pa
 	return &RepositoryParticipant{source: source, commitments: commitments, participantID: participantID, partition: partition, bucketWidth: bucketWidth, snapshots: make(map[string]participantSnapshot), current: make(map[string]string)}, nil
 }
 
+// BucketWidth returns the configured bucket width for the participant.
+func (participant *RepositoryParticipant) BucketWidth() time.Duration {
+	participant.mu.RLock()
+	defer participant.mu.RUnlock()
+	return participant.bucketWidth
+}
+
+// Partition returns the configured partition for the participant.
+func (participant *RepositoryParticipant) Partition() string {
+	participant.mu.RLock()
+	defer participant.mu.RUnlock()
+	return participant.partition
+}
+
 // Initialize explicitly materializes a commitment from the authoritative
 // participant ledger. This is the only normal API path that may call
 // Bootstrap; it is intended for initial population or recovery.
@@ -269,7 +307,9 @@ func (participant *RepositoryParticipant) Initialize(ctx context.Context, scope 
 	if err := participant.commitments.SaveState(ctx, state); err != nil {
 		return err
 	}
-	participant.installSnapshot(normalized, state, capturedAt)
+	if _, err := participant.installSnapshot(normalized, state, capturedAt); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -324,6 +364,24 @@ func (participant *RepositoryParticipant) GetRecords(ctx context.Context, ref Bu
 	return recordsFromState(scope, ref.Generation, state, ref)
 }
 
+func (participant *RepositoryParticipant) GetBucketID(ctx context.Context, ref NodeRef) (BucketID, error) {
+	if ref.ParticipantID != "" && ref.ParticipantID != participant.participantID {
+		return BucketID{}, fmt.Errorf("%w: requested=%q actual=%q", ErrParticipantMismatch, ref.ParticipantID, participant.participantID)
+	}
+	if err := ctx.Err(); err != nil {
+		return BucketID{}, err
+	}
+	scope, err := parseScopeIdentity(ref.ScopeID)
+	if err != nil {
+		return BucketID{}, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
+	}
+	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
+	if err != nil {
+		return BucketID{}, err
+	}
+	return bucketIDFromState(scope, ref.Generation, state, ref)
+}
+
 func (participant *RepositoryParticipant) GetMetadata(ctx context.Context, scope Scope) (ParticipantMetadata, error) {
 	state, _, _, err := participant.state(ctx, scope)
 	if err != nil {
@@ -355,7 +413,10 @@ func (participant *RepositoryParticipant) state(ctx context.Context, scope Scope
 	if !found {
 		return IncrementalCommitmentState{}, "", Scope{}, fmt.Errorf("%w: call Initialize or Refresh for scope %s", ErrCommitmentUnavailable, ScopeIdentity(scope))
 	}
-	generation = participant.installSnapshot(scope, state, state.CapturedAt)
+	generation, err = participant.installSnapshot(scope, state, state.CapturedAt)
+	if err != nil {
+		return IncrementalCommitmentState{}, "", Scope{}, err
+	}
 	return state, generation, scope, nil
 }
 
@@ -392,18 +453,20 @@ func (participant *RepositoryParticipant) materialize(ctx context.Context, scope
 	return state, state.CapturedAt, scope, nil
 }
 
-func (participant *RepositoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) string {
+func (participant *RepositoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) (string, error) {
 	key := ScopeIdentity(scope)
 	participant.mu.Lock()
 	defer participant.mu.Unlock()
 	if old, ok := participant.current[key]; ok {
 		delete(participant.snapshots, old)
 	}
-	participant.nextGeneration++
-	generation := fmt.Sprintf("g%d", participant.nextGeneration)
+	generation := state.Generation
+	if generation == "" {
+		return "", errors.New("invalid commitment state: generation cannot be empty")
+	}
 	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
 	participant.current[key] = generation
-	return generation
+	return generation, nil
 }
 
 func (participant *RepositoryParticipant) referenceState(generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {
@@ -431,12 +494,50 @@ func validateRepositoryScope(scope Scope) error {
 	return nil
 }
 
+func nodeRegionFromState(level, index int, state IncrementalCommitmentState) LogicalRegion {
+	if len(state.Buckets) == 0 {
+		return LogicalRegion{}
+	}
+	firstLeaf := index << level
+	lastLeaf := ((index + 1) << level) - 1
+	if firstLeaf >= len(state.Buckets) {
+		firstLeaf = len(state.Buckets) - 1
+	}
+	if lastLeaf >= len(state.Buckets) {
+		lastLeaf = len(state.Buckets) - 1
+	}
+	return LogicalRegion{
+		Start: state.Buckets[firstLeaf].ID.Start,
+		End:   state.Buckets[lastLeaf].ID.Start.Add(state.Buckets[lastLeaf].ID.Width),
+	}
+}
+
 func rootResult(participantID string, scope Scope, generation string, state IncrementalCommitmentState) RootResult {
 	path := emptyNodePath
+	var region LogicalRegion
+	if len(state.Buckets) > 0 {
+		region = LogicalRegion{
+			Start: state.Buckets[0].ID.Start,
+			End:   state.Buckets[len(state.Buckets)-1].ID.Start.Add(state.Buckets[len(state.Buckets)-1].ID.Width),
+		}
+	}
 	if len(state.Levels) > 0 {
 		path = fmt.Sprintf("L%d/0", len(state.Levels)-1)
 	}
-	return RootResult{Root: hashCopy(state.Root), Algorithm: state.AlgorithmVersion, Version: state.CanonicalVersion, Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Generation: generation, Path: path}}
+	ref := NodeRef{
+		ParticipantID: participantID,
+		ScopeID:       ScopeIdentity(scope),
+		Generation:    generation,
+		Path:          path,
+		Region:        region,
+	}
+	return RootResult{
+		Root:      hashCopy(state.Root),
+		Algorithm: state.AlgorithmVersion,
+		Version:   state.CanonicalVersion,
+		Ref:       ref,
+		Region:    region,
+	}
 }
 
 func childrenFromState(participantID string, scope Scope, generation string, state IncrementalCommitmentState, ref NodeRef) ([]NodeResult, error) {
@@ -463,7 +564,19 @@ func childrenFromState(participantID string, scope Scope, generation string, sta
 	first := index * 2
 	children := make([]NodeResult, 0, 2)
 	for childIndex := first; childIndex < first+2 && childIndex < len(state.Levels[childLevel]); childIndex++ {
-		children = append(children, NodeResult{Ref: NodeRef{ParticipantID: participantID, ScopeID: ScopeIdentity(scope), Generation: generation, Path: fmt.Sprintf("L%d/%d", childLevel, childIndex)}, Hash: hashCopy(state.Levels[childLevel][childIndex])})
+		region := nodeRegionFromState(childLevel, childIndex, state)
+		childRef := NodeRef{
+			ParticipantID: participantID,
+			ScopeID:       ScopeIdentity(scope),
+			Generation:    generation,
+			Path:          fmt.Sprintf("L%d/%d", childLevel, childIndex),
+			Region:        region,
+		}
+		children = append(children, NodeResult{
+			Ref:    childRef,
+			Hash:   hashCopy(state.Levels[childLevel][childIndex]),
+			Region: region,
+		})
 	}
 	return children, nil
 }
@@ -471,6 +584,12 @@ func childrenFromState(participantID string, scope Scope, generation string, sta
 func recordsFromState(scope Scope, generation string, state IncrementalCommitmentState, ref BucketRef) ([]CanonicalRecord, error) {
 	if ref.ScopeID != ScopeIdentity(scope) || ref.Generation != generation {
 		return nil, fmt.Errorf("%w: reference commitment does not match requested generation", ErrStaleReference)
+	}
+	if strings.HasPrefix(ref.Key, "L0/") || ref.Key == rootNodePath {
+		level, index, err := parseNodePath(ref.Key, len(state.Levels))
+		if err == nil && level == 0 && index < len(state.BucketRecords) {
+			return cloneCanonicalRecords(state.BucketRecords[index]), nil
+		}
 	}
 	if !strings.HasPrefix(ref.Key, bucketHeader) {
 		return nil, ErrInvalidBucketReference
@@ -481,6 +600,20 @@ func recordsFromState(scope Scope, generation string, state IncrementalCommitmen
 		}
 	}
 	return nil, ErrBucketNotFound
+}
+
+func bucketIDFromState(scope Scope, generation string, state IncrementalCommitmentState, ref NodeRef) (BucketID, error) {
+	if ref.ScopeID != ScopeIdentity(scope) || ref.Generation != generation {
+		return BucketID{}, fmt.Errorf("%w: reference commitment does not match requested generation", ErrStaleReference)
+	}
+	level, index, err := parseNodePath(ref.Path, len(state.Levels))
+	if err != nil {
+		return BucketID{}, err
+	}
+	if level != 0 || index >= len(state.Buckets) {
+		return BucketID{}, ErrBucketNotFound
+	}
+	return state.Buckets[index].ID, nil
 }
 
 func parseNodePath(path string, levelCount int) (int, int, error) {

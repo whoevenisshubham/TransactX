@@ -13,6 +13,15 @@ type IdempotencyRecord struct {
 	PaymentID   uuid.UUID
 }
 
+// PaymentStateTransition represents an immutable state transition event for a payment.
+type PaymentStateTransition struct {
+	ID             uuid.UUID `json:"id"`
+	PaymentID      uuid.UUID `json:"paymentId"`
+	FromState      string    `json:"fromState"`
+	ToState        string    `json:"toState"`
+	TransitionedAt time.Time `json:"transitionedAt"`
+}
+
 const (
 	StateCreated                   = "CREATED"
 	StateValidating                = "VALIDATING"

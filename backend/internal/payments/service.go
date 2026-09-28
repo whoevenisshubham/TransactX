@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -39,12 +40,19 @@ type CreateInput struct {
 }
 
 type Service struct {
-	accounts   *accounts.Repository
-	recipients *recipients.Repository
-	payments   *Repository
-	ledger     *ledger.Repository
-	adapter    bank.BankAdapter
-	adapters   map[uuid.UUID]bank.BankAdapter
+	accounts               *accounts.Repository
+	recipients             *recipients.Repository
+	payments               *Repository
+	ledger                 *ledger.Repository
+	adapter                bank.BankAdapter
+	adapters               map[uuid.UUID]bank.BankAdapter
+	routeTargets           map[uuid.UUID]string
+	executionTargets       map[RouteKey][]ExecutionTarget
+	health                 HealthSnapshotProvider
+	selectionMode          SelectionMode
+	staticBaseline         string
+	circuitEligibility     CircuitEligibility
+	routeDecisionResolver  func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)
 }
 
 func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapter bank.BankAdapter) *Service {
@@ -53,6 +61,63 @@ func NewService(accountsRepository *accounts.Repository, recipientsRepository *r
 
 func NewServiceWithAdapters(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter) *Service {
 	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters}
+}
+
+func NewServiceWithAdaptiveRouting(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter, routeTargets map[uuid.UUID]string, healthService HealthSnapshotProvider) *Service {
+	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters, routeTargets: routeTargets, health: healthService, selectionMode: SelectionModeAdaptive}
+}
+
+func NewServiceWithExecutionTargets(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter, executionTargets map[RouteKey][]ExecutionTarget, healthService HealthSnapshotProvider, mode SelectionMode, staticBaseline string) *Service {
+	if mode == "" {
+		mode = SelectionModeAdaptive
+	}
+	var ledgerRepo *ledger.Repository
+	if paymentRepository != nil && paymentRepository.db != nil {
+		ledgerRepo = ledger.NewRepository(paymentRepository.db)
+	}
+	svc := &Service{
+		accounts:         accountsRepository,
+		recipients:       recipientsRepository,
+		payments:         paymentRepository,
+		ledger:           ledgerRepo,
+		adapters:         adapters,
+		executionTargets: executionTargets,
+		health:           healthService,
+		selectionMode:    mode,
+		staticBaseline:   staticBaseline,
+	}
+	if paymentRepository != nil {
+		paymentRepository.SetAdapterResolver(func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool) {
+			src, dst, ok, _ := svc.RoutedAdaptersForPayment(ctx, payment)
+			return src, dst, ok
+		})
+	}
+	return svc
+}
+
+func (service *Service) SetExecutionTargets(targets map[RouteKey][]ExecutionTarget) {
+	service.executionTargets = targets
+	if service.payments != nil {
+		service.payments.SetAdapterResolver(func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool) {
+			src, dst, ok, _ := service.RoutedAdaptersForPayment(ctx, payment)
+			return src, dst, ok
+		})
+	}
+}
+
+func (service *Service) SetSelectionMode(mode SelectionMode, staticBaseline ...string) {
+	service.selectionMode = mode
+	if len(staticBaseline) > 0 {
+		service.staticBaseline = staticBaseline[0]
+	}
+}
+
+func (service *Service) SetCircuitEligibility(fn CircuitEligibility) {
+	service.circuitEligibility = fn
+}
+
+func (service *Service) SetRouteDecisionResolver(fn func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)) {
+	service.routeDecisionResolver = fn
 }
 
 func (service *Service) Create(ctx context.Context, input CreateInput) (Payment, error) {
@@ -90,7 +155,10 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 				return recovered, true, recoveryErr
 			}
 			if payment.State == StatePendingReconciliation || payment.State == StateProcessing {
-				sourceAdapter, destinationAdapter, ok := service.routedAdaptersFor(payment.SourceBankID, payment.DestinationBankID)
+				sourceAdapter, destinationAdapter, ok, err := service.RoutedAdaptersForPayment(ctx, payment)
+				if err != nil {
+					return Payment{}, true, err
+				}
 				if ok {
 					recoveryErr := service.payments.RecoverRoutedPayment(ctx, payment, sourceAdapter, destinationAdapter)
 					recovered, getErr := service.payments.Get(ctx, payment.ID)
@@ -133,6 +201,26 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 			destinationAdapter, destinationOK = service.adapters[recipient.BankID]
 		}
 		if sourceOK && destinationOK {
+			candidates := service.getCandidates(source.BankID, recipient.BankID, sourceAdapter, destinationAdapter)
+			if len(candidates) > 0 && (service.health != nil || service.routeTargets != nil || len(service.executionTargets) > 0) {
+				decision, selectionErr := SelectRoute(ctx, candidates, service.selectionMode, service.health, service.circuitEligibility, time.Now(), service.staticBaseline)
+				if selectionErr != nil {
+					return Payment{}, false, ErrBankRouteUnavailable
+				}
+				return service.payments.CreateRoutedWithDecisionIdempotent(ctx, Payment{
+					ID:                       uuid.New(),
+					InitiatedByUserID:        input.UserID,
+					SenderAccountID:          input.SourceAccountID,
+					ReceiverAccountID:        recipient.AccountID,
+					AmountPaise:              input.AmountPaise,
+					Currency:                 "INR",
+					Note:                     optionalNote(note),
+					Origin:                   "ONLINE",
+					State:                    StateCreated,
+					SourceBankAccountID:      uuidPointer(source.BankAccountID),
+					DestinationBankAccountID: uuidPointer(recipient.BankAccountID),
+				}, key, requestHash, decision)
+			}
 			return service.payments.CreateRoutedIdempotent(ctx, Payment{
 				ID:                       uuid.New(),
 				InitiatedByUserID:        input.UserID,
@@ -162,20 +250,160 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 	}, key, requestHash, service.accounts, service.ledger)
 }
 
+func (service *Service) getCandidates(sourceBankID, destinationBankID uuid.UUID, defaultSourceAdapter, defaultDestAdapter bank.BankAdapter) []RouteCandidate {
+	key := RouteKey{SourceBankID: sourceBankID, DestinationBankID: destinationBankID}
+	if targets, ok := service.executionTargets[key]; ok && len(targets) > 0 {
+		candidates := make([]RouteCandidate, 0, len(targets))
+		for _, target := range targets {
+			srcAdapter := target.SourceAdapter
+			if srcAdapter == nil {
+				srcAdapter = defaultSourceAdapter
+			}
+			dstAdapter := target.DestinationAdapter
+			if dstAdapter == nil {
+				dstAdapter = defaultDestAdapter
+			}
+			candidates = append(candidates, RouteCandidate{
+				CandidateID:        target.CandidateID,
+				SourceBankID:       sourceBankID,
+				DestinationBankID:  destinationBankID,
+				ExecutionTargetID:  target.ExecutionTargetID,
+				SourceAdapter:      srcAdapter,
+				DestinationAdapter: dstAdapter,
+			})
+		}
+		return candidates
+	}
+	if service.routeTargets != nil {
+		targetID := service.routeTargets[sourceBankID]
+		if targetID == "" {
+			targetID = sourceBankID.String()
+		}
+		return []RouteCandidate{
+			{
+				CandidateID:        sourceBankID.String() + ":" + destinationBankID.String(),
+				SourceBankID:       sourceBankID,
+				DestinationBankID:  destinationBankID,
+				ExecutionTargetID:  targetID,
+				SourceAdapter:      defaultSourceAdapter,
+				DestinationAdapter: defaultDestAdapter,
+			},
+		}
+	}
+	return nil
+}
+
 func (service *Service) hasRoutedAdapters() bool {
-	return service.adapter != nil || service.adapters != nil
+	return service.adapter != nil || service.adapters != nil || len(service.executionTargets) > 0
+}
+
+func (service *Service) getSelectedExecutionTargetID(ctx context.Context, paymentID uuid.UUID) (string, bool, error) {
+	if service.routeDecisionResolver != nil {
+		return service.routeDecisionResolver(ctx, paymentID)
+	}
+	if service.payments != nil {
+		return service.payments.GetSelectedExecutionTargetID(ctx, paymentID)
+	}
+	return "", false, nil
+}
+
+// RoutedAdaptersForPayment resolves the source and destination adapters for a specific payment,
+// honoring any persisted route decision from payment_route_decisions.
+func (service *Service) RoutedAdaptersForPayment(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool, error) {
+	if payment.SourceBankID == nil || payment.DestinationBankID == nil {
+		if service.adapter != nil {
+			return service.adapter, service.adapter, true, nil
+		}
+		return nil, nil, false, nil
+	}
+
+	sourceBankID := *payment.SourceBankID
+	destBankID := *payment.DestinationBankID
+	key := RouteKey{SourceBankID: sourceBankID, DestinationBankID: destBankID}
+
+	// 1. Check if a route decision was persisted for this payment
+	targetID, hasHistory, err := service.getSelectedExecutionTargetID(ctx, payment.ID)
+	if err != nil {
+		return nil, nil, false, err
+	}
+
+	if hasHistory {
+		// Match against configured executionTargets for the same logical sourceBankID + destinationBankID
+		if targets, ok := service.executionTargets[key]; ok {
+			for _, t := range targets {
+				if t.ExecutionTargetID == targetID {
+					src := t.SourceAdapter
+					dst := t.DestinationAdapter
+					if src == nil && service.adapters != nil {
+						src = service.adapters[sourceBankID]
+					}
+					if dst == nil && service.adapters != nil {
+						dst = service.adapters[destBankID]
+					}
+					if src == nil {
+						src = service.adapter
+					}
+					if dst == nil {
+						dst = service.adapter
+					}
+					if src != nil && dst != nil {
+						return src, dst, true, nil
+					}
+				}
+			}
+		}
+		// If a pending payment has route history but the selected execution target
+		// is no longer configured, fail closed / leave it pending.
+		// Do not silently substitute another execution target.
+		return nil, nil, false, nil
+	}
+
+	// 2. Legacy routed payments with no route-decision history:
+	// Retain existing safe fallback only where it is demonstrably safe.
+	if targets, ok := service.executionTargets[key]; ok {
+		if len(targets) == 1 {
+			src := targets[0].SourceAdapter
+			dst := targets[0].DestinationAdapter
+			if src == nil && service.adapters != nil {
+				src = service.adapters[sourceBankID]
+			}
+			if dst == nil && service.adapters != nil {
+				dst = service.adapters[destBankID]
+			}
+			if src == nil {
+				src = service.adapter
+			}
+			if dst == nil {
+				dst = service.adapter
+			}
+			if src != nil && dst != nil {
+				return src, dst, true, nil
+			}
+		}
+		// If len(targets) > 1, multiple targets exist but we have no history of which was used;
+		// fail closed rather than guessing targets[0].
+		return nil, nil, false, nil
+	}
+
+	if service.adapters != nil {
+		source, sourceOK := service.adapters[sourceBankID]
+		destination, destinationOK := service.adapters[destBankID]
+		if sourceOK && destinationOK {
+			return source, destination, true, nil
+		}
+	}
+
+	if service.adapter != nil {
+		return service.adapter, service.adapter, true, nil
+	}
+
+	return nil, nil, false, nil
 }
 
 func (service *Service) routedAdaptersFor(sourceBankID, destinationBankID *uuid.UUID) (bank.BankAdapter, bank.BankAdapter, bool) {
-	if service.adapters != nil && sourceBankID != nil && destinationBankID != nil {
-		source, sourceOK := service.adapters[*sourceBankID]
-		destination, destinationOK := service.adapters[*destinationBankID]
-		return source, destination, sourceOK && destinationOK
-	}
-	if service.adapter != nil {
-		return service.adapter, service.adapter, true
-	}
-	return nil, nil, false
+	payment := Payment{SourceBankID: sourceBankID, DestinationBankID: destinationBankID}
+	src, dst, ok, _ := service.RoutedAdaptersForPayment(context.Background(), payment)
+	return src, dst, ok
 }
 
 func paymentRequestHash(sourceAccountID uuid.UUID, recipient string, amountPaise int64, currency string, notes ...string) string {

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/ledger"
 )
 
@@ -17,9 +18,34 @@ var ErrNotFound = errors.New("payment not found")
 var ErrIdempotencyConflict = errors.New("idempotency key reused with a different request")
 var ErrInsufficientFunds = errors.New("insufficient funds")
 
-type Repository struct{ db *pgxpool.Pool }
+type Repository struct {
+	db                             *pgxpool.Pool
+	adapterResolver                func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool)
+	getIdempotentFn                func(ctx context.Context, userID uuid.UUID, key, requestHash string) (Payment, bool, error)
+	recoverRoutedFn                func(ctx context.Context, payment Payment, sourceAdapter, destinationAdapter bank.BankAdapter) error
+	getFn                          func(ctx context.Context, id uuid.UUID) (Payment, error)
+	getSelectedExecutionTargetIDFn func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)
+}
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
+
+func (repository *Repository) SetAdapterResolver(fn func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool)) {
+	repository.adapterResolver = fn
+}
+
+func (repository *Repository) SetSelectedExecutionTargetIDFn(fn func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)) {
+	repository.getSelectedExecutionTargetIDFn = fn
+}
+
+func (repository *Repository) SetMockHooks(
+	getIdempotent func(ctx context.Context, userID uuid.UUID, key, requestHash string) (Payment, bool, error),
+	recoverRouted func(ctx context.Context, payment Payment, sourceAdapter, destinationAdapter bank.BankAdapter) error,
+	get func(ctx context.Context, id uuid.UUID) (Payment, error),
+) {
+	repository.getIdempotentFn = getIdempotent
+	repository.recoverRoutedFn = recoverRouted
+	repository.getFn = get
+}
 
 const routedPaymentColumns = `id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
 	state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
@@ -53,6 +79,12 @@ func (repository *Repository) Create(ctx context.Context, payment Payment) (Paym
 }
 
 func (repository *Repository) GetIdempotent(ctx context.Context, userID uuid.UUID, key, requestHash string) (Payment, bool, error) {
+	if repository.getIdempotentFn != nil {
+		return repository.getIdempotentFn(ctx, userID, key, requestHash)
+	}
+	if repository.db == nil {
+		return Payment{}, false, nil
+	}
 	var record IdempotencyRecord
 	var paymentID *uuid.UUID
 	err := repository.db.QueryRow(ctx, `
@@ -163,7 +195,7 @@ func (repository *Repository) CreateAndSettleIdempotent(ctx context.Context, pay
 	if err != nil {
 		return Payment{}, false, err
 	}
-	if err := settlePayment(ctx, tx, &created, accountRepository, ledgerRepository); err != nil {
+	if err := repository.settlePayment(ctx, tx, &created, accountRepository, ledgerRepository); err != nil {
 		return Payment{}, false, err
 	}
 	_, err = tx.Exec(ctx, `
@@ -192,9 +224,13 @@ func (repository *Repository) CreateAndSettleIdempotent(ctx context.Context, pay
 	return existing, true, nil
 }
 
-func settlePayment(ctx context.Context, tx pgx.Tx, payment *Payment, accountRepository *accounts.Repository, ledgerRepository *ledger.Repository) error {
+func (repository *Repository) settlePayment(ctx context.Context, tx pgx.Tx, payment *Payment, accountRepository *accounts.Repository, ledgerRepository *ledger.Repository) error {
 	for _, next := range []string{StateValidating, StateLocalSettlement} {
+		from := payment.State
 		if err := Transition(payment, next); err != nil {
+			return err
+		}
+		if err := repository.RecordTransition(ctx, tx, payment.ID, from, next); err != nil {
 			return err
 		}
 	}
@@ -222,17 +258,71 @@ func settlePayment(ctx context.Context, tx pgx.Tx, payment *Payment, accountRepo
 	}); err != nil {
 		return err
 	}
+	from := payment.State
 	if err := Transition(payment, StateCommitted); err != nil {
 		return err
 	}
+	if err := repository.RecordTransition(ctx, tx, payment.ID, from, StateCommitted); err != nil {
+		return err
+	}
+	from = payment.State
 	if err := Transition(payment, StateCompleted); err != nil {
+		return err
+	}
+	if err := repository.RecordTransition(ctx, tx, payment.ID, from, StateCompleted); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `UPDATE payments SET state = $2, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, payment.ID, payment.State)
 	return err
 }
 
+// RecordTransition records one immutable history row in the same transaction as the payment state change.
+func (repository *Repository) RecordTransition(ctx context.Context, tx pgx.Tx, paymentID uuid.UUID, fromState, toState string) error {
+	if !CanTransition(fromState, toState) {
+		return ErrInvalidTransition
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO payment_state_transitions (id, payment_id, from_state, to_state, transitioned_at)
+		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+	`, uuid.New(), paymentID, fromState, toState)
+	return err
+}
+
+// GetTransitions returns the immutable transition history for a payment in deterministic order.
+func (repository *Repository) GetTransitions(ctx context.Context, paymentID uuid.UUID) ([]PaymentStateTransition, error) {
+	if repository.db == nil {
+		return nil, nil
+	}
+	rows, err := repository.db.Query(ctx, `
+		SELECT id, payment_id, from_state, to_state, transitioned_at
+		FROM payment_state_transitions
+		WHERE payment_id = $1
+		ORDER BY transitioned_at ASC, id ASC
+	`, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var transitions []PaymentStateTransition
+	for rows.Next() {
+		var tr PaymentStateTransition
+		if err := rows.Scan(&tr.ID, &tr.PaymentID, &tr.FromState, &tr.ToState, &tr.TransitionedAt); err != nil {
+			return nil, err
+		}
+		tr.TransitionedAt = tr.TransitionedAt.UTC()
+		transitions = append(transitions, tr)
+	}
+	return transitions, rows.Err()
+}
+
 func (repository *Repository) Get(ctx context.Context, paymentID uuid.UUID) (Payment, error) {
+	if repository.getFn != nil {
+		return repository.getFn(ctx, paymentID)
+	}
+	if repository.db == nil {
+		return Payment{}, ErrNotFound
+	}
 	return scanPayment(repository.db.QueryRow(ctx, `
 		SELECT id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency,
 			state, route_bank_id, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id,
