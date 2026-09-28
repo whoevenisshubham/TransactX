@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
+    "test": "node --import tsx --test src/console.test.ts src/merchant.test.ts src/offlineQueue.test.ts src/offlineReplay.test.ts src/qr.test.ts",
     "test:money": "node scripts/verify-money.mjs",
     "test:offline-queue": "node --import tsx --test src/offlineQueue.test.ts",
     "test:offline-replay": "node --import tsx --test src/offlineReplay.test.ts",

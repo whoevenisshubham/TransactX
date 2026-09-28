@@ -104,6 +104,7 @@ export const api = {
   opsChaosStart: (req: { scenarioId: string; type: string; targetId: string; parameters: Record<string, unknown> }, token: string) => apiRequest<ChaosScenario>("/api/ops/chaos/start", { method: "POST", body: JSON.stringify(req) }, token),
   opsChaosStop: (scenarioId: string, token: string) => apiRequest<ChaosScenario>(`/api/ops/chaos/scenarios/${encodeURIComponent(scenarioId)}/stop`, { method: "POST" }, token),
   opsChaosReset: (targetId: string | undefined, token: string) => apiRequest<{ status: string; targetId?: string }>("/api/ops/chaos/reset", { method: "POST", body: JSON.stringify({ targetId: targetId || "" }) }, token),
+  opsCorruptionFixture: (token: string) => apiRequest<{ mode: string; merkleRootMismatch: boolean; baselineIntegrity: { status: string }; corruptedIntegrity: { status: string } }>("/api/ops/chaos/ledger-corruption-fixture", { method: "POST" }, token),
   opsGlobalHealth: () => apiRequest<{ status: string; service: string }>("/health", {}),
   opsDbHealth: () => apiRequest<{ status: string }>("/health/db", {}),
 
@@ -111,6 +112,9 @@ export const api = {
   opsReconciliationRuns: (token: string, participantId?: string) => apiRequest<any>(`/api/ops/reconciliation/runs${participantId ? `?participantId=${encodeURIComponent(participantId)}` : ""}`, {}, token),
   opsReconciliationCreateRun: (input: { participantId: string; scopeFrom: string; scopeTo: string }, token: string) => apiRequest<any>("/api/ops/reconciliation/runs", { method: "POST", body: JSON.stringify(input) }, token),
   opsReconciliationDiscrepancies: (runId: string, token: string) => apiRequest<any>(`/api/ops/reconciliation/runs/${encodeURIComponent(runId)}/discrepancies`, {}, token),
+  opsIntegrityStatus: (token: string) => apiRequest<any>("/api/ops/integrity/status", {}, token),
+  opsIntegrityCheck: (input: Record<string, unknown>, token: string) => apiRequest<any>("/api/ops/integrity/check", { method: "POST", body: JSON.stringify(input) }, token),
+  opsIntegrityRun: (runId: string, token: string) => apiRequest<any>(`/api/ops/integrity/runs/${encodeURIComponent(runId)}`, {}, token),
   opsReconciliationTreeRoot: (participantId: string, scopeFrom: string, scopeTo: string, token: string) =>
     apiRequest<import("./types").MerkleTreeRoot>(`/api/ops/reconciliation/tree/root?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}`, {}, token),
   opsReconciliationTreeChildren: (participantId: string, scopeFrom: string, scopeTo: string, generation: string, path: string, token: string) =>

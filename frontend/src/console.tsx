@@ -119,7 +119,7 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
           {view === "c-overview" && <ConsoleOverviewView token={token} onNavigate={navigate} />}
           {view === "c-health" && <ConsoleHealthView token={token} />}
           {view === "c-routing" && <ConsoleRoutingView token={token} />}
-          {view === "c-reconciliation" && <ConsoleReconciliationView />}
+          {view === "c-reconciliation" && <ConsoleReconciliationView token={token} />}
           {view === "c-merkle" && <ConsoleMerkleView token={token} />}
           {view === "c-integrity" && <ConsoleIntegrityView token={token} />}
           {view === "c-chaos" && <ConsoleChaosView token={token} />}
@@ -999,42 +999,72 @@ function ConsoleRoutingView({ token }: { token: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Reconciliation View (M3-5 Placeholder)
+// 4. Reconciliation View
 // ---------------------------------------------------------------------------
 
-function ConsoleReconciliationView() {
+function ConsoleReconciliationView({ token }: { token: string }) {
+  const [runs, setRuns] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any>(null);
+  const [discrepancies, setDiscrepancies] = useState<any[]>([]);
+  const [participantId, setParticipantId] = useState("");
+  const [scopeFrom, setScopeFrom] = useState("");
+  const [scopeTo, setScopeTo] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function refresh() {
+    try { const page = await api.opsReconciliationRuns(token); setRuns(page.items ?? []); setError(""); }
+    catch (err) { setError(err instanceof Error ? err.message : "Could not load reconciliation history."); }
+  }
+  useEffect(() => { void refresh(); }, [token]);
+  async function choose(run: any) {
+    setSelected(run);
+    try { const page = await api.opsReconciliationDiscrepancies(run.id, token); setDiscrepancies(page.items ?? []); setError(""); }
+    catch (err) { setError(err instanceof Error ? err.message : "Could not load discrepancy evidence."); }
+  }
+  async function execute(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      const run = await api.opsReconciliationCreateRun({ participantId, scopeFrom, scopeTo }, token);
+      await refresh(); await choose(run);
+    } catch (err) { setError(err instanceof Error ? err.message : "Reconciliation failed."); }
+    finally { setBusy(false); }
+  }
   return (
     <>
       <PageHeader
         eyebrow="Reconciliation"
-        title="Reconciliation Orchestration"
-        description="Automated multi-participant ledger comparison, discrepancy identification, and settlement convergence."
+        title="Reconciliation Runs"
+        description="Compare central and participant ledger commitments over the same UTC scope."
       />
-      <div className="console-notice-box">
-        <span className="console-notice-tag">MODULE NOT AVAILABLE YET · MILESTONE M3-5</span>
-        <h3>Backend reconciliation orchestration is not available yet.</h3>
-        <p>
-          The underlying data foundation (canonical transaction commitments, deterministic Merkle buckets, and incremental tree models) has been verified in internal packages, but operator-facing reconciliation run orchestration, discrepancy APIs, and automatic settlement batches are scheduled for future milestone integration.
-        </p>
-        <div className="console-spec-list">
-          <div className="console-spec-item">
-            <span className="console-spec-label">Canonical Commitment Foundation</span>
-            <span className="console-spec-val">Implemented (internal/reconciliation/canonical.go)</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Merkle Bucket Partitioning</span>
-            <span className="console-spec-val">Implemented (internal/reconciliation/merkle_bucket.go)</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Reconciliation Execution Seam</span>
-            <span className="console-spec-val">Pending M3-5 Backend Integration</span>
-          </div>
-          <div className="console-spec-item">
-            <span className="console-spec-label">Recorded Run History</span>
-            <span className="console-spec-val">0 runs (no fabricated records)</span>
-          </div>
-        </div>
+      <div className="console-card">
+        <h3>Run reconciliation</h3>
+        <form className="admin-form" onSubmit={execute}>
+          <div className="form-group"><label>Participant ID</label><input value={participantId} onChange={e => setParticipantId(e.target.value)} required /></div>
+          <div className="form-group"><label>Scope From (ISO8601)</label><input value={scopeFrom} onChange={e => setScopeFrom(e.target.value)} required /></div>
+          <div className="form-group"><label>Scope To (ISO8601)</label><input value={scopeTo} onChange={e => setScopeTo(e.target.value)} required /></div>
+          <Button type="submit" disabled={busy}>{busy ? "Running..." : "Run reconciliation"}</Button>
+        </form>
       </div>
+      {error && <InlineError message={error} />}
+      <div className="console-card">
+        <h3>Recorded runs</h3>
+        <Button variant="secondary" onClick={refresh}>Refresh</Button>
+        {runs.length === 0 && <p>No reconciliation runs recorded.</p>}
+        {runs.map(run => <button type="button" className="text-link" key={run.id} onClick={() => choose(run)} style={{ display: "block", marginTop: "0.8rem" }}>
+          {run.startedAt} · {run.participantId} · {run.status} · {run.discrepancyCount} discrepancies
+        </button>)}
+      </div>
+      {selected && <div className="console-card">
+        <h3>Run {selected.id}</h3>
+        <p>Scope: {selected.scopeFrom} to {selected.scopeTo}</p>
+        <p>Records: {selected.recordCount} · Status: {selected.status} · Discrepancies: {selected.discrepancyCount}</p>
+        {selected.errorMessage && <InlineError message={selected.errorMessage} />}
+        {discrepancies.length === 0 && <p>No discrepancy evidence in this page.</p>}
+        {discrepancies.map((item, index) => <div className="console-spec-item" key={item.id ?? index}>
+          <span>{item.mismatchCategory} · {item.bucketKey}</span><span>{item.evidence?.operation_id ?? "bucket-level"}</span>
+        </div>)}
+      </div>
+      }
     </>
   );
 }
@@ -1178,10 +1208,14 @@ function ConsoleMerkleView({ token }: { token: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Integrity View (M3-7 Placeholder)
+// 6. Integrity View
 // ---------------------------------------------------------------------------
 
 function ConsoleIntegrityView({ token }: { token: string }) {
+  const [integrityRuns, setIntegrityRuns] = useState<any[]>([]);
+  const [integrityDetail, setIntegrityDetail] = useState<any>(null);
+  const [integrityError, setIntegrityError] = useState("");
+  const [checking, setChecking] = useState(false);
   const [operationId, setOperationId] = useState("");
   const [participantId, setParticipantId] = useState("");
   const [scopeFrom, setScopeFrom] = useState("");
@@ -1194,6 +1228,28 @@ function ConsoleIntegrityView({ token }: { token: string }) {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifyError, setVerifyError] = useState("");
+
+  async function loadIntegrity() {
+    try {
+      const status = await api.opsIntegrityStatus(token);
+      setIntegrityRuns(status.runs ?? []);
+      if (status.runs?.[0]) setIntegrityDetail(await api.opsIntegrityRun(status.runs[0].runId, token));
+      setIntegrityError("");
+    } catch (err) { setIntegrityError(err instanceof Error ? err.message : "Could not load integrity state."); }
+  }
+  useEffect(() => { void loadIntegrity(); }, [token]);
+  async function runIntegrity() {
+    setChecking(true); setIntegrityError("");
+    try {
+      const input: Record<string, unknown> = {};
+      if (participantId.trim() && scopeFrom && scopeTo) {
+        input.participantId = participantId.trim(); input.scope = { from: scopeFrom, to: scopeTo };
+      }
+      const result = await api.opsIntegrityCheck(input, token);
+      setIntegrityDetail(result); await loadIntegrity();
+    } catch (err) { setIntegrityError(err instanceof Error ? err.message : "Integrity check failed."); }
+    finally { setChecking(false); }
+  }
 
   async function fetchProof(e: React.FormEvent) {
     e.preventDefault();
@@ -1234,8 +1290,28 @@ function ConsoleIntegrityView({ token }: { token: string }) {
       <PageHeader
         eyebrow="Invariant Verification"
         title="Ledger Integrity Engine"
-        description="Continuous verification of financial invariants across double-entry participant books."
+        description="Run and review persisted financial invariant checks."
       />
+      <div className="console-card">
+        <h3>Financial integrity</h3>
+        <p>Run the general checks, or fill participant and scope below to include Merkle commitment consistency.</p>
+        <Button onClick={runIntegrity} disabled={checking}>{checking ? "Checking..." : "Run integrity checks"}</Button>
+        <Button variant="secondary" onClick={loadIntegrity}>Refresh history</Button>
+        {integrityError && <InlineError message={integrityError} />}
+        {integrityRuns.length === 0 && <p>No integrity checks recorded.</p>}
+        {integrityRuns.map(run => <button type="button" className="text-link" key={run.runId} onClick={async () => {
+          try { setIntegrityDetail(await api.opsIntegrityRun(run.runId, token)); setIntegrityError(""); }
+          catch (err) { setIntegrityError(err instanceof Error ? err.message : "Could not load integrity run."); }
+        }} style={{ display: "block", marginTop: "0.8rem" }}>
+          {run.startedAt} · {run.status} · {run.summary.failed} failed · {run.summary.errors} errors
+        </button>)}
+        {integrityDetail && <div>
+          <h4>Run {integrityDetail.runId}</h4>
+          {(integrityDetail.checks ?? []).map((check: any) => <div className="console-spec-item" key={check.code}>
+            <span>{check.code}</span><span>{check.status} · {check.message}</span>
+          </div>)}
+        </div>}
+      </div>
       <div className="console-card">
         <h3>Fetch Integrity Proof</h3>
         <form className="admin-form" onSubmit={fetchProof}>
@@ -1436,6 +1512,14 @@ function ConsoleChaosView({ token }: { token: string }) {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to reset chaos."));
   }
 
+  async function runCorruptionFixture() {
+    setError(""); setFeedback("");
+    try {
+      const result = await api.opsCorruptionFixture(token);
+      setFeedback(`Isolated simulation: baseline ${result.baselineIntegrity.status}; after fixed ledger mutation ${result.corruptedIntegrity.status}; Merkle root mismatch ${result.merkleRootMismatch}.`);
+    } catch (err) { setError(err instanceof Error ? err.message : "Corruption fixture unavailable. Enable TX_SIMULATION_MODE=true on the API."); }
+  }
+
   const activeList = scenarios.filter((s) => s.active);
   const inactiveList = scenarios.filter((s) => !s.active);
 
@@ -1464,6 +1548,12 @@ function ConsoleChaosView({ token }: { token: string }) {
           {feedback}
         </div>
       )}
+
+      <div className="console-card">
+        <h3>Controlled ledger corruption fixture</h3>
+        <p>Isolated simulation only. The fixed test record is discarded after verification; production ledger data is never changed. Requires TX_SIMULATION_MODE=true on the API.</p>
+        <Button variant="secondary" onClick={runCorruptionFixture}>Run corruption detection</Button>
+      </div>
 
       {circuitTargets.length === 0 && !loading && (
         <div className="console-notice-box" style={{ marginBottom: "1.25rem", padding: "1rem" }}>
