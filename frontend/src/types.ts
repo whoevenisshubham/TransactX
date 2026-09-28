@@ -135,3 +135,66 @@ export type ChaosScenario = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type LogicalRegion = {
+  Start: string;
+  End: string;
+};
+
+export type NodeRef = {
+  ParticipantID: string;
+  ScopeID: string;
+  Generation: string;
+  Path: string;
+  Region: LogicalRegion;
+};
+
+export type MerkleTreeRoot = {
+  rootHex: string;
+  algorithm: string;
+  version: string;
+  ref: NodeRef;
+  region: LogicalRegion;
+};
+
+export type MerkleTreeChild = {
+  hashHex: string;
+  ref: NodeRef;
+  region: LogicalRegion;
+};
+
+export type ProofStep = {
+  hashHex?: string;
+  order: "LEFT" | "RIGHT" | "PROMOTED";
+};
+
+export type BucketID = {
+  Partition: string;
+  PeriodEnd: string;
+  PeriodLength: number;
+};
+
+export type IntegrityProof = {
+  record: any;
+  leafHashHex: string;
+  bucketId: BucketID;
+  participantId: string;
+  scope: {
+    From: string;
+    To: string;
+  };
+  generation: string;
+  canonicalVersion: string;
+  algorithmVersion: string;
+  bucketRootHex: string;
+  expectedRootHex: string;
+  bucketPath: ProofStep[];
+  globalPath: ProofStep[];
+  generationMetrics: {
+    durationNs: number;
+    bucketSiblingCount: number;
+    globalSiblingCount: number;
+    totalSiblingCount: number;
+    serializedSizeBytes?: number;
+  };
+};

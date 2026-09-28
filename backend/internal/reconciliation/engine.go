@@ -73,6 +73,18 @@ func NewEngine(
 	return NewEngineWithRepo(participants, repo, canonicalFactory, participantFactory)
 }
 
+// GetCanonicalParticipant provides read-only access to the canonical Merkle tree view for the specified participant and scope.
+func (engine *Engine) GetCanonicalParticipant(ctx context.Context, participantID string, scope Scope) (ReconciliationParticipant, error) {
+	if !engine.participants[participantID] {
+		return nil, ErrInvalidParticipant
+	}
+	scope = scope.Normalize()
+	if err := validateRepositoryScope(scope); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRunScope, err)
+	}
+	return engine.canonicalFactory(ctx, participantID, scope)
+}
+
 // RunRequest is the validated input for starting a reconciliation run.
 type RunRequest struct {
 	ParticipantID string
