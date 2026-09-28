@@ -648,6 +648,10 @@ func TestReconciliationM38API(t *testing.T) {
 		canonP, _ := reconciliation.NewMemoryParticipant("BANK-A", "BANK-A", time.Hour, records)
 		canonP.Refresh(context.Background(), scope)
 
+		// 15. Capture authoritative state before verification
+		rootBefore, _ := canonP.GetRoot(context.Background(), scope)
+		rootBeforeJSON, _ := json.Marshal(rootBefore)
+
 		engine := reconciliation.NewEngineWithRepo(reconciliation.KnownParticipants{"BANK-A": true}, newMemReconStore(),
 			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
 				if id == "BANK-A" {
@@ -660,7 +664,9 @@ func TestReconciliationM38API(t *testing.T) {
 			},
 		)
 		h := NewHandlerWithReconciliation(nil, nil, nil, manager, nil, engine)
-		tok := tokenFor(t, manager, "OPS_ADMIN")
+		tokOps := tokenFor(t, manager, "OPS_ADMIN")
+		tokCust := tokenFor(t, manager, "CUSTOMER")
+		tokMerch := tokenFor(t, manager, "MERCHANT")
 
 		integrityEngine := reconciliation.NewIntegrityEngine()
 		proof, err := integrityEngine.GenerateProofByOperationID(context.Background(), canonP, scope, opID)
@@ -669,10 +675,12 @@ func TestReconciliationM38API(t *testing.T) {
 		}
 		validProofJSON, _ := json.Marshal(proof)
 
-		runReq := func(name string, payload []byte, expectStatus int) {
+		runReqDetailed := func(name, url string, payload []byte, tok string, expectStatus int, checkValid bool) {
 			t.Run(name, func(t *testing.T) {
-				req := httptest.NewRequest(http.MethodPost, "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", bytes.NewReader(payload))
-				req.Header.Set("Authorization", "Bearer "+tok)
+				req := httptest.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+				if tok != "" {
+					req.Header.Set("Authorization", "Bearer "+tok)
+				}
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, req)
@@ -680,33 +688,121 @@ func TestReconciliationM38API(t *testing.T) {
 				if rec.Code != expectStatus {
 					t.Fatalf("expected status %d, got %d: %s", expectStatus, rec.Code, rec.Body.String())
 				}
+
+				if expectStatus == http.StatusOK && checkValid {
+				    var out map[string]any
+				    if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+				        t.Fatalf("failed to decode response: %v", err)
+				    }
+				    data, ok := out["data"].(map[string]any)
+				    if !ok {
+				        t.Fatalf("expected data object, got %v", out["data"])
+				    }
+				    if valid, ok := data["valid"].(bool); !ok || !valid {
+				        t.Fatalf("expected valid=true, got valid=%v", data["valid"])
+				    }
+				}
 			})
 		}
 
+		runReq := func(name string, payload []byte, expectStatus int) {
+			runReqDetailed(name, "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", payload, tokOps, expectStatus, true)
+		}
+
+		// 1. Valid proof -> HTTP 200 and valid=true
 		runReq("ValidProof", validProofJSON, http.StatusOK)
 
+		// 2. Tampered Record -> verification failure
 		var tamperedRecord reconciliation.IntegrityProof
 		json.Unmarshal(validProofJSON, &tamperedRecord)
 		tamperedRecord.Record.AmountPaise = 999999
 		tamperedRecordJSON, _ := json.Marshal(tamperedRecord)
 		runReq("TamperedRecord", tamperedRecordJSON, http.StatusConflict)
 
+		// 3. Tampered LeafHash -> verification failure
+		var tamperedLeaf reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &tamperedLeaf)
+		tamperedLeaf.LeafHash = bytes.Repeat([]byte("b"), 32)
+		tamperedLeafJSON, _ := json.Marshal(tamperedLeaf)
+		runReq("TamperedLeafHash", tamperedLeafJSON, http.StatusConflict)
+
+		// 4. Tampered BucketPath -> verification failure
+		var tamperedBPath reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &tamperedBPath)
+		if len(tamperedBPath.BucketPath) > 0 {
+		    tamperedBPath.BucketPath[0].Hash = bytes.Repeat([]byte("c"), 32)
+		    tamperedBPathJSON, _ := json.Marshal(tamperedBPath)
+		    runReq("TamperedBucketPath", tamperedBPathJSON, http.StatusConflict)
+		}
+
+		// 5. Tampered GlobalPath -> verification failure
+		var tamperedGPath reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &tamperedGPath)
+		if len(tamperedGPath.GlobalPath) > 0 {
+		    tamperedGPath.GlobalPath[0].Hash = bytes.Repeat([]byte("d"), 32)
+		    tamperedGPathJSON, _ := json.Marshal(tamperedGPath)
+		    runReq("TamperedGlobalPath", tamperedGPathJSON, http.StatusConflict)
+		}
+
+		// 6. Stale Generation -> verification failure
+		// 16. Trusted-context independence (request unchanged, proof generation mutated)
 		var staleGen reconciliation.IntegrityProof
 		json.Unmarshal(validProofJSON, &staleGen)
 		staleGen.Generation = "stale-generation-123"
 		staleGenJSON, _ := json.Marshal(staleGen)
 		runReq("StaleGeneration", staleGenJSON, http.StatusConflict)
 
+		// 7. Forged ExpectedRoot -> verification failure
+		// 16. Trusted-context independence (request unchanged, proof root mutated)
+		var forgedRoot reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &forgedRoot)
+		forgedRoot.ExpectedRoot = bytes.Repeat([]byte("a"), 32)
+		forgedRootJSON, _ := json.Marshal(forgedRoot)
+		runReq("ForgedRoot", forgedRootJSON, http.StatusConflict)
+
+		// 8. Participant mismatch between request context and proof -> verification failure
 		var wrongPart reconciliation.IntegrityProof
 		json.Unmarshal(validProofJSON, &wrongPart)
 		wrongPart.ParticipantID = "BANK-B"
 		wrongPartJSON, _ := json.Marshal(wrongPart)
 		runReq("ParticipantMismatch", wrongPartJSON, http.StatusBadRequest)
 
-		var forgedRoot reconciliation.IntegrityProof
-		json.Unmarshal(validProofJSON, &forgedRoot)
-		forgedRoot.ExpectedRoot = bytes.Repeat([]byte("a"), 32)
-		forgedRootJSON, _ := json.Marshal(forgedRoot)
-		runReq("ForgedRoot", forgedRootJSON, http.StatusConflict)
+		// 9. Scope mismatch between request context and proof -> verification failure
+		var wrongScope reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &wrongScope)
+		wrongScope.Scope.To = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		wrongScopeJSON, _ := json.Marshal(wrongScope)
+		runReq("ScopeMismatch", wrongScopeJSON, http.StatusConflict)
+
+		// 10. Malformed proof JSON -> HTTP 400
+		runReq("MalformedJSON", []byte(`{"invalid": "format"`), http.StatusBadRequest)
+
+		// 11. Malformed proof path -> HTTP 400
+		var malformedPath reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &malformedPath)
+		if len(malformedPath.GlobalPath) > 0 {
+		    malformedPath.GlobalPath[0].Hash = []byte("short")
+		    malformedPathJSON, _ := json.Marshal(malformedPath)
+		    runReq("MalformedPath", malformedPathJSON, http.StatusBadRequest)
+		}
+
+		// 12. Missing participantId -> HTTP 400
+		runReqDetailed("MissingParticipant", "/api/ops/reconciliation/proof/verify?scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokOps, http.StatusBadRequest, false)
+
+		// 13. Missing/invalid scope query parameter -> HTTP 400
+		runReqDetailed("MissingScopeTo", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z", validProofJSON, tokOps, http.StatusBadRequest, false)
+		runReqDetailed("InvalidScopeFrom", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=bad&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokOps, http.StatusBadRequest, false)
+
+		// 14. Unauthorized roles cannot use the endpoint
+		runReqDetailed("RoleCustomer", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokCust, http.StatusForbidden, false)
+		runReqDetailed("RoleMerchant", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokMerch, http.StatusForbidden, false)
+		runReqDetailed("Unauthenticated", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", validProofJSON, "", http.StatusUnauthorized, false)
+
+		// 15/17. Read-only behavior: confirm participant/commitment state unchanged
+		rootAfter, _ := canonP.GetRoot(context.Background(), scope)
+		rootAfterJSON, _ := json.Marshal(rootAfter)
+		if !bytes.Equal(rootBeforeJSON, rootAfterJSON) {
+		    t.Fatalf("authoritative state changed after verification, before: %s, after: %s", string(rootBeforeJSON), string(rootAfterJSON))
+		}
 	})
 }
