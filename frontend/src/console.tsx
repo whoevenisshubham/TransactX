@@ -806,12 +806,21 @@ function ConsoleHealthView({ token }: { token: string }) {
 // ---------------------------------------------------------------------------
 
 function ConsoleRoutingView({ token }: { token: string }) {
+  const [distribution, setDistribution] = useState<{ targetId: string; payments: number }[]>([]);
+  const [distributionError, setDistributionError] = useState("");
   const [circuits, setCircuits] = useState<Record<string, CircuitTargetSnapshot>>({});
   const [selectedTarget, setSelectedTarget] = useState<string>("BANK-A");
   const [events, setEvents] = useState<CircuitTransitionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [error, setError] = useState("");
+
+  function loadDistribution() {
+    api.opsRoutingDistribution(token)
+      .then(data => { setDistribution(data.items); setDistributionError(""); })
+      .catch(err => setDistributionError(err instanceof Error ? err.message : "Could not load route selections."));
+  }
+  useEffect(() => { loadDistribution(); }, [token]);
 
   function loadCircuits() {
     setLoading(true);
@@ -864,6 +873,20 @@ function ConsoleRoutingView({ token }: { token: string }) {
           </Button>
         }
       />
+
+      <div className="console-card">
+        <h3>Executed route selections · last 24 hours</h3>
+        <Button variant="secondary" onClick={loadDistribution}>Refresh distribution</Button>
+        {distributionError && <InlineError message={distributionError} />}
+        {!distributionError && distribution.length === 0 && <p>No route decisions recorded in this window.</p>}
+        {distribution.map(item => <div className="console-spec-item" key={item.targetId}>
+          <span>{item.targetId}</span>
+          <span style={{ minWidth: "40%" }}>
+            <span style={{ display: "inline-block", height: ".6rem", background: "var(--accent)", width: `${Math.round(item.payments / Math.max(1, ...distribution.map(x => x.payments)) * 100)}%`, marginRight: ".5rem" }} />
+            {item.payments} payments
+          </span>
+        </div>)}
+      </div>
 
       {error && <InlineError message={error} />}
 
@@ -1050,9 +1073,13 @@ function ConsoleReconciliationView({ token }: { token: string }) {
         <h3>Recorded runs</h3>
         <Button variant="secondary" onClick={refresh}>Refresh</Button>
         {runs.length === 0 && <p>No reconciliation runs recorded.</p>}
-        {runs.map(run => <button type="button" className="text-link" key={run.id} onClick={() => choose(run)} style={{ display: "block", marginTop: "0.8rem" }}>
-          {run.startedAt} · {run.participantId} · {run.status} · {run.discrepancyCount} discrepancies
-        </button>)}
+        {runs.length > 0 && <div className="console-table-wrap"><table className="console-table">
+          <thead><tr><th>Started</th><th>Participant</th><th>Status</th><th>Discrepancies</th><th>Detail</th></tr></thead>
+          <tbody>{runs.map(run => <tr key={run.id}>
+            <td>{run.startedAt}</td><td>{run.participantId}</td><td>{run.status}</td><td>{run.discrepancyCount}</td>
+            <td><button type="button" className="text-link" onClick={() => choose(run)}>View</button></td>
+          </tr>)}</tbody>
+        </table></div>}
       </div>
       {selected && <div className="console-card">
         <h3>Run {selected.id}</h3>

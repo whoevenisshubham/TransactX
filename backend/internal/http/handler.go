@@ -177,6 +177,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("POST /api/ops/integrity/check", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityCheck))))
 	mux.Handle("GET /api/ops/integrity/status", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityStatus))))
 	mux.Handle("GET /api/ops/integrity/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityRun))))
+	mux.Handle("GET /api/ops/routing/distribution", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.routingDistribution))))
 	// Reconciliation endpoints are always registered; the handler returns
 	// NOT_FOUND gracefully when no engine is configured.
 	mux.Handle("POST /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationCreateRun))))
