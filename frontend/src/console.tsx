@@ -1191,11 +1191,17 @@ function ConsoleIntegrityView({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [proof, setProof] = useState<import("./types").IntegrityProof | null>(null);
 
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [verifyError, setVerifyError] = useState("");
+
   async function fetchProof(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
     setProof(null);
+    setVerifyResult(null);
+    setVerifyError("");
     try {
       const res = await api.opsReconciliationGetProof(operationId, participantId, scopeFrom, scopeTo, token);
       setProof(res);
@@ -1204,6 +1210,22 @@ function ConsoleIntegrityView({ token }: { token: string }) {
       else setError("Failed to fetch integrity proof");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleVerify() {
+    if (!proof) return;
+    setVerifying(true);
+    setVerifyError("");
+    setVerifyResult(null);
+    try {
+      const res = await api.opsReconciliationVerifyProof(proof, token);
+      setVerifyResult(res);
+    } catch (err) {
+      if (err instanceof ApiError) setVerifyError(err.message);
+      else setVerifyError("Failed to verify proof");
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -1242,7 +1264,23 @@ function ConsoleIntegrityView({ token }: { token: string }) {
 
       {proof && (
         <div className="console-card">
-          <h3>Integrity Proof Result</h3>
+          <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+            <h3>Integrity Proof Result</h3>
+            <Button variant="secondary" onClick={handleVerify} disabled={verifying}>
+              {verifying ? "Verifying..." : "Verify Proof Against Trusted State"}
+            </Button>
+          </div>
+
+          {verifyError && <InlineError message={verifyError} />}
+          {verifyResult && (
+            <div className="console-notice-box" style={{marginBottom: "1.5rem", padding: "1rem", borderColor: verifyResult.valid ? "var(--success)" : "var(--error)", color: verifyResult.valid ? "var(--success)" : "var(--error)"}}>
+              <h4 style={{margin: "0 0 0.5rem 0"}}>{verifyResult.valid ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED"}</h4>
+              <p style={{margin: 0, fontSize: "0.85rem"}}>
+                Reconstructed Root: <span style={{fontFamily: "monospace"}}>{verifyResult.reconstructedRoot}</span>
+              </p>
+            </div>
+          )}
+
           <div className="console-spec-list">
             <div className="console-spec-item">
               <span className="console-spec-label">Leaf Hash</span>

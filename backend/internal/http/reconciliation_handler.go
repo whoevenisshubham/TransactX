@@ -3,6 +3,8 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -353,6 +355,14 @@ func (handler *Handler) reconciliationTreeChildren(writer http.ResponseWriter, r
 
 	children, err := participant.GetChildren(request.Context(), ref)
 	if err != nil {
+		if errors.Is(err, reconciliation.ErrInvalidNodeReference) {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "invalid node reference", http.StatusBadRequest))
+			return
+		}
+		if errors.Is(err, reconciliation.ErrNodeNotFound) {
+			writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "node not found", http.StatusNotFound))
+			return
+		}
 		if handler.logger != nil {
 			handler.logger.Error("get reconciliation tree children", "error", err)
 		}
@@ -455,3 +465,69 @@ func (handler *Handler) reconciliationGetProof(writer http.ResponseWriter, reque
 
 	writeData(writer, http.StatusOK, request, out)
 }
+
+func (handler *Handler) reconciliationVerifyProof(writer http.ResponseWriter, request *http.Request) {
+	if handler.reconEngine == nil {
+		writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "reconciliation engine is not configured", http.StatusNotFound))
+		return
+	}
+
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "failed to read request body", http.StatusBadRequest))
+		return
+	}
+
+	proof, err := reconciliation.DeserializeProof(body)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", fmt.Sprintf("invalid proof: %v", err), http.StatusBadRequest))
+		return
+	}
+
+	participant, err := handler.reconEngine.GetCanonicalParticipant(request.Context(), proof.ParticipantID, proof.Scope)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "invalid participant or scope", http.StatusBadRequest))
+		return
+	}
+
+	rootRes, err := participant.GetRoot(request.Context(), proof.Scope)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to fetch authoritative root", http.StatusInternalServerError))
+		return
+	}
+	if rootRes.Region.IsZero() {
+		writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "no authoritative commitment found for scope", http.StatusNotFound))
+		return
+	}
+
+	expectedCtx := reconciliation.ProofVerificationContext{
+		ParticipantID:    proof.ParticipantID,
+		Scope:            proof.Scope,
+		BucketID:         proof.BucketID,
+		Generation:       rootRes.Ref.Generation,
+		CanonicalVersion: reconciliation.CanonicalVersion,
+		AlgorithmVersion: reconciliation.MerkleAlgorithmVersion,
+		ExpectedRoot:     rootRes.Root,
+	}
+
+	res, err := reconciliation.NewIntegrityEngine().VerifyProof(request.Context(), proof, expectedCtx)
+	if err != nil {
+		if errors.Is(err, reconciliation.ErrMissingVerificationContext) || errors.Is(err, reconciliation.ErrProofIncompatibleVersion) || errors.Is(err, reconciliation.ErrProofMalformedPath) {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", err.Error(), http.StatusBadRequest))
+			return
+		}
+		// Verification failure (e.g. hash mismatch, root mismatch) will return an error from VerifyProof
+		writeAPIError(writer, request, common.NewAPIError("VERIFICATION_FAILED", err.Error(), http.StatusConflict))
+		return
+	}
+
+	out := map[string]any{
+		"valid":                   res.Valid,
+		"reconstructedBucketRoot": hexEncode(res.ReconstructedBucketRoot),
+		"reconstructedRoot":       hexEncode(res.ReconstructedRoot),
+		"metrics":                 res.Metrics,
+	}
+	writeData(writer, http.StatusOK, request, out)
+}
+
+
