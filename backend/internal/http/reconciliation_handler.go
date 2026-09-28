@@ -484,13 +484,31 @@ func (handler *Handler) reconciliationVerifyProof(writer http.ResponseWriter, re
 		return
 	}
 
-	participant, err := handler.reconEngine.GetCanonicalParticipant(request.Context(), proof.ParticipantID, proof.Scope)
+	participantID := strings.TrimSpace(request.URL.Query().Get("participantId"))
+	if participantID == "" {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "participantId query parameter is required", http.StatusBadRequest))
+		return
+	}
+
+	scopeFrom, err := time.Parse(time.RFC3339, strings.TrimSpace(request.URL.Query().Get("scopeFrom")))
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "scopeFrom query parameter must be a valid RFC3339 timestamp", http.StatusBadRequest))
+		return
+	}
+	scopeTo, err := time.Parse(time.RFC3339, strings.TrimSpace(request.URL.Query().Get("scopeTo")))
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "scopeTo query parameter must be a valid RFC3339 timestamp", http.StatusBadRequest))
+		return
+	}
+	expectedScope := reconciliation.Scope{From: scopeFrom, To: scopeTo}
+
+	participant, err := handler.reconEngine.GetCanonicalParticipant(request.Context(), participantID, expectedScope)
 	if err != nil {
 		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "invalid participant or scope", http.StatusBadRequest))
 		return
 	}
 
-	rootRes, err := participant.GetRoot(request.Context(), proof.Scope)
+	rootRes, err := participant.GetRoot(request.Context(), expectedScope)
 	if err != nil {
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to fetch authoritative root", http.StatusInternalServerError))
 		return
@@ -501,8 +519,8 @@ func (handler *Handler) reconciliationVerifyProof(writer http.ResponseWriter, re
 	}
 
 	expectedCtx := reconciliation.ProofVerificationContext{
-		ParticipantID:    proof.ParticipantID,
-		Scope:            proof.Scope,
+		ParticipantID:    participantID,
+		Scope:            expectedScope,
 		BucketID:         proof.BucketID,
 		Generation:       rootRes.Ref.Generation,
 		CanonicalVersion: reconciliation.CanonicalVersion,

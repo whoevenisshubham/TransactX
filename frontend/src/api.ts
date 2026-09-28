@@ -117,6 +117,8 @@ export const api = {
     apiRequest<import("./types").MerkleTreeChild[]>(`/api/ops/reconciliation/tree/children?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}&generation=${encodeURIComponent(generation)}&path=${encodeURIComponent(path)}`, {}, token),
   opsReconciliationGetProof: (operationId: string, participantId: string, scopeFrom: string, scopeTo: string, token: string) =>
     apiRequest<import("./types").IntegrityProof>(`/api/ops/reconciliation/proof/${encodeURIComponent(operationId)}?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}`, {}, token),
-  opsReconciliationVerifyProof: (proof: import("./types").IntegrityProof, token: string) =>
-    apiRequest<any>("/api/ops/reconciliation/proof/verify", { method: "POST", body: JSON.stringify(proof) }, token),
+  opsReconciliationVerifyProof: (participantId: string, scopeFrom: string, scopeTo: string, proof: import("./types").IntegrityProof, token: string) => {
+    const q = new URLSearchParams({ participantId, scopeFrom, scopeTo });
+    return apiRequest<any>(`/api/ops/reconciliation/proof/verify?${q}`, { method: "POST", body: JSON.stringify(proof) }, token);
+  },
 };

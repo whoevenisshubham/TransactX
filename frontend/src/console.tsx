@@ -1219,7 +1219,7 @@ function ConsoleIntegrityView({ token }: { token: string }) {
     setVerifyError("");
     setVerifyResult(null);
     try {
-      const res = await api.opsReconciliationVerifyProof(proof, token);
+      const res = await api.opsReconciliationVerifyProof(participantId, scopeFrom, scopeTo, proof, token);
       setVerifyResult(res);
     } catch (err) {
       if (err instanceof ApiError) setVerifyError(err.message);

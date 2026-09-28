@@ -179,7 +179,7 @@ func TestReconciliationEndpointsRejectPublicRoles(t *testing.T) {
 		{http.MethodGet, "/api/ops/reconciliation/tree/root?participantId=BANK-A&scopeFrom=2023-01-01T00:00:00Z&scopeTo=2023-01-02T00:00:00Z", nil},
 		{http.MethodGet, "/api/ops/reconciliation/tree/children?participantId=BANK-A&scopeFrom=2023-01-01T00:00:00Z&scopeTo=2023-01-02T00:00:00Z&generation=gen1&path=0", nil},
 		{http.MethodGet, "/api/ops/reconciliation/proof/" + uuid.New().String() + "?participantId=BANK-A&scopeFrom=2023-01-01T00:00:00Z&scopeTo=2023-01-02T00:00:00Z", nil},
-		{http.MethodPost, "/api/ops/reconciliation/proof/verify", []byte(`{}`)},
+		{http.MethodPost, "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2023-01-01T00:00:00Z&scopeTo=2023-01-02T00:00:00Z", []byte(`{}`)},
 	}
 
 	// Unauthenticated → 401.
@@ -619,7 +619,7 @@ func TestReconciliationM38API(t *testing.T) {
 	})
 
 	t.Run("VerifyProof_InvalidPayload", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/api/ops/reconciliation/proof/verify", bytes.NewReader([]byte(`{"invalid": true}`)))
+		req := httptest.NewRequest(http.MethodPost, "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", bytes.NewReader([]byte(`{"invalid": true}`)))
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -671,7 +671,7 @@ func TestReconciliationM38API(t *testing.T) {
 
 		runReq := func(name string, payload []byte, expectStatus int) {
 			t.Run(name, func(t *testing.T) {
-				req := httptest.NewRequest(http.MethodPost, "/api/ops/reconciliation/proof/verify", bytes.NewReader(payload))
+				req := httptest.NewRequest(http.MethodPost, "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", bytes.NewReader(payload))
 				req.Header.Set("Authorization", "Bearer "+tok)
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
