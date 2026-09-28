@@ -128,3 +128,14 @@ A `COMPLETED` run with discrepancies is not a failure. Discrepancies are evidenc
 **Pagination:** All list endpoints accept `limit` (default 20, max 100 for runs; default 50, max 200 for discrepancies) and `offset` query parameters. The response includes `total` and `nextOffset` (when present).
 
 **Migration:** Apply `backend/migrations/000013_m3_5_recon_runs.up.sql` before starting the server. This creates the `recon_runs` and `recon_discrepancies` tables.
+
+## Reconciliation participant boundary
+
+The reconciliation package exposes a separate `ReconciliationParticipant` read boundary. `BankAdapter` remains frozen as the payment-switch contract and is not extended with reconciliation methods.
+
+- A `Scope` is a normalized UTC half-open interval `[From, To)`. Node references carry a participant identifier, deterministic scope identity, and a path (`empty` or `L<level>/<index>`); bucket references carry the versioned `BucketID.String()` key.
+- `MemoryParticipant` is a deterministic fixture over logical `CanonicalRecord` values. `RepositoryParticipant` reads the existing participant ledger through `bankservice.Service.GetLedgerSnapshot`; the participant ledger remains authoritative and commitment state is derived, read-only data.
+- A participant captures one derived commitment per scope and reuses it across root, child, record, and metadata reads so one boundary read is coherent and does not rebuild the tree repeatedly. Repository-backed commitments must be explicitly initialized (or recovered with `Refresh`); only that path bootstraps from the authoritative ledger. Normal reads load maintained derived state through `IncrementalCommitmentStore` and never call `Bootstrap`.
+- Root, node, and bucket references include a process-local commitment generation. `Refresh` creates a new generation and invalidates old references, preventing a child or bucket request from mixing commitment snapshots. Generation values never enter canonical records or Merkle hash inputs. This is a process-local snapshot rule, not distributed transactionality.
+- Roots, child nodes, and bucket records use the existing canonical v1 and Merkle v1 implementations. Results are ordered deterministically and exclude snapshot IDs, capture times, and physical database row IDs from canonical content.
+- Missing or malformed references return typed reconciliation errors (`ErrNodeNotFound`, `ErrBucketNotFound`, and their invalid-reference counterparts). Participant mismatches are explicit. Every participant method checks and propagates context cancellation and source errors.

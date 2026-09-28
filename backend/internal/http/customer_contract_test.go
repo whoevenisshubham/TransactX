@@ -155,6 +155,9 @@ func loginUser(t *testing.T, handler http.Handler, paymentID, password string) (
 	if err != nil {
 		t.Fatal(err)
 	}
+	if envelope.Data.Token == "" {
+		t.Fatal("login response contained an empty token")
+	}
 	return envelope.Data.Token, userID
 }
 
