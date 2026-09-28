@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/google/uuid"
 
@@ -17,8 +18,8 @@ import (
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/health"
 	"github.com/transactx/backend/internal/payments"
-	"github.com/transactx/backend/internal/reconciliation"
 	"github.com/transactx/backend/internal/recipients"
+	"github.com/transactx/backend/internal/reconciliation"
 	"github.com/transactx/backend/internal/users"
 )
 
@@ -35,6 +36,8 @@ type Handler struct {
 	circuitBreaker  *circuit.CircuitBreaker
 	chaosController *chaos.Controller
 	reconEngine     *reconciliation.Engine
+	integrityEngine *reconciliation.RuntimeIntegrityEngine
+	integrityRuns   reconciliation.IntegrityRunStore
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -127,6 +130,10 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		chaosController: chaosController,
 		reconEngine:     reconEngine,
 	}
+	if db != nil {
+		handler.integrityRuns = reconciliation.NewPostgresIntegrityRunStore(db)
+		handler.integrityEngine = reconciliation.NewRuntimeIntegrityEngine(reconciliation.NewProductionPostgresFinancialDataStore(db), handler.integrityRuns)
+	}
 	if adapters != nil {
 		if executionTargets != nil {
 			handler.payments = payments.NewServiceWithExecutionTargets(handler.accountsRepo, handler.recipients, payments.NewRepository(db), adapters, executionTargets, healthService, mode, staticBaseline)
@@ -164,6 +171,13 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		mux.Handle("POST /api/ops/chaos/scenarios/{scenarioID}/stop", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosStop))))
 		mux.Handle("POST /api/ops/chaos/reset", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosReset))))
 	}
+	if os.Getenv("TX_SIMULATION_MODE") == "true" {
+		mux.Handle("POST /api/ops/chaos/ledger-corruption-fixture", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.ledgerCorruptionFixture))))
+	}
+	mux.Handle("POST /api/ops/integrity/check", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityCheck))))
+	mux.Handle("GET /api/ops/integrity/status", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityStatus))))
+	mux.Handle("GET /api/ops/integrity/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityRun))))
+	mux.Handle("GET /api/ops/routing/distribution", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.routingDistribution))))
 	// Reconciliation endpoints are always registered; the handler returns
 	// NOT_FOUND gracefully when no engine is configured.
 	mux.Handle("POST /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationCreateRun))))
