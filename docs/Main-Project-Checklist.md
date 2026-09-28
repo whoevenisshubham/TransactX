@@ -7,7 +7,9 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 ## Current repository checkpoint
 
-The current branch completes the Member-1 routed-payment checkpoint, the customer payment frontend/API hardening, and the verified Member-2 resilience/offline/merchant slices: durable bank operation identity, routed saga persistence, operation status, compensation, deterministic pending recovery, safe customer DTOs, exact paise input, notes, incoming/outgoing history, durable offline queue and safe replay, deterministic health/routing, circuit breaker, controlled chaos, merchant product surfaces, and reproducible resilience experiments. Merkle reconciliation, Network Console visualization/streaming, and other explicitly M3-owned work remain outside this M2 exit scope.
+The current branch contains the Member-1 and Member-2 foundations plus substantial Member-3 implementation: canonical Merkle reconciliation, proof verification, runtime financial integrity, operator run views, and recorded 10K/100K experiments. Remaining M3 gaps are called out below; unchecked boxes are not evidence that earlier implementation is absent.
+
+M3 closeout note: the experiment measurements and isolated corruption fixture are verified, but full M3 exit remains open. Production reconciliation does not persist the complete node/record/byte transfer instrumentation; operational event streaming is absent; the activity feed covers circuit transitions only; the corruption fixture does not mutate a persisted participant test ledger or create a durable console alert; and the concurrency storm with recorded integrity outcomes has not been run. Routing distribution is implemented over persisted route decisions but has not been exercised against a live PostgreSQL database in this environment. The 1M scale remains optional.
 
 \[ ] Work strictly in phase order unless a dependency explicitly allows parallel work.
 \[ ] Tick an item only when it is implemented, tested, and verified — not merely coded.
@@ -45,7 +47,7 @@ Duration: Weeks 1–2   Objective: Freeze the core financial model and build the
 \[ ] ALL — Finalize money representation (integer paise / smallest currency unit).
 \[ ] M1 — Create PostgreSQL migrations for users, banks, accounts, payments, ledger transactions, ledger entries, idempotency records.
 \[ ] M2 — Create bank service/adaptor interfaces and synthetic bank seed structure.
-\[ ] M3 — Create reconciliation/integrity/benchmark data structures.
+\[x] M3 — Create reconciliation/integrity/benchmark data structures.
 \[ ] ALL — Add deterministic seed data for users, merchants, banks, accounts, and devices.
 \[ ] ALL — Document database relationships and indexes.
 \[ ] ALL — Add environment validation and startup configuration checks.
@@ -69,7 +71,7 @@ Duration: Week 2   Objective: Make the application usable before adding complex 
 \[x] M1 — Build customer home screen.
 \[x] M1 — Build customer navigation shell.
 \[x] M2 — Build merchant navigation shell and merchant identity flow.
-\[ ] M3 — Build initial network-console shell with placeholder states only.
+\[x] M3 — Build initial network-console shell with placeholder states only.
 \[ ] ALL — Add unit and integration tests for authentication and authorization.
 \[ ] ALL — Verify frontend cannot access protected resources without valid authorization.
 PHASE EXIT GATE: A seeded customer and merchant can authenticate and reach the correct protected application areas.
@@ -128,25 +130,25 @@ PHASE EXIT GATE: A real payment travels through the switch and bank adapter into
 
 Duration: Weeks 5–6   Objective: Build the main research contribution correctly and benchmarkable from the start.
 
-\[ ] M3 — Define the canonical transaction representation used for hashing.
-\[ ] M3 — Implement canonical serialization deterministically.
-\[ ] M3 — Implement SHA-256 leaf hashing.
-\[ ] M3 — Implement internal-node hashing.
-\[ ] M3 — Design the hierarchical time/partition structure.
-\[ ] M3 — Implement append-only / incremental or touched-bucket Merkle maintenance.
-\[ ] M3 — Ensure tree commitments are not rebuilt from the entire ledger on every reconciliation run.
-\[ ] M3 — Implement root retrieval.
-\[ ] M3 — Implement root comparison.
-\[ ] M3 — Implement recursive divergence localization.
-\[ ] M3 — Implement exact divergent-bucket identification.
-\[ ] M3 — Implement exact divergent-transaction lookup where possible.
+\[x] M3 — Define the canonical transaction representation used for hashing.
+\[x] M3 — Implement canonical serialization deterministically.
+\[x] M3 — Implement SHA-256 leaf hashing.
+\[x] M3 — Implement internal-node hashing.
+\[x] M3 — Design the hierarchical time/partition structure.
+\[x] M3 — Implement append-only / incremental or touched-bucket Merkle maintenance.
+\[x] M3 — Ensure tree commitments are not rebuilt from the entire ledger on every reconciliation run.
+\[x] M3 — Implement root retrieval.
+\[x] M3 — Implement root comparison.
+\[x] M3 — Implement recursive divergence localization.
+\[x] M3 — Implement exact divergent-bucket identification.
+\[x] M3 — Implement exact divergent-transaction lookup where possible.
 \[ ] M3 — Record nodes visited, records inspected, elapsed time, and bytes transferred.
-\[ ] M3 — Implement naive full-diff baseline.
-\[ ] M3 — Implement Merkle-vs-naive benchmark harness.
-\[ ] M3 — Implement reconciliation API.
-\[ ] M3 — Build reconciliation result UI.
-\[ ] M3 — Build Merkle tree visualization.
-\[ ] M3 — Add controlled ledger-divergence test fixture.
+\[x] M3 — Implement naive full-diff baseline.
+\[x] M3 — Implement Merkle-vs-naive benchmark harness.
+\[x] M3 — Implement reconciliation API.
+\[x] M3 — Build reconciliation result UI.
+\[x] M3 — Build Merkle tree visualization.
+\[x] M3 — Add controlled ledger-divergence test fixture.
 \[ ] ALL — Verify identical snapshots produce identical roots.
 \[ ] ALL — Verify a one-record mutation changes the appropriate commitments.
 \[ ] ALL — Verify the algorithm can localize the mutation.
@@ -194,7 +196,7 @@ Duration: Week 8   Objective: Make the network resilient to degraded or failed b
 \[x] M2 — Implement HALF\_OPEN state.
 \[x] M2 — Implement cooldown and probe behavior.
 \[x] M2 — Implement gradual traffic restoration after recovery.
-\[ ] M3 — Build bank-health view.
+\[x] M3 — Build bank-health view.
 \[ ] M3 — Build routing distribution visualization.
 \[ ] M3 — Stream health/routing changes to the frontend.
 \[x] ALL — Define exact experimental routing thresholds in configuration.
@@ -212,18 +214,18 @@ Duration: Week 9   Objective: Turn resilience claims into controlled, repeatable
 \[x] M2 — Add configurable latency scenario.
 \[x] M2 — Add transient/message-drop scenario.
 \[x] M2 — Add temporary network partition scenario.
-\[ ] M3 — Add admin-only controlled ledger-corruption fixture.
+\[x] M3 — Add admin-only controlled ledger-corruption fixture.
 \[ ] M1 — Add concurrent payment-storm trigger through the test environment.
 \[x] M2 — Ensure every chaos action is visibly marked as simulation/test mode.
 \[x] M2 — Ensure chaos endpoints require OPS\_ADMIN authorization.
-\[ ] M3 — Build chaos-control UI.
-\[ ] M3 — Show active faults and scenario history.
+\[x] M3 — Build chaos-control UI.
+\[x] M3 — Show active faults and scenario history.
 \[ ] M3 — Stream bank-health and circuit-breaker changes live.
 \[x] ALL — Run bank outage and observe rerouting.
 \[x] ALL — Run latency degradation and observe routing-score change.
 \[x] ALL — Run bank recovery and observe HALF\_OPEN then gradual restoration.
 \[x] ALL — Run message-drop scenario and verify safe pending/recovery behavior.
-\[ ] ALL — Run the corruption scenario and verify Merkle/integrity detection.
+\[x] ALL — Run the corruption scenario and verify Merkle/integrity detection.
 \[x] ALL — Ensure no chaos endpoint is exposed to CUSTOMER or MERCHANT roles.
 PHASE EXIT GATE: At least the outage, latency, recovery, and corruption scenarios are repeatable and produce observable, correct system behavior.
 
@@ -231,21 +233,21 @@ PHASE EXIT GATE: At least the outage, latency, recovery, and corruption scenario
 
 Duration: Week 10   Objective: Continuously verify correctness and expose the infrastructure clearly to evaluators.
 
-\[ ] M3 — Implement debit/credit conservation check.
-\[ ] M3 — Implement no-negative-balance check.
-\[ ] M3 — Implement transaction uniqueness check.
-\[ ] M3 — Implement idempotency invariant check.
-\[ ] M3 — Implement state-transition validity check.
-\[ ] M3 — Implement completed-payment ledger completeness check.
-\[ ] M3 — Implement Merkle-commitment verification check.
-\[ ] M3 — Implement aggregate integrity-check endpoint.
-\[ ] M3 — Build integrity dashboard.
+\[x] M3 — Implement debit/credit conservation check.
+\[x] M3 — Implement no-negative-balance check.
+\[x] M3 — Implement transaction uniqueness check.
+\[x] M3 — Implement idempotency invariant check.
+\[x] M3 — Implement state-transition validity check.
+\[x] M3 — Implement completed-payment ledger completeness check.
+\[x] M3 — Implement Merkle-commitment verification check.
+\[x] M3 — Implement aggregate integrity-check endpoint.
+\[x] M3 — Build integrity dashboard.
 \[ ] M3 — Build event/activity feed.
 \[ ] M2 — Build network overview metrics cards.
 \[ ] M2 — Build bank status cards.
 \[ ] M2 — Build routing view.
-\[ ] M3 — Build reconciliation history table.
-\[ ] M3 — Build Merkle result detail view.
+\[x] M3 — Build reconciliation history table.
+\[x] M3 — Build Merkle result detail view.
 \[ ] ALL — Add structured logs and request IDs.
 \[ ] ALL — Decide whether Prometheus/Grafana is worth adding after core observability works.
 \[ ] ALL — Keep rate limiting as stretch until core requirements are green.
@@ -278,10 +280,10 @@ PHASE EXIT GATE: Customer, merchant, and network-console journeys are all usable
 Duration: Week 11   Objective: Produce real measurements for the paper and avoid unsupported claims.
 
 \[ ] ALL — Freeze the code version used for the baseline experiments.
-\[ ] M3 — Benchmark naive vs Merkle reconciliation at 10K transactions.
-\[ ] M3 — Repeat the 10K benchmark multiple times.
-\[ ] M3 — Benchmark naive vs Merkle at 100K transactions.
-\[ ] M3 — Repeat the 100K benchmark multiple times.
+\[x] M3 — Benchmark naive vs Merkle reconciliation at 10K transactions.
+\[x] M3 — Repeat the 10K benchmark multiple times.
+\[x] M3 — Benchmark naive vs Merkle at 100K transactions.
+\[x] M3 — Repeat the 100K benchmark multiple times.
 \[ ] M3 — Attempt 1M only if hardware and time permit.
 \[x] M2 — Benchmark static vs adaptive routing under identical bank failures.
 \[x] M2 — Measure payment success rate.
