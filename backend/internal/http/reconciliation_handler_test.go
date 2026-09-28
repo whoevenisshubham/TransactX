@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -576,13 +577,13 @@ func TestReconciliationM38API(t *testing.T) {
 		handler.ServeHTTP(recRoot, reqRoot)
 		var root map[string]any
 		json.Unmarshal(recRoot.Body.Bytes(), &root)
-		
+
 		dataMap, _ := root["data"].(map[string]any)
 		refMap, _ := dataMap["ref"].(map[string]any)
 		gen, _ := refMap["Generation"].(string)
 		path, _ := refMap["Path"].(string)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/ops/reconciliation/tree/children?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z&generation=" + gen + "&path=" + path, nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/ops/reconciliation/tree/children?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z&generation="+gen+"&path="+path, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -627,11 +628,85 @@ func TestReconciliationM38API(t *testing.T) {
 			t.Fatalf("expected 400 for invalid payload, got %d", rec.Code)
 		}
 	})
+
+	t.Run("VerifyProof_Regressions", func(t *testing.T) {
+		manager, _ := auth.NewJWTManager(strings.Repeat("r", 32), "recon-test", time.Minute)
+		opID := uuid.New()
+		scope := reconciliation.Scope{
+			From: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			To:   time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+		}
+		records := []reconciliation.CanonicalRecord{
+			{
+				OperationID:   opID,
+				EntryType:     "CREDIT",
+				AmountPaise:   10000,
+				Currency:      "USD",
+				OccurredAt:    time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+			},
+		}
+		canonP, _ := reconciliation.NewMemoryParticipant("BANK-A", "BANK-A", time.Hour, records)
+		canonP.Refresh(context.Background(), scope)
+
+		engine := reconciliation.NewEngineWithRepo(reconciliation.KnownParticipants{"BANK-A": true}, newMemReconStore(),
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				if id == "BANK-A" {
+					return canonP, nil
+				}
+				return nil, errors.New("unknown participant")
+			},
+			func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+				return canonP, nil
+			},
+		)
+		h := NewHandlerWithReconciliation(nil, nil, nil, manager, nil, engine)
+		tok := tokenFor(t, manager, "OPS_ADMIN")
+
+		integrityEngine := reconciliation.NewIntegrityEngine()
+		proof, err := integrityEngine.GenerateProofByOperationID(context.Background(), canonP, scope, opID)
+		if err != nil {
+			t.Fatal("failed to generate proof:", err)
+		}
+		validProofJSON, _ := json.Marshal(proof)
+
+		runReq := func(name string, payload []byte, expectStatus int) {
+			t.Run(name, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodPost, "/api/ops/reconciliation/proof/verify", bytes.NewReader(payload))
+				req.Header.Set("Authorization", "Bearer "+tok)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, req)
+
+				if rec.Code != expectStatus {
+					t.Fatalf("expected status %d, got %d: %s", expectStatus, rec.Code, rec.Body.String())
+				}
+			})
+		}
+
+		runReq("ValidProof", validProofJSON, http.StatusOK)
+
+		var tamperedRecord reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &tamperedRecord)
+		tamperedRecord.Record.AmountPaise = 999999
+		tamperedRecordJSON, _ := json.Marshal(tamperedRecord)
+		runReq("TamperedRecord", tamperedRecordJSON, http.StatusConflict)
+
+		var staleGen reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &staleGen)
+		staleGen.Generation = "stale-generation-123"
+		staleGenJSON, _ := json.Marshal(staleGen)
+		runReq("StaleGeneration", staleGenJSON, http.StatusConflict)
+
+		var wrongPart reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &wrongPart)
+		wrongPart.ParticipantID = "BANK-B"
+		wrongPartJSON, _ := json.Marshal(wrongPart)
+		runReq("ParticipantMismatch", wrongPartJSON, http.StatusBadRequest)
+
+		var forgedRoot reconciliation.IntegrityProof
+		json.Unmarshal(validProofJSON, &forgedRoot)
+		forgedRoot.ExpectedRoot = bytes.Repeat([]byte("a"), 32)
+		forgedRootJSON, _ := json.Marshal(forgedRoot)
+		runReq("ForgedRoot", forgedRootJSON, http.StatusConflict)
+	})
 }
-
-
-
-
-
-
-
