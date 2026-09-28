@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -47,6 +48,19 @@ func (handler *Handler) ledgerCorruptionFixture(writer http.ResponseWriter, requ
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "fixture comparison failed", http.StatusInternalServerError))
 		return
 	}
+	reconStore := &corruptionFixtureRuns{}
+	reconEngine := reconciliation.NewEngineWithRepo(reconciliation.KnownParticipants{participantID: true}, reconStore,
+		func(context.Context, string, reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return canonical, nil
+		},
+		func(context.Context, string, reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return participant, nil
+		})
+	reconRun, err := reconEngine.Execute(ctx, reconciliation.RunRequest{ParticipantID: participantID, ScopeFrom: scope.From, ScopeTo: scope.To})
+	if err != nil || reconRun.DiscrepancyCount == 0 {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "fixture reconciliation failed", http.StatusInternalServerError))
+		return
+	}
 	key := fmt.Sprintf("%s:%d:%d", participantID, scope.From.UnixNano(), scope.To.UnixNano())
 	store := reconciliation.NewMemoryFinancialDataStore()
 	store.MaintainedCommitments[key] = reconciliation.MaintainedCommitment{
@@ -71,6 +85,7 @@ func (handler *Handler) ledgerCorruptionFixture(writer http.ResponseWriter, requ
 	writeData(writer, http.StatusOK, request, map[string]any{
 		"mode": "ISOLATED_SIMULATION", "mutation": "amount_paise +1 on one fixed fixture record",
 		"baselineIntegrity": before.Checks[0], "corruptedIntegrity": after.Checks[0],
-		"merkleRootMismatch": true, "scope": scope,
+		"merkleRootMismatch": true, "reconciliationDiscrepancies": reconRun.DiscrepancyCount,
+		"discrepancies": reconStore.discrepancies, "scope": scope,
 	})
 }

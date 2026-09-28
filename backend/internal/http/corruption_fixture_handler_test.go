@@ -41,9 +41,10 @@ func TestLedgerCorruptionFixtureModeAndAuthorization(t *testing.T) {
 			if tc.role == "OPS_ADMIN" {
 				var body struct {
 					Data struct {
-						Mode               string `json:"mode"`
-						MerkleRootMismatch bool   `json:"merkleRootMismatch"`
-						BaselineIntegrity  struct {
+						Mode                        string `json:"mode"`
+						MerkleRootMismatch          bool   `json:"merkleRootMismatch"`
+						ReconciliationDiscrepancies int    `json:"reconciliationDiscrepancies"`
+						BaselineIntegrity           struct {
 							Status string `json:"status"`
 						} `json:"baselineIntegrity"`
 						CorruptedIntegrity struct {
@@ -54,7 +55,7 @@ func TestLedgerCorruptionFixtureModeAndAuthorization(t *testing.T) {
 				if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
 					t.Fatal(err)
 				}
-				if body.Data.Mode != "ISOLATED_SIMULATION" || !body.Data.MerkleRootMismatch || body.Data.BaselineIntegrity.Status != "PASS" || body.Data.CorruptedIntegrity.Status != "FAIL" {
+				if body.Data.Mode != "ISOLATED_SIMULATION" || !body.Data.MerkleRootMismatch || body.Data.ReconciliationDiscrepancies == 0 || body.Data.BaselineIntegrity.Status != "PASS" || body.Data.CorruptedIntegrity.Status != "FAIL" {
 					t.Fatalf("corruption not detected by both checks: %+v", body.Data)
 				}
 			}

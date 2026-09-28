@@ -49,4 +49,16 @@ func TestIntegrityEndpointsAuthorizationAndHistory(t *testing.T) {
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"total":1`) {
 		t.Fatalf("history missing: %d %s", res.Code, res.Body.String())
 	}
+	for _, payload := range []string{
+		`{"checkCodes":["UNKNOWN_CHECK"]}`,
+		`{"scope":{"from":"2026-09-02T00:00:00Z","to":"2026-09-01T00:00:00Z"}}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/ops/integrity/check", strings.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+tokenFor(t, manager, "OPS_ADMIN"))
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("invalid payload accepted: %s: %d", payload, res.Code)
+		}
+	}
 }

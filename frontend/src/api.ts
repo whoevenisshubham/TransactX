@@ -104,7 +104,7 @@ export const api = {
   opsChaosStart: (req: { scenarioId: string; type: string; targetId: string; parameters: Record<string, unknown> }, token: string) => apiRequest<ChaosScenario>("/api/ops/chaos/start", { method: "POST", body: JSON.stringify(req) }, token),
   opsChaosStop: (scenarioId: string, token: string) => apiRequest<ChaosScenario>(`/api/ops/chaos/scenarios/${encodeURIComponent(scenarioId)}/stop`, { method: "POST" }, token),
   opsChaosReset: (targetId: string | undefined, token: string) => apiRequest<{ status: string; targetId?: string }>("/api/ops/chaos/reset", { method: "POST", body: JSON.stringify({ targetId: targetId || "" }) }, token),
-  opsCorruptionFixture: (token: string) => apiRequest<{ mode: string; merkleRootMismatch: boolean; baselineIntegrity: { status: string }; corruptedIntegrity: { status: string } }>("/api/ops/chaos/ledger-corruption-fixture", { method: "POST" }, token),
+  opsCorruptionFixture: (token: string) => apiRequest<{ mode: string; merkleRootMismatch: boolean; reconciliationDiscrepancies: number; baselineIntegrity: { status: string }; corruptedIntegrity: { status: string } }>("/api/ops/chaos/ledger-corruption-fixture", { method: "POST" }, token),
   opsGlobalHealth: () => apiRequest<{ status: string; service: string }>("/health", {}),
   opsDbHealth: () => apiRequest<{ status: string }>("/health/db", {}),
 

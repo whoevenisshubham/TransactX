@@ -1516,7 +1516,7 @@ function ConsoleChaosView({ token }: { token: string }) {
     setError(""); setFeedback("");
     try {
       const result = await api.opsCorruptionFixture(token);
-      setFeedback(`Isolated simulation: baseline ${result.baselineIntegrity.status}; after fixed ledger mutation ${result.corruptedIntegrity.status}; Merkle root mismatch ${result.merkleRootMismatch}.`);
+      setFeedback(`Isolated simulation: baseline ${result.baselineIntegrity.status}; after fixed ledger mutation ${result.corruptedIntegrity.status}; Merkle root mismatch ${result.merkleRootMismatch}; reconciliation discrepancies ${result.reconciliationDiscrepancies}.`);
     } catch (err) { setError(err instanceof Error ? err.message : "Corruption fixture unavailable. Enable TX_SIMULATION_MODE=true on the API."); }
   }
 
