@@ -557,12 +557,16 @@ func (cb *CircuitBreaker) GetEventsForTarget(ctx context.Context, targetID strin
 		lim = limit[0]
 	}
 	if cb.repository != nil {
-		return cb.repository.ListRecent(ctx, targetID, lim)
+		events, err := cb.repository.ListRecent(ctx, targetID, lim)
+		if events == nil {
+			events = []TransitionEvent{}
+		}
+		return events, err
 	}
 
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
-	var res []TransitionEvent
+	res := []TransitionEvent{}
 	for i := len(cb.events) - 1; i >= 0; i-- {
 		if cb.events[i].ExecutionTargetID == targetID {
 			res = append(res, cb.events[i])

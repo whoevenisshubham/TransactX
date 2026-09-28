@@ -186,6 +186,25 @@ func TestCircuitEventsRepositoryBackedAndErrorPropagation(t *testing.T) {
 		}
 	})
 
+	t.Run("RepositoryEmptyReturnsEmptyListNotNil", func(t *testing.T) {
+		repo.events = nil // Set repo to return nil
+		repo.err = nil
+		req := httptest.NewRequest(http.MethodGet, "/api/ops/circuit/RAIL-A/events", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d", rec.Code)
+		}
+
+		// Decode as raw string to verify exact JSON structure contains [] not null
+		bodyStr := rec.Body.String()
+		if !strings.Contains(bodyStr, `"data":[]`) {
+			t.Fatalf("expected empty array [] for zero events, got: %s", bodyStr)
+		}
+	})
+
 	t.Run("RepositoryErrorPropagatedAs500", func(t *testing.T) {
 		repo.err = errors.New("database connection failed")
 		req := httptest.NewRequest(http.MethodGet, "/api/ops/circuit/RAIL-A/events", nil)

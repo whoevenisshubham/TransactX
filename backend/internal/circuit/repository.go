@@ -65,7 +65,7 @@ func (r *PostgresRepository) ListRecent(ctx context.Context, targetID string, li
 	}
 	defer rows.Close()
 
-	var events []TransitionEvent
+	events := []TransitionEvent{}
 	for rows.Next() {
 		var e TransitionEvent
 		var prevState, newState, eventType string

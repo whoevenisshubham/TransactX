@@ -2,13 +2,13 @@ package reconciliation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/transactx/backend/internal/bank"
 )
 
@@ -76,7 +76,9 @@ func (participant *MemoryParticipant) Refresh(ctx context.Context, scope Scope) 
 	if err != nil {
 		return err
 	}
-	participant.installSnapshot(scope, state, participant.capturedAt)
+	if _, err := participant.installSnapshot(scope, state, participant.capturedAt); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -170,7 +172,10 @@ func (participant *MemoryParticipant) state(ctx context.Context, scope Scope) (I
 	if err != nil {
 		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
-	generation = participant.installSnapshot(scope, state, participant.capturedAt)
+	generation, err = participant.installSnapshot(scope, state, participant.capturedAt)
+	if err != nil {
+		return IncrementalCommitmentState{}, "", Scope{}, err
+	}
 	return state, generation, scope, nil
 }
 
@@ -200,7 +205,7 @@ func (participant *MemoryParticipant) buildState(ctx context.Context, scope Scop
 	return state, nil
 }
 
-func (participant *MemoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) string {
+func (participant *MemoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) (string, error) {
 	key := ScopeIdentity(scope)
 	participant.mu.Lock()
 	defer participant.mu.Unlock()
@@ -209,12 +214,11 @@ func (participant *MemoryParticipant) installSnapshot(scope Scope, state Increme
 	}
 	generation := state.Generation
 	if generation == "" {
-		generation = uuid.New().String()
-		state.Generation = generation
+		return "", errors.New("invalid commitment state: generation cannot be empty")
 	}
 	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
 	participant.current[key] = generation
-	return generation
+	return generation, nil
 }
 
 func (participant *MemoryParticipant) referenceState(generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {
@@ -303,7 +307,9 @@ func (participant *RepositoryParticipant) Initialize(ctx context.Context, scope 
 	if err := participant.commitments.SaveState(ctx, state); err != nil {
 		return err
 	}
-	participant.installSnapshot(normalized, state, capturedAt)
+	if _, err := participant.installSnapshot(normalized, state, capturedAt); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -407,7 +413,10 @@ func (participant *RepositoryParticipant) state(ctx context.Context, scope Scope
 	if !found {
 		return IncrementalCommitmentState{}, "", Scope{}, fmt.Errorf("%w: call Initialize or Refresh for scope %s", ErrCommitmentUnavailable, ScopeIdentity(scope))
 	}
-	generation = participant.installSnapshot(scope, state, state.CapturedAt)
+	generation, err = participant.installSnapshot(scope, state, state.CapturedAt)
+	if err != nil {
+		return IncrementalCommitmentState{}, "", Scope{}, err
+	}
 	return state, generation, scope, nil
 }
 
@@ -444,7 +453,7 @@ func (participant *RepositoryParticipant) materialize(ctx context.Context, scope
 	return state, state.CapturedAt, scope, nil
 }
 
-func (participant *RepositoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) string {
+func (participant *RepositoryParticipant) installSnapshot(scope Scope, state IncrementalCommitmentState, capturedAt time.Time) (string, error) {
 	key := ScopeIdentity(scope)
 	participant.mu.Lock()
 	defer participant.mu.Unlock()
@@ -453,12 +462,11 @@ func (participant *RepositoryParticipant) installSnapshot(scope Scope, state Inc
 	}
 	generation := state.Generation
 	if generation == "" {
-		generation = uuid.New().String()
-		state.Generation = generation
+		return "", errors.New("invalid commitment state: generation cannot be empty")
 	}
 	participant.snapshots[generation] = participantSnapshot{state: cloneIncrementalState(state), capturedAt: capturedAt.UTC()}
 	participant.current[key] = generation
-	return generation
+	return generation, nil
 }
 
 func (participant *RepositoryParticipant) referenceState(generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {

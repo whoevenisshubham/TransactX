@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/bankservice"
 )
 
@@ -49,7 +50,7 @@ func TestRepositoryParticipantUsesPersistedParticipantLedger(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM bank_a.operations WHERE operation_id = $1`, operationID)
 		_, _ = pool.Exec(ctx, `DELETE FROM bank_a.accounts WHERE id = $1`, accountID)
 	}()
-	_, err = pool.Exec(ctx, `INSERT INTO bank_a.operations (id, payment_id, operation_id, idempotency_key, operation_type, account_id, amount_paise, currency, status) VALUES ($1, $2, $3, $4, 'HOLD', $5, 275, 'INR', 'ACTIVE')`, operationRowID, paymentID, operationID, "m3-4-"+operationID.String(), accountID)
+	_, err = pool.Exec(ctx, `INSERT INTO bank_a.operations (id, bank_id, payment_id, operation_id, idempotency_key, operation_type, account_id, amount_paise, currency, status) VALUES ($1, 'BANK-A', $2, $3, $4, 'HOLD', $5, 275, 'INR', 'ACTIVE')`, operationRowID, paymentID, operationID, "m3-4-"+operationID.String(), accountID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +81,7 @@ func TestRepositoryParticipantUsesPersistedParticipantLedger(t *testing.T) {
 	}
 	entry := participantFixtureRecord(0, occurredAt)
 	entry.OperationID, entry.PaymentID, entry.AccountID = operationID, paymentID, accountID
+	entry.AmountPaise = 275
 	memory, err := NewMemoryParticipant("fixture", "ledger", time.Hour, []CanonicalRecord{entry})
 	if err != nil {
 		t.Fatal(err)
@@ -90,5 +92,109 @@ func TestRepositoryParticipantUsesPersistedParticipantLedger(t *testing.T) {
 	}
 	if string(root.Root) != string(expected.Root) {
 		t.Fatalf("repository root differs from equivalent logical fixture: %x vs %x", root.Root, expected.Root)
+	}
+}
+
+func TestRepositoryParticipantRestartRestoration(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Prepare records and initial participant
+	records := participantRecords()
+	entries := make([]bank.LedgerEntry, 0, len(records))
+	for _, record := range records {
+		entries = append(entries, bank.LedgerEntry{OperationID: record.OperationID, PaymentID: record.PaymentID, AccountID: record.AccountID, EntryType: record.EntryType, AmountPaise: record.AmountPaise, Currency: record.Currency, OccurredAt: record.OccurredAt})
+	}
+	snapshot := bank.LedgerSnapshot{BankID: "BANK-RESTART", CapturedAt: time.Date(2026, 1, 2, 2, 0, 0, 0, time.UTC), Entries: entries}
+	sourceCalls := 0
+	source := &fakeSnapshotSource{snapshot: snapshot, calls: &sourceCalls}
+
+	// Create Postgres-backed commitment store
+	store := NewPostgresIncrementalCommitmentStore(pool)
+
+	// Ensure clean state (delete old states if they exist for this test)
+	// We'll use a unique scope to avoid collisions
+	scope := Scope{From: time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC), To: time.Date(2026, 9, 10, 1, 0, 0, 0, time.UTC)}
+
+	// Run 1: Initialize
+	participant1, err := NewRepositoryParticipantWithCommitmentStore(source, "BANK-RESTART", "ledger", time.Hour, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := participant1.Initialize(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+
+	root1, err := participant1.GetRoot(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generationG1 := root1.Ref.Generation
+	if generationG1 == "" {
+		t.Fatal("Generation G1 is empty")
+	}
+
+	// Ensure it persisted to PG via store.SaveState inside Initialize.
+	// Now, create a fresh participant (simulating a restart)
+	sourceCalls = 0 // Reset calls
+
+	// Run 2: Restart using a fresh commitment store instance
+	store2 := NewPostgresIncrementalCommitmentStore(pool)
+	participant2, err := NewRepositoryParticipantWithCommitmentStore(source, "BANK-RESTART", "ledger", time.Hour, store2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// GetRoot should load from PostgreSQL without calling source
+	root2, err := participant2.GetRoot(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata2, err := participant2.GetMetadata(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert equality between participant1's persisted state and participant2's restored state
+	if root2.Ref.Generation != generationG1 {
+		t.Fatalf("Generation mismatch on restart: got %q, want %q", root2.Ref.Generation, generationG1)
+	}
+	if string(root2.Root) != string(root1.Root) {
+		t.Fatal("Root hash mismatch on restart")
+	}
+	if root2.Ref.ScopeID != root1.Ref.ScopeID {
+		t.Fatalf("Scope mismatch on restart: got %q, want %q", root2.Ref.ScopeID, root1.Ref.ScopeID)
+	}
+	if root2.Version != root1.Version {
+		t.Fatalf("CanonicalVersion mismatch on restart: got %q, want %q", root2.Version, root1.Version)
+	}
+	if root2.Algorithm != root1.Algorithm {
+		t.Fatalf("AlgorithmVersion mismatch on restart: got %q, want %q", root2.Algorithm, root1.Algorithm)
+	}
+	if participant2.BucketWidth() != participant1.BucketWidth() {
+		t.Fatalf("BucketWidth mismatch on restart: got %s, want %s", participant2.BucketWidth(), participant1.BucketWidth())
+	}
+
+	metadata1, err := participant1.GetMetadata(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata2.RecordCount != metadata1.RecordCount {
+		t.Fatalf("RecordCount mismatch on restart: got %d, want %d", metadata2.RecordCount, metadata1.RecordCount)
+	}
+
+	if sourceCalls != 0 {
+		t.Fatalf("Expected 0 ledger rebuilds on restart, got %d", sourceCalls)
 	}
 }

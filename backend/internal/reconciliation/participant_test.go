@@ -460,3 +460,50 @@ func TestParticipantBoundaryRejectsForeignParticipantRef(t *testing.T) {
 		t.Fatalf("RepositoryParticipant.GetBucketID expected ErrParticipantMismatch, got: %v", err)
 	}
 }
+
+func TestInstallSnapshotRejectsEmptyGeneration(t *testing.T) {
+	// Setup base state
+	state := IncrementalCommitmentState{
+		Generation: "", // The crucial empty generation
+		CapturedAt: time.Now(),
+	}
+	scope := participantScope()
+
+	t.Run("MemoryParticipant", func(t *testing.T) {
+		memP, err := NewMemoryParticipant("BANK-A", "ledger", time.Hour, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Access the private method for testing the boundary
+		gen, err := memP.installSnapshot(scope, state, time.Now())
+		if err == nil {
+			t.Fatal("expected error when installing snapshot with empty generation, got nil")
+		}
+		if gen != "" {
+			t.Fatalf("expected empty generation return, got: %s", gen)
+		}
+		if err.Error() != "invalid commitment state: generation cannot be empty" {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("RepositoryParticipant", func(t *testing.T) {
+		repoP, err := NewRepositoryParticipant(fakeSnapshotSource{}, "BANK-B", "ledger", time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Access the private method for testing the boundary
+		gen, err := repoP.installSnapshot(scope, state, time.Now())
+		if err == nil {
+			t.Fatal("expected error when installing snapshot with empty generation, got nil")
+		}
+		if gen != "" {
+			t.Fatalf("expected empty generation return, got: %s", gen)
+		}
+		if err.Error() != "invalid commitment state: generation cannot be empty" {
+			t.Fatalf("unexpected error message: %v", err)
+		}
+	})
+}
