@@ -99,7 +99,7 @@ func (m *memoryRunRepository) CreateRun(_ context.Context, participantID string,
 	return run, nil
 }
 
-func (m *memoryRunRepository) CompleteRun(_ context.Context, runID uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64) (reconciliation.Run, error) {
+func (m *memoryRunRepository) CompleteRun(_ context.Context, runID uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64, metrics reconciliation.RunMetrics) (reconciliation.Run, error) {
 	run, ok := m.runs[runID]
 	if !ok {
 		return reconciliation.Run{}, reconciliation.ErrRunNotFound
@@ -111,6 +111,12 @@ func (m *memoryRunRepository) CompleteRun(_ context.Context, runID uuid.UUID, ca
 	run.AlgorithmVersion = algoVer
 	run.RecordCount = recordCount
 	run.DiscrepancyCount = discrepancyCount
+	run.ElapsedNs = metrics.ElapsedNs
+	run.NodesVisited = metrics.NodesVisited
+	run.RecordsInspected = metrics.RecordsInspected
+	run.BytesExamined = metrics.BytesExamined
+	run.DivergentBuckets = metrics.DivergentBuckets
+	run.DivergentRecords = metrics.DivergentRecords
 	now := time.Now().UTC()
 	run.CompletedAt = &now
 	m.runs[runID] = run
@@ -205,6 +211,19 @@ func makeTestParticipant(t *testing.T, participantID string, records []reconcili
 	return p
 }
 
+func canonicalBytesSize(t *testing.T, records ...reconciliation.CanonicalRecord) int64 {
+	t.Helper()
+	var total int64
+	for _, record := range records {
+		encoded, err := reconciliation.CanonicalBytes(record)
+		if err != nil {
+			t.Fatalf("encode canonical record: %v", err)
+		}
+		total += int64(len(encoded))
+	}
+	return total
+}
+
 func newTestEngine(
 	t *testing.T,
 	participants []string,
@@ -293,6 +312,7 @@ func TestTwoSidedIdenticalRoots(t *testing.T) {
 		t,
 		[]string{pid},
 		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			time.Sleep(2 * time.Millisecond)
 			return makeTestParticipant(t, id, canonRecords), nil
 		},
 		func(ctx context.Context, id string, s reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
@@ -320,6 +340,64 @@ func TestTwoSidedIdenticalRoots(t *testing.T) {
 	}
 	if !bytes.Equal(run.CanonicalRoot, run.ParticipantRoot) {
 		t.Fatal("expected identical canonical and participant roots for identical data")
+	}
+	if run.ElapsedNs <= 0 {
+		t.Fatalf("elapsedNs = %d, want measured positive duration", run.ElapsedNs)
+	}
+	if run.NodesVisited != 2 {
+		t.Fatalf("nodesVisited = %d, want 2 root commitments", run.NodesVisited)
+	}
+	if run.RecordsInspected != 0 || run.DivergentBuckets != 0 || run.DivergentRecords != 0 {
+		t.Fatalf("equal-root work = records:%d buckets:%d divergentRecords:%d, want all zero", run.RecordsInspected, run.DivergentBuckets, run.DivergentRecords)
+	}
+	wantRootBytes := int64(len(run.CanonicalRoot) + len(run.ParticipantRoot))
+	if run.BytesExamined != wantRootBytes {
+		t.Fatalf("bytesExamined = %d, want exact root bytes %d", run.BytesExamined, wantRootBytes)
+	}
+}
+
+func TestReconciliationMetricsSingleBucketExact(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	const pid = "BANK-A"
+	canonical := makeSampleRecords(base)[:1]
+	participant := append([]reconciliation.CanonicalRecord(nil), canonical...)
+	participant[0].AmountPaise++
+	participant[0].Currency = "USD"
+
+	engine, _ := newTestEngine(
+		t,
+		[]string{pid},
+		func(context.Context, string, reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, pid, canonical), nil
+		},
+		func(context.Context, string, reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return makeTestParticipant(t, pid, participant), nil
+		},
+	)
+	run, err := engine.Execute(context.Background(), reconciliation.RunRequest{
+		ParticipantID: pid,
+		ScopeFrom:     base,
+		ScopeTo:       base.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if run.NodesVisited != 2 {
+		t.Fatalf("nodesVisited = %d, want 2 leaf roots", run.NodesVisited)
+	}
+	if run.RecordsInspected != 2 {
+		t.Fatalf("recordsInspected = %d, want 2", run.RecordsInspected)
+	}
+	if run.DivergentBuckets != 1 || run.DivergentRecords != 1 {
+		t.Fatalf("divergence = buckets:%d records:%d, want 1 and 1", run.DivergentBuckets, run.DivergentRecords)
+	}
+	wantBytes := int64(len(run.CanonicalRoot)+len(run.ParticipantRoot)) + canonicalBytesSize(t, canonical[0], participant[0])
+	if run.BytesExamined != wantBytes {
+		t.Fatalf("bytesExamined = %d, want exact hashes plus canonical records %d", run.BytesExamined, wantBytes)
+	}
+	if run.DiscrepancyCount != 2 {
+		t.Fatalf("discrepancyCount = %d, want two changed fields", run.DiscrepancyCount)
 	}
 }
 
@@ -430,6 +508,12 @@ func TestTwoSidedMultipleBucketMismatches(t *testing.T) {
 	}
 	if !bucketStarts[wantStart2] {
 		t.Errorf("missing discrepancy for Bucket 2 start %v", wantStart2)
+	}
+	if run.RecordsInspected != 4 || run.DivergentBuckets != 2 || run.DivergentRecords != 2 {
+		t.Fatalf("metrics = records:%d buckets:%d divergentRecords:%d, want 4, 2, 2", run.RecordsInspected, run.DivergentBuckets, run.DivergentRecords)
+	}
+	if run.NodesVisited <= 2 || run.BytesExamined <= int64(len(run.CanonicalRoot)+len(run.ParticipantRoot)) {
+		t.Fatalf("traversal metrics did not include divergent tree work: nodes=%d bytes=%d", run.NodesVisited, run.BytesExamined)
 	}
 }
 
@@ -957,8 +1041,8 @@ func TestTreeHeightMismatchStillUsesBucketIDs(t *testing.T) {
 	t.Run("Canonical4BucketsVsParticipant2Buckets", func(t *testing.T) {
 		scope := reconciliation.Scope{From: base, To: base.Add(4 * time.Hour)}
 		allRecords := makeSampleRecords(base) // 4 records across 4 buckets
-		canonRecords := allRecords             // buckets 0, 1, 2, 3
-		partRecords := allRecords[:2]          // buckets 0, 1 only (identical to canon)
+		canonRecords := allRecords            // buckets 0, 1, 2, 3
+		partRecords := allRecords[:2]         // buckets 0, 1 only (identical to canon)
 
 		var canonCounting, partCounting *countingParticipant
 		engine, repo := newTestEngine(
@@ -1020,6 +1104,12 @@ func TestTreeHeightMismatchStillUsesBucketIDs(t *testing.T) {
 		}
 		if canonCounting.getBucketIDCalls == 0 || partCounting.getBucketIDCalls == 0 {
 			t.Errorf("expected GetBucketID calls during 4-vs-2 height mismatch reconciliation")
+		}
+		if run.RecordsInspected != 2 || run.DivergentBuckets != 2 || run.DivergentRecords != 2 {
+			t.Fatalf("unequal-tree metrics = records:%d buckets:%d divergentRecords:%d, want 2, 2, 2", run.RecordsInspected, run.DivergentBuckets, run.DivergentRecords)
+		}
+		if run.NodesVisited <= 2 || run.BytesExamined <= int64(len(run.CanonicalRoot)+len(run.ParticipantRoot)) {
+			t.Fatalf("unequal-tree work missing: nodes=%d bytes=%d", run.NodesVisited, run.BytesExamined)
 		}
 	})
 
@@ -1217,7 +1307,6 @@ func TestOneSidedSubtreeStillUsesBucketIDs(t *testing.T) {
 		}
 	})
 }
-
 
 // Participant source isolation: cannot cross participant boundaries
 func TestParticipantSourceIsolation(t *testing.T) {

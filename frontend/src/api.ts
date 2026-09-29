@@ -116,6 +116,7 @@ export const api = {
   opsIntegrityCheck: (input: Record<string, unknown>, token: string) => apiRequest<any>("/api/ops/integrity/check", { method: "POST", body: JSON.stringify(input) }, token),
   opsIntegrityRun: (runId: string, token: string) => apiRequest<any>(`/api/ops/integrity/runs/${encodeURIComponent(runId)}`, {}, token),
   opsRoutingDistribution: (token: string) => apiRequest<{ windowHours: number; items: { targetId: string; payments: number }[] }>("/api/ops/routing/distribution", {}, token),
+  opsActivity: (token: string, limit = 50, offset = 0) => apiRequest<{ items: import("./types").ActivityEvent[]; limit: number; nextOffset?: number }>(`/api/ops/activity?limit=${limit}&offset=${offset}`, {}, token),
   opsReconciliationTreeRoot: (participantId: string, scopeFrom: string, scopeTo: string, token: string) =>
     apiRequest<import("./types").MerkleTreeRoot>(`/api/ops/reconciliation/tree/root?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}`, {}, token),
   opsReconciliationTreeChildren: (participantId: string, scopeFrom: string, scopeTo: string, generation: string, path: string, token: string) =>

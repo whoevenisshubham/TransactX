@@ -113,6 +113,18 @@ export type CircuitTransitionEvent = {
   eventType: string;
 };
 
+export type ActivityEvent = {
+  id: string;
+  category: "CIRCUIT" | "CHAOS" | "RECONCILIATION" | "INTEGRITY" | "ROUTING";
+  eventType: string;
+  severity: "INFO" | "WARNING" | "ERROR";
+  occurredAt: string;
+  targetId?: string;
+  title: string;
+  summary: string;
+  details: Record<string, unknown>;
+};
+
 export type ChaosScenario = {
   id: string;
   scenarioId: string;

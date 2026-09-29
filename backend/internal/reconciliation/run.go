@@ -54,9 +54,27 @@ type Run struct {
 	AlgorithmVersion string     `json:"algorithmVersion,omitempty"`
 	RecordCount      int64      `json:"recordCount"`
 	DiscrepancyCount int64      `json:"discrepancyCount"`
+	ElapsedNs        int64      `json:"elapsedNs"`
+	NodesVisited     int64      `json:"nodesVisited"`
+	RecordsInspected int64      `json:"recordsInspected"`
+	BytesExamined    int64      `json:"bytesExamined"`
+	DivergentBuckets int64      `json:"divergentBuckets"`
+	DivergentRecords int64      `json:"divergentRecords"`
 	ErrorMessage     string     `json:"errorMessage,omitempty"`
 	StartedAt        time.Time  `json:"startedAt"`
 	CompletedAt      *time.Time `json:"completedAt,omitempty"`
+}
+
+// RunMetrics contains the work measured by the production reconciliation
+// engine. BytesExamined counts the exact commitment-hash bytes and canonical
+// record bytes inspected in process; it is not a network-transfer estimate.
+type RunMetrics struct {
+	ElapsedNs        int64
+	NodesVisited     int64
+	RecordsInspected int64
+	BytesExamined    int64
+	DivergentBuckets int64
+	DivergentRecords int64
 }
 
 // Discrepancy is durable evidence of one mismatching region within a
@@ -80,17 +98,17 @@ type Discrepancy struct {
 
 // RunListPage carries a bounded page of reconciliation runs.
 type RunListPage struct {
-	Items []Run  `json:"items"`
-	Total int    `json:"total"`
-	Limit int    `json:"limit"`
+	Items []Run `json:"items"`
+	Total int   `json:"total"`
+	Limit int   `json:"limit"`
 	// NextOffset is set when there are more items beyond this page.
 	NextOffset *int `json:"nextOffset,omitempty"`
 }
 
 // DiscrepancyListPage carries a bounded page of discrepancy evidence.
 type DiscrepancyListPage struct {
-	Items []Discrepancy `json:"items"`
-	Total int           `json:"total"`
-	Limit int           `json:"limit"`
-	NextOffset *int     `json:"nextOffset,omitempty"`
+	Items      []Discrepancy `json:"items"`
+	Total      int           `json:"total"`
+	Limit      int           `json:"limit"`
+	NextOffset *int          `json:"nextOffset,omitempty"`
 }

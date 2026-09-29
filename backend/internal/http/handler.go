@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -24,20 +25,24 @@ import (
 )
 
 type Handler struct {
-	db              *pgxpool.Pool
-	logger          *slog.Logger
-	auth            *auth.Service
-	users           *users.Repository
-	accountsRepo    *accounts.Repository
-	recipients      *recipients.Repository
-	payments        *payments.Service
-	healthService   *health.Service
-	healthTargets   map[string]health.HealthChecker
-	circuitBreaker  *circuit.CircuitBreaker
-	chaosController *chaos.Controller
-	reconEngine     *reconciliation.Engine
-	integrityEngine *reconciliation.RuntimeIntegrityEngine
-	integrityRuns   reconciliation.IntegrityRunStore
+	db                      *pgxpool.Pool
+	logger                  *slog.Logger
+	auth                    *auth.Service
+	users                   *users.Repository
+	accountsRepo            *accounts.Repository
+	recipients              *recipients.Repository
+	payments                *payments.Service
+	healthService           *health.Service
+	healthTargets           map[string]health.HealthChecker
+	circuitBreaker          *circuit.CircuitBreaker
+	chaosController         *chaos.Controller
+	reconEngine             *reconciliation.Engine
+	integrityEngine         *reconciliation.RuntimeIntegrityEngine
+	integrityRuns           reconciliation.IntegrityRunStore
+	activity                activityStore
+	eventCursor             operationalCursorStore
+	streamPollInterval      time.Duration
+	streamHeartbeatInterval time.Duration
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -133,6 +138,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	if db != nil {
 		handler.integrityRuns = reconciliation.NewPostgresIntegrityRunStore(db)
 		handler.integrityEngine = reconciliation.NewRuntimeIntegrityEngine(reconciliation.NewProductionPostgresFinancialDataStore(db), handler.integrityRuns)
+		handler.activity = newPostgresActivityStore(db)
+		handler.eventCursor = newPostgresOperationalCursorStore(db)
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -178,6 +185,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("GET /api/ops/integrity/status", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityStatus))))
 	mux.Handle("GET /api/ops/integrity/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityRun))))
 	mux.Handle("GET /api/ops/routing/distribution", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.routingDistribution))))
+	mux.Handle("GET /api/ops/activity", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.activityFeed))))
+	mux.Handle("GET /api/ops/events/stream", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.operationalEvents))))
 	// Reconciliation endpoints are always registered; the handler returns
 	// NOT_FOUND gracefully when no engine is configured.
 	mux.Handle("POST /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationCreateRun))))

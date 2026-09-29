@@ -237,6 +237,57 @@ Subject adaptive routing and payment execution to a concurrent workload across 1
 
 ---
 
+## Experiment 6 — Live PostgreSQL Payment Storm and Runtime Integrity
+
+### Objective
+
+Exercise the production `payments.Service.CreateWithResult` path against PostgreSQL under same-key contention and unique-key hot-account contention, then run the production `RuntimeIntegrityEngine` over the resulting durable state. This extends Experiment 5 with central accounts, payments, idempotency records, double-entry ledger rows, and persisted integrity results.
+
+### Recorded workload
+
+- **Database**: disposable migrated PostgreSQL 18.4 database `transactx_m3_evidence`.
+- **Same-key wave**: 20 simultaneous requests for one 100-paise payment.
+- **Hot-account wave**: 75 unique-key requests at concurrency 25, each for 7 paise.
+- **Opening sender balance**: 450 paise.
+- **Code checkpoint**: `2609a2d123211632a215109678ed7bb3acc0fee2` with the evidence harness and M3 closeout changes disclosed as uncommitted in the raw artifact.
+- **Generated at**: `2026-09-28T20:43:25.9120419Z`.
+
+### Observed results
+
+| Metric | Observed |
+| :--- | ---: |
+| Total calls | 95 |
+| Successful responses | 70 |
+| Expected insufficient-funds responses | 25 |
+| Pending responses | 0 |
+| Unexpected errors | 0 |
+| Completed logical payments | 51 |
+| Idempotency records | 51 |
+| Same-key duplicate replay responses | 19 |
+| Distinct payment for the same key | 1 |
+| Minimum account balance | 0 paise |
+| Ledger debits | 450 paise |
+| Ledger credits | 450 paise |
+| Runtime integrity violations | 0 |
+
+The post-storm checks `COMPLETED_PAYMENT_LEDGER_COMPLETENESS`, `DEBIT_CREDIT_CONSERVATION`, `IDEMPOTENCY_MAPPING`, `NON_NEGATIVE_BALANCES`, `PAYMENT_STATE_VALIDITY`, and `TRANSACTION_UNIQUENESS` all returned `PASS` with zero violations. `MERKLE_COMMITMENT_CONSISTENCY` returned `NOT_APPLICABLE` because this central-ledger-only workload did not request a participant commitment. The recorded aggregate `allInvariantsSatisfied` value is `true`.
+
+### Raw artifact and reproduction
+
+- JSON: `artifacts/experiments/concurrency/concurrency-live-20260929-raw.json`
+- Harness: `backend/internal/experiments/live_concurrency_evidence_test.go`
+
+```powershell
+cd backend
+$env:DATABASE_URL = "postgres://postgres@127.0.0.1:55432/transactx_m3_evidence?sslmode=disable"
+$env:M3_CONCURRENCY_EVIDENCE_PATH = "<new-versioned-output-path>"
+go test -v -count=1 -run '^TestPostgresConcurrencyStormEvidence$' ./internal/experiments
+```
+
+The harness requires the exact disposable database name and creates the output with exclusive-create semantics, so it refuses to run against another database or overwrite existing evidence.
+
+---
+
 ## How to Reproduce
 
 ### 1. Backend Experiments (Experiments 1, 2, 3, 5)

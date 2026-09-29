@@ -13,7 +13,7 @@ Implemented through the current routed-payment milestone:
 - Customer payment frontend and API contract: exact decimal-to-paise input, stable idempotency attempts, safe account/payment DTOs, notes, incoming/outgoing history, explicit pending status checks, and transaction details.
 - Unit, PostgreSQL-backed integration, and race-detector coverage for the critical payment and bank paths.
 
-Adaptive routing, circuit breakers, chaos orchestration, and offline queue UX are implemented. Reconciliation orchestration and the reconciliation API (M3-5) are implemented. Later M3 work (M3-6 and beyond) remains future work. Canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are in production use by the reconciliation engine.
+Adaptive routing, circuit breakers, chaos orchestration, and offline queue UX are implemented. M3 reconciliation, proofs, runtime integrity, durable execution metrics, the operational activity feed, and resilient live console invalidation are implemented. Canonical commitment, Merkle bucket, incremental-maintenance, and participant read-boundary foundations are in production use by the reconciliation engine.
 
 ## Local development
 
@@ -35,10 +35,16 @@ psql $env:DATABASE_URL -f backend/migrations/000006_m1_6_bank_operation_identity
 psql $env:DATABASE_URL -f backend/migrations/000007_phase4_bank_b.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000008_m1_customer_payment_contract.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000009_m2_health_samples.up.sql
-psql $env:DATABASE_URL -f backend/migrations/000010_m2_circuit_state.up.sql
-psql $env:DATABASE_URL -f backend/migrations/000011_m2_circuit_snapshots.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000010_m2_route_decisions.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000011_m2_circuit_transitions.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000012_m2_chaos_scenarios.up.sql
 psql $env:DATABASE_URL -f backend/migrations/000013_m3_5_recon_runs.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000014_m3_7_integrity_runs.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000015_m3_7_integrity_violations.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000016_m3_7_payment_state_transitions.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000017_m3_7_merkle_commitments.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000018_m3_reconciliation_metrics.up.sql
+psql $env:DATABASE_URL -f backend/migrations/000019_m3_reconciliation_discrepancy_categories.up.sql
 ```
 
 Start Bank A, Bank B, and the API in separate terminals. Both participants may use the same PostgreSQL server because they use separate `bank_a` and `bank_b` schemas.
@@ -127,7 +133,9 @@ A `COMPLETED` run with discrepancies is not a failure. Discrepancies are evidenc
 
 **Pagination:** All list endpoints accept `limit` (default 20, max 100 for runs; default 50, max 200 for discrepancies) and `offset` query parameters. The response includes `total` and `nextOffset` (when present).
 
-**Migration:** Apply `backend/migrations/000013_m3_5_recon_runs.up.sql` before starting the server. This creates the `recon_runs` and `recon_discrepancies` tables.
+**Migrations:** Apply `backend/migrations/000013_m3_5_recon_runs.up.sql`, `000018_m3_reconciliation_metrics.up.sql`, and `000019_m3_reconciliation_discrepancy_categories.up.sql` in sequence. They create the run/evidence tables, add durable execution metrics, and allow the record-level discrepancy categories emitted by the engine.
+
+Completed runs expose `elapsedNs`, `nodesVisited`, `recordsInspected`, `bytesExamined`, `divergentBuckets`, and `divergentRecords`. `bytesExamined` is the exact number of Merkle hash bytes and canonical serialized record bytes inspected in process. It does not claim physical network traffic. Equal-root runs count the two returned root commitments, their hash bytes, and zero record scans.
 
 ## Reconciliation participant boundary
 

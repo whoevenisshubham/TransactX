@@ -25,7 +25,7 @@ type ParticipantFactory func(ctx context.Context, participantID string, scope Sc
 // tests inject an in-memory store.
 type RunStore interface {
 	CreateRun(ctx context.Context, participantID string, scope Scope) (Run, error)
-	CompleteRun(ctx context.Context, runID uuid.UUID, canonicalRoot, participantRoot []byte, canonicalVersion, algorithmVersion string, recordCount, discrepancyCount int64) (Run, error)
+	CompleteRun(ctx context.Context, runID uuid.UUID, canonicalRoot, participantRoot []byte, canonicalVersion, algorithmVersion string, recordCount, discrepancyCount int64, metrics RunMetrics) (Run, error)
 	FailRun(ctx context.Context, runID uuid.UUID, errMsg string) (Run, error)
 	GetRun(ctx context.Context, runID uuid.UUID) (Run, error)
 	ListRuns(ctx context.Context, req ListRunsRequest) (RunListPage, error)
@@ -148,7 +148,7 @@ func childLogicalRegion(node NodeResult) LogicalRegion {
 	return node.Ref.Region
 }
 
-func collectLeafBuckets(ctx context.Context, p ReconciliationParticipant, ref NodeRef, hash []byte) ([]leafBucket, error) {
+func collectLeafBuckets(ctx context.Context, p ReconciliationParticipant, ref NodeRef, hash []byte, metrics *RunMetrics) ([]leafBucket, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
@@ -159,6 +159,8 @@ func collectLeafBuckets(ctx context.Context, p ReconciliationParticipant, ref No
 	if err != nil {
 		return nil, fmt.Errorf("GetChildren on %s: %w", ref.Path, err)
 	}
+	metrics.NodesVisited += int64(len(children))
+	metrics.BytesExamined += hashBytes(children)
 	if len(children) == 0 {
 		bID, err := p.GetBucketID(ctx, ref)
 		if err != nil {
@@ -174,13 +176,43 @@ func collectLeafBuckets(ctx context.Context, p ReconciliationParticipant, ref No
 	}
 	var leaves []leafBucket
 	for _, child := range children {
-		childLeaves, err := collectLeafBuckets(ctx, p, child.Ref, child.Hash)
+		childLeaves, err := collectLeafBuckets(ctx, p, child.Ref, child.Hash, metrics)
 		if err != nil {
 			return nil, err
 		}
 		leaves = append(leaves, childLeaves...)
 	}
 	return leaves, nil
+}
+
+func hashBytes(nodes []NodeResult) int64 {
+	var total int64
+	for _, node := range nodes {
+		total += int64(len(node.Hash))
+	}
+	return total
+}
+
+func recordBytes(records []CanonicalRecord) (int64, error) {
+	var total int64
+	for _, record := range records {
+		encoded, err := CanonicalBytes(record)
+		if err != nil {
+			return 0, err
+		}
+		total += int64(len(encoded))
+	}
+	return total, nil
+}
+
+func divergentRecordCount(discrepancies []Discrepancy) int64 {
+	operations := make(map[string]struct{})
+	for _, discrepancy := range discrepancies {
+		if operationID := discrepancy.Evidence["operation_id"]; operationID != "" {
+			operations[operationID] = struct{}{}
+		}
+	}
+	return int64(len(operations))
 }
 
 func (engine *Engine) reconcileLeavesByBucketID(
@@ -191,9 +223,7 @@ func (engine *Engine) reconcileLeavesByBucketID(
 	participantParticipant ReconciliationParticipant,
 	canonLeaves []leafBucket,
 	partLeaves []leafBucket,
-	recordsInspected *int,
-	divergentBuckets *int,
-	divergentRecords *int,
+	metrics *RunMetrics,
 ) (int64, error) {
 	var newDiscrepancies int64
 
@@ -230,7 +260,7 @@ func (engine *Engine) reconcileLeavesByBucketID(
 				// Hashes equal: identical bucket on both sides, skip
 				continue
 			}
-			*divergentBuckets++
+			metrics.DivergentBuckets++
 
 			cRecords, cErr := canonicalParticipant.GetRecords(ctx, BucketRef{
 				ParticipantID: cL.ref.ParticipantID,
@@ -252,7 +282,16 @@ func (engine *Engine) reconcileLeavesByBucketID(
 				return newDiscrepancies, fmt.Errorf("participant GetRecords for bucket %s: %w", key, pErr)
 			}
 
-			*recordsInspected += len(cRecords) + len(pRecords)
+			metrics.RecordsInspected += int64(len(cRecords) + len(pRecords))
+			cBytes, err := recordBytes(cRecords)
+			if err != nil {
+				return newDiscrepancies, fmt.Errorf("canonical bytes for bucket %s: %w", key, err)
+			}
+			pBytes, err := recordBytes(pRecords)
+			if err != nil {
+				return newDiscrepancies, fmt.Errorf("participant bytes for bucket %s: %w", key, err)
+			}
+			metrics.BytesExamined += cBytes + pBytes
 
 			discs := compareBucketRecords(
 				runID,
@@ -269,11 +308,11 @@ func (engine *Engine) reconcileLeavesByBucketID(
 					return newDiscrepancies, fmt.Errorf("save discrepancy: %w", saveErr)
 				}
 				newDiscrepancies++
-				*divergentRecords++
 			}
+			metrics.DivergentRecords += divergentRecordCount(discs)
 		} else if inCanon && !inPart {
 			// Bucket exists only on canonical side: record MismatchMissingRecord
-			*divergentBuckets++
+			metrics.DivergentBuckets++
 
 			cRecords, cErr := canonicalParticipant.GetRecords(ctx, BucketRef{
 				ParticipantID: cL.ref.ParticipantID,
@@ -284,7 +323,13 @@ func (engine *Engine) reconcileLeavesByBucketID(
 			if cErr != nil {
 				return newDiscrepancies, fmt.Errorf("canonical GetRecords for missing bucket %s: %w", key, cErr)
 			}
-			*recordsInspected += len(cRecords)
+			metrics.RecordsInspected += int64(len(cRecords))
+			cBytes, err := recordBytes(cRecords)
+			if err != nil {
+				return newDiscrepancies, fmt.Errorf("canonical bytes for missing bucket %s: %w", key, err)
+			}
+			metrics.BytesExamined += cBytes
+			metrics.DivergentRecords += int64(len(cRecords))
 
 			disc := Discrepancy{
 				RunID:            runID,
@@ -309,7 +354,7 @@ func (engine *Engine) reconcileLeavesByBucketID(
 			newDiscrepancies++
 		} else if !inCanon && inPart {
 			// Bucket exists only on participant side: record MismatchExtraRecord
-			*divergentBuckets++
+			metrics.DivergentBuckets++
 
 			pRecords, pErr := participantParticipant.GetRecords(ctx, BucketRef{
 				ParticipantID: pL.ref.ParticipantID,
@@ -320,7 +365,13 @@ func (engine *Engine) reconcileLeavesByBucketID(
 			if pErr != nil {
 				return newDiscrepancies, fmt.Errorf("participant GetRecords for extra bucket %s: %w", key, pErr)
 			}
-			*recordsInspected += len(pRecords)
+			metrics.RecordsInspected += int64(len(pRecords))
+			pBytes, err := recordBytes(pRecords)
+			if err != nil {
+				return newDiscrepancies, fmt.Errorf("participant bytes for extra bucket %s: %w", key, err)
+			}
+			metrics.BytesExamined += pBytes
+			metrics.DivergentRecords += int64(len(pRecords))
 
 			disc := Discrepancy{
 				RunID:            runID,
@@ -350,6 +401,13 @@ func (engine *Engine) reconcileLeavesByBucketID(
 }
 
 func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantID string, scope Scope) (Run, error) {
+	executionStarted := time.Now()
+	metrics := RunMetrics{}
+	complete := func(canonicalRoot, participantRoot []byte, canonicalVersion, algorithmVersion string, recordCount, discrepancyCount int64) (Run, error) {
+		metrics.ElapsedNs = time.Since(executionStarted).Nanoseconds()
+		return engine.store.CompleteRun(ctx, runID, canonicalRoot, participantRoot, canonicalVersion, algorithmVersion, recordCount, discrepancyCount, metrics)
+	}
+
 	// 3. Obtain two distinct read sources: canonical and participant.
 	canonicalParticipant, err := engine.canonicalFactory(ctx, participantID, scope)
 	if err != nil {
@@ -369,6 +427,8 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 	if err != nil {
 		return Run{}, fmt.Errorf("get participant root for %q: %w", participantID, err)
 	}
+	metrics.NodesVisited = 2
+	metrics.BytesExamined = int64(len(canonicalRoot.Root) + len(participantRoot.Root))
 
 	// 5. Validate commitment versions.
 	if versionErr := ValidateCommitmentVersions(canonicalRoot.Version, canonicalRoot.Algorithm); versionErr != nil {
@@ -392,7 +452,7 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 		if _, discErr := engine.store.SaveDiscrepancy(ctx, disc); discErr != nil {
 			return Run{}, fmt.Errorf("save version mismatch discrepancy: %w", discErr)
 		}
-		return engine.store.CompleteRun(ctx, runID, canonicalRoot.Root, participantRoot.Root, canonicalRoot.Version, canonicalRoot.Algorithm, 0, 1)
+		return complete(canonicalRoot.Root, participantRoot.Root, canonicalRoot.Version, canonicalRoot.Algorithm, 0, 1)
 	}
 
 	// 6. Record metadata for summary reporting.
@@ -404,9 +464,7 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 
 	// 7. Root comparison: if identical, run completes with zero discrepancies.
 	if bytes.Equal(canonicalRoot.Root, participantRoot.Root) {
-		return engine.store.CompleteRun(
-			ctx,
-			runID,
+		return complete(
 			canonicalRoot.Root,
 			participantRoot.Root,
 			canonicalRoot.Version,
@@ -428,10 +486,6 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 	}
 
 	var discrepancyCount int64
-	var nodesVisited int
-	var recordsInspected int
-	var divergentBuckets int
-	var divergentRecords int
 
 	// 9. Two-sided breadth-first child traversal until queue is empty.
 	// NEVER stop after the first mismatch.
@@ -442,8 +496,6 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 
 		pair := queue[0]
 		queue = queue[1:]
-		nodesVisited++
-
 		canonChildren, cErr := canonicalParticipant.GetChildren(ctx, pair.canonical)
 		if cErr != nil {
 			return Run{}, fmt.Errorf("canonical GetChildren on %s: %w", pair.canonical.Path, cErr)
@@ -452,21 +504,22 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 		if pErr != nil {
 			return Run{}, fmt.Errorf("participant GetChildren on %s: %w", pair.participant.Path, pErr)
 		}
+		metrics.NodesVisited += int64(len(canonChildren) + len(partChildren))
+		metrics.BytesExamined += hashBytes(canonChildren) + hashBytes(partChildren)
 
 		// Leaf level or one side is a leaf:
 		if len(canonChildren) == 0 || len(partChildren) == 0 {
-			cLeaves, err := collectLeafBuckets(ctx, canonicalParticipant, pair.canonical, pair.canonicalHash)
+			cLeaves, err := collectLeafBuckets(ctx, canonicalParticipant, pair.canonical, pair.canonicalHash, &metrics)
 			if err != nil {
 				return Run{}, err
 			}
-			pLeaves, err := collectLeafBuckets(ctx, participantParticipant, pair.participant, pair.participantHash)
+			pLeaves, err := collectLeafBuckets(ctx, participantParticipant, pair.participant, pair.participantHash, &metrics)
 			if err != nil {
 				return Run{}, err
 			}
 			newDiscs, err := engine.reconcileLeavesByBucketID(
 				ctx, runID, participantID, canonicalParticipant, participantParticipant,
-				cLeaves, pLeaves,
-				&recordsInspected, &divergentBuckets, &divergentRecords,
+				cLeaves, pLeaves, &metrics,
 			)
 			if err != nil {
 				return Run{}, err
@@ -541,7 +594,7 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 		if len(unmatchedCanonNodes) > 0 || len(unmatchedPartNodes) > 0 {
 			var unmatchedCanonLeaves []leafBucket
 			for _, cn := range unmatchedCanonNodes {
-				leaves, err := collectLeafBuckets(ctx, canonicalParticipant, cn.Ref, cn.Hash)
+				leaves, err := collectLeafBuckets(ctx, canonicalParticipant, cn.Ref, cn.Hash, &metrics)
 				if err != nil {
 					return Run{}, err
 				}
@@ -550,7 +603,7 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 
 			var unmatchedPartLeaves []leafBucket
 			for _, pn := range unmatchedPartNodes {
-				leaves, err := collectLeafBuckets(ctx, participantParticipant, pn.Ref, pn.Hash)
+				leaves, err := collectLeafBuckets(ctx, participantParticipant, pn.Ref, pn.Hash, &metrics)
 				if err != nil {
 					return Run{}, err
 				}
@@ -559,8 +612,7 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 
 			newDiscs, err := engine.reconcileLeavesByBucketID(
 				ctx, runID, participantID, canonicalParticipant, participantParticipant,
-				unmatchedCanonLeaves, unmatchedPartLeaves,
-				&recordsInspected, &divergentBuckets, &divergentRecords,
+				unmatchedCanonLeaves, unmatchedPartLeaves, &metrics,
 			)
 			if err != nil {
 				return Run{}, err
@@ -584,8 +636,8 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 			MismatchCategory: MismatchCanonicalRoot,
 			Evidence: map[string]string{
 				"reason":           "commitment root mismatch",
-				"nodesVisited":     strconv.Itoa(nodesVisited),
-				"recordsInspected": strconv.Itoa(recordsInspected),
+				"nodesVisited":     strconv.FormatInt(metrics.NodesVisited, 10),
+				"recordsInspected": strconv.FormatInt(metrics.RecordsInspected, 10),
 			},
 			DetectedAt: time.Now().UTC(),
 		}
@@ -596,9 +648,7 @@ func (engine *Engine) execute(ctx context.Context, runID uuid.UUID, participantI
 	}
 
 	// 10. Complete run with distinct canonical and participant roots.
-	return engine.store.CompleteRun(
-		ctx,
-		runID,
+	return complete(
 		canonicalRoot.Root,
 		participantRoot.Root,
 		canonicalRoot.Version,

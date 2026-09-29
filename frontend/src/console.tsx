@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
 import { Avatar, BrandMark, Button, InlineError, PageHeader, Skeleton } from "./components";
+import { subscribeOperationalEvents, type StreamStatus } from "./operationalEvents";
 import type {
+  ActivityEvent,
   ChaosScenario,
   CircuitTargetSnapshot,
   CircuitTransitionEvent,
@@ -96,12 +98,20 @@ export function buildChaosPayload(
 
 export function ConsoleShell({ token, user, onLogout }: { token: string; user: User; onLogout: () => void }) {
   const [view, setView] = useState<ConsoleView>(readConsoleView());
+  const [liveRevision, setLiveRevision] = useState(0);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
 
   useEffect(() => {
     const handle = () => setView(readConsoleView());
     window.addEventListener("popstate", handle);
     return () => window.removeEventListener("popstate", handle);
   }, []);
+
+  useEffect(() => subscribeOperationalEvents(
+    token,
+    () => setLiveRevision((revision) => revision + 1),
+    setStreamStatus,
+  ), [token]);
 
   function navigate(nextView: ConsoleView) {
     const path = consoleViewPath(nextView);
@@ -116,14 +126,19 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
       <main className="main-content">
         <ConsoleMobileHeader user={user} onLogout={onLogout} />
         <div className="content-wrap">
-          {view === "c-overview" && <ConsoleOverviewView token={token} onNavigate={navigate} />}
-          {view === "c-health" && <ConsoleHealthView token={token} />}
-          {view === "c-routing" && <ConsoleRoutingView token={token} />}
-          {view === "c-reconciliation" && <ConsoleReconciliationView token={token} />}
+          <div className="console-card-header" style={{ justifyContent: "flex-end", marginBottom: ".6rem" }}>
+            <span className={`console-pill ${streamStatus === "connected" ? "console-pill-success" : streamStatus === "connecting" ? "console-pill-warning" : "console-pill-error"}`}>
+              LIVE HINTS {streamStatus.toUpperCase()}
+            </span>
+          </div>
+          {view === "c-overview" && <ConsoleOverviewView token={token} onNavigate={navigate} liveRevision={liveRevision} />}
+          {view === "c-health" && <ConsoleHealthView token={token} liveRevision={liveRevision} />}
+          {view === "c-routing" && <ConsoleRoutingView token={token} liveRevision={liveRevision} />}
+          {view === "c-reconciliation" && <ConsoleReconciliationView token={token} liveRevision={liveRevision} />}
           {view === "c-merkle" && <ConsoleMerkleView token={token} />}
-          {view === "c-integrity" && <ConsoleIntegrityView token={token} />}
-          {view === "c-chaos" && <ConsoleChaosView token={token} />}
-          {view === "c-activity" && <ConsoleActivityView token={token} />}
+          {view === "c-integrity" && <ConsoleIntegrityView token={token} liveRevision={liveRevision} />}
+          {view === "c-chaos" && <ConsoleChaosView token={token} liveRevision={liveRevision} />}
+          {view === "c-activity" && <ConsoleActivityView token={token} liveRevision={liveRevision} />}
         </div>
       </main>
       <ConsoleMobileNav view={view} onNavigate={navigate} />
@@ -260,7 +275,7 @@ function ConsoleMobileNav({ view, onNavigate }: { view: ConsoleView; onNavigate:
 // 1. Overview View
 // ---------------------------------------------------------------------------
 
-function ConsoleOverviewView({ token, onNavigate }: { token: string; onNavigate: (v: ConsoleView) => void }) {
+function ConsoleOverviewView({ token, onNavigate, liveRevision }: { token: string; onNavigate: (v: ConsoleView) => void; liveRevision: number }) {
   const [circuits, setCircuits] = useState<Record<string, CircuitTargetSnapshot>>({});
   const [chaosScenarios, setChaosScenarios] = useState<ChaosScenario[]>([]);
   const [healthMap, setHealthMap] = useState<Record<string, HealthSnapshot | null>>({});
@@ -306,7 +321,7 @@ function ConsoleOverviewView({ token, onNavigate }: { token: string; onNavigate:
 
   useEffect(() => {
     loadOverview();
-  }, [token]);
+  }, [token, liveRevision]);
 
   const targetKeys = deriveOperationalTargets(circuits);
   const openCircuits = targetKeys.filter((k) => circuits[k]?.state === "OPEN");
@@ -596,7 +611,7 @@ function ParticipantHealthCard({ targetId, snapshot }: { targetId: string; snaps
 // 2. Bank Health View
 // ---------------------------------------------------------------------------
 
-function ConsoleHealthView({ token }: { token: string }) {
+function ConsoleHealthView({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [targetId, setTargetId] = useState("");
   const [targetKeys, setTargetKeys] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
@@ -630,8 +645,8 @@ function ConsoleHealthView({ token }: { token: string }) {
   }
 
   useEffect(() => {
-    loadTargetsAndSnapshot();
-  }, [token]);
+    loadTargetsAndSnapshot(targetId || undefined);
+  }, [token, liveRevision]);
 
   function switchTarget(t: string) {
     setTargetId(t);
@@ -805,7 +820,7 @@ function ConsoleHealthView({ token }: { token: string }) {
 // 3. Routing & Circuits View
 // ---------------------------------------------------------------------------
 
-function ConsoleRoutingView({ token }: { token: string }) {
+function ConsoleRoutingView({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [distribution, setDistribution] = useState<{ targetId: string; payments: number }[]>([]);
   const [distributionError, setDistributionError] = useState("");
   const [circuits, setCircuits] = useState<Record<string, CircuitTargetSnapshot>>({});
@@ -820,7 +835,7 @@ function ConsoleRoutingView({ token }: { token: string }) {
       .then(data => { setDistribution(data.items); setDistributionError(""); })
       .catch(err => setDistributionError(err instanceof Error ? err.message : "Could not load route selections."));
   }
-  useEffect(() => { loadDistribution(); }, [token]);
+  useEffect(() => { loadDistribution(); }, [token, liveRevision]);
 
   function loadCircuits() {
     setLoading(true);
@@ -849,13 +864,13 @@ function ConsoleRoutingView({ token }: { token: string }) {
 
   useEffect(() => {
     loadCircuits();
-  }, [token]);
+  }, [token, liveRevision]);
 
   useEffect(() => {
     if (selectedTarget) {
       loadEvents(selectedTarget);
     }
-  }, [selectedTarget, token]);
+  }, [selectedTarget, token, liveRevision]);
 
   const targetKeys = Object.keys(circuits);
   const currentCircuit = circuits[selectedTarget];
@@ -1025,7 +1040,7 @@ function ConsoleRoutingView({ token }: { token: string }) {
 // 4. Reconciliation View
 // ---------------------------------------------------------------------------
 
-function ConsoleReconciliationView({ token }: { token: string }) {
+function ConsoleReconciliationView({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [runs, setRuns] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [discrepancies, setDiscrepancies] = useState<any[]>([]);
@@ -1038,7 +1053,7 @@ function ConsoleReconciliationView({ token }: { token: string }) {
     try { const page = await api.opsReconciliationRuns(token); setRuns(page.items ?? []); setError(""); }
     catch (err) { setError(err instanceof Error ? err.message : "Could not load reconciliation history."); }
   }
-  useEffect(() => { void refresh(); }, [token]);
+  useEffect(() => { void refresh(); }, [token, liveRevision]);
   async function choose(run: any) {
     setSelected(run);
     try { const page = await api.opsReconciliationDiscrepancies(run.id, token); setDiscrepancies(page.items ?? []); setError(""); }
@@ -1085,6 +1100,14 @@ function ConsoleReconciliationView({ token }: { token: string }) {
         <h3>Run {selected.id}</h3>
         <p>Scope: {selected.scopeFrom} to {selected.scopeTo}</p>
         <p>Records: {selected.recordCount} · Status: {selected.status} · Discrepancies: {selected.discrepancyCount}</p>
+        <div className="console-spec-grid">
+          <div className="console-spec-item"><span>Elapsed</span><strong>{(selected.elapsedNs / 1_000_000).toFixed(2)} ms</strong></div>
+          <div className="console-spec-item"><span>Merkle nodes visited</span><strong>{selected.nodesVisited}</strong></div>
+          <div className="console-spec-item"><span>Records inspected</span><strong>{selected.recordsInspected}</strong></div>
+          <div className="console-spec-item"><span>Bytes examined</span><strong>{selected.bytesExamined}</strong></div>
+          <div className="console-spec-item"><span>Divergent buckets</span><strong>{selected.divergentBuckets}</strong></div>
+          <div className="console-spec-item"><span>Divergent records</span><strong>{selected.divergentRecords}</strong></div>
+        </div>
         {selected.errorMessage && <InlineError message={selected.errorMessage} />}
         {discrepancies.length === 0 && <p>No discrepancy evidence in this page.</p>}
         {discrepancies.map((item, index) => <div className="console-spec-item" key={item.id ?? index}>
@@ -1238,7 +1261,7 @@ function ConsoleMerkleView({ token }: { token: string }) {
 // 6. Integrity View
 // ---------------------------------------------------------------------------
 
-function ConsoleIntegrityView({ token }: { token: string }) {
+function ConsoleIntegrityView({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [integrityRuns, setIntegrityRuns] = useState<any[]>([]);
   const [integrityDetail, setIntegrityDetail] = useState<any>(null);
   const [integrityError, setIntegrityError] = useState("");
@@ -1264,7 +1287,7 @@ function ConsoleIntegrityView({ token }: { token: string }) {
       setIntegrityError("");
     } catch (err) { setIntegrityError(err instanceof Error ? err.message : "Could not load integrity state."); }
   }
-  useEffect(() => { void loadIntegrity(); }, [token]);
+  useEffect(() => { void loadIntegrity(); }, [token, liveRevision]);
   async function runIntegrity() {
     setChecking(true); setIntegrityError("");
     try {
@@ -1450,7 +1473,7 @@ function ConsoleIntegrityView({ token }: { token: string }) {
 // 7. Chaos View (Real M2 Chaos Controller)
 // ---------------------------------------------------------------------------
 
-function ConsoleChaosView({ token }: { token: string }) {
+function ConsoleChaosView({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [scenarios, setScenarios] = useState<ChaosScenario[]>([]);
   const [circuitTargets, setCircuitTargets] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1489,7 +1512,7 @@ function ConsoleChaosView({ token }: { token: string }) {
 
   useEffect(() => {
     loadData();
-  }, [token]);
+  }, [token, liveRevision]);
 
   function handleStart(e: React.FormEvent) {
     e.preventDefault();
@@ -1798,51 +1821,38 @@ function ConsoleChaosView({ token }: { token: string }) {
 // 8. Activity View
 // ---------------------------------------------------------------------------
 
-function ConsoleActivityView({ token }: { token: string }) {
-  const [events, setEvents] = useState<CircuitTransitionEvent[]>([]);
-  const [configuredTargets, setConfiguredTargets] = useState<string[]>([]);
+function ConsoleActivityView({ token, liveRevision }: { token: string; liveRevision: number }) {
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [nextOffset, setNextOffset] = useState<number | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  function loadEvents() {
+  function loadEvents(offset = 0, append = false) {
     setLoading(true);
     setError("");
-    api.opsCircuits(token)
-      .then((circuitMap) => {
-        const targetIds = deriveOperationalTargets(circuitMap);
-        setConfiguredTargets(targetIds);
-        if (targetIds.length === 0) {
-          setEvents([]);
-          return;
-        }
-        return Promise.all(
-          targetIds.map((tid) => api.opsCircuitEvents(tid, token).catch(() => []))
-        ).then((results) => {
-          const combined = results.flat();
-          combined.sort(
-            (a, b) => new Date(b.transitionedAt).getTime() - new Date(a.transitionedAt).getTime()
-          );
-          setEvents(combined);
-        });
+    api.opsActivity(token, 50, offset)
+      .then((page) => {
+        setEvents((current) => append ? [...current, ...(page.items ?? [])] : (page.items ?? []));
+        setNextOffset(page.nextOffset);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load circuit events.");
+        setError(err instanceof Error ? err.message : "Failed to load operational activity.");
       })
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
-    loadEvents();
-  }, [token]);
+    loadEvents(0, false);
+  }, [token, liveRevision]);
 
   return (
     <>
       <PageHeader
         eyebrow="Audit Feed"
         title="Operational Activity Log"
-        description="Chronological log of adaptive circuit state transitions, trips, and restoration events across operational targets."
+        description="Durable circuit, chaos, reconciliation, integrity, and routing facts in deterministic time order."
         action={
-          <Button variant="secondary" onClick={loadEvents}>
+          <Button variant="secondary" onClick={() => loadEvents(0, false)}>
             <ConsoleIcon name="refresh" size={14} />
             Refresh
           </Button>
@@ -1851,22 +1861,12 @@ function ConsoleActivityView({ token }: { token: string }) {
 
       {error && <InlineError message={error} />}
 
-      {loading ? (
+      {loading && events.length === 0 ? (
         <ConsoleSkeleton />
-      ) : configuredTargets.length === 0 ? (
-        <div className="console-card">
-          <div className="console-card-header">
-            <span className="console-card-kicker">Activity Log</span>
-            <span className="console-pill console-pill-warning">NO TARGETS CONFIGURED</span>
-          </div>
-          <p className="console-meta-text">
-            No execution targets were returned by <code>GET /api/ops/circuit</code>. Circuit transition events cannot be streamed until operational targets are registered.
-          </p>
-        </div>
       ) : events.length === 0 ? (
         <div className="console-card">
           <span className="console-card-kicker">Activity Log</span>
-          <p className="console-meta-text">No circuit state transitions or recovery events recorded yet for configured targets ({configuredTargets.join(", ")}).</p>
+          <p className="console-meta-text">No durable operational activity has been recorded.</p>
         </div>
       ) : (
         <section className="section-block">
@@ -1875,37 +1875,22 @@ function ConsoleActivityView({ token }: { token: string }) {
               <thead>
                 <tr>
                   <th>Time</th>
-                  <th>Target</th>
+                  <th>Category</th>
                   <th>Event</th>
-                  <th>Reason</th>
-                  <th>Failures</th>
-                  <th>Timeouts</th>
-                  <th>Restoration Step</th>
+                  <th>Target</th>
+                  <th>Summary</th>
+                  <th>Severity</th>
                 </tr>
               </thead>
               <tbody>
-                {events.map((ev, i) => (
-                  <tr key={ev.id ?? i}>
-                    <td className="mono">{formatIso(ev.transitionedAt)}</td>
-                    <td className="mono" style={{ fontWeight: 600 }}>{ev.executionTargetId}</td>
-                    <td>
-                      <span className="console-pill console-pill-neutral" style={{ marginRight: ".3rem" }}>
-                        {ev.previousState}
-                      </span>
-                      →
-                      <span
-                        className={`console-pill ${
-                          ev.newState === "CLOSED" ? "console-pill-success" : ev.newState === "OPEN" ? "console-pill-error" : "console-pill-warning"
-                        }`}
-                        style={{ marginLeft: ".3rem" }}
-                      >
-                        {ev.newState}
-                      </span>
-                    </td>
-                    <td className="mono" style={{ fontSize: ".72rem" }}>{ev.reason}</td>
-                    <td className="mono">{ev.failureCount}</td>
-                    <td className="mono">{ev.timeoutCount}</td>
-                    <td className="mono">{ev.restorationStep}</td>
+                {events.map((ev) => (
+                  <tr key={ev.id}>
+                    <td className="mono">{formatIso(ev.occurredAt)}</td>
+                    <td><span className="console-pill console-pill-neutral">{ev.category}</span></td>
+                    <td>{ev.title}<div className="mono" style={{ fontSize: ".68rem" }}>{ev.eventType}</div></td>
+                    <td className="mono" style={{ fontWeight: 600 }}>{ev.targetId || "—"}</td>
+                    <td>{ev.summary}</td>
+                    <td><span className={`console-pill ${ev.severity === "ERROR" ? "console-pill-error" : ev.severity === "WARNING" ? "console-pill-warning" : "console-pill-success"}`}>{ev.severity}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -1913,10 +1898,7 @@ function ConsoleActivityView({ token }: { token: string }) {
           </div>
         </section>
       )}
-
-      <p className="console-meta-text" style={{ marginTop: "1.5rem" }}>
-        Note: The operational log aggregates real circuit breaker transition records. Aggregated cross-bank ledger transaction stream is scheduled for future milestone integration (M3-8).
-      </p>
+      {nextOffset !== undefined && <Button variant="secondary" disabled={loading} onClick={() => loadEvents(nextOffset, true)}>{loading ? "Loading..." : "Load more"}</Button>}
     </>
   );
 }
