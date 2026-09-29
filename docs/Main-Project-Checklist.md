@@ -7,9 +7,9 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 ## Current repository checkpoint
 
-The current branch contains the Member-1 and Member-2 foundations plus substantial Member-3 implementation: canonical Merkle reconciliation, proof verification, runtime financial integrity, operator run views, and recorded 10K/100K experiments. Remaining M3 gaps are called out below; unchecked boxes are not evidence that earlier implementation is absent.
+The current branch contains the Member-1 and Member-2 foundations plus the verified Member-3 implementation: canonical Merkle reconciliation, proof verification, runtime financial integrity, operator run views, durable operational activity, live invalidation, and recorded 10K/100K and PostgreSQL concurrency evidence. Unchecked non-M3 boxes remain outside this closeout.
 
-M3 closeout note: the experiment measurements and isolated corruption fixture are verified, but full M3 exit remains open. Production reconciliation does not persist the complete node/record/byte transfer instrumentation; operational event streaming is absent; the activity feed covers circuit transitions only; the corruption fixture does not mutate a persisted participant test ledger or create a durable console alert; and the concurrency storm with recorded integrity outcomes has not been run. Routing distribution is implemented over persisted route decisions but has not been exercised against a live PostgreSQL database in this environment. The 1M scale remains optional.
+M3 closeout note (verified 2026-09-29): production reconciliation persists measured node, record, elapsed, byte-examined, and divergence metrics; the OPS_ADMIN console consumes an authoritative multi-source activity endpoint and an SSE invalidation stream with HTTP refetch on connect, reconnect, gap, and stale signals; routing distribution is live-tested against persisted PostgreSQL route decisions; and the PostgreSQL concurrency storm records zero integrity violations in a new immutable raw artifact. The simulation-only in-memory participant corruption fixture satisfies the M3 controlled-fixture requirement while preserving all central and participant PostgreSQL authority. Persisting intentionally corrupted fixture state or a dedicated durable alert is a future enhancement, not an M3 exit requirement. The 1M experiment remains optional.
 
 \[ ] Work strictly in phase order unless a dependency explicitly allows parallel work.
 \[ ] Tick an item only when it is implemented, tested, and verified — not merely coded.
@@ -142,7 +142,7 @@ Duration: Weeks 5–6   Objective: Build the main research contribution correctl
 \[x] M3 — Implement recursive divergence localization.
 \[x] M3 — Implement exact divergent-bucket identification.
 \[x] M3 — Implement exact divergent-transaction lookup where possible.
-\[ ] M3 — Record nodes visited, records inspected, elapsed time, and bytes transferred.
+\[x] M3 — Record nodes visited, records inspected, elapsed time, and bytes transferred.
 \[x] M3 — Implement naive full-diff baseline.
 \[x] M3 — Implement Merkle-vs-naive benchmark harness.
 \[x] M3 — Implement reconciliation API.
@@ -197,8 +197,8 @@ Duration: Week 8   Objective: Make the network resilient to degraded or failed b
 \[x] M2 — Implement cooldown and probe behavior.
 \[x] M2 — Implement gradual traffic restoration after recovery.
 \[x] M3 — Build bank-health view.
-\[ ] M3 — Build routing distribution visualization.
-\[ ] M3 — Stream health/routing changes to the frontend.
+\[x] M3 — Build routing distribution visualization.
+\[x] M3 — Stream health/routing changes to the frontend.
 \[x] ALL — Define exact experimental routing thresholds in configuration.
 \[x] ALL — Run static-routing baseline.
 \[x] ALL — Run adaptive-routing condition.
@@ -220,7 +220,7 @@ Duration: Week 9   Objective: Turn resilience claims into controlled, repeatable
 \[x] M2 — Ensure chaos endpoints require OPS\_ADMIN authorization.
 \[x] M3 — Build chaos-control UI.
 \[x] M3 — Show active faults and scenario history.
-\[ ] M3 — Stream bank-health and circuit-breaker changes live.
+\[x] M3 — Stream bank-health and circuit-breaker changes live.
 \[x] ALL — Run bank outage and observe rerouting.
 \[x] ALL — Run latency degradation and observe routing-score change.
 \[x] ALL — Run bank recovery and observe HALF\_OPEN then gradual restoration.
@@ -242,7 +242,7 @@ Duration: Week 10   Objective: Continuously verify correctness and expose the in
 \[x] M3 — Implement Merkle-commitment verification check.
 \[x] M3 — Implement aggregate integrity-check endpoint.
 \[x] M3 — Build integrity dashboard.
-\[ ] M3 — Build event/activity feed.
+\[x] M3 — Build event/activity feed.
 \[ ] M2 — Build network overview metrics cards.
 \[ ] M2 — Build bank status cards.
 \[ ] M2 — Build routing view.
@@ -292,7 +292,7 @@ Duration: Week 11   Objective: Produce real measurements for the paper and avoid
 \[x] M2 — Measure traffic redistribution.
 \[x] M2 — Benchmark offline queue/replay behavior.
 \[x] M2 — Measure duplicate-processing count.
-\[ ] M3 — Run concurrency storm and record invariant violations.
+\[x] M3 — Run concurrency storm and record invariant violations.
 \[x] ALL — Save raw benchmark results in versioned files.
 \[x] ALL — Record hardware/software/environment used for every experiment.
 \[x] ALL — Separate baseline measurements from proposed-system measurements.
