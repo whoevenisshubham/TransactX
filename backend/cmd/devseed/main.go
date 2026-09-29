@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -37,14 +39,18 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	if err := provision(context.Background(), db, password, cfg.DefaultBankCode); err != nil {
+	if err := provision(context.Background(), db, password, cfg.DefaultBankCode, cfg.BankACode, cfg.BankBCode); err != nil {
 		logger.Error("provision development data", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("development bank and OPS_ADMIN provisioned", "bank_code", cfg.DefaultBankCode)
+	logger.Info("development banks and OPS_ADMIN provisioned", "bank_codes", []string{cfg.BankACode, cfg.BankBCode}, "admin_bank_code", cfg.DefaultBankCode)
 }
 
-func provision(ctx context.Context, db *pgxpool.Pool, password, bankCode string) error {
+func provision(ctx context.Context, db *pgxpool.Pool, password, defaultBankCode, bankACode, bankBCode string) error {
+	bankCodes, err := developmentBankCodes(defaultBankCode, bankACode, bankBCode)
+	if err != nil {
+		return err
+	}
 	hash, err := auth.HashPassword(password, auth.DefaultArgon2idParams)
 	if err != nil {
 		return err
@@ -54,10 +60,16 @@ func provision(ctx context.Context, db *pgxpool.Pool, password, bankCode string)
 		return err
 	}
 	defer tx.Rollback(ctx)
-	bankID := uuid.NewMD5(uuid.NameSpaceOID, []byte("transactx-bank:"+bankCode))
-	if err := tx.QueryRow(ctx, `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'TransactX Development Bank', 'ACTIVE') ON CONFLICT (code) DO UPDATE SET status = 'ACTIVE' RETURNING id`, bankID, bankCode).Scan(&bankID); err != nil {
-		return err
+	bankIDs := make(map[string]uuid.UUID, len(bankCodes))
+	for _, bankCode := range bankCodes {
+		bankID := uuid.NewMD5(uuid.NameSpaceOID, []byte("transactx-bank:"+bankCode))
+		bankName := "TransactX Development " + bankCode
+		if err := tx.QueryRow(ctx, `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, $3, 'ACTIVE') ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, status = 'ACTIVE' RETURNING id`, bankID, bankCode, bankName).Scan(&bankID); err != nil {
+			return err
+		}
+		bankIDs[bankCode] = bankID
 	}
+	bankID := bankIDs[defaultBankCode]
 	adminID := uuid.NewMD5(uuid.NameSpaceOID, []byte("transactx-admin"))
 	phone := strings.TrimSpace(getEnv("DEV_ADMIN_PHONE", "9999999999"))
 	paymentID := strings.ToLower(strings.TrimSpace(getEnv("DEV_ADMIN_PAYMENT_ID", "admin@transactx")))
@@ -71,6 +83,19 @@ func provision(ctx context.Context, db *pgxpool.Pool, password, bankCode string)
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func developmentBankCodes(defaultBankCode, bankACode, bankBCode string) ([]string, error) {
+	defaultBankCode = strings.TrimSpace(defaultBankCode)
+	bankACode = strings.TrimSpace(bankACode)
+	bankBCode = strings.TrimSpace(bankBCode)
+	if bankACode == "" || bankBCode == "" || bankACode == bankBCode {
+		return nil, errors.New("BANK_A_CODE and BANK_B_CODE must be non-empty and distinct")
+	}
+	if defaultBankCode != bankACode && defaultBankCode != bankBCode {
+		return nil, fmt.Errorf("DEFAULT_BANK_CODE must match BANK_A_CODE or BANK_B_CODE: %q", defaultBankCode)
+	}
+	return []string{bankACode, bankBCode}, nil
 }
 
 func getEnv(key, fallback string) string {

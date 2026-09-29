@@ -90,7 +90,7 @@ npm ci
 npm run dev
 ```
 
-For development seed data, set `APP_DEVELOPMENT=true`, `DEFAULT_BANK_CODE=BANK-A`, and `DEV_ADMIN_PASSWORD`, then run `go run ./cmd/devseed` from `backend`.
+For development seed data, set `APP_DEVELOPMENT=true`, `DEFAULT_BANK_CODE=BANK-A`, and `DEV_ADMIN_PASSWORD`, then run `go run ./cmd/devseed` from `backend`. The command provisions both configured banks and attaches the development administrator account to `DEFAULT_BANK_CODE`, so the two-bank API configuration above starts without additional database setup.
 Normal API runs default to `APP_DEVELOPMENT=false`; enable development provisioning explicitly only when running the seed command.
 
 Simulation participant provisioning is opt-in. `TX_PARTICIPANT_PROVISIONING=true` requires `TX_SIMULATION_MODE=true`. Registration then creates the central account and its matching Bank A or Bank B participant account in one PostgreSQL transaction. Provisioning uses the same account UUID on both sides and is retry safe. New accounts start with zero balance.
