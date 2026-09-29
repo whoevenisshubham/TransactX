@@ -190,3 +190,12 @@ cd backend
   -DatabaseUrl "postgres://postgres@127.0.0.1:55432/transactx_m3_restart?sslmode=disable" `
   -PostgresDataDirectory "C:\path\to\isolated\postgres-data"
 ```
+
+## RC1 evidence checkpoint
+
+The release evidence source checkpoint is
+`8e1efb0c463aab539b417de87b6aa38a84fc8fe8`. The current scale,
+PostgreSQL concurrency, M2 resilience, and offline artifacts are stored under
+`artifacts/experiments/` and `artifacts/rc1-8e1efb0/`. Exact hashes,
+environment details, measured results, and limitations are recorded in
+`docs/reconciliation-experiments.md` and `docs/resilience-experiments.md`.

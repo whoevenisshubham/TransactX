@@ -152,6 +152,11 @@ Each maintenance replaces the current generation for its owner and scope with a 
 
 The proof DTO is lower-camel-case and hex encoded. A GET response is valid POST verification input without reshaping. Verification binds participant, scope, operation ID, record operation ID, versions, bucket, path, and the server-loaded trusted root.
 
+Operator scopes need not begin on a bucket boundary. A record in the first
+partial bucket remains verifiable even when the epoch-aligned bucket start is
+earlier than the scope start; the trusted bucket identity and deterministic
+record-to-bucket mapping remain mandatory.
+
 ## Release candidate integrity and registration lifecycle
 
 Completed central settlement, routed recovery, reconciliation, and selected chaos recovery request a background scan. A two-second coordinator coalesces bursts and runs the six bounded financial checks. Full Merkle consistency remains operator-triggered because it recomputes the authoritative projection. All checks are read-only. A run is successful only after its result is durable; persistence failure returns a typed operational error and HTTP 503.

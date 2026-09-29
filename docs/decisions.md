@@ -307,3 +307,41 @@ Successful central settlement, routed recovery, reconciliation, and selected cha
 Status: **IMPLEMENTED**
 
 `DEFAULT_BANK_CODE` defaults to `BANK-A`. Participant URLs and codes, simulation mode, provisioning, routing, circuit settings, and credentialed CORS origins use central validation. Wildcard CORS is rejected. The console displays server-reported simulation mode. Frontend release dependencies use exact versions and CI uses `npm ci`.
+
+## ADR-030: Release branch consolidation
+
+Status: **DECIDED**
+
+The release branch was created from `m1/foundation` at
+`e8fe0cbf2d96f4558ba58b8f44515da5b54df38a`. The four commits unique to the
+older `feat/final-integration` line were reviewed individually and the branch
+was not merged:
+
+- `5b4a28a` is **DROP**. Current request-ID middleware and tests already cover
+  propagation; the old change also adds a production helper solely for tests
+  and a branch-local policy file.
+- `773aa0a` is **DROP**. Its customer copy and convenience polish are not a
+  correctness requirement and would reintroduce unrelated UI divergence late
+  in the release gate.
+- `9218f0b` is **REPLACED** by migration
+  `000019_m3_reconciliation_discrepancy_categories`, which preserves the
+  canonical migration sequence after reconciliation metrics.
+- `7e87e9d` is **REPLACED** by the current durable commitment, integrity,
+  console, proof, activity, and PostgreSQL restart implementations and tests.
+
+No unique old commit was classified **KEEP** because every required behavior
+was already present or superseded on the current canonical line.
+
+## ADR-031: Proof verification for partial first buckets
+
+Status: **IMPLEMENTED**
+
+Merkle buckets align to the Unix epoch while operator scopes may start at any
+valid instant. The first bucket can therefore start before `scope.From` even
+when the proved record is inside the scope. Verification requires the record
+timestamp to be in scope, compares the proof bucket with the independently
+trusted bucket identity, and recomputes the exact record-to-bucket mapping. It
+does not require the aligned bucket start itself to be inside the scope. This
+allows a proof returned for an arbitrary closed scope to be posted back
+unchanged without weakening participant, scope, generation, root, version, or
+record binding.

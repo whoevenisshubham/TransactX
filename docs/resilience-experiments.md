@@ -1,5 +1,50 @@
 # TransactX M2-8: Resilience Experiments and Raw Benchmark Outputs
 
+## RC1 evidence checkpoint
+
+All RC1 runs below used source checkpoint
+`8e1efb0c463aab539b417de87b6aa38a84fc8fe8` from independent clean clones.
+The M3 PostgreSQL concurrency artifact embeds `dirty: false` and release mode.
+The older M2 and offline artifact schemas record the Git SHA but do not contain
+a dirty-tree field; their clean pre-run status was checked by the release
+procedure.
+
+### M2 resilience runner
+
+Artifacts are under `artifacts/rc1-8e1efb0/experiments/`:
+
+| Experiment | JSON | SHA-256 | Result |
+| --- | --- | --- | --- |
+| Routing | `routing/routing-20260929-201653.json` | `48f4cb26479ca62dd28998a5b6329bfbb27dd73bbb13c279b7e90573ee87e5bd` | Static 178/300; adaptive 300/300; adaptive traffic A 75, B 225 |
+| Outage | `outage/outage-20260929-201653.json` | `3c0ab45709bbbe19df5ca2604c6a3258729632ecb08ee5e24088bc9f716fe0a0` | Static 200/300; circuit aware 297/300; 3 target failures; zero eligibility violations |
+| Latency | `latency/latency-20260929-201653.json` | `1ce7c20019e297e6c14a271ca8e6a7aeeefebb5c8256a1263867fcfb04180550` | Both 300/300; P95 17.713 ms vs 4.334 ms; adaptive traffic A 105, B 195 |
+| Concurrency simulation | `concurrency/concurrency-20260929-201702.json` | `dae0d915f1f472badf752ae3cb13b3752658bddca8fce404d2c8172c2a540dca` | 300/300; 147 financial executions; max one execution per key; zero circuit/state violations |
+
+### PostgreSQL concurrency runner
+
+`artifacts/experiments/concurrency/concurrency-live-rc1-8e1efb0-raw.json`
+has SHA-256
+`21c82897cc88fd5098f8d5885e0be56630014ee64154baf8d20772235430861d`.
+It records 20 same-key and 75 unique-key requests at concurrency 25. There were
+70 successful responses, 25 expected insufficient-funds responses, no pending
+responses, no unexpected errors, 51 completed logical payments, 19 duplicate
+replay responses, one payment for the contended key, a zero-paise minimum
+balance, balanced 450-paise debits and credits, and zero integrity violations.
+The six applicable financial checks passed. Merkle consistency is recorded as
+`NOT_APPLICABLE` for this central-ledger-only workload.
+
+### Offline queue runner
+
+`artifacts/experiments/offline/offline-rc1-8e1efb0-20260929202122.json`
+has SHA-256
+`e2ab746dc4207c92e21a2e6a1e2e1ee791b63e6e0f150f3a0dbc2310171848d2`.
+The deterministic IndexedDB and replay-client run queued 50 intents, made 65
+attempts, synced 45, ended five in expected permanent failure, reused the same
+key on ten retries, and recorded zero duplicate processing. This experiment is
+a client-side deterministic test double; the in-app browser runtime was unable
+to initialize during RC1 acceptance, so offline reload and reconnect against
+the live server remain browser-tooling blocked.
+
 This document details the reproducibility harness, methodology, configurations, and verified raw outputs for the TransactX M2 resilience experiments.
 
 All reported numbers are strictly derived from executed benchmark runs. No numbers were estimated, hand-written, or invented.
