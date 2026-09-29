@@ -200,6 +200,32 @@ func TestVerifyProof(t *testing.T) {
 	}
 }
 
+func TestVerifyProofAllowsFirstBucketToStartBeforeScope(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	scope := reconciliation.Scope{From: base.Add(5 * time.Minute), To: base.Add(20 * time.Minute)}
+	records := createIntegrityRecords(base, 1, 15*time.Minute)
+	records[0].OccurredAt = base.Add(10 * time.Minute)
+	participant := buildTestParticipant(t, "BANK-A", 15*time.Minute, records)
+
+	proof, err := reconciliation.GenerateProof(ctx, participant, scope, records[0])
+	if err != nil {
+		t.Fatalf("GenerateProof: %v", err)
+	}
+	if !proof.BucketID.Start.Equal(base) {
+		t.Fatalf("bucket start = %v, want %v before scope start", proof.BucketID.Start, base)
+	}
+
+	trustedCtx := buildTrustedContext(t, ctx, participant, scope, 15*time.Minute, records[0])
+	result, err := reconciliation.VerifyProof(ctx, proof, trustedCtx)
+	if err != nil {
+		t.Fatalf("VerifyProof rejected valid partial first bucket: %v", err)
+	}
+	if !result.Valid {
+		t.Fatal("VerifyProof returned an invalid result for a valid partial first bucket")
+	}
+}
+
 // TestVerifyModifiedRecordFails verifies tampering with record fields fails verification.
 func TestVerifyModifiedRecordFails(t *testing.T) {
 	ctx := context.Background()

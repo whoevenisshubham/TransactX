@@ -812,12 +812,13 @@ func (e *IntegrityEngine) VerifyProof(ctx context.Context, proof IntegrityProof,
 		return VerificationResult{}, err
 	}
 
-	// 4. Validate Scope contains record and bucket
+	// 4. Validate that the proved record is in scope. Buckets are aligned to the
+	// Unix epoch, so the first bucket in an arbitrary scope may legitimately
+	// start before scope.From. The independently trusted BucketID and the mapping
+	// check below bind the record to the exact bucket without requiring its start
+	// timestamp to be inside the requested scope.
 	if !scopeContains(proof.Scope, proof.Record.OccurredAt) {
 		return VerificationResult{}, fmt.Errorf("%w: record occurred_at %v is outside scope %v", ErrProofScopeMismatch, proof.Record.OccurredAt, proof.Scope)
-	}
-	if !scopeContains(proof.Scope, proof.BucketID.Start) {
-		return VerificationResult{}, fmt.Errorf("%w: bucket start %v is outside scope %v", ErrProofScopeMismatch, proof.BucketID.Start, proof.Scope)
 	}
 
 	// 5. Validate record maps to claimed bucket
