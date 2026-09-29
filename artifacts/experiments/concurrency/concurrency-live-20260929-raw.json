@@ -1,0 +1,716 @@
+{
+  "experimentId": "postgres-concurrency-integrity",
+  "generatedAt": "2026-09-28T20:43:25.9120419Z",
+  "gitCommit": "2609a2d123211632a215109678ed7bb3acc0fee2",
+  "workingTree": "dirty: M3 closeout implementation and this evidence harness are uncommitted",
+  "environment": {
+    "arch": "amd64",
+    "database": "postgres://postgres@127.0.0.1:55432/transactx_m3_evidence?sslmode=disable",
+    "go": "go1.27.1",
+    "os": "windows",
+    "postgres": "18.4"
+  },
+  "workload": {
+    "uniqueKeyRequests": 75,
+    "sameKeyRequests": 20,
+    "concurrency": 25,
+    "amountPaise": 7,
+    "openingBalancePaise": 450
+  },
+  "observed": {
+    "successfulResponses": 70,
+    "insufficientFundsResponses": 25,
+    "pendingResponses": 0,
+    "unexpectedErrors": 0,
+    "logicalPayments": 51,
+    "completedLogicalPayments": 51,
+    "idempotencyRecords": 51,
+    "duplicateReplayResponses": 19,
+    "distinctSameKeyPayments": 1,
+    "minimumBalancePaise": 0,
+    "ledgerDebitsPaise": 450,
+    "ledgerCreditsPaise": 450
+  },
+  "integrityRunId": "066825fd-0fe8-4243-a459-a7df246d4d35",
+  "integrityChecks": [
+    {
+      "code": "COMPLETED_PAYMENT_LEDGER_COMPLETENESS",
+      "status": "PASS",
+      "violationCount": 0
+    },
+    {
+      "code": "DEBIT_CREDIT_CONSERVATION",
+      "status": "PASS",
+      "violationCount": 0
+    },
+    {
+      "code": "IDEMPOTENCY_MAPPING",
+      "status": "PASS",
+      "violationCount": 0
+    },
+    {
+      "code": "MERKLE_COMMITMENT_CONSISTENCY",
+      "status": "NOT_APPLICABLE",
+      "violationCount": 0
+    },
+    {
+      "code": "NON_NEGATIVE_BALANCES",
+      "status": "PASS",
+      "violationCount": 0
+    },
+    {
+      "code": "PAYMENT_STATE_VALIDITY",
+      "status": "PASS",
+      "violationCount": 0
+    },
+    {
+      "code": "TRANSACTION_UNIQUENESS",
+      "status": "PASS",
+      "violationCount": 0
+    }
+  ],
+  "totalIntegrityViolations": 0,
+  "allInvariantsSatisfied": true,
+  "samples": [
+    {
+      "phase": "same_idempotency_key",
+      "index": 0,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 1,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 2,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 3,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 4,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 5,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 6,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 7,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 8,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 9,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 10,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 11,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 12,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 13,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 14,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 15,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 16,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 17,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 18,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "same_idempotency_key",
+      "index": 19,
+      "outcome": "COMPLETED",
+      "paymentId": "6a5cab8b-219d-4a06-9388-620737bb7e49",
+      "duplicateReplay": true
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 0,
+      "outcome": "COMPLETED",
+      "paymentId": "358b14c0-a2fa-40b9-9909-15bdac5edaf1",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 1,
+      "outcome": "COMPLETED",
+      "paymentId": "5f54ccbe-a4c9-4c8d-8089-42603f8f4100",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 2,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 3,
+      "outcome": "COMPLETED",
+      "paymentId": "b346b5dd-ec21-4c94-98f9-1ad4253bc6dc",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 4,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 5,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 6,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 7,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 8,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 9,
+      "outcome": "COMPLETED",
+      "paymentId": "a3878888-feba-438e-aa7d-7c6d302125cd",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 10,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 11,
+      "outcome": "COMPLETED",
+      "paymentId": "abd23a24-a14f-46fb-add7-31ed069729eb",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 12,
+      "outcome": "COMPLETED",
+      "paymentId": "750cc358-31b0-4432-814c-f410007c0f36",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 13,
+      "outcome": "COMPLETED",
+      "paymentId": "67c22996-0510-4a56-93cc-92780838afcf",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 14,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 15,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 16,
+      "outcome": "COMPLETED",
+      "paymentId": "c7f202ae-9b1d-488b-a194-f189f8aaaa4c",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 17,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 18,
+      "outcome": "COMPLETED",
+      "paymentId": "d54cfe0b-a874-4a75-a4cd-81e6c9e82a0e",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 19,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 20,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 21,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 22,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 23,
+      "outcome": "COMPLETED",
+      "paymentId": "eb3a8bc5-5b3c-4376-bfd3-c24ad237f1dc",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 24,
+      "outcome": "COMPLETED",
+      "paymentId": "bbf7794e-ff91-4e44-9b99-92212578f82e",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 25,
+      "outcome": "COMPLETED",
+      "paymentId": "5e70b442-422a-449f-9362-0525f3d143c1",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 26,
+      "outcome": "COMPLETED",
+      "paymentId": "6359fcb2-d2b9-4aa5-99be-859229f2763a",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 27,
+      "outcome": "COMPLETED",
+      "paymentId": "8d930fb8-6f22-40ba-90f8-9c43b9a5d171",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 28,
+      "outcome": "COMPLETED",
+      "paymentId": "b5028838-1b4a-46ba-8e22-46233a45bd8b",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 29,
+      "outcome": "COMPLETED",
+      "paymentId": "67348723-0ba7-4bca-8a03-6c3b714ec461",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 30,
+      "outcome": "COMPLETED",
+      "paymentId": "39314554-5691-4b6d-bd4d-8fdccbc16a25",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 31,
+      "outcome": "COMPLETED",
+      "paymentId": "4ef78b1a-5de8-47ff-9655-72a742c79d86",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 32,
+      "outcome": "COMPLETED",
+      "paymentId": "5e08d160-e385-450d-b09c-1a42106da2b4",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 33,
+      "outcome": "COMPLETED",
+      "paymentId": "9aa7c513-fd3f-4a3c-8f8a-1d8bc260f980",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 34,
+      "outcome": "COMPLETED",
+      "paymentId": "656bfe94-2c64-4675-af46-9fe73593a32b",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 35,
+      "outcome": "COMPLETED",
+      "paymentId": "437face3-5e38-4505-b08c-2822b6dfeace",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 36,
+      "outcome": "COMPLETED",
+      "paymentId": "9f9e77e2-57fc-431a-8496-e9d4a4cfd8ea",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 37,
+      "outcome": "COMPLETED",
+      "paymentId": "53c77f31-1cdd-44c7-a13d-53f78555343d",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 38,
+      "outcome": "COMPLETED",
+      "paymentId": "fe547c6b-f0a6-4592-b519-5eadfec853f8",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 39,
+      "outcome": "COMPLETED",
+      "paymentId": "7f6a587b-527c-49ea-96e2-e1aa6d70b8fc",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 40,
+      "outcome": "COMPLETED",
+      "paymentId": "fb7e0367-c39a-4de3-9c6b-556df2dc1ffe",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 41,
+      "outcome": "COMPLETED",
+      "paymentId": "5a1a0b81-64e4-4977-9399-5134c0a612c9",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 42,
+      "outcome": "COMPLETED",
+      "paymentId": "abfdf43d-7230-498b-86b1-6cedb82b3ca4",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 43,
+      "outcome": "COMPLETED",
+      "paymentId": "1f00a516-4974-42ad-8ecf-48badbe9a7b2",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 44,
+      "outcome": "COMPLETED",
+      "paymentId": "05258f84-74c3-4f4d-bb93-1da4b3f6db94",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 45,
+      "outcome": "COMPLETED",
+      "paymentId": "de5f4eb2-224e-49ff-b6f4-92fc18f911ec",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 46,
+      "outcome": "COMPLETED",
+      "paymentId": "b429bfbf-3404-47ae-a31a-3e27b9cd6850",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 47,
+      "outcome": "COMPLETED",
+      "paymentId": "190ec01b-0135-43f2-b3a8-506eab7ce309",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 48,
+      "outcome": "COMPLETED",
+      "paymentId": "28c6997c-36fe-4d79-a03a-2d399a968bfd",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 49,
+      "outcome": "COMPLETED",
+      "paymentId": "2f8640e7-4131-4749-a225-f3166da03fd1",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 50,
+      "outcome": "COMPLETED",
+      "paymentId": "70dcf865-211c-4ec5-8877-8ccadd1dea20",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 51,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 52,
+      "outcome": "COMPLETED",
+      "paymentId": "a65a8ef1-b051-44db-aaf3-4729865a58b1",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 53,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 54,
+      "outcome": "COMPLETED",
+      "paymentId": "06b0edab-8aaf-480e-9073-7f4df77b147a",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 55,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 56,
+      "outcome": "COMPLETED",
+      "paymentId": "ef9102ea-4c2b-4dbc-bbb6-b4cbf7c87553",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 57,
+      "outcome": "COMPLETED",
+      "paymentId": "4e351005-8d78-4758-a5e2-a05d487d795c",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 58,
+      "outcome": "COMPLETED",
+      "paymentId": "0036ebff-1d31-4c81-9740-99b10d23b4cf",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 59,
+      "outcome": "COMPLETED",
+      "paymentId": "9b8a064a-011e-4c82-a0fb-5ee6cc53cae2",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 60,
+      "outcome": "COMPLETED",
+      "paymentId": "2e2d52cf-5791-4da0-bd20-9297a98d53a1",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 61,
+      "outcome": "COMPLETED",
+      "paymentId": "c962822d-9315-4d17-815a-2806a7030e61",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 62,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 63,
+      "outcome": "COMPLETED",
+      "paymentId": "126fe8a9-477a-4489-a44d-52cfc050e65d",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 64,
+      "outcome": "COMPLETED",
+      "paymentId": "f1167430-b148-44d8-a94f-165c7a699c77",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 65,
+      "outcome": "COMPLETED",
+      "paymentId": "c01c73cc-e0b3-463f-b6a2-9d7097559cf6",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 66,
+      "outcome": "COMPLETED",
+      "paymentId": "b9690ec4-a92f-4715-b3ec-764ffe0b27e0",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 67,
+      "outcome": "COMPLETED",
+      "paymentId": "5abd23e6-cc18-415e-97a0-31ac0177afa3",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 68,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 69,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 70,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 71,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 72,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 73,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    },
+    {
+      "phase": "unique_hot_account",
+      "index": 74,
+      "outcome": "INSUFFICIENT_FUNDS",
+      "duplicateReplay": false
+    }
+  ]
+}
