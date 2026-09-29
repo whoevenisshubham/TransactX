@@ -89,7 +89,7 @@ func (s *benchmarkRunStore) CreateRun(_ context.Context, participantID string, s
 	return s.currentRun, nil
 }
 
-func (s *benchmarkRunStore) CompleteRun(_ context.Context, _ uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64) (reconciliation.Run, error) {
+func (s *benchmarkRunStore) CompleteRun(_ context.Context, _ uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64, metrics reconciliation.RunMetrics) (reconciliation.Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.currentRun.Status = reconciliation.RunStatusCompleted
@@ -99,6 +99,12 @@ func (s *benchmarkRunStore) CompleteRun(_ context.Context, _ uuid.UUID, canonRoo
 	s.currentRun.AlgorithmVersion = algoVer
 	s.currentRun.RecordCount = recordCount
 	s.currentRun.DiscrepancyCount = discrepancyCount
+	s.currentRun.ElapsedNs = metrics.ElapsedNs
+	s.currentRun.NodesVisited = metrics.NodesVisited
+	s.currentRun.RecordsInspected = metrics.RecordsInspected
+	s.currentRun.BytesExamined = metrics.BytesExamined
+	s.currentRun.DivergentBuckets = metrics.DivergentBuckets
+	s.currentRun.DivergentRecords = metrics.DivergentRecords
 	now := time.Now().UTC()
 	s.currentRun.CompletedAt = &now
 	return s.currentRun, nil

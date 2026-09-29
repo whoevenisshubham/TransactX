@@ -18,7 +18,7 @@ func (s *corruptionFixtureRuns) CreateRun(_ context.Context, participantID strin
 	s.run = reconciliation.Run{ID: uuid.New(), ParticipantID: participantID, ScopeFrom: scope.From, ScopeTo: scope.To, Status: reconciliation.RunStatusRunning, StartedAt: time.Now().UTC()}
 	return s.run, nil
 }
-func (s *corruptionFixtureRuns) CompleteRun(_ context.Context, id uuid.UUID, canonicalRoot, participantRoot []byte, canonicalVersion, algorithmVersion string, recordCount, discrepancyCount int64) (reconciliation.Run, error) {
+func (s *corruptionFixtureRuns) CompleteRun(_ context.Context, id uuid.UUID, canonicalRoot, participantRoot []byte, canonicalVersion, algorithmVersion string, recordCount, discrepancyCount int64, metrics reconciliation.RunMetrics) (reconciliation.Run, error) {
 	if id != s.run.ID {
 		return reconciliation.Run{}, reconciliation.ErrRunNotFound
 	}
@@ -30,6 +30,12 @@ func (s *corruptionFixtureRuns) CompleteRun(_ context.Context, id uuid.UUID, can
 	s.run.AlgorithmVersion = algorithmVersion
 	s.run.RecordCount = recordCount
 	s.run.DiscrepancyCount = discrepancyCount
+	s.run.ElapsedNs = metrics.ElapsedNs
+	s.run.NodesVisited = metrics.NodesVisited
+	s.run.RecordsInspected = metrics.RecordsInspected
+	s.run.BytesExamined = metrics.BytesExamined
+	s.run.DivergentBuckets = metrics.DivergentBuckets
+	s.run.DivergentRecords = metrics.DivergentRecords
 	s.run.CompletedAt = &now
 	return s.run, nil
 }

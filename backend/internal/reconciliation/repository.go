@@ -1,4 +1,4 @@
-﻿package reconciliation
+package reconciliation
 
 import (
 	"context"
@@ -48,7 +48,9 @@ func (repo *RunRepository) CreateRun(ctx context.Context, participantID string, 
 		VALUES ($1, $2, $3, 'RUNNING', NOW())
 		RETURNING id, participant_id, scope_from, scope_to, status,
 		          canonical_root, participant_root, canonical_version, algorithm_version,
-		          record_count, discrepancy_count, error_message, started_at, completed_at
+		          record_count, discrepancy_count, elapsed_ns, nodes_visited,
+		          records_inspected, bytes_examined, divergent_buckets, divergent_records,
+		          error_message, started_at, completed_at
 	`, participantID, scope.From, scope.To)
 	if scanErr := scanRun(row, &run); scanErr != nil {
 		return Run{}, fmt.Errorf("create reconciliation run: %w", scanErr)
@@ -58,7 +60,7 @@ func (repo *RunRepository) CreateRun(ctx context.Context, participantID string, 
 
 // CompleteRun marks a run COMPLETED and records the commitment comparison
 // summary. This is the normal terminal state regardless of discrepancy count.
-func (repo *RunRepository) CompleteRun(ctx context.Context, runID uuid.UUID, canonicalRoot, participantRoot []byte, canonicalVersion, algorithmVersion string, recordCount, discrepancyCount int64) (Run, error) {
+func (repo *RunRepository) CompleteRun(ctx context.Context, runID uuid.UUID, canonicalRoot, participantRoot []byte, canonicalVersion, algorithmVersion string, recordCount, discrepancyCount int64, metrics RunMetrics) (Run, error) {
 	run := Run{}
 	row := repo.db.QueryRow(ctx, `
 		UPDATE recon_runs SET
@@ -69,12 +71,22 @@ func (repo *RunRepository) CompleteRun(ctx context.Context, runID uuid.UUID, can
 			algorithm_version = $5,
 			record_count      = $6,
 			discrepancy_count = $7,
+			elapsed_ns        = $8,
+			nodes_visited     = $9,
+			records_inspected = $10,
+			bytes_examined    = $11,
+			divergent_buckets = $12,
+			divergent_records = $13,
 			completed_at      = NOW()
 		WHERE id = $1 AND status = 'RUNNING'
 		RETURNING id, participant_id, scope_from, scope_to, status,
 		          canonical_root, participant_root, canonical_version, algorithm_version,
-		          record_count, discrepancy_count, error_message, started_at, completed_at
-	`, runID, canonicalRoot, participantRoot, canonicalVersion, algorithmVersion, recordCount, discrepancyCount)
+		          record_count, discrepancy_count, elapsed_ns, nodes_visited,
+		          records_inspected, bytes_examined, divergent_buckets, divergent_records,
+		          error_message, started_at, completed_at
+	`, runID, canonicalRoot, participantRoot, canonicalVersion, algorithmVersion, recordCount, discrepancyCount,
+		metrics.ElapsedNs, metrics.NodesVisited, metrics.RecordsInspected, metrics.BytesExamined,
+		metrics.DivergentBuckets, metrics.DivergentRecords)
 	if scanErr := scanRun(row, &run); scanErr != nil {
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return Run{}, ErrRunNotFound
@@ -96,7 +108,9 @@ func (repo *RunRepository) FailRun(ctx context.Context, runID uuid.UUID, errMsg 
 		WHERE id = $1 AND status = 'RUNNING'
 		RETURNING id, participant_id, scope_from, scope_to, status,
 		          canonical_root, participant_root, canonical_version, algorithm_version,
-		          record_count, discrepancy_count, error_message, started_at, completed_at
+		          record_count, discrepancy_count, elapsed_ns, nodes_visited,
+		          records_inspected, bytes_examined, divergent_buckets, divergent_records,
+		          error_message, started_at, completed_at
 	`, runID, errMsg)
 	if scanErr := scanRun(row, &run); scanErr != nil {
 		if errors.Is(scanErr, pgx.ErrNoRows) {
@@ -113,7 +127,9 @@ func (repo *RunRepository) GetRun(ctx context.Context, runID uuid.UUID) (Run, er
 	row := repo.db.QueryRow(ctx, `
 		SELECT id, participant_id, scope_from, scope_to, status,
 		       canonical_root, participant_root, canonical_version, algorithm_version,
-		       record_count, discrepancy_count, error_message, started_at, completed_at
+		       record_count, discrepancy_count, elapsed_ns, nodes_visited,
+		       records_inspected, bytes_examined, divergent_buckets, divergent_records,
+		       error_message, started_at, completed_at
 		FROM recon_runs WHERE id = $1
 	`, runID)
 	if scanErr := scanRun(row, &run); scanErr != nil {
@@ -169,7 +185,9 @@ func (repo *RunRepository) ListRuns(ctx context.Context, req ListRunsRequest) (R
 		rows, err = repo.db.Query(ctx, `
 			SELECT id, participant_id, scope_from, scope_to, status,
 			       canonical_root, participant_root, canonical_version, algorithm_version,
-			       record_count, discrepancy_count, error_message, started_at, completed_at
+			       record_count, discrepancy_count, elapsed_ns, nodes_visited,
+			       records_inspected, bytes_examined, divergent_buckets, divergent_records,
+			       error_message, started_at, completed_at
 			FROM recon_runs
 			WHERE participant_id = $1
 			ORDER BY started_at DESC
@@ -179,7 +197,9 @@ func (repo *RunRepository) ListRuns(ctx context.Context, req ListRunsRequest) (R
 		rows, err = repo.db.Query(ctx, `
 			SELECT id, participant_id, scope_from, scope_to, status,
 			       canonical_root, participant_root, canonical_version, algorithm_version,
-			       record_count, discrepancy_count, error_message, started_at, completed_at
+			       record_count, discrepancy_count, elapsed_ns, nodes_visited,
+			       records_inspected, bytes_examined, divergent_buckets, divergent_records,
+			       error_message, started_at, completed_at
 			FROM recon_runs
 			ORDER BY started_at DESC
 			LIMIT $1 OFFSET $2
@@ -325,7 +345,9 @@ func scanRunFields(scanner runScanner, run *Run) error {
 	if err := scanner.Scan(
 		&run.ID, &run.ParticipantID, &run.ScopeFrom, &run.ScopeTo, &run.Status,
 		&canonRoot, &partRoot, &canonVer, &algoVer,
-		&run.RecordCount, &run.DiscrepancyCount, &errMsg,
+		&run.RecordCount, &run.DiscrepancyCount, &run.ElapsedNs, &run.NodesVisited,
+		&run.RecordsInspected, &run.BytesExamined, &run.DivergentBuckets, &run.DivergentRecords,
+		&errMsg,
 		&run.StartedAt, &completedAt,
 	); err != nil {
 		return err

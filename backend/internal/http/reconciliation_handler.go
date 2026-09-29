@@ -106,9 +106,9 @@ func (handler *Handler) reconciliationListRuns(writer http.ResponseWriter, reque
 	}
 
 	respPage := map[string]any{
-		"items":  sanitizeRuns(page.Items),
-		"total":  page.Total,
-		"limit":  page.Limit,
+		"items": sanitizeRuns(page.Items),
+		"total": page.Total,
+		"limit": page.Limit,
 	}
 	if page.NextOffset != nil {
 		respPage["nextOffset"] = *page.NextOffset
@@ -205,6 +205,12 @@ func sanitizeRun(run reconciliation.Run) map[string]any {
 		"status":           run.Status,
 		"recordCount":      run.RecordCount,
 		"discrepancyCount": run.DiscrepancyCount,
+		"elapsedNs":        run.ElapsedNs,
+		"nodesVisited":     run.NodesVisited,
+		"recordsInspected": run.RecordsInspected,
+		"bytesExamined":    run.BytesExamined,
+		"divergentBuckets": run.DivergentBuckets,
+		"divergentRecords": run.DivergentRecords,
 		"startedAt":        run.StartedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if run.CompletedAt != nil {
@@ -235,9 +241,9 @@ func sanitizeRuns(runs []reconciliation.Run) []map[string]any {
 
 func emptyRunPage() map[string]any {
 	return map[string]any{
-		"items":  []any{},
-		"total":  0,
-		"limit":  20,
+		"items": []any{},
+		"total": 0,
+		"limit": 20,
 	}
 }
 
@@ -291,11 +297,11 @@ func (handler *Handler) reconciliationTreeRoot(writer http.ResponseWriter, reque
 	}
 
 	out := map[string]any{
-		"rootHex": hexEncode(root.Root),
+		"rootHex":   hexEncode(root.Root),
 		"algorithm": root.Algorithm,
-		"version": root.Version,
-		"ref": root.Ref,
-		"region": root.Region,
+		"version":   root.Version,
+		"ref":       root.Ref,
+		"region":    root.Region,
 	}
 	writeData(writer, http.StatusOK, request, out)
 }
@@ -547,5 +553,3 @@ func (handler *Handler) reconciliationVerifyProof(writer http.ResponseWriter, re
 	}
 	writeData(writer, http.StatusOK, request, out)
 }
-
-

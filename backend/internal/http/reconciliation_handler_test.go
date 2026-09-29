@@ -41,7 +41,7 @@ func (s *memReconStore) CreateRun(_ context.Context, participantID string, scope
 	return run, nil
 }
 
-func (s *memReconStore) CompleteRun(_ context.Context, runID uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64) (reconciliation.Run, error) {
+func (s *memReconStore) CompleteRun(_ context.Context, runID uuid.UUID, canonRoot, partRoot []byte, canonVer, algoVer string, recordCount, discrepancyCount int64, metrics reconciliation.RunMetrics) (reconciliation.Run, error) {
 	run, ok := s.runs[runID]
 	if !ok {
 		return reconciliation.Run{}, reconciliation.ErrRunNotFound
@@ -53,6 +53,12 @@ func (s *memReconStore) CompleteRun(_ context.Context, runID uuid.UUID, canonRoo
 	run.AlgorithmVersion = algoVer
 	run.RecordCount = recordCount
 	run.DiscrepancyCount = discrepancyCount
+	run.ElapsedNs = metrics.ElapsedNs
+	run.NodesVisited = metrics.NodesVisited
+	run.RecordsInspected = metrics.RecordsInspected
+	run.BytesExamined = metrics.BytesExamined
+	run.DivergentBuckets = metrics.DivergentBuckets
+	run.DivergentRecords = metrics.DivergentRecords
 	now := time.Now().UTC()
 	run.CompletedAt = &now
 	s.runs[runID] = run
@@ -254,6 +260,11 @@ func TestReconciliationCreateRunOpsAdmin(t *testing.T) {
 	}
 	if resp.Data["participantId"] != "BANK-A" {
 		t.Fatalf("expected participantId BANK-A, got %v", resp.Data["participantId"])
+	}
+	for _, metric := range []string{"elapsedNs", "nodesVisited", "recordsInspected", "bytesExamined", "divergentBuckets", "divergentRecords"} {
+		if _, exists := resp.Data[metric]; !exists {
+			t.Errorf("response missing reconciliation metric %q", metric)
+		}
 	}
 }
 
