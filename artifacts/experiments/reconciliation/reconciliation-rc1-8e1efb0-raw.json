@@ -1,0 +1,281 @@
+{
+  "gitCommit": "8e1efb0c463aab539b417de87b6aa38a84fc8fe8",
+  "dirty": false,
+  "evidenceMode": "release",
+  "timestampUtc": "2026-09-29T20:11:33.9647999Z",
+  "os": "windows",
+  "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+  "logicalCpus": 20,
+  "goVersion": "go1.27.1",
+  "seed": 42,
+  "repetitions": 3,
+  "invocationsPerMeasurement": 32,
+  "scope": "[2026-09-01T00:00:00Z,2026-09-02T00:00:00Z)",
+  "method": "each datapoint is a 32-invocation batch; prebuilt commitments, participant/engine construction, and warmup excluded; naive full sort/diff versus Merkle engine execution with a fresh in-memory run store per invocation",
+  "results": [
+    {
+      "records": 10000,
+      "scenario": "clustered",
+      "measurements": [
+        {
+          "naiveNs": 404092500,
+          "merkleNs": 508906100,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 441260300,
+          "merkleNs": 547349700,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 445708800,
+          "merkleNs": 502328700,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 10,
+          "rootsEqual": false
+        }
+      ]
+    },
+    {
+      "records": 10000,
+      "scenario": "dispersed",
+      "measurements": [
+        {
+          "naiveNs": 482997300,
+          "merkleNs": 3347425000,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 84,
+          "merkleGetRecordsCalls": 20,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 408460500,
+          "merkleNs": 3366914800,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 84,
+          "merkleGetRecordsCalls": 20,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 380588900,
+          "merkleNs": 3244413000,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 84,
+          "merkleGetRecordsCalls": 20,
+          "discrepancies": 10,
+          "rootsEqual": false
+        }
+      ]
+    },
+    {
+      "records": 10000,
+      "scenario": "identical",
+      "measurements": [
+        {
+          "naiveNs": 181403600,
+          "merkleNs": 22349600,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 0,
+          "merkleGetRecordsCalls": 0,
+          "discrepancies": 0,
+          "rootsEqual": true
+        },
+        {
+          "naiveNs": 184893300,
+          "merkleNs": 20875200,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 0,
+          "merkleGetRecordsCalls": 0,
+          "discrepancies": 0,
+          "rootsEqual": true
+        },
+        {
+          "naiveNs": 179542600,
+          "merkleNs": 20578600,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 0,
+          "merkleGetRecordsCalls": 0,
+          "discrepancies": 0,
+          "rootsEqual": true
+        }
+      ]
+    },
+    {
+      "records": 10000,
+      "scenario": "single",
+      "measurements": [
+        {
+          "naiveNs": 197918300,
+          "merkleNs": 238960800,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 1,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 196705900,
+          "merkleNs": 254168300,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 1,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 195104200,
+          "merkleNs": 316127100,
+          "naiveRecordsCompared": 19988,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 1,
+          "rootsEqual": false
+        }
+      ]
+    },
+    {
+      "records": 100000,
+      "scenario": "clustered",
+      "measurements": [
+        {
+          "naiveNs": 5619696100,
+          "merkleNs": 4096683000,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 4867351200,
+          "merkleNs": 3391404300,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 5058620900,
+          "merkleNs": 3363472300,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 10,
+          "rootsEqual": false
+        }
+      ]
+    },
+    {
+      "records": 100000,
+      "scenario": "dispersed",
+      "measurements": [
+        {
+          "naiveNs": 5644777900,
+          "merkleNs": 24280262300,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 84,
+          "merkleGetRecordsCalls": 20,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 5635873400,
+          "merkleNs": 23771006500,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 84,
+          "merkleGetRecordsCalls": 20,
+          "discrepancies": 10,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 5380286600,
+          "merkleNs": 24710130700,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 84,
+          "merkleGetRecordsCalls": 20,
+          "discrepancies": 10,
+          "rootsEqual": false
+        }
+      ]
+    },
+    {
+      "records": 100000,
+      "scenario": "identical",
+      "measurements": [
+        {
+          "naiveNs": 5580961200,
+          "merkleNs": 493468700,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 0,
+          "merkleGetRecordsCalls": 0,
+          "discrepancies": 0,
+          "rootsEqual": true
+        },
+        {
+          "naiveNs": 5529411200,
+          "merkleNs": 505163100,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 0,
+          "merkleGetRecordsCalls": 0,
+          "discrepancies": 0,
+          "rootsEqual": true
+        },
+        {
+          "naiveNs": 5406736400,
+          "merkleNs": 531228800,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 0,
+          "merkleGetRecordsCalls": 0,
+          "discrepancies": 0,
+          "rootsEqual": true
+        }
+      ]
+    },
+    {
+      "records": 100000,
+      "scenario": "single",
+      "measurements": [
+        {
+          "naiveNs": 5646091100,
+          "merkleNs": 3872080300,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 1,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 5296122200,
+          "merkleNs": 3999336000,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 1,
+          "rootsEqual": false
+        },
+        {
+          "naiveNs": 5458984100,
+          "merkleNs": 4002546000,
+          "naiveRecordsCompared": 199862,
+          "merkleGetChildrenCalls": 14,
+          "merkleGetRecordsCalls": 2,
+          "discrepancies": 1,
+          "rootsEqual": false
+        }
+      ]
+    }
+  ]
+}
