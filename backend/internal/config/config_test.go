@@ -1,8 +1,54 @@
 package config
 
 import (
+	"reflect"
 	"testing"
 )
+
+func TestLoad_RuntimeOptions(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+	t.Setenv("TX_SIMULATION_MODE", "true")
+	t.Setenv("TX_PARTICIPANT_PROVISIONING", "true")
+	t.Setenv("DEFAULT_BANK_CODE", "BANK-A")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173, https://ops.example.test")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SimulationMode || !cfg.ParticipantProvisioning || cfg.DefaultBankCode != "BANK-A" {
+		t.Fatalf("runtime config = %+v", cfg)
+	}
+	if !reflect.DeepEqual(cfg.CORSAllowedOrigins, []string{"http://localhost:5173", "https://ops.example.test"}) {
+		t.Fatalf("origins = %v", cfg.CORSAllowedOrigins)
+	}
+}
+
+func TestLoad_RejectsUnsafeRuntimeOptions(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "*")
+	if _, err := Load(); err == nil {
+		t.Fatal("wildcard CORS origin was accepted")
+	}
+	t.Setenv("CORS_ALLOWED_ORIGINS", "http://localhost:5173")
+	t.Setenv("TX_PARTICIPANT_PROVISIONING", "true")
+	t.Setenv("TX_SIMULATION_MODE", "false")
+	if _, err := Load(); err == nil {
+		t.Fatal("participant provisioning outside simulation mode was accepted")
+	}
+}
+
+func TestLoad_ValidatesParticipantConfiguration(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+	t.Setenv("BANK_A_URL", "postgres://localhost/bank-a")
+	if _, err := Load(); err == nil {
+		t.Fatal("non-HTTP BANK_A_URL was accepted")
+	}
+	t.Setenv("BANK_A_URL", "http://localhost:8081")
+	t.Setenv("BANK_B_CODE", "BANK-A")
+	if _, err := Load(); err == nil {
+		t.Fatal("duplicate participant bank codes were accepted")
+	}
+}
 
 func TestParseExecutionTargetConfig_ValidDelimited(t *testing.T) {
 	raw := "direct:RAIL-A:BANK-A:BANK-B:http://localhost:8081;rail-b:RAIL-B:BANK-A:BANK-B:http://localhost:8082"

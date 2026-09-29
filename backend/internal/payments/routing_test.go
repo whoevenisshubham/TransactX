@@ -668,6 +668,11 @@ func TestCreateRoutedIdempotentDuplicateUsesSelectedAdapters(t *testing.T) {
 	if err != nil || duplicate {
 		t.Fatalf("first create = %+v, duplicate=%v, err=%v", payment, duplicate, err)
 	}
+	if payment.State != StateBankSettledCentralPending {
+		t.Fatalf("first create state = %s, want %s", payment.State, StateBankSettledCentralPending)
+	}
+	holdCalls, creditCalls := adapterB.holdCalls, adapterB.creditCalls
+	setBalances(t, data, 1000, 0)
 
 	// Now try to create again with the same idempotency key, but pass adapterA in the call
 	// The repository should resolve the original adapterB from the payment's route decision and NOT use adapterA
@@ -677,6 +682,22 @@ func TestCreateRoutedIdempotentDuplicateUsesSelectedAdapters(t *testing.T) {
 	}
 	if adapterA.holdCalls > 0 || adapterA.creditCalls > 0 {
 		t.Fatalf("adapterA was invoked on duplicate: holdCalls=%d creditCalls=%d", adapterA.holdCalls, adapterA.creditCalls)
+	}
+	if adapterB.holdCalls != holdCalls || adapterB.creditCalls != creditCalls {
+		t.Fatalf("adapterB was replayed during central-only recovery: hold %d->%d credit %d->%d", holdCalls, adapterB.holdCalls, creditCalls, adapterB.creditCalls)
+	}
+	if dupPayment.State != StateCompleted {
+		t.Fatalf("duplicate recovery state = %s, want %s", dupPayment.State, StateCompleted)
+	}
+	var ledgerTransactions, ledgerEntries int
+	if err := data.pool.QueryRow(context.Background(), `SELECT count(*) FROM ledger_transactions WHERE payment_id = $1`, dupPayment.ID).Scan(&ledgerTransactions); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.pool.QueryRow(context.Background(), `SELECT count(*) FROM ledger_entries le JOIN ledger_transactions lt ON lt.id = le.ledger_transaction_id WHERE lt.payment_id = $1`, dupPayment.ID).Scan(&ledgerEntries); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerTransactions != 1 || ledgerEntries != 2 {
+		t.Fatalf("central ledger cardinality = %d transactions/%d entries, want 1/2", ledgerTransactions, ledgerEntries)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/recipients"
 )
 
 // TestRealTransitionRecorded proves that when a real payment state transition occurs,
@@ -24,23 +26,21 @@ func TestRealTransitionRecorded(t *testing.T) {
 	defer payload.close(t)
 
 	ctx := context.Background()
-	paymentID := uuid.New()
-	payment := Payment{
-		ID:                paymentID,
-		InitiatedByUserID: payload.userID,
-		SenderAccountID:   payload.sourceID,
-		ReceiverAccountID: payload.receiverID,
-		AmountPaise:       500,
-		Currency:          "INR",
-		State:             StateCreated,
-	}
-
-	created, _, err := payload.repository.CreateIdempotent(ctx, payment, "real-trans-key", "real-trans-hash")
+	setBalances(t, payload, 1000, 0)
+	service := NewService(accounts.NewRepository(payload.pool), recipients.NewRepository(payload.pool), payload.repository, nil)
+	created, duplicate, err := service.CreateWithResult(ctx, CreateInput{
+		UserID: payload.userID, SourceAccountID: payload.sourceID,
+		Recipient: "receiver-" + payload.receiverUserID.String(), AmountPaise: 500,
+		Currency: "INR", IdempotencyKey: "real-trans-key",
+	})
 	if err != nil {
-		t.Fatalf("CreateIdempotent failed: %v", err)
+		t.Fatalf("CreateWithResult failed: %v", err)
+	}
+	if duplicate || created.State != StateCompleted {
+		t.Fatalf("CreateWithResult result = state %s duplicate %t", created.State, duplicate)
 	}
 
-	// SettlePayment transitions Created -> Validating -> LocalSettlement -> Committed -> Completed
+	// The production service drives Created -> Validating -> LocalSettlement -> Committed -> Completed.
 	transitions, err := payload.repository.GetTransitions(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("GetTransitions failed: %v", err)
