@@ -396,3 +396,19 @@ PHASE EXIT GATE: Fresh-clone build passes, critical tests pass, benchmark eviden
 |M2|Resilience|Offline queue, bank adapters, health, routing, circuit breaker, chaos, merchant frontend|
 |M3|Research / Console|Merkle engine, reconciliation, integrity, benchmarks, network console|
 |ALL|Shared|Architecture, reviews, integration, testing, documentation, paper, demo|
+
+# RC1 integration closeout (`release/transactx-rc1`)
+
+\[x] ALL — Start from canonical `m1/foundation` commit `e8fe0cbf2d96f4558ba58b8f44515da5b54df38a` on a separate release branch.
+\[x] M3 — Store canonical and participant commitments in independent durable owner namespaces.
+\[x] M3 — Make reconciliation, tree, proof, and integrity reads consume maintained state without bootstrap.
+\[x] M3 — Add explicit closed-scope commitment maintenance with generation, root, count, and version output.
+\[x] M3 — Prove durable generation and root recovery through a real isolated PostgreSQL restart and fresh process.
+\[x] M3 — Align canonical successful operation projection with participant ledger cardinality and semantics.
+\[x] M3 — Make GET proof output directly POSTable and verify against server-side trusted state.
+\[x] M3 — Surface integrity audit persistence failure and add a bounded debounced trigger policy.
+\[x] M1 — Prove routed duplicate recovery and immutable transition ordering through production paths.
+\[x] M1 — Provision simulation participant accounts atomically and prove a routed payment after registration.
+\[x] ALL — Normalize simulation, participant, default bank, CORS, and frontend dependency configuration.
+\[x] ALL — Add PostgreSQL-backed GitHub Actions release validation.
+\[ ] ALL — Record final clean-commit research, live-system, browser, and CI evidence before human review.

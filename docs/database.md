@@ -57,3 +57,19 @@ The API and Bank A process do not run migrations automatically at startup.
 ## Deterministic participant ledger
 
 Bank A ledger entries include operation ID, payment ID, account ID, entry type, amount, currency, and occurrence time. `GetLedgerSnapshot` orders records by timestamp and row ID, providing stable correlation data for a later reconciliation/Merkle phase (official Phase 5) without implementing that algorithm in M1.
+
+# Release candidate schema additions
+
+## `000020_m3_commitment_owners`
+
+Adds non-null `owner_id` to `merkle_commitments`. Current-state uniqueness is `(owner_id, partition, bucket_width_ns, scope_from, scope_to)`, which permits canonical and participant commitments for one logical bank partition and closed scope to coexist. Production owners are `canonical:<bank-code>` and `participant:<bank-code>`. These rows are derived evidence and have no authority over balances, payments, or ledger entries.
+
+## `000021_payment_transition_order`
+
+Adds non-null `BIGSERIAL sequence_number` to append-only `payment_state_transitions`. `CURRENT_TIMESTAMP` is transaction-stable, so timestamp ordering cannot distinguish several transitions written in one settlement. History now reads by `sequence_number ASC`; the immutability trigger still rejects update and delete.
+
+## Registration and participant accounts
+
+Simulation provisioning writes the central account and matching `bank_a.accounts` or `bank_b.accounts` row in the same PostgreSQL transaction. Both rows use the same UUID and account number and start at zero balance. The participant insert is idempotent by UUID. This atomic rule relies on the simulation schemas sharing PostgreSQL; independently hosted participant databases would require a durable provisioning workflow before the account becomes routable.
+
+Maintained commitment absence is an operational error and never starts an implicit ledger scan. Integrity audit persistence failure also returns an operational failure; an unpersisted check is never reported as completed.

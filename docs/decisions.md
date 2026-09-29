@@ -277,3 +277,33 @@ Completed reconciliation runs persist `elapsed_ns`, `nodes_visited`, `records_in
 `GET /api/ops/activity` is an OPS_ADMIN-only, server-normalized union over durable circuit transitions, chaos lifecycle facts, reconciliation runs and discrepancies, integrity runs, and route decisions. Results use `occurred_at DESC, id DESC` ordering and bounded offset pagination. The frontend does not fabricate operational events.
 
 `GET /api/ops/events/stream` uses authenticated server-sent events to carry invalidation hints for durable health, routing, circuit, chaos, reconciliation, integrity, and activity state. The stream never carries authoritative financial state. The client refetches the existing HTTP APIs on initial connection, every relevant invalidation, reconnect, disconnect gap, stale indication, and watchdog timeout. This provides the specification's near-real-time subscription behavior without aggressive client polling; PostgreSQL and the HTTP read APIs remain authoritative.
+
+## ADR-025: Explicit durable Merkle maintenance
+
+Status: **IMPLEMENTED**
+
+Normal reconciliation and proof reads consume precomputed PostgreSQL commitments. `cmd/maintain-merkle` is the explicit bootstrap and replacement boundary for a closed scope. Canonical and participant state use separate owner namespaces and the same logical bank partition. Missing state fails explicitly. A read path cannot call `Initialize`, `Refresh`, `Bootstrap`, or an authoritative ledger snapshot as fallback.
+
+## ADR-026: Canonical projection mirrors participant ledger facts
+
+Status: **IMPLEMENTED**
+
+The canonical source includes successful ledger-producing operations only. Source hold confirmation is excluded because it creates no participant ledger row. Finalize credit and release map to `FINAL_CREDIT` and `RELEASE`; failed operations are excluded. Canonical fields come from central operation facts, while occurrence time is joined by operation UUID from the participant snapshot because the frozen payment adapter does not return participant occurrence timestamps during settlement.
+
+## ADR-027: Simulation participant provisioning
+
+Status: **IMPLEMENTED**
+
+Public registration provisions a routable participant account only when both simulation mode and participant provisioning are enabled. A separate `ParticipantAccountProvisioner` creates the participant row inside the registration transaction and does not extend `BankAdapter`. Configuration requires a default bank code matching Bank A or Bank B.
+
+## ADR-028: Automatic integrity scan policy
+
+Status: **IMPLEMENTED**
+
+Successful central settlement, routed recovery, reconciliation, and selected chaos recovery submit an event to a two-second debounce coordinator. One coalesced background run performs six financial checks. Merkle consistency remains operator-triggered. Persistence failure maps to HTTP 503; an unpersisted run is never successful.
+
+## ADR-029: Release configuration and browser boundary
+
+Status: **IMPLEMENTED**
+
+`DEFAULT_BANK_CODE` defaults to `BANK-A`. Participant URLs and codes, simulation mode, provisioning, routing, circuit settings, and credentialed CORS origins use central validation. Wildcard CORS is rejected. The console displays server-reported simulation mode. Frontend release dependencies use exact versions and CI uses `npm ci`.
