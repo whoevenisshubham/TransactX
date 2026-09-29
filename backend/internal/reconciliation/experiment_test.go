@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +43,8 @@ func TestReconciliationScaleEvidence(t *testing.T) {
 	}
 	report := struct {
 		GitCommit    string    `json:"gitCommit"`
+		Dirty        bool      `json:"dirty"`
+		EvidenceMode string    `json:"evidenceMode"`
 		TimestampUTC time.Time `json:"timestampUtc"`
 		OS           string    `json:"os"`
 		CPU          string    `json:"cpu"`
@@ -51,12 +55,29 @@ func TestReconciliationScaleEvidence(t *testing.T) {
 		Scope        string    `json:"scope"`
 		Method       string    `json:"method"`
 		Results      []result  `json:"results"`
-	}{GitCommit: os.Getenv("M3_GIT_COMMIT"), TimestampUTC: time.Now().UTC(), OS: runtime.GOOS,
+	}{TimestampUTC: time.Now().UTC(), OS: runtime.GOOS,
 		CPU: os.Getenv("PROCESSOR_IDENTIFIER"), LogicalCPUs: runtime.NumCPU(), GoVersion: runtime.Version(),
 		Seed: seed, Repetitions: repetitions, Scope: "[2026-09-01T00:00:00Z,2026-09-02T00:00:00Z)",
 		Method: "prebuilt commitments; participant construction and warmup excluded; naive full sort/diff versus Merkle engine run including in-memory run store"}
-	if report.GitCommit == "" {
-		t.Fatal("M3_GIT_COMMIT is required")
+	commitOutput, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("resolve git commit: %v", err)
+	}
+	report.GitCommit = strings.TrimSpace(string(commitOutput))
+	statusOutput, err := exec.Command("git", "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("inspect working tree: %v", err)
+	}
+	report.Dirty = strings.TrimSpace(string(statusOutput)) != ""
+	report.EvidenceMode = strings.ToLower(strings.TrimSpace(os.Getenv("M3_EVIDENCE_MODE")))
+	if report.EvidenceMode == "" {
+		report.EvidenceMode = "release"
+	}
+	if report.Dirty && report.EvidenceMode != "exploratory" {
+		t.Fatal("release evidence requires a clean working tree; set M3_EVIDENCE_MODE=exploratory only for non-release measurements")
+	}
+	if report.CPU == "" {
+		report.CPU = runtime.GOARCH
 	}
 	scope := reconciliation.Scope{From: base, To: base.Add(24 * time.Hour)}
 	for _, count := range []int{10000, 100000} {
@@ -109,6 +130,9 @@ func TestReconciliationScaleEvidence(t *testing.T) {
 				merkleNs := time.Since(start).Nanoseconds()
 				if err != nil {
 					t.Fatal(err)
+				}
+				if naiveNs <= 0 || merkleNs <= 0 || merkleRun.ElapsedNs <= 0 {
+					t.Fatalf("%d %s: non-positive duration naive=%d merkle=%d engine=%d", count, scenario, naiveNs, merkleNs, merkleRun.ElapsedNs)
 				}
 				if int64(len(naiveResult.Discrepancies)) != merkleRun.DiscrepancyCount {
 					t.Fatalf("%d %s: mismatch counts", count, scenario)
