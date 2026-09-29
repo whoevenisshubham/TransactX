@@ -12,6 +12,7 @@ import (
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/payments"
+	"github.com/transactx/backend/internal/reconciliation"
 )
 
 type createPaymentRequest struct {
@@ -81,6 +82,13 @@ func (h *Handler) createPayment(writer http.ResponseWriter, request *http.Reques
 	}
 	if intermediatePaymentState(customer.State) {
 		status = http.StatusAccepted
+	}
+	if customer.State == payments.StateCompleted && h.integrityCoordinator != nil {
+		event := reconciliation.IntegrityEventCentralSettlement
+		if duplicate && payment.SourceBankID != nil {
+			event = reconciliation.IntegrityEventRoutedRecovery
+		}
+		h.integrityCoordinator.Trigger(event)
 	}
 	writeData(writer, status, request, customer)
 }

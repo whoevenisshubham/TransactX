@@ -9,6 +9,7 @@ import (
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/chaos"
 	"github.com/transactx/backend/internal/common"
+	"github.com/transactx/backend/internal/reconciliation"
 )
 
 func (handler *Handler) chaosStart(writer http.ResponseWriter, request *http.Request) {
@@ -141,6 +142,9 @@ func (handler *Handler) chaosStop(writer http.ResponseWriter, request *http.Requ
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to stop chaos scenario", http.StatusInternalServerError))
 		return
 	}
+	if handler.integrityCoordinator != nil {
+		handler.integrityCoordinator.Trigger(reconciliation.IntegrityEventChaosRecovery)
+	}
 
 	writeData(writer, http.StatusOK, request, scenario)
 }
@@ -176,6 +180,9 @@ func (handler *Handler) chaosReset(writer http.ResponseWriter, request *http.Req
 		}
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to reset chaos", http.StatusInternalServerError))
 		return
+	}
+	if handler.integrityCoordinator != nil {
+		handler.integrityCoordinator.Trigger(reconciliation.IntegrityEventChaosRecovery)
 	}
 
 	writeData(writer, http.StatusOK, request, map[string]any{"status": "reset", "targetId": targetID})

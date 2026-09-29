@@ -166,7 +166,10 @@ type IntegrityRunStore interface {
 	ListRuns(ctx context.Context, limit, offset int) ([]IntegrityRunResult, int, error)
 }
 
-var ErrIntegrityRunNotFound = errors.New("integrity run not found")
+var (
+	ErrIntegrityRunNotFound    = errors.New("integrity run not found")
+	ErrIntegrityRunPersistence = errors.New("integrity run persistence failed")
+)
 
 // MemoryIntegrityRunStore is an in-memory, thread-safe implementation of IntegrityRunStore.
 type MemoryIntegrityRunStore struct {
@@ -319,6 +322,33 @@ type MaintainedCommitment struct {
 // ParticipantCommitmentSource provides access to already-maintained participant commitments without rebuilding them.
 type ParticipantCommitmentSource interface {
 	GetMaintainedCommitment(ctx context.Context, participantID string, scope Scope) (MaintainedCommitment, bool, error)
+}
+
+// PostgresParticipantCommitmentSource resolves the participant-owned durable
+// namespace selected by participant identity.
+type PostgresParticipantCommitmentSource struct {
+	pool *pgxpool.Pool
+}
+
+func NewPostgresParticipantCommitmentSource(pool *pgxpool.Pool) *PostgresParticipantCommitmentSource {
+	return &PostgresParticipantCommitmentSource{pool: pool}
+}
+
+func (source *PostgresParticipantCommitmentSource) GetMaintainedCommitment(ctx context.Context, participantID string, scope Scope) (MaintainedCommitment, bool, error) {
+	if source == nil || source.pool == nil || strings.TrimSpace(participantID) == "" {
+		return MaintainedCommitment{}, false, nil
+	}
+	store := NewPostgresIncrementalCommitmentStoreForOwner(source.pool, "participant:"+participantID)
+	state, found, err := store.FindState(ctx, participantID, scope)
+	if err != nil || !found {
+		return MaintainedCommitment{}, found, err
+	}
+	return MaintainedCommitment{
+		ParticipantID: participantID, Partition: state.Partition, BucketWidth: state.BucketWidth,
+		CanonicalVersion: state.CanonicalVersion, AlgorithmVersion: state.AlgorithmVersion,
+		Generation: state.Generation, Root: append([]byte(nil), state.Root...), RecordCount: state.RecordCount,
+		Scope: state.Scope, CapturedAt: state.CapturedAt,
+	}, true, nil
 }
 
 // FinancialDataStore is the read-only abstraction for observing financial state.
@@ -571,6 +601,7 @@ type PostgresFinancialDataStore struct {
 	pool             *pgxpool.Pool
 	commitments      IncrementalCommitmentStore
 	participantStore ParticipantCommitmentSource
+	authoritativeSources map[string]LedgerSnapshotSource
 }
 
 func NewPostgresFinancialDataStore(pool *pgxpool.Pool, commitmentStore ...IncrementalCommitmentStore) *PostgresFinancialDataStore {
@@ -589,13 +620,9 @@ func NewPostgresFinancialDataStore(pool *pgxpool.Pool, commitmentStore ...Increm
 // NewProductionPostgresFinancialDataStore constructs a PostgresFinancialDataStore explicitly configured
 // with a real PostgreSQL-backed durable commitment store (NewPostgresIncrementalCommitmentStore).
 func NewProductionPostgresFinancialDataStore(pool *pgxpool.Pool) *PostgresFinancialDataStore {
-	var store IncrementalCommitmentStore
-	if pool != nil {
-		store = NewPostgresIncrementalCommitmentStore(pool)
-	}
 	return &PostgresFinancialDataStore{
-		pool:        pool,
-		commitments: store,
+		pool:             pool,
+		participantStore: NewPostgresParticipantCommitmentSource(pool),
 	}
 }
 
@@ -608,6 +635,11 @@ func (p *PostgresFinancialDataStore) WithCommitmentStore(store IncrementalCommit
 // WithCommitmentSource injects an independent ParticipantCommitmentSource.
 func (p *PostgresFinancialDataStore) WithCommitmentSource(source ParticipantCommitmentSource) *PostgresFinancialDataStore {
 	p.participantStore = source
+	return p
+}
+
+func (p *PostgresFinancialDataStore) WithAuthoritativeSources(sources map[string]LedgerSnapshotSource) *PostgresFinancialDataStore {
+	p.authoritativeSources = sources
 	return p
 }
 
@@ -814,7 +846,7 @@ func (p *PostgresFinancialDataStore) GetStateTransitions(ctx context.Context, sc
 	if len(conds) > 0 {
 		query += " WHERE " + strings.Join(conds, " AND ")
 	}
-	query += " ORDER BY payment_id ASC, transitioned_at ASC, id ASC"
+	query += " ORDER BY payment_id ASC, sequence_number ASC"
 
 	rows, err := p.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -835,7 +867,10 @@ func (p *PostgresFinancialDataStore) GetStateTransitions(ctx context.Context, sc
 }
 
 func (p *PostgresFinancialDataStore) GetAuthoritativeRecords(ctx context.Context, participantID string, scope Scope) ([]CanonicalRecord, error) {
-	source := NewCentralLedgerSnapshotSource(p.pool, participantID)
+	var source LedgerSnapshotSource = NewCentralLedgerSnapshotSource(p.pool, participantID)
+	if participantSource, ok := p.authoritativeSources[participantID]; ok && participantSource != nil {
+		source = NewProjectedCentralLedgerSnapshotSource(p.pool, participantID, participantSource)
+	}
 	snapshot, err := source.GetLedgerSnapshot(ctx, bank.LedgerScope{From: scope.From, To: scope.To})
 	if err != nil {
 		return nil, err
@@ -1925,8 +1960,9 @@ func (e *RuntimeIntegrityEngine) Run(ctx context.Context, req IntegrityRunReques
 
 	// Persist the run
 	if err := e.runStore.SaveRun(ctx, runResult); err != nil {
-		// Even if persistence fails, return the collected run results with error noted
+		runResult.Status = IntegrityRunStatusFailed
 		runResult.ErrorMessage = fmt.Sprintf("persistence error: %v", err)
+		return runResult, fmt.Errorf("%w: %v", ErrIntegrityRunPersistence, err)
 	}
 
 	return runResult, nil

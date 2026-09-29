@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 func TestLedgerCorruptionFixtureModeAndAuthorization(t *testing.T) {
 	const path = "/api/ops/chaos/ledger-corruption-fixture"
-	t.Setenv("TX_SIMULATION_MODE", "false")
 	disabled, manager := makeReconHandler(t, []string{"BANK-A"}, newMemReconStore())
 	req := httptest.NewRequest(http.MethodPost, path, nil)
 	req.Header.Set("Authorization", "Bearer "+tokenFor(t, manager, "OPS_ADMIN"))
@@ -19,8 +19,7 @@ func TestLedgerCorruptionFixtureModeAndAuthorization(t *testing.T) {
 		t.Fatalf("fixture must be absent outside simulation mode: %d", res.Code)
 	}
 
-	t.Setenv("TX_SIMULATION_MODE", "true")
-	enabled, manager := makeReconHandler(t, []string{"BANK-A"}, newMemReconStore())
+	enabled, manager := makeReconHandler(t, []string{"BANK-A"}, newMemReconStore(), RuntimeOptions{SimulationMode: true})
 	for _, tc := range []struct {
 		role   string
 		status int
@@ -60,5 +59,27 @@ func TestLedgerCorruptionFixtureModeAndAuthorization(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRuntimeStatusAndConfiguredCORS(t *testing.T) {
+	handler, manager := makeReconHandler(t, []string{"BANK-A"}, newMemReconStore(), RuntimeOptions{
+		SimulationMode: true, CORSAllowedOrigins: []string{"https://ops.example.test"},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/ops/runtime", nil)
+	request.Header.Set("Authorization", "Bearer "+tokenFor(t, manager, "OPS_ADMIN"))
+	request.Header.Set("Origin", "https://ops.example.test")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Access-Control-Allow-Origin") != "https://ops.example.test" || !strings.Contains(response.Body.String(), `"simulationMode":true`) {
+		t.Fatalf("runtime/CORS response = %d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodOptions, "/api/ops/runtime", nil)
+	request.Header.Set("Origin", "https://untrusted.example.test")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || response.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("untrusted CORS origin was allowed: %d headers=%v", response.Code, response.Header())
 	}
 }
