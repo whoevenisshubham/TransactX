@@ -126,7 +126,7 @@ func (s *memReconStore) ListDiscrepancies(_ context.Context, req reconciliation.
 
 // --- test helper ---
 
-func makeReconHandler(t *testing.T, participants []string, store *memReconStore) (http.Handler, *auth.JWTManager) {
+func makeReconHandler(t *testing.T, participants []string, store *memReconStore, runtimeOptions ...RuntimeOptions) (http.Handler, *auth.JWTManager) {
 	t.Helper()
 	manager, err := auth.NewJWTManager(strings.Repeat("r", 32), "recon-test", time.Minute)
 	if err != nil {
@@ -147,7 +147,11 @@ func makeReconHandler(t *testing.T, participants []string, store *memReconStore)
 			return partP, nil
 		},
 	)
-	handler := NewHandlerWithReconciliation(nil, nil, nil, manager, nil, engine)
+	options := RuntimeOptions{}
+	if len(runtimeOptions) > 0 {
+		options = runtimeOptions[0]
+	}
+	handler := NewHandlerWithReconciliationAndRuntimeOptions(nil, nil, nil, manager, nil, engine, options)
 	return handler, manager
 }
 
@@ -707,6 +711,7 @@ func TestReconciliationM38API(t *testing.T) {
 			t.Fatal("expected global proof path to contain at least one sibling")
 		}
 		validProofJSON, _ := json.Marshal(proof)
+		publicProofJSON, _ := json.Marshal(publicProof(proof))
 
 		runReqDetailed := func(name, url string, payload []byte, tok string, expectStatus int, checkValid bool) {
 			t.Run(name, func(t *testing.T) {
@@ -742,8 +747,44 @@ func TestReconciliationM38API(t *testing.T) {
 			runReqDetailed(name, "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", payload, tokOps, expectStatus, true)
 		}
 
+		t.Run("GETProofCanPOSTUnchanged", func(t *testing.T) {
+			get := httptest.NewRequest(http.MethodGet, "/api/ops/reconciliation/proof/"+opID.String()+"?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", nil)
+			get.Header.Set("Authorization", "Bearer "+tokOps)
+			getResponse := httptest.NewRecorder()
+			h.ServeHTTP(getResponse, get)
+			if getResponse.Code != http.StatusOK {
+				t.Fatalf("GET proof status = %d: %s", getResponse.Code, getResponse.Body.String())
+			}
+			var envelope struct {
+				Data json.RawMessage `json:"data"`
+			}
+			if err := json.Unmarshal(getResponse.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			post := httptest.NewRequest(http.MethodPost, "/api/ops/reconciliation/proof/verify", bytes.NewReader(envelope.Data))
+			post.Header.Set("Authorization", "Bearer "+tokOps)
+			postResponse := httptest.NewRecorder()
+			h.ServeHTTP(postResponse, post)
+			if postResponse.Code != http.StatusOK {
+				t.Fatalf("unchanged proof POST status = %d: %s", postResponse.Code, postResponse.Body.String())
+			}
+		})
+
 		// 1. Valid proof -> HTTP 200 and valid=true
 		runReq("ValidProof", validProofJSON, http.StatusOK)
+		runReqDetailed("PublicDTOBodyOnly", "/api/ops/reconciliation/proof/verify", publicProofJSON, tokOps, http.StatusOK, true)
+
+		var oneNibble publicIntegrityProof
+		if err := json.Unmarshal(publicProofJSON, &oneNibble); err != nil {
+			t.Fatal(err)
+		}
+		if oneNibble.LeafHashHex[0] == '0' {
+			oneNibble.LeafHashHex = "1" + oneNibble.LeafHashHex[1:]
+		} else {
+			oneNibble.LeafHashHex = "0" + oneNibble.LeafHashHex[1:]
+		}
+		oneNibbleJSON, _ := json.Marshal(oneNibble)
+		runReqDetailed("SingleHexNibbleTamper", "/api/ops/reconciliation/proof/verify", oneNibbleJSON, tokOps, http.StatusConflict, false)
 
 		// 2. Tampered Record -> verification failure
 		var tamperedRecord reconciliation.IntegrityProof
@@ -801,7 +842,7 @@ func TestReconciliationM38API(t *testing.T) {
 		json.Unmarshal(validProofJSON, &wrongScope)
 		wrongScope.Scope.To = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 		wrongScopeJSON, _ := json.Marshal(wrongScope)
-		runReq("ScopeMismatch", wrongScopeJSON, http.StatusConflict)
+		runReq("ScopeMismatch", wrongScopeJSON, http.StatusBadRequest)
 
 		// 10. Malformed proof JSON -> HTTP 400
 		runReq("MalformedJSON", []byte(`{"invalid": "format"`), http.StatusBadRequest)
@@ -813,11 +854,11 @@ func TestReconciliationM38API(t *testing.T) {
 		malformedPathJSON, _ := json.Marshal(malformedPath)
 		runReq("MalformedPath", malformedPathJSON, http.StatusBadRequest)
 
-		// 12. Missing participantId -> HTTP 400
-		runReqDetailed("MissingParticipant", "/api/ops/reconciliation/proof/verify?scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokOps, http.StatusBadRequest, false)
+		// 12. Body metadata is sufficient; optional matching query fields remain accepted.
+		runReqDetailed("BodyParticipant", "/api/ops/reconciliation/proof/verify?scopeFrom=2024-01-01T00:00:00Z&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokOps, http.StatusOK, true)
 
-		// 13. Missing/invalid scope query parameter -> HTTP 400
-		runReqDetailed("MissingScopeTo", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z", validProofJSON, tokOps, http.StatusBadRequest, false)
+		// 13. Partial matching query context is optional; malformed values are rejected.
+		runReqDetailed("BodyScopeTo", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=2024-01-01T00:00:00Z", validProofJSON, tokOps, http.StatusOK, true)
 		runReqDetailed("InvalidScopeFrom", "/api/ops/reconciliation/proof/verify?participantId=BANK-A&scopeFrom=bad&scopeTo=2024-01-02T00:00:00Z", validProofJSON, tokOps, http.StatusBadRequest, false)
 
 		// 14. Unauthorized roles cannot use the endpoint

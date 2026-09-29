@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,6 +78,9 @@ func (handler *Handler) reconciliationCreateRun(writer http.ResponseWriter, requ
 		}
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "reconciliation run failed", http.StatusInternalServerError))
 		return
+	}
+	if handler.integrityCoordinator != nil {
+		handler.integrityCoordinator.Trigger(reconciliation.IntegrityEventReconciliation)
 	}
 
 	writeData(writer, http.StatusCreated, request, sanitizeRun(run))
@@ -257,6 +261,177 @@ func hexEncode(b []byte) string {
 	return string(dst)
 }
 
+type publicProofRecord struct {
+	OperationID uuid.UUID `json:"operationId"`
+	PaymentID   uuid.UUID `json:"paymentId"`
+	AccountID   uuid.UUID `json:"accountId"`
+	EntryType   string    `json:"entryType"`
+	AmountPaise int64     `json:"amountPaise"`
+	Currency    string    `json:"currency"`
+	OccurredAt  string    `json:"occurredAt"`
+}
+
+type publicBucketID struct {
+	Partition string `json:"partition"`
+	Start     string `json:"start"`
+	WidthNs   int64  `json:"widthNs"`
+}
+
+type publicProofStep struct {
+	HashHex  string                       `json:"hashHex,omitempty"`
+	Position reconciliation.SiblingOrder `json:"position"`
+}
+
+type publicIntegrityProof struct {
+	OperationID       uuid.UUID                             `json:"operationId"`
+	Record            publicProofRecord                     `json:"record"`
+	LeafHashHex       string                                `json:"leafHashHex"`
+	BucketID          publicBucketID                        `json:"bucketId"`
+	ParticipantID     string                                `json:"participantId"`
+	ScopeFrom         string                                `json:"scopeFrom"`
+	ScopeTo           string                                `json:"scopeTo"`
+	Generation        string                                `json:"generation"`
+	CanonicalVersion  string                                `json:"canonicalVersion"`
+	AlgorithmVersion  string                                `json:"algorithmVersion"`
+	BucketRootHex     string                                `json:"bucketRootHex"`
+	ExpectedRootHex   string                                `json:"expectedRootHex"`
+	BucketPath        []publicProofStep                     `json:"bucketPath"`
+	GlobalPath        []publicProofStep                     `json:"globalPath"`
+	GenerationMetrics reconciliation.ProofGenerationMetrics `json:"generationMetrics"`
+}
+
+func publicProof(proof reconciliation.IntegrityProof) publicIntegrityProof {
+	steps := func(path []reconciliation.ProofStep) []publicProofStep {
+		out := make([]publicProofStep, len(path))
+		for i, step := range path {
+			out[i] = publicProofStep{HashHex: hexEncode(step.Hash), Position: step.Order}
+		}
+		return out
+	}
+	record := proof.Record.Normalize()
+	return publicIntegrityProof{
+		OperationID: record.OperationID,
+		Record: publicProofRecord{
+			OperationID: record.OperationID, PaymentID: record.PaymentID, AccountID: record.AccountID,
+			EntryType: record.EntryType, AmountPaise: record.AmountPaise, Currency: record.Currency,
+			OccurredAt: record.OccurredAt.Format(time.RFC3339Nano),
+		},
+		LeafHashHex: hexEncode(proof.LeafHash),
+		BucketID: publicBucketID{
+			Partition: proof.BucketID.Partition, Start: proof.BucketID.Start.UTC().Format(time.RFC3339Nano), WidthNs: int64(proof.BucketID.Width),
+		},
+		ParticipantID: proof.ParticipantID, ScopeFrom: proof.Scope.From.UTC().Format(time.RFC3339Nano),
+		ScopeTo: proof.Scope.To.UTC().Format(time.RFC3339Nano), Generation: proof.Generation,
+		CanonicalVersion: proof.CanonicalVersion, AlgorithmVersion: proof.AlgorithmVersion,
+		BucketRootHex: hexEncode(proof.BucketRoot), ExpectedRootHex: hexEncode(proof.ExpectedRoot),
+		BucketPath: steps(proof.BucketPath), GlobalPath: steps(proof.GlobalPath), GenerationMetrics: proof.GenerationMetrics,
+	}
+}
+
+func decodePublicProof(body []byte) (reconciliation.IntegrityProof, error) {
+	var dto publicIntegrityProof
+	if err := json.Unmarshal(body, &dto); err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	if dto.LeafHashHex == "" {
+		return reconciliation.DeserializeProof(body)
+	}
+	if dto.OperationID == uuid.Nil || dto.OperationID != dto.Record.OperationID {
+		return reconciliation.IntegrityProof{}, errors.New("operationId must match record.operationId")
+	}
+	parseTime := func(name, value string) (time.Time, error) {
+		parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+		if err != nil {
+			return time.Time{}, fmt.Errorf("%s must be RFC3339: %w", name, err)
+		}
+		return parsed.UTC(), nil
+	}
+	occurredAt, err := parseTime("record.occurredAt", dto.Record.OccurredAt)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	bucketStart, err := parseTime("bucketId.start", dto.BucketID.Start)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	from, err := parseTime("scopeFrom", dto.ScopeFrom)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	to, err := parseTime("scopeTo", dto.ScopeTo)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	decodeHash := func(name, value string, allowEmpty bool) ([]byte, error) {
+		if value == "" && allowEmpty {
+			return nil, nil
+		}
+		decoded, err := hex.DecodeString(value)
+		if err != nil || len(decoded) != 32 {
+			return nil, fmt.Errorf("%s must be a 32-byte hex digest", name)
+		}
+		return decoded, nil
+	}
+	leaf, err := decodeHash("leafHashHex", dto.LeafHashHex, false)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	bucketRoot, err := decodeHash("bucketRootHex", dto.BucketRootHex, false)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	expectedRoot, err := decodeHash("expectedRootHex", dto.ExpectedRootHex, false)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	decodeSteps := func(name string, path []publicProofStep) ([]reconciliation.ProofStep, error) {
+		out := make([]reconciliation.ProofStep, len(path))
+		for i, step := range path {
+			hash, err := decodeHash(fmt.Sprintf("%s[%d].hashHex", name, i), step.HashHex, step.Position == reconciliation.SiblingPromoted)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = reconciliation.ProofStep{Hash: hash, Order: step.Position}
+		}
+		return out, nil
+	}
+	bucketPath, err := decodeSteps("bucketPath", dto.BucketPath)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	globalPath, err := decodeSteps("globalPath", dto.GlobalPath)
+	if err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	proof := reconciliation.IntegrityProof{
+		Record: reconciliation.CanonicalRecord{
+			OperationID: dto.Record.OperationID, PaymentID: dto.Record.PaymentID, AccountID: dto.Record.AccountID,
+			EntryType: dto.Record.EntryType, AmountPaise: dto.Record.AmountPaise, Currency: dto.Record.Currency, OccurredAt: occurredAt,
+		},
+		LeafHash: leaf, BucketID: reconciliation.BucketID{Partition: dto.BucketID.Partition, Start: bucketStart, Width: time.Duration(dto.BucketID.WidthNs)},
+		ParticipantID: dto.ParticipantID, Scope: reconciliation.Scope{From: from, To: to}, Generation: dto.Generation,
+		CanonicalVersion: dto.CanonicalVersion, AlgorithmVersion: dto.AlgorithmVersion,
+		BucketPath: bucketPath, BucketRoot: bucketRoot, GlobalPath: globalPath, ExpectedRoot: expectedRoot,
+		GenerationMetrics: dto.GenerationMetrics,
+	}
+	if err := proof.Validate(); err != nil {
+		return reconciliation.IntegrityProof{}, err
+	}
+	return proof, nil
+}
+
+func writeReconciliationReadError(writer http.ResponseWriter, request *http.Request, err error, fallback string) {
+	if errors.Is(err, reconciliation.ErrCommitmentUnavailable) {
+		writeAPIError(writer, request, common.NewAPIError("COMMITMENT_UNAVAILABLE", "maintained commitment is unavailable for the requested scope", http.StatusServiceUnavailable))
+		return
+	}
+	if errors.Is(err, reconciliation.ErrStaleReference) {
+		writeAPIError(writer, request, common.NewAPIError("STALE_COMMITMENT_GENERATION", "commitment generation is stale", http.StatusConflict))
+		return
+	}
+	writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", fallback, http.StatusInternalServerError))
+}
+
 func (handler *Handler) reconciliationTreeRoot(writer http.ResponseWriter, request *http.Request) {
 	if handler.reconEngine == nil {
 		writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "reconciliation engine is not configured", http.StatusNotFound))
@@ -292,7 +467,7 @@ func (handler *Handler) reconciliationTreeRoot(writer http.ResponseWriter, reque
 		if handler.logger != nil {
 			handler.logger.Error("get reconciliation tree root", "error", err)
 		}
-		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to get tree root", http.StatusInternalServerError))
+		writeReconciliationReadError(writer, request, err, "failed to get tree root")
 		return
 	}
 
@@ -369,6 +544,10 @@ func (handler *Handler) reconciliationTreeChildren(writer http.ResponseWriter, r
 			writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "node not found", http.StatusNotFound))
 			return
 		}
+		if errors.Is(err, reconciliation.ErrStaleReference) || errors.Is(err, reconciliation.ErrCommitmentUnavailable) {
+			writeReconciliationReadError(writer, request, err, "failed to get tree children")
+			return
+		}
 		if handler.logger != nil {
 			handler.logger.Error("get reconciliation tree children", "error", err)
 		}
@@ -437,39 +616,7 @@ func (handler *Handler) reconciliationGetProof(writer http.ResponseWriter, reque
 		return
 	}
 
-	out := map[string]any{
-		"record":            proof.Record,
-		"leafHashHex":       hexEncode(proof.LeafHash),
-		"bucketId":          proof.BucketID,
-		"participantId":     proof.ParticipantID,
-		"scope":             proof.Scope,
-		"generation":        proof.Generation,
-		"canonicalVersion":  proof.CanonicalVersion,
-		"algorithmVersion":  proof.AlgorithmVersion,
-		"bucketRootHex":     hexEncode(proof.BucketRoot),
-		"expectedRootHex":   hexEncode(proof.ExpectedRoot),
-		"generationMetrics": proof.GenerationMetrics,
-	}
-
-	bucketPath := make([]map[string]any, len(proof.BucketPath))
-	for i, step := range proof.BucketPath {
-		bucketPath[i] = map[string]any{
-			"hashHex": hexEncode(step.Hash),
-			"order":   step.Order,
-		}
-	}
-	out["bucketPath"] = bucketPath
-
-	globalPath := make([]map[string]any, len(proof.GlobalPath))
-	for i, step := range proof.GlobalPath {
-		globalPath[i] = map[string]any{
-			"hashHex": hexEncode(step.Hash),
-			"order":   step.Order,
-		}
-	}
-	out["globalPath"] = globalPath
-
-	writeData(writer, http.StatusOK, request, out)
+	writeData(writer, http.StatusOK, request, publicProof(proof))
 }
 
 func (handler *Handler) reconciliationVerifyProof(writer http.ResponseWriter, request *http.Request) {
@@ -484,29 +631,27 @@ func (handler *Handler) reconciliationVerifyProof(writer http.ResponseWriter, re
 		return
 	}
 
-	proof, err := reconciliation.DeserializeProof(body)
+	proof, err := decodePublicProof(body)
 	if err != nil {
 		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", fmt.Sprintf("invalid proof: %v", err), http.StatusBadRequest))
 		return
 	}
 
-	participantID := strings.TrimSpace(request.URL.Query().Get("participantId"))
-	if participantID == "" {
-		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "participantId query parameter is required", http.StatusBadRequest))
+	participantID := proof.ParticipantID
+	expectedScope := proof.Scope
+	if queryParticipant := strings.TrimSpace(request.URL.Query().Get("participantId")); queryParticipant != "" && queryParticipant != participantID {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "participantId query parameter does not match proof", http.StatusBadRequest))
 		return
 	}
-
-	scopeFrom, err := time.Parse(time.RFC3339, strings.TrimSpace(request.URL.Query().Get("scopeFrom")))
-	if err != nil {
-		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "scopeFrom query parameter must be a valid RFC3339 timestamp", http.StatusBadRequest))
-		return
+	for name, expected := range map[string]time.Time{"scopeFrom": expectedScope.From, "scopeTo": expectedScope.To} {
+		if raw := strings.TrimSpace(request.URL.Query().Get(name)); raw != "" {
+			parsed, parseErr := time.Parse(time.RFC3339Nano, raw)
+			if parseErr != nil || !parsed.UTC().Equal(expected.UTC()) {
+				writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", name+" query parameter does not match proof", http.StatusBadRequest))
+				return
+			}
+		}
 	}
-	scopeTo, err := time.Parse(time.RFC3339, strings.TrimSpace(request.URL.Query().Get("scopeTo")))
-	if err != nil {
-		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "scopeTo query parameter must be a valid RFC3339 timestamp", http.StatusBadRequest))
-		return
-	}
-	expectedScope := reconciliation.Scope{From: scopeFrom, To: scopeTo}
 
 	participant, err := handler.reconEngine.GetCanonicalParticipant(request.Context(), participantID, expectedScope)
 	if err != nil {
@@ -516,7 +661,11 @@ func (handler *Handler) reconciliationVerifyProof(writer http.ResponseWriter, re
 
 	rootRes, err := participant.GetRoot(request.Context(), expectedScope)
 	if err != nil {
-		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to fetch authoritative root", http.StatusInternalServerError))
+		writeReconciliationReadError(writer, request, err, "failed to fetch authoritative root")
+		return
+	}
+	if proof.Generation != rootRes.Ref.Generation {
+		writeAPIError(writer, request, common.NewAPIError("STALE_COMMITMENT_GENERATION", "proof generation is no longer current", http.StatusConflict))
 		return
 	}
 	if rootRes.Region.IsZero() {

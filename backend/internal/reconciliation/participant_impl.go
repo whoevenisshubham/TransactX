@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/transactx/backend/internal/bank"
 )
 
@@ -262,6 +263,13 @@ func NewRepositoryParticipant(source LedgerSnapshotSource, participantID, partit
 	return NewRepositoryParticipantWithCommitmentStore(source, participantID, partition, bucketWidth, NewMemoryIncrementalCommitmentStore())
 }
 
+// NewDurableRepositoryParticipant builds a participant whose normal read path
+// can only consume an explicitly maintained PostgreSQL commitment.
+func NewDurableRepositoryParticipant(db *pgxpool.Pool, source LedgerSnapshotSource, participantID, ownerID string, bucketWidth time.Duration) (*RepositoryParticipant, error) {
+	store := NewPostgresIncrementalCommitmentStoreForOwner(db, ownerID)
+	return NewRepositoryParticipantWithCommitmentStore(source, participantID, participantID, bucketWidth, store)
+}
+
 // NewRepositoryParticipantWithCommitmentStore injects the derived commitment
 // persistence boundary. The default constructor uses a process-local store;
 // callers that need restart persistence provide a durable implementation of
@@ -339,7 +347,7 @@ func (participant *RepositoryParticipant) GetChildren(ctx context.Context, ref N
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
 	}
-	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
+	state, err := participant.referenceStateFromStore(ctx, ref.Generation, scope, ErrInvalidNodeReference)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +365,7 @@ func (participant *RepositoryParticipant) GetRecords(ctx context.Context, ref Bu
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidBucketReference, err)
 	}
-	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidBucketReference)
+	state, err := participant.referenceStateFromStore(ctx, ref.Generation, scope, ErrInvalidBucketReference)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +383,7 @@ func (participant *RepositoryParticipant) GetBucketID(ctx context.Context, ref N
 	if err != nil {
 		return BucketID{}, fmt.Errorf("%w: %v", ErrInvalidNodeReference, err)
 	}
-	state, err := participant.referenceState(ref.Generation, scope, ErrInvalidNodeReference)
+	state, err := participant.referenceStateFromStore(ctx, ref.Generation, scope, ErrInvalidNodeReference)
 	if err != nil {
 		return BucketID{}, err
 	}
@@ -398,14 +406,6 @@ func (participant *RepositoryParticipant) state(ctx context.Context, scope Scope
 	if err := validateRepositoryScope(scope); err != nil {
 		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
-	key := ScopeIdentity(scope)
-	participant.mu.RLock()
-	generation, ok := participant.current[key]
-	cached := participant.snapshots[generation]
-	participant.mu.RUnlock()
-	if ok {
-		return cloneIncrementalState(cached.state), generation, scope, nil
-	}
 	state, found, err := participant.commitments.LoadState(ctx, participant.partition, participant.bucketWidth, scope)
 	if err != nil {
 		return IncrementalCommitmentState{}, "", Scope{}, err
@@ -413,7 +413,7 @@ func (participant *RepositoryParticipant) state(ctx context.Context, scope Scope
 	if !found {
 		return IncrementalCommitmentState{}, "", Scope{}, fmt.Errorf("%w: call Initialize or Refresh for scope %s", ErrCommitmentUnavailable, ScopeIdentity(scope))
 	}
-	generation, err = participant.installSnapshot(scope, state, state.CapturedAt)
+	generation, err := participant.installSnapshot(scope, state, state.CapturedAt)
 	if err != nil {
 		return IncrementalCommitmentState{}, "", Scope{}, err
 	}
@@ -469,19 +469,22 @@ func (participant *RepositoryParticipant) installSnapshot(scope Scope, state Inc
 	return generation, nil
 }
 
-func (participant *RepositoryParticipant) referenceState(generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {
+func (participant *RepositoryParticipant) referenceStateFromStore(ctx context.Context, generation string, scope Scope, invalid error) (IncrementalCommitmentState, error) {
 	if generation == "" {
 		return IncrementalCommitmentState{}, fmt.Errorf("%w: generation is required", invalid)
 	}
-	key := ScopeIdentity(scope)
-	participant.mu.RLock()
-	snapshot, ok := participant.snapshots[generation]
-	current := participant.current[key]
-	participant.mu.RUnlock()
-	if !ok || current != generation {
+	scope = scope.Normalize()
+	state, found, err := participant.commitments.LoadState(ctx, participant.partition, participant.bucketWidth, scope)
+	if err != nil {
+		return IncrementalCommitmentState{}, err
+	}
+	if !found || state.Generation != generation {
 		return IncrementalCommitmentState{}, fmt.Errorf("%w: generation %q is no longer current", ErrStaleReference, generation)
 	}
-	return cloneIncrementalState(snapshot.state), nil
+	if _, err := participant.installSnapshot(scope, state, state.CapturedAt); err != nil {
+		return IncrementalCommitmentState{}, err
+	}
+	return cloneIncrementalState(state), nil
 }
 
 func validateRepositoryScope(scope Scope) error {
