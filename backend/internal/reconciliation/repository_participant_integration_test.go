@@ -1,7 +1,9 @@
 package reconciliation
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -125,7 +127,7 @@ func TestRepositoryParticipantRestartRestoration(t *testing.T) {
 
 	// Ensure clean state (delete old states if they exist for this test)
 	// We'll use a unique scope to avoid collisions
-	scope := Scope{From: time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC), To: time.Date(2026, 9, 10, 1, 0, 0, 0, time.UTC)}
+	scope := participantScope()
 
 	// Run 1: Initialize
 	participant1, err := NewRepositoryParticipantWithCommitmentStore(source, "BANK-RESTART", "ledger", time.Hour, store)
@@ -196,5 +198,99 @@ func TestRepositoryParticipantRestartRestoration(t *testing.T) {
 
 	if sourceCalls != 0 {
 		t.Fatalf("Expected 0 ledger rebuilds on restart, got %d", sourceCalls)
+	}
+}
+
+func TestDurableOwnerNamespacesRestartAndStaleGeneration(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+
+	participantID := "BANK-DURABLE-" + uuid.NewString()[:12]
+	scope := participantScope()
+	records := participantRecords()
+	entries := make([]bank.LedgerEntry, len(records))
+	for i, record := range records {
+		entries[i] = bank.LedgerEntry{
+			OperationID: record.OperationID, PaymentID: record.PaymentID, AccountID: record.AccountID,
+			EntryType: record.EntryType, AmountPaise: record.AmountPaise, Currency: record.Currency, OccurredAt: record.OccurredAt,
+		}
+	}
+	sourceCalls := 0
+	source := fakeSnapshotSource{snapshot: bank.LedgerSnapshot{BankID: participantID, CapturedAt: time.Now().UTC(), Entries: entries}, calls: &sourceCalls}
+	canonicalOwner := "canonical:" + participantID
+	participantOwner := "participant:" + participantID
+	canonicalMaintainer, err := NewDurableRepositoryParticipant(pool, source, participantID, canonicalOwner, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	participantMaintainer, err := NewDurableRepositoryParticipant(pool, source, participantID, participantOwner, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := canonicalMaintainer.Initialize(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+	if err := participantMaintainer.Initialize(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+	canonicalRoot, _ := canonicalMaintainer.GetRoot(ctx, scope)
+	participantRoot, _ := participantMaintainer.GetRoot(ctx, scope)
+	if !bytes.Equal(canonicalRoot.Root, participantRoot.Root) {
+		t.Fatalf("healthy maintained roots differ: %x != %x", canonicalRoot.Root, participantRoot.Root)
+	}
+
+	sourceCalls = 0
+	canonicalReader, _ := NewDurableRepositoryParticipant(pool, source, participantID, canonicalOwner, time.Hour)
+	participantReader, _ := NewDurableRepositoryParticipant(pool, source, participantID, participantOwner, time.Hour)
+	restartedRoot, err := canonicalReader.GetRoot(ctx, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restartedRoot.Ref.Generation != canonicalRoot.Ref.Generation || !bytes.Equal(restartedRoot.Root, canonicalRoot.Root) {
+		t.Fatal("durable canonical state changed after participant recreation")
+	}
+	if _, err := participantReader.GetRoot(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+	if sourceCalls != 0 {
+		t.Fatalf("normal reads called authoritative sources %d times", sourceCalls)
+	}
+
+	engine := NewEngine(KnownParticipants{participantID: true}, NewRunRepository(pool),
+		func(context.Context, string, Scope) (ReconciliationParticipant, error) { return canonicalReader, nil },
+		func(context.Context, string, Scope) (ReconciliationParticipant, error) { return participantReader, nil },
+	)
+	run, err := engine.Execute(ctx, RunRequest{ParticipantID: participantID, ScopeFrom: scope.From, ScopeTo: scope.To})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM recon_discrepancies WHERE run_id = $1`, run.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM recon_runs WHERE id = $1`, run.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM merkle_commitments WHERE owner_id IN ($1, $2)`, canonicalOwner, participantOwner)
+	})
+	if run.DiscrepancyCount != 0 || sourceCalls != 0 {
+		t.Fatalf("healthy reconciliation = discrepancies %d, source calls %d", run.DiscrepancyCount, sourceCalls)
+	}
+
+	updated := append([]bank.LedgerEntry(nil), entries...)
+	extra := participantFixtureRecord(9, scope.From.Add(45*time.Minute))
+	updated = append(updated, bank.LedgerEntry{OperationID: extra.OperationID, PaymentID: extra.PaymentID, AccountID: extra.AccountID, EntryType: extra.EntryType, AmountPaise: extra.AmountPaise, Currency: extra.Currency, OccurredAt: extra.OccurredAt})
+	refreshSource := fakeSnapshotSource{snapshot: bank.LedgerSnapshot{BankID: participantID, CapturedAt: time.Now().UTC(), Entries: updated}}
+	refresher, _ := NewDurableRepositoryParticipant(pool, refreshSource, participantID, canonicalOwner, time.Hour)
+	if err := refresher.Initialize(ctx, scope); err != nil {
+		t.Fatal(err)
+	}
+	_, err = canonicalReader.GetChildren(ctx, canonicalRoot.Ref)
+	if !errors.Is(err, ErrStaleReference) {
+		t.Fatalf("old generation error = %v, want ErrStaleReference", err)
 	}
 }

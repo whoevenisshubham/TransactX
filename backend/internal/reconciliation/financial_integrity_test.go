@@ -18,6 +18,31 @@ import (
 	"github.com/transactx/backend/internal/reconciliation"
 )
 
+type failingIntegrityRunStore struct{}
+
+func (failingIntegrityRunStore) SaveRun(context.Context, reconciliation.IntegrityRunResult) error {
+	return errors.New("database unavailable")
+}
+
+func (failingIntegrityRunStore) GetRun(context.Context, uuid.UUID) (reconciliation.IntegrityRunResult, error) {
+	return reconciliation.IntegrityRunResult{}, reconciliation.ErrIntegrityRunNotFound
+}
+
+func (failingIntegrityRunStore) ListRuns(context.Context, int, int) ([]reconciliation.IntegrityRunResult, int, error) {
+	return nil, 0, errors.New("database unavailable")
+}
+
+func TestRuntimeIntegrityEngineReturnsPersistenceFailure(t *testing.T) {
+	engine := reconciliation.NewRuntimeIntegrityEngine(reconciliation.NewMemoryFinancialDataStore(), failingIntegrityRunStore{})
+	run, err := engine.Run(context.Background(), reconciliation.IntegrityRunRequest{})
+	if !errors.Is(err, reconciliation.ErrIntegrityRunPersistence) {
+		t.Fatalf("error = %v, want ErrIntegrityRunPersistence", err)
+	}
+	if run.Status != reconciliation.IntegrityRunStatusFailed || run.ErrorMessage == "" {
+		t.Fatalf("run = %+v, want explicit failed persistence result", run)
+	}
+}
+
 // Helper: build a baseline valid financial state where every check passes cleanly.
 func newValidBaselineStore(t *testing.T) (*reconciliation.MemoryFinancialDataStore, reconciliation.Scope, string) {
 	t.Helper()
@@ -1567,7 +1592,7 @@ func TestProductionMaintainedCommitmentSource(t *testing.T) {
 	}
 	defer pool.Close()
 
-	pgCommitStore := reconciliation.NewPostgresIncrementalCommitmentStore(pool)
+	pgCommitStore := reconciliation.NewPostgresIncrementalCommitmentStoreForOwner(pool, "participant:"+participantID)
 	if err := pgCommitStore.SaveState(ctx, state); err != nil {
 		t.Fatalf("pgCommitStore.SaveState: %v", err)
 	}

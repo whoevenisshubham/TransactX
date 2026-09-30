@@ -100,6 +100,7 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
   const [view, setView] = useState<ConsoleView>(readConsoleView());
   const [liveRevision, setLiveRevision] = useState(0);
   const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
+  const [simulationMode, setSimulationMode] = useState(false);
 
   useEffect(() => {
     const handle = () => setView(readConsoleView());
@@ -112,6 +113,14 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
     () => setLiveRevision((revision) => revision + 1),
     setStreamStatus,
   ), [token]);
+
+  useEffect(() => {
+    let active = true;
+    api.opsRuntime(token).then((runtime) => {
+      if (active) setSimulationMode(runtime.simulationMode);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [token]);
 
   function navigate(nextView: ConsoleView) {
     const path = consoleViewPath(nextView);
@@ -127,6 +136,7 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
         <ConsoleMobileHeader user={user} onLogout={onLogout} />
         <div className="content-wrap">
           <div className="console-card-header" style={{ justifyContent: "flex-end", marginBottom: ".6rem" }}>
+            {simulationMode && <span className="console-pill console-pill-warning">SIMULATION MODE</span>}
             <span className={`console-pill ${streamStatus === "connected" ? "console-pill-success" : streamStatus === "connecting" ? "console-pill-warning" : "console-pill-error"}`}>
               LIVE HINTS {streamStatus.toUpperCase()}
             </span>
@@ -398,10 +408,10 @@ function ConsoleOverviewView({ token, onNavigate, liveRevision }: { token: strin
             <div className="console-card">
               <div className="console-card-header">
                 <span className="console-card-kicker">Reconciliation Engine</span>
-                <span className="console-pill console-pill-neutral">PENDING M3-5</span>
+                <span className="console-pill console-pill-success">OPERATIONAL</span>
               </div>
-              <span className="console-val-large" style={{ fontSize: "1.1rem" }}>Not Available</span>
-              <span className="console-meta-text">Operator orchestration pending M3-5</span>
+              <span className="console-val-large" style={{ fontSize: "1.1rem" }}>Maintained commitments</span>
+              <span className="console-meta-text">Reconciliation, tree navigation, proofs, and integrity checks available</span>
             </div>
           </section>
 
@@ -524,26 +534,26 @@ function ConsoleOverviewView({ token, onNavigate, liveRevision }: { token: strin
                   <tr>
                     <td>Canonical Hash Commitment</td>
                     <td className="mono">M3-1</td>
-                    <td className="mono">internal/reconciliation/canonical.go</td>
-                    <td><span className="console-pill console-pill-neutral">ENGINE ONLY</span></td>
+                    <td className="mono">GET /api/ops/reconciliation/tree/root</td>
+                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
                   </tr>
                   <tr>
                     <td>Merkle Leaf Buckets</td>
                     <td className="mono">M3-2</td>
-                    <td className="mono">internal/reconciliation/merkle_bucket.go</td>
-                    <td><span className="console-pill console-pill-neutral">ENGINE ONLY</span></td>
+                    <td className="mono">GET /api/ops/reconciliation/tree/children</td>
+                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
                   </tr>
                   <tr>
                     <td>Reconciliation Orchestration</td>
                     <td className="mono">M3-5</td>
-                    <td className="mono">Pending M3-5 implementation</td>
-                    <td><span className="console-pill console-pill-warning">NOT AVAILABLE</span></td>
+                    <td className="mono">POST /api/ops/reconciliation/runs</td>
+                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
                   </tr>
                   <tr>
                     <td>Ledger Invariant Engine</td>
                     <td className="mono">M3-7</td>
-                    <td className="mono">Pending M3-7 implementation</td>
-                    <td><span className="console-pill console-pill-warning">NOT AVAILABLE</span></td>
+                    <td className="mono">POST /api/ops/integrity/check</td>
+                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
                   </tr>
                 </tbody>
               </table>
@@ -1100,6 +1110,11 @@ function ConsoleReconciliationView({ token, liveRevision }: { token: string; liv
         <h3>Run {selected.id}</h3>
         <p>Scope: {selected.scopeFrom} to {selected.scopeTo}</p>
         <p>Records: {selected.recordCount} · Status: {selected.status} · Discrepancies: {selected.discrepancyCount}</p>
+        <div className="console-spec-list">
+          <div className="console-spec-item"><span className="console-spec-label">Canonical root (base64)</span><span className="console-spec-val mono" style={{wordBreak: "break-all"}}>{selected.canonicalRoot ?? "Unavailable"}</span></div>
+          <div className="console-spec-item"><span className="console-spec-label">Participant root (base64)</span><span className="console-spec-val mono" style={{wordBreak: "break-all"}}>{selected.participantRoot ?? "Unavailable"}</span></div>
+          <div className="console-spec-item"><span className="console-spec-label">Commitment versions</span><span className="console-spec-val">{selected.canonicalVersion ?? "—"} · {selected.algorithmVersion ?? "—"}</span></div>
+        </div>
         <div className="console-spec-grid">
           <div className="console-spec-item"><span>Elapsed</span><strong>{(selected.elapsedNs / 1_000_000).toFixed(2)} ms</strong></div>
           <div className="console-spec-item"><span>Merkle nodes visited</span><strong>{selected.nodesVisited}</strong></div>
@@ -1223,37 +1238,41 @@ function ConsoleMerkleView({ token }: { token: string }) {
 
           {childrenMap[`${root.ref.Generation}:${root.ref.Path}`] && (
             <div style={{marginTop: "1rem"}}>
-              <h4>Children:</h4>
+              <h4>Tree nodes</h4>
               {childrenMap[`${root.ref.Generation}:${root.ref.Path}`].map((c, i) => (
-                <div key={i} className="console-spec-list" style={{background: "var(--bg-subtle)", padding: "0.5rem", marginBottom: "0.5rem", borderRadius: "4px"}}>
-                  <div className="console-spec-item">
-                    <span className="console-spec-label">Hash</span>
-                    <span className="console-spec-val" style={{fontFamily: "monospace", fontSize: "0.85rem"}}>{c.hashHex}</span>
-                  </div>
-                  <div className="console-spec-item">
-                    <span className="console-spec-label">Path</span>
-                    <span className="console-spec-val">{c.ref.Path}</span>
-                  </div>
-                  <Button variant="quiet" onClick={() => fetchChildren(c.ref.Generation, c.ref.Path)} style={{marginTop: "0.5rem"}}>
-                    Expand
-                  </Button>
-                  {childrenMap[`${c.ref.Generation}:${c.ref.Path}`] && (
-                    <div style={{paddingLeft: "1rem", marginTop: "0.5rem", borderLeft: "2px solid var(--border-color)"}}>
-                      {childrenMap[`${c.ref.Generation}:${c.ref.Path}`].map((cc, ci) => (
-                        <div key={ci} className="console-spec-item" style={{display: "block", marginBottom: "0.25rem"}}>
-                          <span className="console-spec-label">Child {cc.ref.Path}:</span>
-                          <span className="console-spec-val" style={{fontFamily: "monospace", fontSize: "0.85rem", display: "block"}}>{cc.hashHex}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <MerkleNodeBranch key={`${c.ref.Generation}:${c.ref.Path}:${i}`} node={c} depth={1} childrenMap={childrenMap} fetchChildren={fetchChildren} />
               ))}
             </div>
           )}
         </div>
       )}
     </>
+  );
+}
+
+function MerkleNodeBranch({
+  node,
+  depth,
+  childrenMap,
+  fetchChildren,
+}: {
+  node: import("./types").MerkleTreeChild;
+  depth: number;
+  childrenMap: Record<string, import("./types").MerkleTreeChild[]>;
+  fetchChildren: (generation: string, path: string) => Promise<void>;
+}) {
+  const key = `${node.ref.Generation}:${node.ref.Path}`;
+  const children = childrenMap[key];
+  return (
+    <div className="console-spec-list" style={{background: "var(--bg-subtle)", padding: "0.65rem", margin: "0.5rem 0 0.5rem 1rem", borderLeft: "2px solid var(--border-color)"}}>
+      <div className="console-spec-item"><span className="console-spec-label">Depth / path</span><span className="console-spec-val mono">{depth} · {node.ref.Path}</span></div>
+      <div className="console-spec-item"><span className="console-spec-label">Parent</span><span className="console-spec-val mono">{depth === 1 ? "root" : node.ref.Path.split("/").slice(0, -1).join("/") || "root"}</span></div>
+      <div className="console-spec-item"><span className="console-spec-label">Hash</span><span className="console-spec-val mono" style={{fontSize: "0.85rem", wordBreak: "break-all"}}>{node.hashHex}</span></div>
+      <div className="console-spec-item"><span className="console-spec-label">Region</span><span className="console-spec-val">{node.region.Start} – {node.region.End}</span></div>
+      {children === undefined && <Button variant="quiet" onClick={() => fetchChildren(node.ref.Generation, node.ref.Path)}>Expand node</Button>}
+      {children?.length === 0 && <span className="console-meta-text">Leaf bucket</span>}
+      {children?.map((child, index) => <MerkleNodeBranch key={`${child.ref.Generation}:${child.ref.Path}:${index}`} node={child} depth={depth + 1} childrenMap={childrenMap} fetchChildren={fetchChildren} />)}
+    </div>
   );
 }
 
@@ -1427,7 +1446,7 @@ function ConsoleIntegrityView({ token, liveRevision }: { token: string; liveRevi
             <ul style={{fontFamily: "monospace", fontSize: "0.85rem", listStyle: "none", paddingLeft: 0}}>
               {proof.bucketPath.map((p, i) => (
                 <li key={i} style={{marginBottom: "0.25rem"}}>
-                  <strong>{p.order}</strong>: {p.hashHex || "PROMOTED"}
+                  <strong>{p.position}</strong>: {p.hashHex || "PROMOTED"}
                 </li>
               ))}
             </ul>
@@ -1440,7 +1459,7 @@ function ConsoleIntegrityView({ token, liveRevision }: { token: string; liveRevi
             <ul style={{fontFamily: "monospace", fontSize: "0.85rem", listStyle: "none", paddingLeft: 0}}>
               {proof.globalPath.map((p, i) => (
                 <li key={i} style={{marginBottom: "0.25rem"}}>
-                  <strong>{p.order}</strong>: {p.hashHex || "PROMOTED"}
+                  <strong>{p.position}</strong>: {p.hashHex || "PROMOTED"}
                 </li>
               ))}
             </ul>

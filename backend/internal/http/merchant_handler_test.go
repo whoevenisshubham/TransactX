@@ -159,7 +159,7 @@ func TestMerchantContractReceiveInfo(t *testing.T) {
 	defer pool.Close()
 
 	manager := newMerchantTestManager(t)
-	authService := auth.NewService(pool, manager, "BANK-DEV-001")
+	authService := auth.NewService(pool, manager, ensureHTTPTestBank(t, pool))
 	handler := NewHandler(pool, slog.Default(), authService, manager)
 
 	suffix := uuid.New().String()[:8]

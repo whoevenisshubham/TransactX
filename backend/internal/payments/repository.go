@@ -297,7 +297,7 @@ func (repository *Repository) GetTransitions(ctx context.Context, paymentID uuid
 		SELECT id, payment_id, from_state, to_state, transitioned_at
 		FROM payment_state_transitions
 		WHERE payment_id = $1
-		ORDER BY transitioned_at ASC, id ASC
+		ORDER BY sequence_number ASC
 	`, paymentID)
 	if err != nil {
 		return nil, err

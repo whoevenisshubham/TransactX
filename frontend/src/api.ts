@@ -117,14 +117,13 @@ export const api = {
   opsIntegrityRun: (runId: string, token: string) => apiRequest<any>(`/api/ops/integrity/runs/${encodeURIComponent(runId)}`, {}, token),
   opsRoutingDistribution: (token: string) => apiRequest<{ windowHours: number; items: { targetId: string; payments: number }[] }>("/api/ops/routing/distribution", {}, token),
   opsActivity: (token: string, limit = 50, offset = 0) => apiRequest<{ items: import("./types").ActivityEvent[]; limit: number; nextOffset?: number }>(`/api/ops/activity?limit=${limit}&offset=${offset}`, {}, token),
+  opsRuntime: (token: string) => apiRequest<{ simulationMode: boolean }>("/api/ops/runtime", {}, token),
   opsReconciliationTreeRoot: (participantId: string, scopeFrom: string, scopeTo: string, token: string) =>
     apiRequest<import("./types").MerkleTreeRoot>(`/api/ops/reconciliation/tree/root?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}`, {}, token),
   opsReconciliationTreeChildren: (participantId: string, scopeFrom: string, scopeTo: string, generation: string, path: string, token: string) =>
     apiRequest<import("./types").MerkleTreeChild[]>(`/api/ops/reconciliation/tree/children?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}&generation=${encodeURIComponent(generation)}&path=${encodeURIComponent(path)}`, {}, token),
   opsReconciliationGetProof: (operationId: string, participantId: string, scopeFrom: string, scopeTo: string, token: string) =>
     apiRequest<import("./types").IntegrityProof>(`/api/ops/reconciliation/proof/${encodeURIComponent(operationId)}?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}`, {}, token),
-  opsReconciliationVerifyProof: (participantId: string, scopeFrom: string, scopeTo: string, proof: import("./types").IntegrityProof, token: string) => {
-    const q = new URLSearchParams({ participantId, scopeFrom, scopeTo });
-    return apiRequest<any>(`/api/ops/reconciliation/proof/verify?${q}`, { method: "POST", body: JSON.stringify(proof) }, token);
-  },
+  opsReconciliationVerifyProof: (_participantId: string, _scopeFrom: string, _scopeTo: string, proof: import("./types").IntegrityProof, token: string) =>
+    apiRequest<any>("/api/ops/reconciliation/proof/verify", { method: "POST", body: JSON.stringify(proof) }, token),
 };

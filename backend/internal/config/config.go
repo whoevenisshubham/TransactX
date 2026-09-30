@@ -68,6 +68,13 @@ type Config struct {
 	JWTLifetime               time.Duration
 	DefaultBankCode           string
 	DevelopmentMode           bool
+	BankAURL                  string
+	BankACode                 string
+	BankBURL                  string
+	BankBCode                 string
+	SimulationMode            bool
+	ParticipantProvisioning   bool
+	CORSAllowedOrigins        []string
 	RoutingMode               string
 	RoutingStaticBaseline     string
 	ExecutionTargets          []ExecutionTargetConfig
@@ -85,6 +92,21 @@ func Load() (Config, error) {
 	developmentMode, err := strconv.ParseBool(getEnv("APP_DEVELOPMENT", "false"))
 	if err != nil {
 		return Config{}, fmt.Errorf("APP_DEVELOPMENT must be true or false: %w", err)
+	}
+	simulationMode, err := strconv.ParseBool(getEnv("TX_SIMULATION_MODE", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_SIMULATION_MODE must be true or false: %w", err)
+	}
+	participantProvisioning, err := strconv.ParseBool(getEnv("TX_PARTICIPANT_PROVISIONING", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_PARTICIPANT_PROVISIONING must be true or false: %w", err)
+	}
+	if participantProvisioning && !simulationMode {
+		return Config{}, errors.New("TX_PARTICIPANT_PROVISIONING requires TX_SIMULATION_MODE=true")
+	}
+	corsAllowedOrigins, err := parseAllowedOrigins(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:5173"))
+	if err != nil {
+		return Config{}, err
 	}
 
 	jwtLifetime, err := time.ParseDuration(getEnv("JWT_LIFETIME", "15m"))
@@ -150,8 +172,15 @@ func Load() (Config, error) {
 		JWTSecret:                 os.Getenv("JWT_SECRET"),
 		JWTIssuer:                 getEnv("JWT_ISSUER", "transactx-api"),
 		JWTLifetime:               jwtLifetime,
-		DefaultBankCode:           getEnv("DEFAULT_BANK_CODE", "BANK-DEV-001"),
+		DefaultBankCode:           getEnv("DEFAULT_BANK_CODE", "BANK-A"),
 		DevelopmentMode:           developmentMode,
+		BankAURL:                  strings.TrimSpace(os.Getenv("BANK_A_URL")),
+		BankACode:                 strings.TrimSpace(getEnv("BANK_A_CODE", "BANK-A")),
+		BankBURL:                  strings.TrimSpace(os.Getenv("BANK_B_URL")),
+		BankBCode:                 strings.TrimSpace(getEnv("BANK_B_CODE", "BANK-B")),
+		SimulationMode:            simulationMode,
+		ParticipantProvisioning:   participantProvisioning,
+		CORSAllowedOrigins:        corsAllowedOrigins,
 		RoutingMode:               routingMode,
 		RoutingStaticBaseline:     routingStaticBaseline,
 		ExecutionTargets:          executionTargets,
@@ -167,7 +196,57 @@ func Load() (Config, error) {
 	if !developmentMode && len([]byte(cfg.JWTSecret)) < 32 {
 		return Config{}, errors.New("JWT_SECRET must contain at least 32 bytes outside development mode")
 	}
+	if participantProvisioning && cfg.DefaultBankCode != cfg.BankACode && cfg.DefaultBankCode != cfg.BankBCode {
+		return Config{}, fmt.Errorf("DEFAULT_BANK_CODE must match BANK_A_CODE or BANK_B_CODE when participant provisioning is enabled")
+	}
+	if cfg.BankACode == "" || cfg.BankBCode == "" || cfg.BankACode == cfg.BankBCode {
+		return Config{}, errors.New("BANK_A_CODE and BANK_B_CODE must be non-empty and distinct")
+	}
+	if err := validateOptionalHTTPURL("BANK_A_URL", cfg.BankAURL); err != nil {
+		return Config{}, err
+	}
+	if err := validateOptionalHTTPURL("BANK_B_URL", cfg.BankBURL); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func validateOptionalHTTPURL(name, value string) error {
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("%s must be an http or https base URL without credentials, query, or fragment", name)
+	}
+	return nil
+}
+
+func parseAllowedOrigins(raw string) ([]string, error) {
+	seen := make(map[string]bool)
+	var origins []string
+	for _, value := range strings.Split(raw, ",") {
+		origin := strings.TrimSpace(value)
+		if origin == "" {
+			continue
+		}
+		if origin == "*" {
+			return nil, errors.New("CORS_ALLOWED_ORIGINS cannot contain wildcard origins")
+		}
+		parsed, err := url.Parse(origin)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS contains invalid origin %q", origin)
+		}
+		origin = strings.TrimSuffix(origin, "/")
+		if !seen[origin] {
+			seen[origin] = true
+			origins = append(origins, origin)
+		}
+	}
+	if len(origins) == 0 {
+		return nil, errors.New("CORS_ALLOWED_ORIGINS must contain at least one origin")
+	}
+	return origins, nil
 }
 
 func ParseExecutionTargetConfig(raw string) ([]ExecutionTargetConfig, error) {

@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,10 +40,30 @@ type Handler struct {
 	reconEngine             *reconciliation.Engine
 	integrityEngine         *reconciliation.RuntimeIntegrityEngine
 	integrityRuns           reconciliation.IntegrityRunStore
+	integrityCoordinator    *reconciliation.IntegrityTriggerCoordinator
 	activity                activityStore
 	eventCursor             operationalCursorStore
 	streamPollInterval      time.Duration
 	streamHeartbeatInterval time.Duration
+	simulationMode          bool
+	corsAllowedOrigins      []string
+}
+
+type RuntimeOptions struct {
+	SimulationMode     bool
+	CORSAllowedOrigins []string
+	ParticipantSources map[string]reconciliation.LedgerSnapshotSource
+}
+
+func normalizeRuntimeOptions(options []RuntimeOptions) RuntimeOptions {
+	result := RuntimeOptions{CORSAllowedOrigins: []string{"http://localhost:5173"}}
+	if len(options) > 0 {
+		result = options[0]
+		if len(result.CORSAllowedOrigins) == 0 {
+			result.CORSAllowedOrigins = []string{"http://localhost:5173"}
+		}
+	}
+	return result
 }
 
 func NewHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager) http.Handler {
@@ -81,6 +102,10 @@ func NewHandlerWithBankAdaptersHealthRoutingChaosAndReconciliation(db *pgxpool.P
 	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, adapters, healthTargets, routeTargets, nil, healthService, nil, payments.SelectionModeAdaptive, "", nil, chaosController, engine)
 }
 
+func NewHandlerWithBankAdaptersHealthRoutingChaosReconciliationAndRuntimeOptions(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, healthService *health.Service, chaosController *chaos.Controller, engine *reconciliation.Engine, options RuntimeOptions) http.Handler {
+	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, adapters, healthTargets, routeTargets, nil, healthService, nil, payments.SelectionModeAdaptive, "", nil, chaosController, engine, options)
+}
+
 func NewHandlerWithExecutionTargets(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string) http.Handler {
 	return newHandlerWithAdapters(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, mode, staticBaseline)
 }
@@ -97,12 +122,20 @@ func NewHandlerWithReconciliation(db *pgxpool.Pool, logger *slog.Logger, authSer
 	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, nil, nil, nil, nil, nil, nil, payments.SelectionModeAdaptive, "", nil, chaosController, engine)
 }
 
+func NewHandlerWithReconciliationAndRuntimeOptions(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, chaosController *chaos.Controller, engine *reconciliation.Engine, options RuntimeOptions) http.Handler {
+	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, nil, nil, nil, nil, nil, nil, payments.SelectionModeAdaptive, "", nil, chaosController, engine, options)
+}
+
 func NewHandlerWithExecutionTargetsCircuitAndChaos(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller) http.Handler {
 	return newHandlerWithAdaptersAndChaos(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, mode, staticBaseline, circuitBreaker, chaosController)
 }
 
 func NewHandlerWithExecutionTargetsCircuitChaosAndReconciliation(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, engine *reconciliation.Engine) http.Handler {
 	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, nil, mode, staticBaseline, circuitBreaker, chaosController, engine)
+}
+
+func NewHandlerWithExecutionTargetsCircuitChaosReconciliationAndRuntimeOptions(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, engine *reconciliation.Engine, options RuntimeOptions) http.Handler {
+	return newHandlerWithRecon(db, logger, authService, jwtManager, nil, adapters, healthTargets, nil, executionTargets, healthService, nil, mode, staticBaseline, circuitBreaker, chaosController, engine, options)
 }
 
 func newHandler(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter) http.Handler {
@@ -121,7 +154,9 @@ func newHandlerWithAdaptersAndChaos(db *pgxpool.Pool, logger *slog.Logger, authS
 	return newHandlerWithRecon(db, logger, authService, jwtManager, adapter, adapters, healthTargets, routeTargets, executionTargets, healthService, nil, mode, staticBaseline, circuitBreaker, chaosController, nil)
 }
 
-func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, _ *circuit.CircuitBreaker, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, reconEngine *reconciliation.Engine) http.Handler {
+
+func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, _ *circuit.CircuitBreaker, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, reconEngine *reconciliation.Engine, runtimeOptions ...RuntimeOptions) http.Handler {
+	options := normalizeRuntimeOptions(runtimeOptions)
 	handler := &Handler{
 		db:              db,
 		logger:          logger,
@@ -134,10 +169,17 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		circuitBreaker:  circuitBreaker,
 		chaosController: chaosController,
 		reconEngine:     reconEngine,
+		simulationMode:  options.SimulationMode,
+		corsAllowedOrigins: append([]string(nil), options.CORSAllowedOrigins...),
 	}
 	if db != nil {
 		handler.integrityRuns = reconciliation.NewPostgresIntegrityRunStore(db)
-		handler.integrityEngine = reconciliation.NewRuntimeIntegrityEngine(reconciliation.NewProductionPostgresFinancialDataStore(db), handler.integrityRuns)
+		financialStore := reconciliation.NewProductionPostgresFinancialDataStore(db).WithAuthoritativeSources(options.ParticipantSources)
+		handler.integrityEngine = reconciliation.NewRuntimeIntegrityEngine(financialStore, handler.integrityRuns)
+		handler.integrityCoordinator = reconciliation.NewIntegrityTriggerCoordinator(handler.integrityEngine, 2*time.Second)
+		if logger != nil {
+			handler.integrityCoordinator.SetErrorObserver(func(err error) { logger.Error("automatic integrity scan failed", "error", err) })
+		}
 		handler.activity = newPostgresActivityStore(db)
 		handler.eventCursor = newPostgresOperationalCursorStore(db)
 	}
@@ -178,7 +220,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		mux.Handle("POST /api/ops/chaos/scenarios/{scenarioID}/stop", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosStop))))
 		mux.Handle("POST /api/ops/chaos/reset", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosReset))))
 	}
-	if os.Getenv("TX_SIMULATION_MODE") == "true" {
+	if handler.simulationMode {
 		mux.Handle("POST /api/ops/chaos/ledger-corruption-fixture", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.ledgerCorruptionFixture))))
 	}
 	mux.Handle("POST /api/ops/integrity/check", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityCheck))))
@@ -186,6 +228,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("GET /api/ops/integrity/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityRun))))
 	mux.Handle("GET /api/ops/routing/distribution", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.routingDistribution))))
 	mux.Handle("GET /api/ops/activity", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.activityFeed))))
+	mux.Handle("GET /api/ops/runtime", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.runtimeStatus))))
 	mux.Handle("GET /api/ops/events/stream", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.operationalEvents))))
 	// Reconciliation endpoints are always registered; the handler returns
 	// NOT_FOUND gracefully when no engine is configured.
@@ -207,7 +250,11 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("GET /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentsList))))
 	mux.Handle("GET /api/payments/{paymentID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentDetails))))
 	mux.Handle("GET /api/merchant/receive-info", auth.Authentication(jwtManager, auth.RequireRole(users.RoleMerchant)(http.HandlerFunc(handler.merchantReceiveInfo))))
-	return common.RequestIDMiddleware(cors(mux))
+	return common.RequestIDMiddleware(cors(mux, handler.corsAllowedOrigins))
+}
+
+func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Request) {
+	writeData(writer, http.StatusOK, request, map[string]bool{"simulationMode": h.simulationMode})
 }
 
 func (h *Handler) health(writer http.ResponseWriter, request *http.Request) {
@@ -233,9 +280,13 @@ func writeAPIError(writer http.ResponseWriter, request *http.Request, err *commo
 	common.WriteError(writer, common.GetRequestID(request), err)
 }
 
-func cors(next http.Handler) http.Handler {
+func cors(next http.Handler, allowedOrigins []string) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		origin := strings.TrimSpace(request.Header.Get("Origin"))
+		if origin != "" && slices.Contains(allowedOrigins, origin) {
+			writer.Header().Set("Access-Control-Allow-Origin", origin)
+			writer.Header().Set("Vary", "Origin")
+		}
 		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key, X-Request-ID")
 		if request.Method == http.MethodOptions {

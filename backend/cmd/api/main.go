@@ -45,6 +45,9 @@ func main() {
 		os.Exit(1)
 	}
 	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
+	if cfg.ParticipantProvisioning {
+		authService.WithParticipantProvisioner(auth.NewSimulationParticipantAccountProvisioner())
+	}
 	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
 	chaosRepo := chaos.NewRepository(db)
 	chaosController := chaos.NewController(chaosRepo)
@@ -73,8 +76,8 @@ func main() {
 		routeTargets[bankID] = code
 		bankIDs[code] = bankID
 	}
-	configureBank(os.Getenv("BANK_A_URL"), getEnv("BANK_A_CODE", "BANK-A"))
-	configureBank(os.Getenv("BANK_B_URL"), getEnv("BANK_B_CODE", "BANK-B"))
+	configureBank(cfg.BankAURL, cfg.BankACode)
+	configureBank(cfg.BankBURL, cfg.BankBCode)
 
 	executionTargets := make(map[payments.RouteKey][]payments.ExecutionTarget)
 	for _, targetCfg := range cfg.ExecutionTargets {
@@ -177,42 +180,33 @@ func main() {
 		knownParticipants,
 		reconRepo,
 		// Canonical factory: authoritative central PostgreSQL ledger
-		func(ctx context.Context, participantID string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-			p, err := reconciliation.NewCentralRepositoryParticipant(db, participantID, "canonical", 15*time.Minute)
-			if err != nil {
-				return nil, err
-			}
-			if initErr := p.Initialize(ctx, scope); initErr != nil {
-				return nil, initErr
-			}
-			return p, nil
+		func(_ context.Context, participantID string, _ reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return reconciliation.NewDurableCentralRepositoryParticipant(db, participantID, 15*time.Minute)
 		},
 		// Participant factory: bank participant adapter
-		func(ctx context.Context, participantID string, scope reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+		func(_ context.Context, participantID string, _ reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
 			adapter, ok := participantAdapters[participantID]
 			if !ok {
 				return nil, reconciliation.ErrInvalidParticipant
 			}
-			p, err := reconciliation.NewRepositoryParticipant(
-				adapter, participantID, participantID, 15*time.Minute,
+			return reconciliation.NewDurableRepositoryParticipant(
+				db, adapter, participantID, "participant:"+participantID, 15*time.Minute,
 			)
-			if err != nil {
-				return nil, err
-			}
-			if initErr := p.Initialize(ctx, scope); initErr != nil {
-				return nil, initErr
-			}
-			return p, nil
 		},
 	)
 
 	var handler http.Handler
+	participantSources := make(map[string]reconciliation.LedgerSnapshotSource, len(participantAdapters))
+	for code, adapter := range participantAdapters {
+		participantSources[code] = adapter
+	}
+	runtimeOptions := apihttp.RuntimeOptions{SimulationMode: cfg.SimulationMode, CORSAllowedOrigins: cfg.CORSAllowedOrigins, ParticipantSources: participantSources}
 	if len(adapters) == 0 {
-		handler = apihttp.NewHandlerWithReconciliation(db, logger, authService, jwtManager, chaosController, reconEngine)
+		handler = apihttp.NewHandlerWithReconciliationAndRuntimeOptions(db, logger, authService, jwtManager, chaosController, reconEngine, runtimeOptions)
 	} else if len(executionTargets) > 0 {
-		handler = apihttp.NewHandlerWithExecutionTargetsCircuitChaosAndReconciliation(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController, reconEngine)
+		handler = apihttp.NewHandlerWithExecutionTargetsCircuitChaosReconciliationAndRuntimeOptions(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController, reconEngine, runtimeOptions)
 	} else {
-		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingChaosAndReconciliation(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService, chaosController, reconEngine)
+		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingChaosReconciliationAndRuntimeOptions(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService, chaosController, reconEngine, runtimeOptions)
 	}
 	server := &http.Server{
 		Addr:              cfg.Address,
@@ -243,11 +237,4 @@ func main() {
 			os.Exit(1)
 		}
 	}
-}
-
-func getEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }

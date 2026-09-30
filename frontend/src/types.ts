@@ -177,24 +177,23 @@ export type MerkleTreeChild = {
 
 export type ProofStep = {
   hashHex?: string;
-  order: "LEFT" | "RIGHT" | "PROMOTED";
+  position: "LEFT" | "RIGHT" | "PROMOTED";
 };
 
 export type BucketID = {
-  Partition: string;
-  PeriodEnd: string;
-  PeriodLength: number;
+  partition: string;
+  start: string;
+  widthNs: number;
 };
 
 export type IntegrityProof = {
+  operationId: string;
   record: any;
   leafHashHex: string;
   bucketId: BucketID;
   participantId: string;
-  scope: {
-    From: string;
-    To: string;
-  };
+  scopeFrom: string;
+  scopeTo: string;
   generation: string;
   canonicalVersion: string;
   algorithmVersion: string;

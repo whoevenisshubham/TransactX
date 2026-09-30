@@ -27,10 +27,42 @@ type Service struct {
 	users           *users.Repository
 	jwt             *JWTManager
 	defaultBankCode string
+	provisioner     ParticipantAccountProvisioner
+}
+
+// ParticipantAccountProvisioner is an explicit simulation-only boundary. It
+// remains separate from BankAdapter, which is frozen as the payment boundary.
+type ParticipantAccountProvisioner interface {
+	ProvisionAccount(context.Context, pgx.Tx, string, uuid.UUID, string) error
+}
+
+type SimulationParticipantAccountProvisioner struct{}
+
+func NewSimulationParticipantAccountProvisioner() SimulationParticipantAccountProvisioner {
+	return SimulationParticipantAccountProvisioner{}
+}
+
+func (SimulationParticipantAccountProvisioner) ProvisionAccount(ctx context.Context, tx pgx.Tx, bankCode string, accountID uuid.UUID, accountNumber string) error {
+	var query string
+	switch bankCode {
+	case "BANK-A":
+		query = `INSERT INTO bank_a.accounts (id, account_number, balance_paise, version, status) VALUES ($1, $2, 0, 0, 'ACTIVE') ON CONFLICT (id) DO NOTHING`
+	case "BANK-B":
+		query = `INSERT INTO bank_b.accounts (id, account_number, balance_paise, version, status) VALUES ($1, $2, 0, 0, 'ACTIVE') ON CONFLICT (id) DO NOTHING`
+	default:
+		return fmt.Errorf("participant provisioning is unsupported for bank %q", bankCode)
+	}
+	_, err := tx.Exec(ctx, query, accountID, accountNumber)
+	return err
 }
 
 func NewService(db *pgxpool.Pool, jwtManager *JWTManager, defaultBankCode string) *Service {
 	return &Service{db: db, users: users.NewRepository(db), jwt: jwtManager, defaultBankCode: defaultBankCode}
+}
+
+func (service *Service) WithParticipantProvisioner(provisioner ParticipantAccountProvisioner) *Service {
+	service.provisioner = provisioner
+	return service
 }
 
 type RegisterInput struct {
@@ -82,6 +114,11 @@ func (service *Service) Register(ctx context.Context, input RegisterInput) (user
 	_, err = tx.Exec(ctx, `INSERT INTO accounts (id, user_id, bank_id, bank_account_id, account_number, balance_paise, version, status) VALUES ($1, $2, $3, $4, $5, 0, 0, 'ACTIVE')`, accountID, userID, bankID, accountID, accountNumber)
 	if err != nil {
 		return users.PublicUser{}, err
+	}
+	if service.provisioner != nil {
+		if err := service.provisioner.ProvisionAccount(ctx, tx, service.defaultBankCode, accountID, accountNumber); err != nil {
+			return users.PublicUser{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return users.PublicUser{}, err

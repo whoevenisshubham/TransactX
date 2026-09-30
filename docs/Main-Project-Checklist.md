@@ -7,7 +7,7 @@ Technical subtitle: A Fault-Tolerant Payment Network with Offline-First Resilien
 
 ## Current repository checkpoint
 
-The current branch contains the Member-1 and Member-2 foundations plus the verified Member-3 implementation: canonical Merkle reconciliation, proof verification, runtime financial integrity, operator run views, durable operational activity, live invalidation, and recorded 10K/100K and PostgreSQL concurrency evidence. Unchecked non-M3 boxes remain outside this closeout.
+The current branch contains the Member-1 and Member-2 foundations plus the verified Member-3 implementation: canonical Merkle reconciliation, proof verification, runtime financial integrity, operator run views, durable operational activity, live invalidation, and recorded 10K/100K and PostgreSQL concurrency evidence. The RC1 evidence source checkpoint is `8e1efb0c463aab539b417de87b6aa38a84fc8fe8`; current artifacts are listed in `docs/reconciliation-experiments.md` and `docs/resilience-experiments.md`. Unchecked non-M3 boxes remain outside this closeout.
 
 M3 closeout note (verified 2026-09-29): production reconciliation persists measured node, record, elapsed, byte-examined, and divergence metrics; the OPS_ADMIN console consumes an authoritative multi-source activity endpoint and an SSE invalidation stream with HTTP refetch on connect, reconnect, gap, and stale signals; routing distribution is live-tested against persisted PostgreSQL route decisions; and the PostgreSQL concurrency storm records zero integrity violations in a new immutable raw artifact. The simulation-only in-memory participant corruption fixture satisfies the M3 controlled-fixture requirement while preserving all central and participant PostgreSQL authority. Persisting intentionally corrupted fixture state or a dedicated durable alert is a future enhancement, not an M3 exit requirement. The 1M experiment remains optional.
 
@@ -396,3 +396,19 @@ PHASE EXIT GATE: Fresh-clone build passes, critical tests pass, benchmark eviden
 |M2|Resilience|Offline queue, bank adapters, health, routing, circuit breaker, chaos, merchant frontend|
 |M3|Research / Console|Merkle engine, reconciliation, integrity, benchmarks, network console|
 |ALL|Shared|Architecture, reviews, integration, testing, documentation, paper, demo|
+
+# RC1 integration closeout (`release/transactx-rc1`)
+
+\[x] ALL — Start from canonical `m1/foundation` commit `e8fe0cbf2d96f4558ba58b8f44515da5b54df38a` on a separate release branch.
+\[x] M3 — Store canonical and participant commitments in independent durable owner namespaces.
+\[x] M3 — Make reconciliation, tree, proof, and integrity reads consume maintained state without bootstrap.
+\[x] M3 — Add explicit closed-scope commitment maintenance with generation, root, count, and version output.
+\[x] M3 — Prove durable generation and root recovery through a real isolated PostgreSQL restart and fresh process.
+\[x] M3 — Align canonical successful operation projection with participant ledger cardinality and semantics.
+\[x] M3 — Make GET proof output directly POSTable and verify against server-side trusted state.
+\[x] M3 — Surface integrity audit persistence failure and add a bounded debounced trigger policy.
+\[x] M1 — Prove routed duplicate recovery and immutable transition ordering through production paths.
+\[x] M1 — Provision simulation participant accounts atomically and prove a routed payment after registration.
+\[x] ALL — Normalize simulation, participant, default bank, CORS, and frontend dependency configuration.
+\[x] ALL — Add PostgreSQL-backed GitHub Actions release validation.
+\[ ] ALL — Record final clean-commit research, live-system, browser, and CI evidence before human review.

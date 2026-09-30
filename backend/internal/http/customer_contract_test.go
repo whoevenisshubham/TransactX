@@ -36,6 +36,18 @@ type contractFixture struct {
 	payerAccount  uuid.UUID
 	receiverUPI   string
 	payerUPI      string
+	bankCode      string
+}
+
+func ensureHTTPTestBank(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	bankID := uuid.New()
+	code := "HTTP-" + uuid.NewString()[:20]
+	if _, err := pool.Exec(context.Background(), `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'HTTP Contract Bank', 'ACTIVE')`, bankID, code); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM banks WHERE id = $1`, bankID) })
+	return code
 }
 
 func newContractFixture(t *testing.T) contractFixture {
@@ -54,7 +66,8 @@ func newContractFixture(t *testing.T) contractFixture {
 		pool.Close()
 		t.Fatal(err)
 	}
-	authService := auth.NewService(pool, manager, "BANK-DEV-001")
+	bankCode := ensureHTTPTestBank(t, pool)
+	authService := auth.NewService(pool, manager, bankCode)
 	handler := NewHandler(pool, slog.Default(), authService, manager)
 
 	suffix := uuid.New().String()[:8]
@@ -95,6 +108,7 @@ func newContractFixture(t *testing.T) contractFixture {
 		payerAccount:  payerAccount,
 		receiverUPI:   receiverUPI,
 		payerUPI:      payerUPI,
+		bankCode:      bankCode,
 	}
 	t.Cleanup(func() { fixture.close(t) })
 	return fixture
@@ -243,7 +257,7 @@ func TestCustomerHTTP_FreshRegistrationLoginAndAccountAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authService := auth.NewService(pool, manager, "BANK-DEV-001")
+	authService := auth.NewService(pool, manager, ensureHTTPTestBank(t, pool))
 	handler := NewHandler(pool, slog.Default(), authService, manager)
 
 	suffix := uuid.New().String()[:8]
@@ -293,8 +307,8 @@ func TestCustomerHTTP_FreshRegistrationLoginAndAccountAccess(t *testing.T) {
 	if _, found := account["id"]; found {
 		t.Fatalf("fresh account exposes internal field id: %#v", account)
 	}
-	_, _ = pool.Exec(context.Background(), `DELETE FROM accounts WHERE user_id IN (SELECT id FROM users WHERE payment_identifier = $1)`, identifier)
-	_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE payment_identifier = $1`, identifier)
+	_, _ = pool.Exec(context.Background(), `DELETE FROM accounts WHERE user_id IN (SELECT id FROM users WHERE upi_id = $1)`, identifier)
+	_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE upi_id = $1`, identifier)
 }
 
 func TestCustomerHTTP_AccountsOmitInternalIdentifiers(t *testing.T) {
@@ -593,7 +607,7 @@ func TestCustomerHTTP_PendingPaymentReturnsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authService := auth.NewService(fx.pool, manager, "BANK-DEV-001")
+	authService := auth.NewService(fx.pool, manager, fx.bankCode)
 	adapters := map[uuid.UUID]bank.BankAdapter{}
 	var bankID uuid.UUID
 	if err := fx.pool.QueryRow(context.Background(), `SELECT bank_id FROM accounts WHERE id = $1`, fx.payerAccount).Scan(&bankID); err != nil {

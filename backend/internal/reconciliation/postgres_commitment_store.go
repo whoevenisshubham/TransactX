@@ -14,12 +14,20 @@ import (
 // PostgresIncrementalCommitmentStore persists derived incremental Merkle commitments
 // to PostgreSQL independently from participant ledger tables.
 type PostgresIncrementalCommitmentStore struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	ownerID string
 }
 
 // NewPostgresIncrementalCommitmentStore constructs a PostgreSQL-backed commitment store.
 func NewPostgresIncrementalCommitmentStore(pool *pgxpool.Pool) *PostgresIncrementalCommitmentStore {
-	return &PostgresIncrementalCommitmentStore{pool: pool}
+	return NewPostgresIncrementalCommitmentStoreForOwner(pool, "legacy")
+}
+
+// NewPostgresIncrementalCommitmentStoreForOwner constructs an isolated durable
+// commitment namespace. The owner is storage metadata and never changes the
+// logical partition hashed into the commitment.
+func NewPostgresIncrementalCommitmentStoreForOwner(pool *pgxpool.Pool, ownerID string) *PostgresIncrementalCommitmentStore {
+	return &PostgresIncrementalCommitmentStore{pool: pool, ownerID: ownerID}
 }
 
 // SaveState saves an incremental commitment state to PostgreSQL, replacing any existing
@@ -27,6 +35,9 @@ func NewPostgresIncrementalCommitmentStore(pool *pgxpool.Pool) *PostgresIncremen
 func (s *PostgresIncrementalCommitmentStore) SaveState(ctx context.Context, state IncrementalCommitmentState) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if s.pool == nil || s.ownerID == "" {
+		return fmt.Errorf("%w: database and commitment owner are required", ErrInvalidIncrementalConfig)
 	}
 	if err := validateIncrementalState(state); err != nil {
 		return err
@@ -48,17 +59,17 @@ func (s *PostgresIncrementalCommitmentStore) SaveState(ctx context.Context, stat
 
 	query := `
 		INSERT INTO merkle_commitments (
-			partition, bucket_width_ns, scope_from, scope_to,
+			owner_id, partition, bucket_width_ns, scope_from, scope_to,
 			generation, canonical_version, algorithm_version,
 			root, record_count, rebuild_count, captured_at,
 			buckets_data, records_data, levels_data
 		) VALUES (
-			$1, $2, $3, $4,
-			$5, $6, $7,
-			$8, $9, $10, $11,
-			$12, $13, $14
+			$1, $2, $3, $4, $5,
+			$6, $7, $8,
+			$9, $10, $11, $12,
+			$13, $14, $15
 		)
-		ON CONFLICT (partition, bucket_width_ns, scope_from, scope_to) DO UPDATE SET
+		ON CONFLICT (owner_id, partition, bucket_width_ns, scope_from, scope_to) DO UPDATE SET
 			generation = EXCLUDED.generation,
 			canonical_version = EXCLUDED.canonical_version,
 			algorithm_version = EXCLUDED.algorithm_version,
@@ -73,6 +84,7 @@ func (s *PostgresIncrementalCommitmentStore) SaveState(ctx context.Context, stat
 	`
 	_, err = s.pool.Exec(
 		ctx, query,
+		s.ownerID,
 		state.Partition,
 		int64(state.BucketWidth),
 		state.Scope.From.UTC(),
@@ -96,6 +108,9 @@ func (s *PostgresIncrementalCommitmentStore) LoadState(ctx context.Context, part
 	if err := ctx.Err(); err != nil {
 		return IncrementalCommitmentState{}, false, err
 	}
+	if s.pool == nil || s.ownerID == "" {
+		return IncrementalCommitmentState{}, false, fmt.Errorf("%w: database and commitment owner are required", ErrInvalidIncrementalConfig)
+	}
 	if partition == "" || width <= 0 {
 		return IncrementalCommitmentState{}, false, fmt.Errorf("%w: partition and positive width are required", ErrInvalidIncrementalConfig)
 	}
@@ -110,7 +125,7 @@ func (s *PostgresIncrementalCommitmentStore) LoadState(ctx context.Context, part
 		       root, record_count, rebuild_count, captured_at,
 		       buckets_data, records_data, levels_data
 		FROM merkle_commitments
-		WHERE partition = $1 AND bucket_width_ns = $2 AND scope_from = $3 AND scope_to = $4
+		WHERE owner_id = $1 AND partition = $2 AND bucket_width_ns = $3 AND scope_from = $4 AND scope_to = $5
 	`
 	var (
 		st           IncrementalCommitmentState
@@ -121,7 +136,7 @@ func (s *PostgresIncrementalCommitmentStore) LoadState(ctx context.Context, part
 		recordsRaw   []byte
 		levelsRaw    []byte
 	)
-	err := s.pool.QueryRow(ctx, query, partition, int64(width), scope.From.UTC(), scope.To.UTC()).Scan(
+	err := s.pool.QueryRow(ctx, query, s.ownerID, partition, int64(width), scope.From.UTC(), scope.To.UTC()).Scan(
 		&st.Partition,
 		&widthNs,
 		&st.Scope.From,
@@ -172,6 +187,9 @@ func (s *PostgresIncrementalCommitmentStore) FindState(ctx context.Context, part
 	if err := ctx.Err(); err != nil {
 		return IncrementalCommitmentState{}, false, err
 	}
+	if s.pool == nil || s.ownerID == "" {
+		return IncrementalCommitmentState{}, false, fmt.Errorf("%w: database and commitment owner are required", ErrInvalidIncrementalConfig)
+	}
 	if partition == "" {
 		return IncrementalCommitmentState{}, false, fmt.Errorf("%w: partition is required", ErrInvalidIncrementalConfig)
 	}
@@ -186,7 +204,7 @@ func (s *PostgresIncrementalCommitmentStore) FindState(ctx context.Context, part
 		       root, record_count, rebuild_count, captured_at,
 		       buckets_data, records_data, levels_data
 		FROM merkle_commitments
-		WHERE partition = $1 AND scope_from = $2 AND scope_to = $3
+		WHERE owner_id = $1 AND partition = $2 AND scope_from = $3 AND scope_to = $4
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1
 	`
@@ -199,7 +217,7 @@ func (s *PostgresIncrementalCommitmentStore) FindState(ctx context.Context, part
 		recordsRaw   []byte
 		levelsRaw    []byte
 	)
-	err := s.pool.QueryRow(ctx, query, partition, scope.From.UTC(), scope.To.UTC()).Scan(
+	err := s.pool.QueryRow(ctx, query, s.ownerID, partition, scope.From.UTC(), scope.To.UTC()).Scan(
 		&st.Partition,
 		&widthNs,
 		&st.Scope.From,

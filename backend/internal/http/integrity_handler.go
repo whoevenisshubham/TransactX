@@ -45,6 +45,10 @@ func (handler *Handler) integrityCheck(writer http.ResponseWriter, request *http
 	}
 	run, err := handler.integrityEngine.Run(request.Context(), input)
 	if err != nil {
+		if errors.Is(err, reconciliation.ErrIntegrityRunPersistence) {
+			writeAPIError(writer, request, common.NewAPIError("INTEGRITY_PERSISTENCE_UNAVAILABLE", "integrity run could not be persisted", http.StatusServiceUnavailable))
+			return
+		}
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "integrity check failed", http.StatusInternalServerError))
 		return
 	}

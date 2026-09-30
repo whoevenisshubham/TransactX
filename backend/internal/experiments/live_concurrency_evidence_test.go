@@ -43,6 +43,8 @@ type liveConcurrencyEvidence struct {
 	GeneratedAt  time.Time         `json:"generatedAt"`
 	GitCommit    string            `json:"gitCommit"`
 	WorkingTree  string            `json:"workingTree"`
+	Dirty        bool              `json:"dirty"`
+	EvidenceMode string            `json:"evidenceMode"`
 	Environment  map[string]string `json:"environment"`
 	Workload     struct {
 		UniqueKeyRequests   int   `json:"uniqueKeyRequests"`
@@ -88,6 +90,22 @@ func TestPostgresConcurrencyStormEvidence(t *testing.T) {
 	outputPath := os.Getenv("M3_CONCURRENCY_EVIDENCE_PATH")
 	if databaseURL == "" || outputPath == "" {
 		t.Skip("DATABASE_URL and M3_CONCURRENCY_EVIDENCE_PATH are required")
+	}
+	commitOutput, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("resolve git commit: %v", err)
+	}
+	statusOutput, err := exec.Command("git", "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("inspect working tree: %v", err)
+	}
+	dirty := strings.TrimSpace(string(statusOutput)) != ""
+	evidenceMode := strings.ToLower(strings.TrimSpace(os.Getenv("M3_EVIDENCE_MODE")))
+	if evidenceMode == "" {
+		evidenceMode = "release"
+	}
+	if dirty && evidenceMode != "exploratory" {
+		t.Fatal("release evidence requires a clean working tree; set M3_EVIDENCE_MODE=exploratory only for non-release measurements")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -258,12 +276,14 @@ func TestPostgresConcurrencyStormEvidence(t *testing.T) {
 	}
 	sort.Slice(evidence.IntegrityChecks, func(i, j int) bool { return evidence.IntegrityChecks[i].Code < evidence.IntegrityChecks[j].Code })
 
-	commit := "unknown"
-	if output, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
-		commit = strings.TrimSpace(string(output))
+	evidence.GitCommit = strings.TrimSpace(string(commitOutput))
+	evidence.Dirty = dirty
+	evidence.EvidenceMode = evidenceMode
+	if dirty {
+		evidence.WorkingTree = "dirty"
+	} else {
+		evidence.WorkingTree = "clean"
 	}
-	evidence.GitCommit = commit
-	evidence.WorkingTree = "dirty: M3 closeout implementation and this evidence harness are uncommitted"
 	var postgresVersion string
 	_ = pool.QueryRow(ctx, `SHOW server_version`).Scan(&postgresVersion)
 	evidence.Environment = map[string]string{
