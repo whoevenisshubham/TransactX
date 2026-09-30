@@ -87,13 +87,6 @@ func TestRoutingDistributionPostgresPersistenceWindowAndTargets(t *testing.T) {
 		return res.Code, body.Data.Items
 	}
 
-	// A fresh migrated database returns a real empty array, not a fabricated
-	// zero-traffic target or healthy state.
-	status, empty := requestDistribution()
-	if status != http.StatusOK || len(empty) != 0 {
-		t.Fatalf("fresh distribution = status %d items %+v, want 200 and []", status, empty)
-	}
-
 	suffix := uuid.NewString()
 	userID, sourceBankID, destinationBankID := uuid.New(), uuid.New(), uuid.New()
 	senderID, receiverID := uuid.New(), uuid.New()

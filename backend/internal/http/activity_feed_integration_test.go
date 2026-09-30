@@ -62,14 +62,21 @@ func TestPostgresActivityFeedAggregatesDurableSourcesInStableOrder(t *testing.T)
 		t.Fatalf("List: %v", err)
 	}
 	categories := make(map[string]bool)
+	equalTimestampEvents := 0
 	for index, event := range events {
 		categories[event.Category] = true
+		if event.OccurredAt.Equal(when) {
+			equalTimestampEvents++
+		}
 		if index > 0 {
 			previous := events[index-1]
 			if previous.OccurredAt.Before(event.OccurredAt) || (previous.OccurredAt.Equal(event.OccurredAt) && previous.ID < event.ID) {
 				t.Fatalf("events out of occurredAt DESC, id DESC order at %q then %q", previous.ID, event.ID)
 			}
 		}
+	}
+	if equalTimestampEvents < 6 {
+		t.Fatalf("equal-timestamp fixture returned %d events, want at least 6", equalTimestampEvents)
 	}
 	for _, category := range []string{"CIRCUIT", "CHAOS", "RECONCILIATION", "INTEGRITY"} {
 		if !categories[category] {

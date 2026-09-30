@@ -187,7 +187,10 @@ func (store *postgresActivityStore) List(ctx context.Context, limit, offset int)
 		)
 		SELECT id, category, event_type, severity, occurred_at, target_id, title, summary, details
 		FROM activity
-		ORDER BY occurred_at DESC, id DESC
+		-- Match Go's bytewise string comparison in sortActivityEvents. The
+		-- database's locale collation can order punctuation in source-prefixed
+		-- IDs differently, which makes equal-timestamp pages environment-specific.
+		ORDER BY occurred_at DESC, id COLLATE "C" DESC
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
