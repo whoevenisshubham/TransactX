@@ -30,7 +30,10 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestK1_ConcurrentRoutedIdempotencyCreatesSinglePayment(t *testing.T) {
-	data := newRepositoryTestData(t)
+	// Linux CI runners commonly expose two CPUs, which gives pgxpool a four
+	// connection default. Pin that constrained size on every platform so
+	// duplicate requests cannot hide connection-starvation deadlocks.
+	data := newRepositoryTestDataWithMaxConns(t, 4)
 	setBalances(t, data, 5000, 0)
 	insertParticipantAccount(t, data.pool, "bank_a", data.sourceID, "k1-src-"+data.sourceID.String(), 5000)
 	insertParticipantAccount(t, data.pool, "bank_a", data.receiverID, "k1-dst-"+data.receiverID.String(), 0)

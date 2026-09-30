@@ -114,12 +114,23 @@ type repositoryTestData struct {
 }
 
 func newRepositoryTestData(t *testing.T) repositoryTestData {
+	return newRepositoryTestDataWithMaxConns(t, 0)
+}
+
+func newRepositoryTestDataWithMaxConns(t *testing.T, maxConns int32) repositoryTestData {
 	t.Helper()
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is not set")
 	}
-	pool, err := pgxpool.New(context.Background(), databaseURL)
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxConns > 0 {
+		config.MaxConns = maxConns
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)
 	}

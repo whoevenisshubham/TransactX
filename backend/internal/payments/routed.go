@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -70,15 +71,11 @@ func (repository *Repository) createRoutedIdempotent(ctx context.Context, paymen
 	payment.SourceBankAccountID = sourceBankAccountID
 	payment.DestinationBankAccountID = destinationBankAccountID
 
-	tx, err := repository.db.Begin(ctx)
+	tx, err := repository.beginIdempotencyTransaction(ctx, payment.InitiatedByUserID, key)
 	if err != nil {
 		return Payment{}, false, err
 	}
 	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('idemp:' || $1::text || ':' || $2))`, payment.InitiatedByUserID, key); err != nil {
-		return Payment{}, false, err
-	}
 
 	var existingHash string
 	var existingPaymentID *uuid.UUID
@@ -194,20 +191,63 @@ func (repository *Repository) replayRoutedPayment(ctx context.Context, payment P
 }
 
 func (repository *Repository) lockPayment(ctx context.Context, paymentID uuid.UUID) (func(), error) {
-	conn, err := repository.db.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
 	lockKey := int64(binary.BigEndian.Uint64(paymentID[:8])) ^ int64(binary.BigEndian.Uint64(paymentID[8:]))
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, lockKey); err != nil {
+	for {
+		conn, err := repository.db.Acquire(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var locked bool
+		if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, lockKey).Scan(&locked); err != nil {
+			conn.Release()
+			return nil, err
+		}
+		if locked {
+			unlock := func() {
+				_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
+				conn.Release()
+			}
+			return unlock, nil
+		}
 		conn.Release()
-		return nil, err
+		if err := waitForAdvisoryLock(ctx); err != nil {
+			return nil, err
+		}
 	}
-	unlock := func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
-		conn.Release()
+}
+
+func (repository *Repository) beginIdempotencyTransaction(ctx context.Context, userID uuid.UUID, key string) (pgx.Tx, error) {
+	for {
+		tx, err := repository.db.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var locked bool
+		if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext('idemp:' || $1::text || ':' || $2))`, userID, key).Scan(&locked); err != nil {
+			_ = tx.Rollback(context.Background())
+			return nil, err
+		}
+		if locked {
+			return tx, nil
+		}
+		if err := tx.Rollback(ctx); err != nil {
+			return nil, err
+		}
+		if err := waitForAdvisoryLock(ctx); err != nil {
+			return nil, err
+		}
 	}
-	return unlock, nil
+}
+
+func waitForAdvisoryLock(ctx context.Context) error {
+	timer := time.NewTimer(5 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (repository *Repository) runRoutedSaga(ctx context.Context, payment Payment, sourceBankID, destinationBankID uuid.UUID, sourceAdapter, destinationAdapter bank.BankAdapter) error {
