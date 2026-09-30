@@ -28,6 +28,9 @@ jobs:
           --health-retries 12
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/transactx_ci?sslmode=disable
+      # Integration-test packages share this service database. Serialize package
+      # execution so cleanup/setup transactions cannot form cross-package locks.
+      GOFLAGS: -p=1
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
