@@ -49,6 +49,8 @@ export type View = "home" | "pay" | "transactions" | "details";
 export type MerchantView = "m-home" | "m-receive" | "m-incoming" | "m-settlement" | "m-search";
 export type ConsoleView =
   | "c-overview"
+  | "c-worklist"
+  | "c-payment-evidence"
   | "c-health"
   | "c-routing"
   | "c-reconciliation"

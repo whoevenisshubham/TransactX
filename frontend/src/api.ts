@@ -10,8 +10,7 @@ import type {
   Recipient,
   User,
 } from "./types";
-
-const apiBaseUrl = (typeof import.meta !== "undefined" && (import.meta as any)?.env?.VITE_API_BASE_URL) || "http://localhost:8080";
+import { apiBaseUrl } from "./config";
 
 export class ApiError extends Error {
   code: string;
@@ -67,7 +66,8 @@ export async function apiRequestWithStatus<T>(path: string, options: RequestInit
         ...options.headers,
       },
     });
-  } catch {
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
     throw new ApiError(safeErrorMessage("NETWORK_ERROR", "The request could not be completed."), "NETWORK_ERROR", 0);
   }
 
