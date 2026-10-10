@@ -1,0 +1,2150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:transactx:contract:tx.v2.1",
+  "title": "TransactX v2 shared response contracts",
+  "$defs": {
+    "CentralPaymentState": {
+      "type": "string",
+      "enum": [
+        "CREATED",
+        "VALIDATING",
+        "LOCAL_SETTLEMENT",
+        "ROUTING",
+        "PROCESSING",
+        "BANK_SETTLED_CENTRAL_PENDING",
+        "COMMITTED",
+        "COMPLETED",
+        "FAILED",
+        "PENDING_RECONCILIATION",
+        "REVERSED"
+      ]
+    },
+    "SourceStatus": {
+      "type": "string",
+      "enum": [
+        "available",
+        "unavailable",
+        "not_applicable",
+        "not_collected"
+      ]
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "status": {
+          "$ref": "#/$defs/SourceStatus"
+        },
+        "observedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "errorCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "observedAt",
+        "errorCode"
+      ],
+      "additionalProperties": false
+    },
+    "Warning": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "PaymentSnapshot": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/CentralPaymentState"
+        },
+        "amountPaise": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "maxLength": 20
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "INR"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "eventVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "maxLength": 20
+        },
+        "evidenceId": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "state",
+        "amountPaise",
+        "currency",
+        "createdAt",
+        "updatedAt",
+        "completedAt",
+        "eventVersion",
+        "evidenceId"
+      ],
+      "additionalProperties": false
+    },
+    "Route": {
+      "type": "object",
+      "properties": {
+        "sourceBankCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "destinationBankCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "executionTargetId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "selectedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/SourceStatus"
+        }
+      },
+      "required": [
+        "sourceBankCode",
+        "destinationBankCode",
+        "executionTargetId",
+        "selectedAt",
+        "reasonCode",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Operation": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "operationType": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "bankCode": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "centralStatus": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "participantStatus": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "SUCCEEDED",
+                "FAILED",
+                "PENDING"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "presence": {
+          "type": "string",
+          "enum": [
+            "present",
+            "absent_confirmed",
+            "unknown",
+            "not_checked"
+          ]
+        },
+        "lastObservedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceStatus": {
+          "$ref": "#/$defs/SourceStatus"
+        },
+        "evidenceId": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "operationId",
+        "operationType",
+        "bankCode",
+        "centralStatus",
+        "participantStatus",
+        "presence",
+        "lastObservedAt",
+        "sourceStatus",
+        "evidenceId"
+      ],
+      "additionalProperties": false
+    },
+    "Transition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "maxLength": 20
+        },
+        "fromState": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "toState": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "evidenceId": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "id",
+        "sequence",
+        "fromState",
+        "toState",
+        "occurredAt",
+        "evidenceId"
+      ],
+      "additionalProperties": false
+    },
+    "RecoverySummary": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "none",
+            "scheduled",
+            "running",
+            "deferred",
+            "needs_attention",
+            "resolved"
+          ]
+        },
+        "attemptCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nextAttemptAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastAttemptId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceStatus": {
+          "$ref": "#/$defs/SourceStatus"
+        }
+      },
+      "required": [
+        "status",
+        "attemptCount",
+        "nextAttemptAt",
+        "lastAttemptId",
+        "reasonCode",
+        "sourceStatus"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceBundle": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "tx.evidence.v1"
+          ]
+        },
+        "paymentId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "snapshotId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "collectedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payment": {
+          "$ref": "#/$defs/PaymentSnapshot"
+        },
+        "route": {
+          "$ref": "#/$defs/Route"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "maxItems": 20
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Transition"
+          },
+          "maxItems": 200
+        },
+        "transitionsTruncated": {
+          "type": "boolean"
+        },
+        "recovery": {
+          "$ref": "#/$defs/RecoverySummary"
+        },
+        "reconciliation": {
+          "type": "object",
+          "properties": {
+            "sourceStatus": {
+              "$ref": "#/$defs/SourceStatus"
+            },
+            "runIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "maxItems": 20
+            },
+            "discrepancyCount": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "scopeMismatch": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "sourceStatus",
+            "runIds",
+            "discrepancyCount",
+            "scopeMismatch"
+          ],
+          "additionalProperties": false
+        },
+        "integrity": {
+          "type": "object",
+          "properties": {
+            "sourceStatus": {
+              "$ref": "#/$defs/SourceStatus"
+            },
+            "runId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "occurredAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "violationCount": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "sourceStatus",
+            "runId",
+            "occurredAt",
+            "violationCount"
+          ],
+          "additionalProperties": false
+        },
+        "traces": {
+          "type": "object",
+          "properties": {
+            "sourceStatus": {
+              "$ref": "#/$defs/SourceStatus"
+            },
+            "traceIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "maxItems": 20
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "sourceStatus",
+            "traceIds",
+            "truncated"
+          ],
+          "additionalProperties": false
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "maxItems": 20
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Warning"
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "paymentId",
+        "snapshotId",
+        "collectedAt",
+        "payment",
+        "route",
+        "operations",
+        "transitions",
+        "transitionsTruncated",
+        "recovery",
+        "reconciliation",
+        "integrity",
+        "traces",
+        "sources",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+    "WorklistItem": {
+      "type": "object",
+      "properties": {
+        "paymentId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "$ref": "#/$defs/CentralPaymentState"
+        },
+        "amountPaise": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "maxLength": 20
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "INR"
+          ]
+        },
+        "sourceBankCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "destinationBankCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ageMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recoveryStatus": {
+          "type": "string",
+          "enum": [
+            "none",
+            "scheduled",
+            "running",
+            "deferred",
+            "needs_attention",
+            "resolved"
+          ]
+        },
+        "attemptCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nextAttemptAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "projectionVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "maxLength": 20
+        }
+      },
+      "required": [
+        "paymentId",
+        "state",
+        "amountPaise",
+        "currency",
+        "sourceBankCode",
+        "destinationBankCode",
+        "createdAt",
+        "updatedAt",
+        "ageMs",
+        "recoveryStatus",
+        "attemptCount",
+        "nextAttemptAt",
+        "reasonCode",
+        "projectionVersion"
+      ],
+      "additionalProperties": false
+    },
+    "Worklist": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WorklistItem"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "asOf": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "projection": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "lagging",
+                "rebuilding",
+                "unavailable"
+              ]
+            },
+            "updatedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "oldestPendingEventAgeMs": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "updatedAt",
+            "oldestPendingEventAgeMs"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor",
+        "asOf",
+        "projection"
+      ],
+      "additionalProperties": false
+    },
+    "RecoveryAttempt": {
+      "type": "object",
+      "properties": {
+        "attemptId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "paymentId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "workerId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stateBefore": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "stateAfter": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "running",
+            "progressed",
+            "resolved",
+            "no_progress",
+            "deferred",
+            "error",
+            "interrupted"
+          ]
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operationIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxItems": 20
+        },
+        "traceId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "leaseEpoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$",
+          "maxLength": 20
+        }
+      },
+      "required": [
+        "attemptId",
+        "paymentId",
+        "workerId",
+        "startedAt",
+        "finishedAt",
+        "stateBefore",
+        "stateAfter",
+        "result",
+        "reasonCode",
+        "operationIds",
+        "traceId",
+        "leaseEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "Assertion": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string",
+          "enum": [
+            "central_state",
+            "amount_paise",
+            "participant_status",
+            "operation_id",
+            "bank_code",
+            "route_target",
+            "recovery_status"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "entityId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidenceId": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "field",
+        "value",
+        "entityId",
+        "evidenceId"
+      ],
+      "additionalProperties": false
+    },
+    "Fact": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "maxItems": 10
+        },
+        "assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Assertion"
+          },
+          "maxItems": 10
+        },
+        "contradiction": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "evidenceIds",
+        "assertions",
+        "contradiction"
+      ],
+      "additionalProperties": false
+    },
+    "Inference": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "maxItems": 10
+        },
+        "contradiction": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "evidenceIds",
+        "contradiction"
+      ],
+      "additionalProperties": false
+    },
+    "Recommendation": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "runbookChunkIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "text",
+        "runbookChunkIds"
+      ],
+      "additionalProperties": false
+    },
+    "InvestigationReport": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "enum": [
+            "tx.investigation.v1"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "evidence_only",
+            "llm"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "facts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Fact"
+          },
+          "maxItems": 20
+        },
+        "inferences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Inference"
+          },
+          "maxItems": 10
+        },
+        "recommendations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Recommendation"
+          },
+          "maxItems": 10
+        },
+        "missingEvidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "maxItems": 20
+        },
+        "evidenceCoverage": {
+          "type": "string",
+          "enum": [
+            "complete_for_question",
+            "limited",
+            "insufficient"
+          ]
+        },
+        "snapshotId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "collectedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "mode",
+        "summary",
+        "facts",
+        "inferences",
+        "recommendations",
+        "missingEvidence",
+        "evidenceCoverage",
+        "snapshotId",
+        "collectedAt"
+      ],
+      "additionalProperties": false
+    },
+    "ToolStep": {
+      "type": "object",
+      "properties": {
+        "toolName": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "arguments": {
+          "type": "object",
+          "maxProperties": 6
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "rejected"
+          ]
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "toolName",
+        "arguments",
+        "startedAt",
+        "finishedAt",
+        "status",
+        "evidenceIds"
+      ],
+      "additionalProperties": false
+    },
+    "Investigation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "evidence_only",
+            "llm"
+          ]
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InvestigationReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "toolTimeline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolStep"
+          },
+          "maxItems": 8
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Warning"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "inputTokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "outputTokens": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "model": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "promptVersion": {
+              "type": "string",
+              "maxLength": 1000
+            }
+          },
+          "required": [
+            "inputTokens",
+            "outputTokens",
+            "model",
+            "promptVersion"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "mode",
+        "report",
+        "toolTimeline",
+        "error",
+        "createdAt",
+        "completedAt",
+        "usage"
+      ],
+      "additionalProperties": false
+    },
+    "Span": {
+      "type": "object",
+      "properties": {
+        "spanId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$"
+        },
+        "parentSpanId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{16}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "service": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "unset",
+            "ok",
+            "error"
+          ]
+        },
+        "attributes": {
+          "type": "object",
+          "maxProperties": 20,
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "spanId",
+        "parentSpanId",
+        "service",
+        "name",
+        "startedAt",
+        "finishedAt",
+        "status",
+        "attributes"
+      ],
+      "additionalProperties": false
+    },
+    "Trace": {
+      "type": "object",
+      "properties": {
+        "traceId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "sourceStatus": {
+          "$ref": "#/$defs/SourceStatus"
+        },
+        "collectedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "spans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Span"
+          },
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "traceId",
+        "sourceStatus",
+        "collectedAt",
+        "truncated",
+        "spans"
+      ],
+      "additionalProperties": false
+    },
+    "FeatureVector": {
+      "type": "object",
+      "properties": {
+        "timeoutRate": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failureRate": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "p95LatencyMs": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "oldestRecoveryAgeMs": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recoveryAttemptsPerPayment": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "healthAvailabilityRate": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "timeoutRate",
+        "failureRate",
+        "p95LatencyMs",
+        "oldestRecoveryAgeMs",
+        "recoveryAttemptsPerPayment",
+        "healthAvailabilityRate"
+      ],
+      "additionalProperties": false
+    },
+    "AnalyticsWindow": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "entityType": {
+          "type": "string",
+          "enum": [
+            "bank",
+            "execution_target"
+          ]
+        },
+        "entityId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "featureSchemaVersion": {
+          "type": "string",
+          "enum": [
+            "tx.features.v1"
+          ]
+        },
+        "features": {
+          "$ref": "#/$defs/FeatureVector"
+        },
+        "baselineAlert": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Warning"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "insufficient_data",
+                "stale",
+                "unavailable",
+                "out_of_distribution"
+              ]
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "threshold": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "version",
+            "status",
+            "score",
+            "threshold"
+          ],
+          "additionalProperties": false
+        },
+        "advisory": {
+          "const": true
+        }
+      },
+      "required": [
+        "id",
+        "entityType",
+        "entityId",
+        "from",
+        "to",
+        "sampleCount",
+        "featureSchemaVersion",
+        "features",
+        "baselineAlert",
+        "model",
+        "advisory"
+      ],
+      "additionalProperties": false
+    },
+    "RecoveryAttemptsPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecoveryAttempt"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "asOf": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor",
+        "asOf"
+      ],
+      "additionalProperties": false
+    },
+    "AnalyticsPage": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalyticsWindow"
+          },
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "asOf": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor",
+        "asOf"
+      ],
+      "additionalProperties": false
+    },
+    "InvestigationAccepted": {
+      "type": "object",
+      "properties": {
+        "investigationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "evidence_only",
+            "llm"
+          ]
+        }
+      },
+      "required": [
+        "investigationId",
+        "status",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "RecoveryRecheckResult": {
+      "type": "object",
+      "properties": {
+        "paymentId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "scheduledAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "scheduled",
+            "already_terminal"
+          ]
+        }
+      },
+      "required": [
+        "paymentId",
+        "scheduledAt",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "simulationMode": {
+          "type": "boolean"
+        },
+        "canControlRecovery": {
+          "type": "boolean"
+        },
+        "canRunChaos": {
+          "type": "boolean"
+        },
+        "canInvestigate": {
+          "type": "boolean"
+        },
+        "investigatorMode": {
+          "type": "string",
+          "enum": [
+            "evidence_only",
+            "llm"
+          ]
+        },
+        "traceCollectionEnabled": {
+          "type": "boolean"
+        },
+        "analyticsEnabled": {
+          "type": "boolean"
+        },
+        "modelStatus": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "stale",
+            "unavailable"
+          ]
+        }
+      },
+      "required": [
+        "simulationMode",
+        "canControlRecovery",
+        "canRunChaos",
+        "canInvestigate",
+        "investigatorMode",
+        "traceCollectionEnabled",
+        "analyticsEnabled",
+        "modelStatus"
+      ],
+      "additionalProperties": false
+    },
+    "MetricsSummary": {
+      "type": "object",
+      "properties": {
+        "windowFrom": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "windowTo": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "asOf": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "payments": {
+          "type": "object",
+          "properties": {
+            "attempted": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "completed": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "failed": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "pending": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            }
+          },
+          "required": [
+            "attempted",
+            "completed",
+            "failed",
+            "pending"
+          ],
+          "additionalProperties": false
+        },
+        "recovery": {
+          "type": "object",
+          "properties": {
+            "due": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "running": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "needsAttention": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "oldestDueAgeMs": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "due",
+            "running",
+            "needsAttention",
+            "oldestDueAgeMs"
+          ],
+          "additionalProperties": false
+        },
+        "outbox": {
+          "type": "object",
+          "properties": {
+            "pending": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "quarantined": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "maxLength": 20
+            },
+            "oldestPendingAgeMs": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "pending",
+            "quarantined",
+            "oldestPendingAgeMs"
+          ],
+          "additionalProperties": false
+        },
+        "runtime": {
+          "type": "object",
+          "properties": {
+            "workerLastHeartbeatAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "poolWaitMs": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "workerLastHeartbeatAt",
+            "poolWaitMs"
+          ],
+          "additionalProperties": false
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "windowFrom",
+        "windowTo",
+        "asOf",
+        "payments",
+        "recovery",
+        "outbox",
+        "runtime",
+        "sources"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceBundleEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/EvidenceBundle"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "WorklistEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/Worklist"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "InvestigationEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/Investigation"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "InvestigationAcceptedEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/InvestigationAccepted"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "RecoveryRecheckResultEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/RecoveryRecheckResult"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "TraceEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/Trace"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "AnalyticsWindowEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/AnalyticsWindow"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "AnalyticsPageEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/AnalyticsPage"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "RecoveryAttemptsPageEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/RecoveryAttemptsPage"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "CapabilitiesEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/Capabilities"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "MetricsSummaryEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "data": {
+          "$ref": "#/$defs/MetricsSummary"
+        }
+      },
+      "required": [
+        "requestId",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "ErrorEnvelope": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "error": {
+          "$ref": "#/$defs/Warning"
+        }
+      },
+      "required": [
+        "requestId",
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

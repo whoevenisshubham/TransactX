@@ -1,0 +1,10 @@
+{
+  "requestId": "fixture",
+  "data": {
+    "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sourceStatus": "not_collected",
+    "collectedAt": "2026-10-11T00:00:00Z",
+    "truncated": false,
+    "spans": []
+  }
+}

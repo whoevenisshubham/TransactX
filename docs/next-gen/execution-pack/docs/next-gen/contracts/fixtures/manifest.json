@@ -1,0 +1,21 @@
+{
+  "warning": "Explicit contract fixtures. Never live data or measured results.",
+  "fixtures": [
+    {
+      "path": "evidence-partial.json",
+      "definition": "EvidenceBundleEnvelope"
+    },
+    {
+      "path": "worklist-empty.json",
+      "definition": "WorklistEnvelope"
+    },
+    {
+      "path": "investigation-evidence-only.json",
+      "definition": "InvestigationEnvelope"
+    },
+    {
+      "path": "trace-not-collected.json",
+      "definition": "TraceEnvelope"
+    }
+  ]
+}

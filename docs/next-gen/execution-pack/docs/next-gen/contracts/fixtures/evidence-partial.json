@@ -1,0 +1,96 @@
+{
+  "requestId": "fixture",
+  "data": {
+    "schemaVersion": "tx.evidence.v1",
+    "paymentId": "11111111-1111-4111-8111-111111111111",
+    "snapshotId": "sha256:fixture-not-measured",
+    "collectedAt": "2026-10-11T00:00:00Z",
+    "payment": {
+      "state": "PENDING_RECONCILIATION",
+      "amountPaise": "12500",
+      "currency": "INR",
+      "createdAt": "2026-10-11T00:00:00Z",
+      "updatedAt": "2026-10-11T00:00:00Z",
+      "completedAt": null,
+      "eventVersion": "5",
+      "evidenceId": "payment:11111111-1111-4111-8111-111111111111:fixture-snapshot"
+    },
+    "route": {
+      "sourceBankCode": "BANK-A",
+      "destinationBankCode": "BANK-B",
+      "executionTargetId": "RAIL-A",
+      "selectedAt": "2026-10-11T00:00:00Z",
+      "reasonCode": "FIXTURE_SELECTED_ROUTE",
+      "status": "available"
+    },
+    "operations": [
+      {
+        "operationId": "22222222-2222-4222-8222-222222222222",
+        "operationType": "FINALIZE_CREDIT",
+        "bankCode": "BANK-B",
+        "centralStatus": "PENDING",
+        "participantStatus": null,
+        "presence": "unknown",
+        "lastObservedAt": null,
+        "sourceStatus": "unavailable",
+        "evidenceId": "operation:22222222-2222-4222-8222-222222222222:fixture-snapshot"
+      }
+    ],
+    "transitions": [
+      {
+        "id": "33333333-3333-4333-8333-333333333333",
+        "sequence": "4",
+        "fromState": "PROCESSING",
+        "toState": "PENDING_RECONCILIATION",
+        "occurredAt": "2026-10-11T00:00:00Z",
+        "evidenceId": "transition:33333333-3333-4333-8333-333333333333"
+      }
+    ],
+    "transitionsTruncated": false,
+    "recovery": {
+      "status": "deferred",
+      "attemptCount": 2,
+      "nextAttemptAt": "2026-10-11T00:00:00Z",
+      "lastAttemptId": null,
+      "reasonCode": "PARTICIPANT_UNAVAILABLE",
+      "sourceStatus": "available"
+    },
+    "reconciliation": {
+      "sourceStatus": "not_collected",
+      "runIds": [],
+      "discrepancyCount": null,
+      "scopeMismatch": false
+    },
+    "integrity": {
+      "sourceStatus": "not_collected",
+      "runId": null,
+      "occurredAt": null,
+      "violationCount": null
+    },
+    "traces": {
+      "sourceStatus": "not_collected",
+      "traceIds": [],
+      "truncated": false
+    },
+    "sources": [
+      {
+        "name": "central",
+        "status": "available",
+        "observedAt": "2026-10-11T00:00:00Z",
+        "errorCode": null
+      },
+      {
+        "name": "participant:BANK-B",
+        "status": "unavailable",
+        "observedAt": null,
+        "errorCode": "PARTICIPANT_UNAVAILABLE"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "PARTIAL_EVIDENCE",
+        "message": "Destination evidence is unavailable in this explicit test fixture."
+      }
+    ]
+  }
+}
