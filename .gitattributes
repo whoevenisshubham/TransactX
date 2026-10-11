@@ -1,0 +1,4 @@
+deploy/scripts/*.sh text eol=lf
+deploy/systemd/* text eol=lf
+deploy/env/* text eol=lf
+deploy/caddy/* text eol=lf

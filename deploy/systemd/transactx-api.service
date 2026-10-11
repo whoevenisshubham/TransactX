@@ -1,0 +1,21 @@
+[Unit]
+Description=TransactX simulated payment API
+After=network-online.target postgresql.service transactx-bank-a.service transactx-bank-b.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=transactx
+Group=transactx
+WorkingDirectory=/opt/transactx/current
+EnvironmentFile=/etc/transactx/api.env
+ExecStart=/opt/transactx/current/run/transactx-api
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
