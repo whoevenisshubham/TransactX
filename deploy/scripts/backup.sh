@@ -7,7 +7,9 @@ for name in pg_dump pg_dumpall age sha256sum stat realpath; do
 done
 [[ "${PGDATABASE:-}" == 'transactx' ]] || { echo 'PGDATABASE must name the intended TransactX database.' >&2; exit 2; }
 [[ -n "${PGHOST:-}" && -n "${PGUSER:-}" ]] || { echo 'PGHOST and PGUSER are required.' >&2; exit 2; }
-[[ -n "${PGPASSFILE:-}" && -f "$PGPASSFILE" && -z "$(find "$PGPASSFILE" -perm /077 -print)" ]] || { echo 'PGPASSFILE must exist and be owner-only.' >&2; exit 2; }
+[[ -n "${PGPASSFILE:-}" && -f "$PGPASSFILE" ]] || { echo 'PGPASSFILE must exist and be owner-only.' >&2; exit 2; }
+unsafe_passfile="$(find "$PGPASSFILE" -perm /077 -print)" || { echo 'Cannot inspect PGPASSFILE permissions.' >&2; exit 2; }
+[[ -z "$unsafe_passfile" ]] || { echo 'PGPASSFILE must be owner-only.' >&2; exit 2; }
 [[ "${BACKUP_AGE_RECIPIENT:-}" =~ ^age1[a-z0-9]{20,}$ ]] || { echo 'A public age recipient is required.' >&2; exit 2; }
 [[ "${BACKUP_DIR:-}" == /* && "${BACKUP_DIR:-}" != '/' ]] || { echo 'An absolute private BACKUP_DIR is required.' >&2; exit 2; }
 [[ "${BACKUP_MAX_BYTES:-2147483648}" =~ ^[1-9][0-9]*$ ]] || { echo 'BACKUP_MAX_BYTES must be positive.' >&2; exit 2; }
@@ -17,8 +19,9 @@ backup_dir="$(realpath -e "$BACKUP_DIR")"
 [[ "$backup_dir" != '/' ]] || { echo 'Unsafe backup directory.' >&2; exit 2; }
 if [[ -n "${BACKUP_OFFVM_DIR:-}" ]]; then
   [[ "$BACKUP_OFFVM_DIR" == /* && "$BACKUP_OFFVM_DIR" != "$backup_dir" ]] || { echo 'Invalid off-VM target.' >&2; exit 2; }
-  mountpoint -q "$BACKUP_OFFVM_DIR" || { echo 'Off-VM target is not mounted.' >&2; exit 1; }
   offvm_dir="$(realpath -e "$BACKUP_OFFVM_DIR")"
+  [[ "$offvm_dir" != "$backup_dir" ]] || { echo 'Off-VM target resolves to the local backup directory.' >&2; exit 2; }
+  mountpoint -q "$offvm_dir" || { echo 'Off-VM target is not mounted.' >&2; exit 1; }
 else
   offvm_dir=''
 fi

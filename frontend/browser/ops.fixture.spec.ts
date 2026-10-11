@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 const paymentId = "11111111-1111-4111-8111-111111111111";
@@ -18,6 +18,10 @@ function worklistFixture() {
     reasonCode: "PARTICIPANT_UNAVAILABLE", projectionVersion: "5",
   }];
   return response;
+}
+
+function fulfillFixture(route: Route, data: unknown, status = 200) {
+  return route.fulfill({ status, headers: { "access-control-allow-origin": "http://127.0.0.1:4173" }, contentType: "application/json", body: JSON.stringify({ requestId: "fixture", data }) });
 }
 
 async function installFixtureApi(page: Page, role: "OPS_VIEWER" | "OPS_ADMIN", onRecheck?: (key: string, attempt: number) => boolean, onInvestigation?: (key: string, attempt: number) => boolean) {
@@ -96,7 +100,10 @@ test("evidence-only investigation citations resolve and new pages have no seriou
   await page.getByRole("button", { name: "Start investigation" }).click();
   await expect(page.getByText("Evidence summary", { exact: false })).toBeVisible();
   await expect(page.getByText("The central payment is PENDING_RECONCILIATION.")).toBeVisible();
-  await page.getByRole("button", { name: /View evidence payment:/ }).click();
+  const citation = page.getByRole("button", { name: /View evidence payment:/ });
+  await citation.focus();
+  await expect(citation).toBeFocused();
+  await page.keyboard.press("Enter");
   const scan = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const serious = scan.violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious");
   expect(serious.map((violation) => ({ id: violation.id, nodes: violation.nodes.map((node) => ({ target: node.target, summary: node.failureSummary })) }))).toEqual([]);
@@ -116,4 +123,96 @@ test("investigation retry keeps its key and payment evidence available", async (
   await expect(page.getByText("The central payment is PENDING_RECONCILIATION.")).toBeVisible();
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]);
+});
+
+test("worklist cursor, filters, history and unavailable response stay explicit", async ({ page }) => {
+  await installFixtureApi(page, "OPS_VIEWER");
+  await page.route("http://localhost:8080/api/ops/worklist**", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get("bankCode") === "ERROR") return fulfillFixture(route, { code: "UNAVAILABLE", message: "Projection unavailable" }, 503);
+    const data = worklistFixture().data;
+    if (params.has("cursor") || params.get("state") === "FAILED") data.items = [];
+    else data.nextCursor = "page2";
+    return fulfillFixture(route, data);
+  });
+  await page.goto("/console/worklist");
+  await expect(page.getByRole("link", { name: paymentId })).toBeVisible();
+  await page.getByRole("button", { name: "Next page" }).click();
+  await expect(page).toHaveURL(/cursor=page2/);
+  await expect(page.getByText("No matching payments")).toBeVisible();
+  await page.getByRole("button", { name: "First page" }).click();
+  await expect(page.getByRole("link", { name: paymentId })).toBeVisible();
+  await page.getByLabel("Payment state").selectOption("FAILED");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(page.getByText("No matching payments")).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("link", { name: paymentId })).toBeVisible();
+  await page.getByLabel("Bank code").fill("ERROR");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(page.getByRole("alert")).toContainText("The request could not be completed.");
+});
+
+test("terminal evidence hides pending warning and exports the server bundle", async ({ page }) => {
+  await installFixtureApi(page, "OPS_VIEWER");
+  await page.route(`http://localhost:8080/api/ops/payments/${paymentId}/evidence`, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const data = fixture("evidence-partial.json").data;
+    data.payment.state = "COMPLETED";
+    data.payment.completedAt = "2026-10-11T00:05:00Z";
+    data.operations[0].participantStatus = "FINAL";
+    data.operations[0].presence = "present";
+    data.operations[0].sourceStatus = "available";
+    data.sources[1].status = "available";
+    data.sources[1].observedAt = "2026-10-11T00:05:00Z";
+    data.sources[1].errorCode = null;
+    data.recovery.status = "resolved";
+    data.warnings = [];
+    data.transitions.push({ id: "33333333-3333-4333-8333-333333333334", sequence: "5", fromState: "PENDING_RECONCILIATION", toState: "COMPLETED", occurredAt: "2026-10-11T00:05:00Z", evidenceId: "transition:33333333-3333-4333-8333-333333333334" });
+    return fulfillFixture(route, data);
+  });
+  await page.goto(`/console/payments/${paymentId}`);
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(page.getByText("An unavailable or unknown bank observation does not prove failure.", { exact: false })).toHaveCount(0);
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download server export" }).click();
+  const download = await downloadPromise;
+  const payload = JSON.parse(readFileSync(await download.path(), "utf8"));
+  expect(payload.manifest.fixture).toBe(true);
+  expect(payload.evidence.paymentId).toBe(paymentId);
+});
+
+test("saved report labels stale and missing citations without inventing evidence", async ({ page }) => {
+  await installFixtureApi(page, "OPS_VIEWER");
+  await page.route(`http://localhost:8080/api/ops/investigations/${investigationId}`, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const data = fixture("investigation-evidence-only.json").data;
+    data.report.snapshotId = "sha256:older-fixture";
+    data.report.facts[0].evidenceIds = ["unknown:fixture"];
+    data.report.recommendations = [{ text: "Consult the approved runbook.", runbookChunkIds: ["runbook:fixture:1"] }];
+    return fulfillFixture(route, data);
+  });
+  await page.goto(`/console/investigations/${investigationId}?paymentId=${paymentId}`);
+  await expect(page.getByText("This report uses an older evidence snapshot.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Evidence unknown:fixture is not in this snapshot")).toBeVisible();
+  await expect(page.getByText("Runbook references: runbook:fixture:1", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "View evidence unknown:fixture" })).toHaveCount(0);
+});
+
+test("analytics labels insufficient samples and unavailable model output", async ({ page }) => {
+  await installFixtureApi(page, "OPS_VIEWER");
+  await page.route("http://localhost:8080/api/ops/analytics/windows**", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return fulfillFixture(route, { items: [{
+      id: "window-fixture", entityType: "bank", entityId: "BANK-A", from: "2026-10-11T00:00:00Z", to: "2026-10-11T00:05:00Z",
+      sampleCount: 2, featureSchemaVersion: "fixture.v1", features: { timeoutRate: null, failureRate: null, p95LatencyMs: null, oldestRecoveryAgeMs: null, recoveryAttemptsPerPayment: null, healthAvailabilityRate: null },
+      baselineAlert: { code: "INSUFFICIENT_SAMPLES", message: "Too few observations" },
+      model: { version: null, status: "insufficient_data", score: null, threshold: null }, advisory: true,
+    }], nextCursor: null, asOf: "2026-10-11T00:05:00Z" });
+  });
+  await page.goto("/console/analytics");
+  await expect(page.getByRole("heading", { name: "Operational analytics" })).toBeVisible();
+  await expect(page.getByText("Too few observations")).toBeVisible();
+  await expect(page.getByText("insufficient data · no version")).toBeVisible();
+  await expect(page.getByText("Unavailable / Unavailable")).toBeVisible();
 });

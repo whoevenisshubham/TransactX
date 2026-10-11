@@ -72,6 +72,7 @@ Copy-Item -Path (Join-Path $repo 'deploy\systemd') -Destination (Join-Path $stag
 Copy-Item -Path (Join-Path $repo 'deploy\caddy') -Destination (Join-Path $stage 'deploy') -Recurse
 Copy-Item -Path (Join-Path $repo 'deploy\scripts') -Destination (Join-Path $stage 'deploy') -Recurse
 Copy-Item -LiteralPath (Join-Path $repo 'deploy\README.md') -Destination (Join-Path $stage 'deploy\README.md')
+Copy-Item -LiteralPath (Join-Path $repo 'deploy\RESTORE_REHEARSAL.md') -Destination (Join-Path $stage 'deploy\RESTORE_REHEARSAL.md')
 Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $stage 'docs\README.md')
 Copy-Item -LiteralPath (Join-Path $repo 'docs\next-gen\execution-pack\docs\next-gen\DEPLOYMENT_AND_BACKUP.md') -Destination (Join-Path $stage 'docs\DEPLOYMENT_AND_BACKUP.md')
 

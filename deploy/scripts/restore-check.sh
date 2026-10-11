@@ -72,6 +72,6 @@ export TX_RESTORE_HASH="$actual_hash" TX_RESTORE_STARTED="$started" TX_RESTORE_F
 export TX_RESTORE_PAYMENTS="$payments" TX_RESTORE_ACCOUNTS="$accounts" TX_RESTORE_BANK_A_OPS="$bank_a_ops" TX_RESTORE_BANK_B_OPS="$bank_b_ops" TX_RESTORE_IDEMPOTENCY="$idempotency"
 export TX_RESTORE_PG_VERSION="$(pg_restore --version)"
 node -e 'const fs=require("fs"); const p=process.env; fs.writeFileSync(p.TX_RESTORE_REPORT,JSON.stringify({schemaVersion:"tx.restore.v1",sourceSha:p.TX_RESTORE_SOURCE_SHA,backupSha256:p.TX_RESTORE_HASH,startedAt:p.TX_RESTORE_STARTED,finishedAt:p.TX_RESTORE_FINISHED,targetDatabase:p.TX_RESTORE_TARGET,pgRestoreVersion:p.TX_RESTORE_PG_VERSION,counts:{payments:Number(p.TX_RESTORE_PAYMENTS),accounts:Number(p.TX_RESTORE_ACCOUNTS),bankAOperations:Number(p.TX_RESTORE_BANK_A_OPS),bankBOperations:Number(p.TX_RESTORE_BANK_B_OPS),idempotencyRecords:Number(p.TX_RESTORE_IDEMPOTENCY)},checks:{threeSchemas:true,nonnegativeBalances:true,balancedCentralLedger:true,noOrphanIdempotency:true},workerContinuation:"not_run",projectionRebuild:"not_run",globalRoles:"not_applied_to_shared_cluster"},null,2)+"\n")'
-sha256sum "$report" > "$report.sha256"
+(cd "$report_dir" && sha256sum "$(basename "$report")" > "$(basename "$report.sha256")")
 echo "Isolated restore checks passed. Report: $report"
 echo 'Worker continuation, projection rebuild and global-role restore remain separate release gates.'

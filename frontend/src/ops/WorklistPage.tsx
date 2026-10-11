@@ -92,7 +92,7 @@ export function WorklistPage({ token, liveRevision, onNavigate }: {
           { key: "age", heading: "Age", render: (item) => `${Math.floor(item.ageMs / 60000)} min` },
         ]} />}
       <div className="ops-controls">
-        {filters.cursor && <Button variant="secondary" onClick={() => window.history.back()}>Previous page</Button>}
+        {filters.cursor && <Button variant="secondary" onClick={() => navigateFilters({ ...filters, cursor: undefined })}>First page</Button>}
         {page.nextCursor && <Button variant="secondary" onClick={() => navigateFilters({ ...filters, cursor: page.nextCursor! })}>Next page</Button>}
       </div>
     </>}
