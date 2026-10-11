@@ -46,7 +46,7 @@ cluster using its own `pg_ctl -D <disposable-data-dir> stop` command.
 ## Measured fixture result
 
 The local Windows rehearsal on 11 October 2026 used PostgreSQL 18.6 and age
-1.3.2. The encrypted snapshot restored into a new database in 4.06 seconds
+1.3.2. The clean-head encrypted snapshot restored into a new database in 4.12 seconds
 wall time. The report found three schemas, one synthetic payment, two central
 accounts, one operation per bank, one idempotency record, nonnegative balances,
 a balanced central ledger and no orphan idempotency reference. The backup was
