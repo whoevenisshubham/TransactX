@@ -1,9 +1,9 @@
 {
   "synthetic": true,
   "sourceCommit": "6ad42bff0ff01da6b4c88e5b702aa2b897fd452d",
-  "datasetSha256": "95fc33c90f735c36abaa3c3f6064cae53ed1df4239dd9b9dd706a6812e00176a",
+  "datasetSha256": "6595393e6275a1912cb8c687e353eb216c07bdaefa452822fc1648bc53471562",
   "splitSha256": "00495d89cea058d57a268aa5a65a391e628010a1d17cdbbb1a52335955b3536a",
-  "modelSha256": "854e088946a1024b54dd1908a9a98a2958ec98fe2b04abc42fd01fe5219ebe51",
+  "modelSha256": "776ed80639781ab2866552ff10bfdc3aeb6c4dfffd8ca84016f237cb14154bf5",
   "seed": 371,
   "rows": 672,
   "runs": 42,
@@ -743,7 +743,7 @@
   },
   "limitations": [
     "Virtual-time simulated adapter observations; no live HTTP, database or production training data.",
-    "Projection backlog and traffic burst are labelled stress scenarios but frozen six features do not directly measure queue depth or throughput.",
+    "Simulated projection queue depth and traffic burst volume stay outside the frozen six features.",
     "Only two held-out runs per scenario; bootstrap uncertainty is coarse.",
     "128-IQR guard is an engineering envelope, not learned drift calibration."
   ],

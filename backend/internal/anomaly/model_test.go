@@ -365,6 +365,11 @@ func TestAtomicReplacementAndAge(t *testing.T) {
 	}
 	result := before.Score(v)
 	*result.Version = "changed"
+	wantThreshold := *result.Threshold
+	*result.Threshold = 0
+	if *before.Score(v).Threshold != wantThreshold {
+		t.Fatal("result must not expose model threshold")
+	}
 	if *before.Score(v).Version == "changed" {
 		t.Fatal("result must not expose model fields")
 	}

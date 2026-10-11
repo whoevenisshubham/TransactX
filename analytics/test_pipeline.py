@@ -26,6 +26,20 @@ class PipelineChecks(unittest.TestCase):
   schema=json.loads((pipeline.ROOT/'docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json').read_text())
   v=Draft202012Validator({'$ref':'#/$defs/AnalyticsWindow','$defs':schema['$defs']},format_checker=FormatChecker())
   for window in json.loads((A/'windows.json').read_text()):v.validate(window)
+ def test_projection_queue_scenario(self):
+  runs={}
+  for row in self.rows:runs.setdefault(row['runId'],[]).append(row)
+  for rows in runs.values():
+   pending=0
+   for row in sorted(rows,key=lambda r:r['from']):
+    pending+=row['sampleCount']-row['projectionAppliedEvents']
+    self.assertEqual(pending,row['projectionPendingEvents'])
+    self.assertGreaterEqual(pending,0)
+    if row['scenario']=='projection_backlog' and row['anomaly']:self.assertGreater(pending,0)
+    else:self.assertEqual(pending,0)
+  before=pipeline.matrix(self.rows);changed=copy.deepcopy(self.rows)
+  for row in changed:row['projectionPendingEvents']=999999;row['projectionAppliedEvents']=999999
+  np.testing.assert_array_equal(before,pipeline.matrix(changed))
  def test_artifact_hashes(self):
   manifest=json.loads((A/'manifest.json').read_text())
   for name,sha in manifest['files'].items():self.assertEqual(sha,pipeline.digest(A/name))

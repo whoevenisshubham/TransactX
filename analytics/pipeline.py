@@ -53,7 +53,7 @@ def export(forest,center,scale,threshold,rows,split_hash,data_hash,trained_at):
   trees.append(dict(nodes=nodes))
  # Safety envelope is frozen from training calibration only, NOT fitted on validation/test anomalies.
  # 128 robust IQRs is a broad engineering guard, not learned proof of in-distribution behavior.
- return dict(formatVersion='tx.iforest.v1',featureSchemaVersion='tx.features.v1',version='synthetic-iforest-v1',trainedAt=trained_at,sourceCommit=rows[0]['sourceCommit'],datasetSha256=data_hash,splitSha256=split_hash,synthetic=True,features=FIELDS,center=center.tolist(),scale=scale.tolist(),lower=[-128.]*6,upper=[128.]*6,samples=int(forest.max_samples_),threshold=threshold,trees=trees)
+ return dict(formatVersion='tx.iforest.v1',featureSchemaVersion='tx.features.v1',version='synthetic-iforest-v2',trainedAt=trained_at,sourceCommit=rows[0]['sourceCommit'],datasetSha256=data_hash,splitSha256=split_hash,synthetic=True,features=FIELDS,center=center.tolist(),scale=scale.tolist(),lower=[-128.]*6,upper=[128.]*6,samples=int(forest.max_samples_),threshold=threshold,trees=trees)
 
 def run(dataset,out,trained_at):
  rows=json.loads(dataset.read_text());split=validate(rows);out.mkdir(parents=True,exist_ok=True)
@@ -88,13 +88,14 @@ def run(dataset,out,trained_at):
  for _ in range(500):
   selected=rng.choice(runs,size=len(runs),replace=True);inds=[i for rid in selected for i,r in enumerate(test) if r['runId']==rid]
   for name,scores,threshold in [('model',ms,chosen['threshold']),('baseline',bs,bc['threshold'])]:boot[name].append(metrics(ty[inds],scores[inds],threshold)['f1'])
- report=dict(synthetic=True,sourceCommit=rows[0]['sourceCommit'],datasetSha256=data_hash,splitSha256=split_hash,modelSha256=digest(out/'model.json'),seed=SEED,rows=len(rows),runs=len(set(r['runId'] for r in rows)),trainingHealthyRows=len(train),splitRunCounts={k:len(v) for k,v in split.items()},model=metrics(ty,ms,chosen['threshold']),baseline=metrics(ty,bs,bc['threshold']),validationCandidates={'model':comparisons,'baseline':bcomparisons},detectionDelay=delay,scenarioBootstrapF1Interval={k:np.quantile(v,[.025,.975]).tolist() for k,v in boot.items()},bootstrapReplicates=500,dependencies={'python':platform.python_version(),'numpy':np.__version__,'scikit-learn':sklearn.__version__},limitations=['Virtual-time simulated adapter observations; no live HTTP, database or production training data.','Projection backlog and traffic burst are labelled stress scenarios but frozen six features do not directly measure queue depth or throughput.','Only two held-out runs per scenario; bootstrap uncertainty is coarse.','128-IQR guard is an engineering envelope, not learned drift calibration.'])
+ report=dict(synthetic=True,sourceCommit=rows[0]['sourceCommit'],datasetSha256=data_hash,splitSha256=split_hash,modelSha256=digest(out/'model.json'),seed=SEED,rows=len(rows),runs=len(set(r['runId'] for r in rows)),trainingHealthyRows=len(train),splitRunCounts={k:len(v) for k,v in split.items()},model=metrics(ty,ms,chosen['threshold']),baseline=metrics(ty,bs,bc['threshold']),validationCandidates={'model':comparisons,'baseline':bcomparisons},detectionDelay=delay,scenarioBootstrapF1Interval={k:np.quantile(v,[.025,.975]).tolist() for k,v in boot.items()},bootstrapReplicates=500,dependencies={'python':platform.python_version(),'numpy':np.__version__,'scikit-learn':sklearn.__version__},limitations=['Virtual-time simulated adapter observations; no live HTTP, database or production training data.','Simulated projection queue depth and traffic burst volume stay outside the frozen six features.','Only two held-out runs per scenario; bootstrap uncertainty is coarse.','128-IQR guard is an engineering envelope, not learned drift calibration.'])
  report['modelReadyWindows']=int(ready.sum());report['modelOutOfDistributionWindows']=int((~ready).sum())
  report['fallbackPolicy']='Use baseline when model is out_of_distribution; recommend baseline-only because model underperforms.'
  report['hybrid']=metrics(ty,hybrid.astype(float),.5)
  report['modelMetricsScope']='Raw sklearn model scores before native distribution guard; hybrid includes guard/fallback.'
  dump(out/'evaluation.json',report)
- # >=100 sklearn reference scores including normal, anomalous and exactly-on-tree-threshold probes.
+ # >=100 sklearn reference scores for held-out normal and anomalous windows.
+ # A separate Go regression covers float32 tree-threshold branching.
  refs=[]
  for r,s,is_ready in zip(test,ms,ready):refs.append(dict(status='ready' if is_ready else 'out_of_distribution',vector=dict(schemaVersion='tx.features.v1',sampleCount=r['sampleCount'],values=[r['features'][f] for f in FIELDS]),score=float(s),baselineDeviation=float(base([r])[0]),baselineAlert=bool(base([r])[0]>bc['threshold'])))
  dump(out/'reference.json',refs)

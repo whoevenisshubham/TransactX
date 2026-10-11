@@ -14,19 +14,21 @@ import (
 )
 
 type Row struct {
-	SourceCommit         string             `json:"sourceCommit"`
-	Seed                 int64              `json:"seed"`
-	Scenario             string             `json:"scenario"`
-	RunID                string             `json:"runId"`
-	From                 string             `json:"from"`
-	To                   string             `json:"to"`
-	FeatureSchemaVersion string             `json:"featureSchemaVersion"`
-	CollectionMethod     string             `json:"collectionMethod"`
-	Synthetic            bool               `json:"synthetic"`
-	Split                string             `json:"split"`
-	Anomaly              bool               `json:"anomaly"`
-	SampleCount          int                `json:"sampleCount"`
-	Features             map[string]float64 `json:"features"`
+	SourceCommit            string             `json:"sourceCommit"`
+	Seed                    int64              `json:"seed"`
+	Scenario                string             `json:"scenario"`
+	RunID                   string             `json:"runId"`
+	From                    string             `json:"from"`
+	To                      string             `json:"to"`
+	FeatureSchemaVersion    string             `json:"featureSchemaVersion"`
+	CollectionMethod        string             `json:"collectionMethod"`
+	Synthetic               bool               `json:"synthetic"`
+	Split                   string             `json:"split"`
+	Anomaly                 bool               `json:"anomaly"`
+	SampleCount             int                `json:"sampleCount"`
+	Features                map[string]float64 `json:"features"`
+	ProjectionPendingEvents int                `json:"projectionPendingEvents"`
+	ProjectionAppliedEvents int                `json:"projectionAppliedEvents"`
 }
 
 func main() {
@@ -45,6 +47,7 @@ func main() {
 				rng := rand.New(rand.NewSource(seed))
 				adapter := experiments.NewMockBankAdapter("BANK-A-RAIL-A")
 				base := time.Date(2026, 10, 1+group*3+repeat, si*2, 0, 0, 0, time.UTC)
+				projectionPending := 0
 				for w := 0; w < 16; w++ {
 					active := w >= 8 && scenario != "healthy"
 					count := 40 + rng.Intn(30)
@@ -102,8 +105,16 @@ func main() {
 						age += float64(w-7) * 60000
 						attempts += float64(w - 7)
 					}
+					// Virtual outbox arrivals and projection service capacity, observed by window end.
+					// Queue counts are provenance/evaluation context, excluded from tx.features.v1.
+					projectionPending += count
+					applied := projectionPending
+					if active && scenario == "projection_backlog" {
+						applied = count / 10
+					}
+					projectionPending -= applied
 					from := base.Add(time.Duration(w) * 5 * time.Minute)
-					rows = append(rows, Row{*source, seed, scenario, fmt.Sprintf("%s-%d", scenario, seed), from.Format(time.RFC3339), from.Add(5 * time.Minute).Format(time.RFC3339), "tx.features.v1", "existing MockBankAdapter.GetHealth + seeded virtual latency/backlog simulation", true, split, active, count, map[string]float64{"timeoutRate": float64(timeouts) / float64(count), "failureRate": float64(failures) / float64(count), "p95LatencyMs": latencies[(len(latencies)*95-1)/100], "oldestRecoveryAgeMs": age, "recoveryAttemptsPerPayment": attempts, "healthAvailabilityRate": float64(healthy) / float64(count)}})
+					rows = append(rows, Row{*source, seed, scenario, fmt.Sprintf("%s-%d", scenario, seed), from.Format(time.RFC3339), from.Add(5 * time.Minute).Format(time.RFC3339), "tx.features.v1", "existing MockBankAdapter.GetHealth + seeded virtual latency/recovery/projection simulation", true, split, active, count, map[string]float64{"timeoutRate": float64(timeouts) / float64(count), "failureRate": float64(failures) / float64(count), "p95LatencyMs": latencies[(len(latencies)*95-1)/100], "oldestRecoveryAgeMs": age, "recoveryAttemptsPerPayment": attempts, "healthAvailabilityRate": float64(healthy) / float64(count)}, projectionPending, applied})
 				}
 			}
 		}

@@ -221,7 +221,8 @@ func (m *Model) Score(v FeatureVector) ScoreResult {
 	score := math.Pow(2, -total/float64(len(m.artifact.Trees))/pathAdjustment(m.artifact.Samples))
 	r.Status = "ready"
 	r.Score = &score
-	r.Threshold = &m.artifact.Threshold
+	threshold := m.artifact.Threshold
+	r.Threshold = &threshold
 	return r
 }
 func (m *Model) Hash() string {

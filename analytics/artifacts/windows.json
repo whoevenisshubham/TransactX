@@ -20,7 +20,7 @@
       "message": "Observed feature deviation exceeds baseline threshold."
     },
     "model": {
-      "version": "synthetic-iforest-v1",
+      "version": "synthetic-iforest-v2",
       "status": "out_of_distribution",
       "score": null,
       "threshold": null
@@ -45,7 +45,7 @@
     },
     "baselineAlert": null,
     "model": {
-      "version": "synthetic-iforest-v1",
+      "version": "synthetic-iforest-v2",
       "status": "ready",
       "score": 0.43673835557342566,
       "threshold": 0.6
@@ -73,7 +73,7 @@
       "message": "Observed feature deviation exceeds baseline threshold."
     },
     "model": {
-      "version": "synthetic-iforest-v1",
+      "version": "synthetic-iforest-v2",
       "status": "out_of_distribution",
       "score": null,
       "threshold": null
@@ -101,7 +101,7 @@
       "message": "Observed feature deviation exceeds baseline threshold."
     },
     "model": {
-      "version": "synthetic-iforest-v1",
+      "version": "synthetic-iforest-v2",
       "status": "out_of_distribution",
       "score": null,
       "threshold": null
