@@ -1,0 +1,16 @@
+{
+  "version": "tx.corpus.c0.v1",
+  "active": false,
+  "documents": [
+    {
+      "path": "docs/architecture.md",
+      "sha256": "74699be3c7e2a9fa497b00c944ce45a3e8430cd0fb4b1161d70bb897100a0add",
+      "implementationStatus": "existing",
+      "allowedRoles": [
+        "OPS_ADMIN",
+        "OPS_VIEWER"
+      ]
+    }
+  ],
+  "note": "C0 candidate source allowlist only. C1 must review sections and ingest; no runtime retrieval exists."
+}

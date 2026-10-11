@@ -1,0 +1,43 @@
+{
+  "version": "tx.c0.v1",
+  "contractVersion": "tx.v2.1",
+  "schemaSha256": "9fb5447b92c62222abbf04549cd4e8fea228aff9ba2133565f64a8277d43f76b",
+  "cases": [
+    {
+      "path": "healthy.json",
+      "sha256": "187005c64f9157e5f6b591590a7bb88854c527d9809b07d6bd30633d0e350ee8"
+    },
+    {
+      "path": "unknown.json",
+      "sha256": "a2342d78e08d3bcdaa769d78b15f178f03cee6239784919b1860426734e0dd27"
+    },
+    {
+      "path": "absent_before_dispatch.json",
+      "sha256": "bcafb53377b4a3c47dc4c85f5dd78141cc944706bc7d93a284879da870c6a3a6"
+    },
+    {
+      "path": "bank_settled_central_pending.json",
+      "sha256": "e694e5e1280a41a9149c29e45f919663c2b02a95f76cd472cf4cb8a0648c5b40"
+    },
+    {
+      "path": "missing_target.json",
+      "sha256": "e39583204235173a76e3212d03761cb533fbf5191d756567154f8976d9cffc21"
+    },
+    {
+      "path": "partial_evidence.json",
+      "sha256": "65c55a1c9d67a451a37e5ff11443aa18e35c8549d3c2f966f7fdd1ac7bb82177"
+    },
+    {
+      "path": "trace_missing.json",
+      "sha256": "b21bbb9f671882d2294532cd43c4106b041d2fafab02e06d8a4f97eae0ac2059"
+    },
+    {
+      "path": "wrong_identity.json",
+      "sha256": "6351a3f3f2fd09af45ca19db21daee4a2e194ea48e59e672ac2b2e6f06197b94"
+    },
+    {
+      "path": "injected_document.json",
+      "sha256": "43331083e891fad44bc4df3936dae8d2c1bb5a90c9e4c409e7cdea5975d8757c"
+    }
+  ]
+}
