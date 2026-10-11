@@ -4,6 +4,8 @@ import { Avatar, BrandMark, Button, InlineError, PageHeader, Skeleton } from "./
 import { subscribeOperationalEvents, type StreamStatus } from "./operationalEvents";
 import { WorklistPage } from "./ops/WorklistPage";
 import { PaymentEvidencePage } from "./ops/PaymentEvidencePage";
+import { AnalyticsPage } from "./ops/AnalyticsPage";
+import { InvestigationPage } from "./ops/InvestigationPage";
 import type {
   ActivityEvent,
   ChaosScenario,
@@ -18,6 +20,8 @@ import type {
 export function readConsoleView(pathname = typeof window !== "undefined" ? window.location.pathname : "/console"): ConsoleView {
   if (pathname === "/console/worklist") return "c-worklist";
   if (/^\/console\/payments\/[0-9a-f-]{36}$/i.test(pathname)) return "c-payment-evidence";
+  if (pathname === "/console/analytics") return "c-analytics";
+  if (/^\/console\/investigations\/[0-9a-f-]{36}$/i.test(pathname)) return "c-investigation";
   if (pathname.startsWith("/console/health")) return "c-health";
   if (pathname.startsWith("/console/routing")) return "c-routing";
   if (pathname.startsWith("/console/reconciliation")) return "c-reconciliation";
@@ -32,6 +36,8 @@ export function consoleViewPath(view: ConsoleView): string {
   switch (view) {
     case "c-worklist": return "/console/worklist";
     case "c-payment-evidence": return "/console/worklist";
+    case "c-analytics": return "/console/analytics";
+    case "c-investigation": return "/console/worklist";
     case "c-health": return "/console/health";
     case "c-routing": return "/console/routing";
     case "c-reconciliation": return "/console/reconciliation";
@@ -45,7 +51,7 @@ export function consoleViewPath(view: ConsoleView): string {
 
 function permittedConsoleView(view: ConsoleView, role: string): ConsoleView {
   if (role !== "OPS_VIEWER") return view;
-  return view === "c-payment-evidence" || view === "c-worklist" ? view : "c-worklist";
+  return view === "c-payment-evidence" || view === "c-worklist" || view === "c-analytics" || view === "c-investigation" ? view : "c-worklist";
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +163,7 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
   function navigatePath(path: string) {
     const target = new URL(path, window.location.origin);
     if (target.origin !== window.location.origin) return;
-    if (user.role === "OPS_VIEWER" && !(/^\/console\/(worklist|payments\/[0-9a-f-]{36})$/i.test(target.pathname))) return;
+    if (user.role === "OPS_VIEWER" && !(/^\/console\/(worklist|analytics|payments\/[0-9a-f-]{36}|investigations\/[0-9a-f-]{36})$/i.test(target.pathname))) return;
     const from = path.startsWith("/console/payments/") && window.location.pathname === "/console/worklist"
       ? { from: `${window.location.pathname}${window.location.search}` }
       : {};
@@ -182,6 +188,8 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
           {view === "c-overview" && user.role === "OPS_ADMIN" && <ConsoleOverviewView token={token} onNavigate={navigate} liveRevision={liveRevision} />}
           {view === "c-worklist" && <WorklistPage token={token} liveRevision={liveRevision} onNavigate={navigatePath} />}
           {view === "c-payment-evidence" && <PaymentEvidencePage key={`${routeRevision}:${window.location.pathname}`} paymentId={window.location.pathname.split("/")[3] ?? ""} token={token} isAdmin={user.role === "OPS_ADMIN"} liveRevision={liveRevision} onNavigate={navigatePath} />}
+          {view === "c-analytics" && <AnalyticsPage token={token} liveRevision={liveRevision} />}
+          {view === "c-investigation" && <InvestigationPage key={`${routeRevision}:${window.location.pathname}`} id={window.location.pathname.split("/")[3] ?? ""} token={token} onNavigate={navigatePath} />}
           {view === "c-health" && user.role === "OPS_ADMIN" && <ConsoleHealthView token={token} liveRevision={liveRevision} />}
           {view === "c-routing" && user.role === "OPS_ADMIN" && <ConsoleRoutingView token={token} liveRevision={liveRevision} />}
           {view === "c-reconciliation" && user.role === "OPS_ADMIN" && <ConsoleReconciliationView token={token} liveRevision={liveRevision} />}
@@ -218,6 +226,7 @@ function ConsoleSidebar({
       <nav aria-label="Console navigation">
         {user.role === "OPS_ADMIN" && <ConsoleNavItem view="c-overview" active={view === "c-overview"} label="Overview" icon="overview" onClick={onNavigate} />}
         <ConsoleNavItem view="c-worklist" active={view === "c-worklist" || view === "c-payment-evidence"} label="Worklist" icon="activity" onClick={onNavigate} />
+        <ConsoleNavItem view="c-analytics" active={view === "c-analytics"} label="Analytics" icon="pulse" onClick={onNavigate} />
         {user.role === "OPS_ADMIN" && <>
         <ConsoleNavItem view="c-health" active={view === "c-health"} label="Bank Health" icon="health" onClick={onNavigate} />
         <ConsoleNavItem view="c-routing" active={view === "c-routing"} label="Routing" icon="routing" onClick={onNavigate} />
@@ -295,6 +304,10 @@ function ConsoleMobileNav({ view, onNavigate, viewer }: { view: ConsoleView; onN
       <button type="button" className={`mobile-nav-item ${view === "c-worklist" || view === "c-payment-evidence" ? "is-active" : ""}`} aria-current={view === "c-worklist" || view === "c-payment-evidence" ? "page" : undefined} onClick={() => onNavigate("c-worklist")}>
         <ConsoleIcon name="activity" size={15} />
         <span>Worklist</span>
+      </button>
+      <button type="button" className={`mobile-nav-item ${view === "c-analytics" ? "is-active" : ""}`} aria-current={view === "c-analytics" ? "page" : undefined} onClick={() => onNavigate("c-analytics")}>
+        <ConsoleIcon name="pulse" size={15} />
+        <span>Analytics</span>
       </button>
       {!viewer && <>
       <button type="button" className={`mobile-nav-item ${view === "c-health" ? "is-active" : ""}`} aria-current={view === "c-health" ? "page" : undefined} onClick={() => onNavigate("c-health")}>

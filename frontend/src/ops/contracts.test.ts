@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { decodeEvidence, decodeWorklist, ContractError } from "./contracts";
+import { decodeEvidence, decodeInvestigation, decodeTrace, decodeWorklist, ContractError } from "./contracts";
 import { createFixtureOpsClient } from "./fixtures";
 import { formatPaiseDecimal } from "../design/OpsPrimitives";
 
@@ -23,6 +23,13 @@ describe("v2 operational contract", () => {
   });
   it("preserves integer money beyond JavaScript's safe number range", () => {
     assert.equal(formatPaiseDecimal("9007199254740993"), "₹90,071,992,547,409.93");
+  });
+  it("decodes an evidence-only investigation and an uncollected trace", () => {
+    const investigation = decodeInvestigation(fixture("investigation-evidence-only.json"));
+    assert.equal(investigation.report?.facts[0].assertions[0].field, "central_state");
+    assert.equal(investigation.mode, "evidence_only");
+    const trace = decodeTrace(fixture("trace-not-collected.json"));
+    assert.equal(trace.sourceStatus, "not_collected");
   });
   it("rejects numeric money and missing projection freshness", () => {
     const worklist = fixture("worklist-empty.json") as Record<string, unknown>;

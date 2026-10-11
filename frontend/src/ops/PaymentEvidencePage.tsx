@@ -4,6 +4,8 @@ import { DataTable, formatPaiseDecimal, OpsStatusBadge, Timeline } from "../desi
 import { liveOpsClient } from "./client";
 import type { EvidenceOperation, EvidenceSource, EvidenceTransition, RecoveryAttempt } from "./contracts";
 import { useResource } from "./useResource";
+import { TracePanel } from "./TracePanel";
+import { InvestigationPanel } from "./InvestigationPanel";
 
 function time(value: string | null) { return value ? new Date(value).toLocaleString() : "Not observed"; }
 function optional(value: string | null) { return value ?? "Unknown"; }
@@ -41,6 +43,13 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
 
   const evidence = detail.key === paymentId ? detail.data : null;
   const attemptPage = attempts.key === paymentId ? attempts.data : null;
+  useEffect(() => {
+    if (!evidence || !window.location.hash.startsWith("#evidence-")) return;
+    try {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: "center" }), 0);
+    } catch { /* Ignore malformed link fragments. */ }
+  }, [evidence]);
 
   async function scheduleRecheck() {
     if (!isAdmin || rechecking) return;
@@ -87,7 +96,7 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
     {evidence && <>
       <p className="ops-muted">Collected {time(evidence.collectedAt)} · Snapshot <span className="ops-mono">{evidence.snapshotId}</span></p>
       <div className="ops-evidence-grid">
-        <Card variant="bordered"><h2>Central payment</h2>
+        <Card variant="bordered" id={`evidence-${evidence.payment.evidenceId}`}><h2>Central payment</h2>
           <p><OpsStatusBadge state={evidence.payment.state} /></p>
           <p className="amount amount-prominent">{formatPaiseDecimal(evidence.payment.amountPaise, evidence.payment.currency)}</p>
           <p>Created {time(evidence.payment.createdAt)}</p>
@@ -110,10 +119,10 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
         { key: "observed", heading: "Observed", render: (source) => time(source.observedAt) },
         { key: "error", heading: "Error code", render: (source) => source.errorCode ?? "—" },
       ]} />
-      <Timeline<EvidenceTransition> title="State transitions" entries={evidence.transitions} entryKey={(entry) => entry.id} when={(entry) => entry.occurredAt} heading={(entry) => `${entry.fromState} → ${entry.toState}`} detail={(entry) => <span className="ops-mono">Sequence {entry.sequence} · {entry.evidenceId}</span>} />
+      <Timeline<EvidenceTransition> title="State transitions" entries={evidence.transitions} entryKey={(entry) => entry.id} entryId={(entry) => `evidence-${entry.evidenceId}`} when={(entry) => entry.occurredAt} heading={(entry) => `${entry.fromState} → ${entry.toState}`} detail={(entry) => <span className="ops-mono">Sequence {entry.sequence} · {entry.evidenceId}</span>} />
       {evidence.transitionsTruncated && <p className="ops-banner ops-banner-warning">Only the first 200 transitions were returned.</p>}
       <h2>Bank operations</h2>
-      {evidence.operations.length === 0 ? <p>No bank operations were collected in this snapshot.</p> : <DataTable<EvidenceOperation> caption="Original bank operations and observed participant status" rows={evidence.operations} rowKey={(operation) => operation.operationId} columns={[
+      {evidence.operations.length === 0 ? <p>No bank operations were collected in this snapshot.</p> : <DataTable<EvidenceOperation> caption="Original bank operations and observed participant status" rows={evidence.operations} rowKey={(operation) => operation.operationId} rowId={(operation) => `evidence-${operation.evidenceId}`} columns={[
         { key: "id", heading: "Operation", render: (operation) => <span className="ops-mono">{operation.operationId}</span> },
         { key: "kind", heading: "Type / bank", render: (operation) => `${operation.operationType} · ${operation.bankCode}` },
         { key: "central", heading: "Central", render: (operation) => operation.centralStatus },
@@ -139,10 +148,10 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
         <p>Reconciliation: {evidence.reconciliation.sourceStatus.replaceAll("_", " ")}; {evidence.reconciliation.discrepancyCount === null ? "count unavailable" : `${evidence.reconciliation.discrepancyCount} recorded discrepancies`}.</p>
         {evidence.reconciliation.scopeMismatch && <p className="ops-banner ops-banner-warning">The available reconciliation scope does not match this payment.</p>}
         <p>Integrity: {evidence.integrity.sourceStatus.replaceAll("_", " ")}; {evidence.integrity.violationCount === null ? "count unavailable" : `${evidence.integrity.violationCount} global violations`}.</p>
-        <p>Traces: {evidence.traces.sourceStatus.replaceAll("_", " ")}; {evidence.traces.traceIds.length} IDs collected.</p>
-        {evidence.traces.traceIds.map((traceId) => <p className="ops-mono" key={traceId}>{traceId}</p>)}
         <p className="ops-muted">Checks and traces provide context; they do not establish this payment’s financial outcome.</p>
       </section>
+      <TracePanel traceIds={evidence.traces.traceIds} sourceStatus={evidence.traces.sourceStatus} token={token} />
+      <InvestigationPanel paymentId={paymentId} snapshotId={evidence.snapshotId} evidenceIds={[evidence.payment.evidenceId, ...evidence.operations.map((operation) => operation.evidenceId), ...evidence.transitions.map((transition) => transition.evidenceId)]} token={token} onNavigate={onNavigate} />
       {isAdmin && <section><h2>Schedule a recheck</h2>
         <p>This asks the worker to recheck later. It does not settle money in this browser request.</p>
         <label className="field">Reason <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} minLength={1} /></label>

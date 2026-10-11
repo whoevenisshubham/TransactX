@@ -49,13 +49,14 @@ export type RecoveryAttempt = {
 export type Investigation = {
   id: string; status: "queued" | "running" | "completed" | "failed" | "cancelled";
   mode: "evidence_only" | "llm"; report: InvestigationReport | null;
-  toolTimeline: Array<{ toolName: string; startedAt: string; finishedAt: string | null; resultStatus: string; evidenceIds: string[] }>;
+  toolTimeline: Array<{ toolName: string; arguments: Record<string, unknown>; startedAt: string; finishedAt: string | null; status: string; evidenceIds: string[] }>;
   error: { code: string; message: string } | null; createdAt: string;
-  completedAt: string | null; usage: unknown;
+  completedAt: string | null; usage: { inputTokens: number | null; outputTokens: number | null; model: string | null; promptVersion: string };
 };
+export type EvidenceAssertion = { field: string; value: string; entityId: string | null; evidenceId: string };
 export type InvestigationReport = {
   schemaVersion: string; mode: "evidence_only" | "llm"; summary: string;
-  facts: Array<{ text: string; evidenceIds: string[]; contradiction: boolean }>;
+  facts: Array<{ text: string; evidenceIds: string[]; assertions: EvidenceAssertion[]; contradiction: boolean }>;
   inferences: Array<{ text: string; evidenceIds: string[]; contradiction: boolean }>;
   recommendations: Array<{ text: string; runbookChunkIds: string[] }>;
   missingEvidence: string[]; evidenceCoverage: "complete_for_question" | "limited" | "insufficient";
@@ -64,10 +65,12 @@ export type InvestigationReport = {
 export type AnalyticsWindow = {
   id: string; entityType: "bank" | "execution_target"; entityId: string;
   from: string; to: string; sampleCount: number; featureSchemaVersion: string;
-  features: Record<string, number | null>; baselineAlert: unknown;
+  features: { timeoutRate: number | null; failureRate: number | null; p95LatencyMs: number | null; oldestRecoveryAgeMs: number | null; recoveryAttemptsPerPayment: number | null; healthAvailabilityRate: number | null };
+  baselineAlert: { code: string; message: string } | null;
   model: { version: string | null; status: "ready" | "insufficient_data" | "stale" | "unavailable" | "out_of_distribution"; score: number | null; threshold: number | null };
   advisory: true;
 };
+export type Trace = { traceId: string; sourceStatus: SourceStatus; collectedAt: string; truncated: boolean; spans: Array<{ spanId: string; parentSpanId: string | null; service: string; name: string; startedAt: string; finishedAt: string | null; status: string; attributes: Record<string, unknown> }> };
 
 export class ContractError extends Error {
   constructor(path: string) { super(`The server returned an incompatible operational response at ${path}.`); this.name = "ContractError"; }
@@ -86,6 +89,17 @@ function nullableString(value: unknown, path: string): string | null {
 function integer(value: unknown, path: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw new ContractError(path);
   return value as number;
+}
+function finiteNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new ContractError(path);
+  return value;
+}
+function nullableNumber(value: unknown, path: string): number | null {
+  return value === null ? null : finiteNumber(value, path);
+}
+function bool(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") throw new ContractError(path);
+  return value;
 }
 function decimal(value: unknown, path: string): string {
   const result = string(value, path);
@@ -176,7 +190,7 @@ export function decodeEvidence(value: unknown): EvidenceBundle {
         occurredAt: string(item.occurredAt, `${path}.occurredAt`), evidenceId: string(item.evidenceId, `${path}.evidenceId`),
       };
     }),
-    transitionsTruncated: root.transitionsTruncated === true ? true : root.transitionsTruncated === false ? false : (() => { throw new ContractError("transitionsTruncated"); })(),
+    transitionsTruncated: bool(root.transitionsTruncated, "transitionsTruncated"),
     recovery: {
       status: oneOf(recovery.status, recoveryStatuses, "recovery.status"), attemptCount: integer(recovery.attemptCount, "recovery.attemptCount"),
       nextAttemptAt: nullableString(recovery.nextAttemptAt, "recovery.nextAttemptAt"),
@@ -188,7 +202,7 @@ export function decodeEvidence(value: unknown): EvidenceBundle {
       sourceStatus: oneOf(reconciliation.sourceStatus, sourceStatuses, "reconciliation.sourceStatus"),
       runIds: array(reconciliation.runIds, "reconciliation.runIds", string),
       discrepancyCount: reconciliation.discrepancyCount === null ? null : integer(reconciliation.discrepancyCount, "reconciliation.discrepancyCount"),
-      scopeMismatch: reconciliation.scopeMismatch === true ? true : reconciliation.scopeMismatch === false ? false : (() => { throw new ContractError("reconciliation.scopeMismatch"); })(),
+      scopeMismatch: bool(reconciliation.scopeMismatch, "reconciliation.scopeMismatch"),
     },
     integrity: {
       sourceStatus: oneOf(integrity.sourceStatus, sourceStatuses, "integrity.sourceStatus"),
@@ -198,7 +212,7 @@ export function decodeEvidence(value: unknown): EvidenceBundle {
     traces: {
       sourceStatus: oneOf(traces.sourceStatus, sourceStatuses, "traces.sourceStatus"),
       traceIds: array(traces.traceIds, "traces.traceIds", string),
-      truncated: traces.truncated === true ? true : traces.truncated === false ? false : (() => { throw new ContractError("traces.truncated"); })(),
+      truncated: bool(traces.truncated, "traces.truncated"),
     },
     sources: array(root.sources, "sources", (value, path) => {
       const item = object(value, path);
@@ -207,6 +221,95 @@ export function decodeEvidence(value: unknown): EvidenceBundle {
     warnings: array(root.warnings, "warnings", (value, path) => {
       const item = object(value, path);
       return { code: string(item.code, `${path}.code`), message: string(item.message, `${path}.message`) };
+    }),
+  };
+}
+
+export function decodeInvestigation(value: unknown): Investigation {
+  const root = object(value, "investigation");
+  const usage = object(root.usage, "usage");
+  let report: InvestigationReport | null = null;
+  if (root.report !== null) {
+    const raw = object(root.report, "report");
+    report = {
+      schemaVersion: string(raw.schemaVersion, "report.schemaVersion"),
+      mode: oneOf(raw.mode, ["evidence_only", "llm"], "report.mode"),
+      summary: string(raw.summary, "report.summary"),
+      facts: array(raw.facts, "report.facts", (value, path) => {
+        const item = object(value, path);
+        return {
+          text: string(item.text, `${path}.text`), evidenceIds: array(item.evidenceIds, `${path}.evidenceIds`, string),
+          assertions: array(item.assertions, `${path}.assertions`, (value, path) => {
+            const assertion = object(value, path);
+            return { field: string(assertion.field, `${path}.field`), value: string(assertion.value, `${path}.value`), entityId: nullableString(assertion.entityId, `${path}.entityId`), evidenceId: string(assertion.evidenceId, `${path}.evidenceId`) };
+          }),
+          contradiction: bool(item.contradiction, `${path}.contradiction`),
+        };
+      }),
+      inferences: array(raw.inferences, "report.inferences", (value, path) => {
+        const item = object(value, path);
+        return { text: string(item.text, `${path}.text`), evidenceIds: array(item.evidenceIds, `${path}.evidenceIds`, string), contradiction: bool(item.contradiction, `${path}.contradiction`) };
+      }),
+      recommendations: array(raw.recommendations, "report.recommendations", (value, path) => {
+        const item = object(value, path);
+        return { text: string(item.text, `${path}.text`), runbookChunkIds: array(item.runbookChunkIds, `${path}.runbookChunkIds`, string) };
+      }),
+      missingEvidence: array(raw.missingEvidence, "report.missingEvidence", string),
+      evidenceCoverage: oneOf(raw.evidenceCoverage, ["complete_for_question", "limited", "insufficient"], "report.evidenceCoverage"),
+      snapshotId: string(raw.snapshotId, "report.snapshotId"), collectedAt: string(raw.collectedAt, "report.collectedAt"),
+    };
+  }
+  const error = root.error === null ? null : (() => {
+    const warning = object(root.error, "error");
+    return { code: string(warning.code, "error.code"), message: string(warning.message, "error.message") };
+  })();
+  return {
+    id: string(root.id, "id"), status: oneOf(root.status, ["queued", "running", "completed", "failed", "cancelled"], "status"),
+    mode: oneOf(root.mode, ["evidence_only", "llm"], "mode"), report,
+    toolTimeline: array(root.toolTimeline, "toolTimeline", (value, path) => {
+      const step = object(value, path);
+      return { toolName: string(step.toolName, `${path}.toolName`), arguments: object(step.arguments, `${path}.arguments`), startedAt: string(step.startedAt, `${path}.startedAt`), finishedAt: nullableString(step.finishedAt, `${path}.finishedAt`), status: string(step.status, `${path}.status`), evidenceIds: array(step.evidenceIds, `${path}.evidenceIds`, string) };
+    }),
+    error, createdAt: string(root.createdAt, "createdAt"), completedAt: nullableString(root.completedAt, "completedAt"),
+    usage: { inputTokens: usage.inputTokens === null ? null : integer(usage.inputTokens, "usage.inputTokens"), outputTokens: usage.outputTokens === null ? null : integer(usage.outputTokens, "usage.outputTokens"), model: nullableString(usage.model, "usage.model"), promptVersion: string(usage.promptVersion, "usage.promptVersion") },
+  };
+}
+
+export function decodeAnalyticsPage(value: unknown): CursorPage<AnalyticsWindow> {
+  const root = object(value, "analytics");
+  return {
+    items: array(root.items, "analytics.items", (value, path) => {
+      const window = object(value, path);
+      const features = object(window.features, `${path}.features`);
+      const model = object(window.model, `${path}.model`);
+      const rawAlert = window.baselineAlert;
+      const baselineAlert = rawAlert === null ? null : object(rawAlert, `${path}.baselineAlert`);
+      return {
+        id: string(window.id, `${path}.id`), entityType: oneOf(window.entityType, ["bank", "execution_target"], `${path}.entityType`),
+        entityId: string(window.entityId, `${path}.entityId`), from: string(window.from, `${path}.from`), to: string(window.to, `${path}.to`),
+        sampleCount: integer(window.sampleCount, `${path}.sampleCount`), featureSchemaVersion: string(window.featureSchemaVersion, `${path}.featureSchemaVersion`),
+        features: {
+          timeoutRate: nullableNumber(features.timeoutRate, `${path}.features.timeoutRate`), failureRate: nullableNumber(features.failureRate, `${path}.features.failureRate`),
+          p95LatencyMs: nullableNumber(features.p95LatencyMs, `${path}.features.p95LatencyMs`), oldestRecoveryAgeMs: nullableNumber(features.oldestRecoveryAgeMs, `${path}.features.oldestRecoveryAgeMs`),
+          recoveryAttemptsPerPayment: nullableNumber(features.recoveryAttemptsPerPayment, `${path}.features.recoveryAttemptsPerPayment`), healthAvailabilityRate: nullableNumber(features.healthAvailabilityRate, `${path}.features.healthAvailabilityRate`),
+        },
+        baselineAlert: baselineAlert === null ? null : { code: string(baselineAlert.code, `${path}.baselineAlert.code`), message: string(baselineAlert.message, `${path}.baselineAlert.message`) },
+        model: { version: nullableString(model.version, `${path}.model.version`), status: oneOf(model.status, ["ready", "insufficient_data", "stale", "unavailable", "out_of_distribution"], `${path}.model.status`), score: nullableNumber(model.score, `${path}.model.score`), threshold: nullableNumber(model.threshold, `${path}.model.threshold`) },
+        advisory: window.advisory === true ? true as const : (() => { throw new ContractError(`${path}.advisory`); })(),
+      };
+    }),
+    nextCursor: nullableString(root.nextCursor, "analytics.nextCursor"), asOf: string(root.asOf, "analytics.asOf"),
+  };
+}
+
+export function decodeTrace(value: unknown): Trace {
+  const root = object(value, "trace");
+  return {
+    traceId: string(root.traceId, "traceId"), sourceStatus: oneOf(root.sourceStatus, sourceStatuses, "sourceStatus"),
+    collectedAt: string(root.collectedAt, "collectedAt"), truncated: bool(root.truncated, "truncated"),
+    spans: array(root.spans, "spans", (value, path) => {
+      const span = object(value, path);
+      return { spanId: string(span.spanId, `${path}.spanId`), parentSpanId: nullableString(span.parentSpanId, `${path}.parentSpanId`), service: string(span.service, `${path}.service`), name: string(span.name, `${path}.name`), startedAt: string(span.startedAt, `${path}.startedAt`), finishedAt: nullableString(span.finishedAt, `${path}.finishedAt`), status: string(span.status, `${path}.status`), attributes: object(span.attributes, `${path}.attributes`) };
     }),
   };
 }

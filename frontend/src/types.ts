@@ -51,6 +51,8 @@ export type ConsoleView =
   | "c-overview"
   | "c-worklist"
   | "c-payment-evidence"
+  | "c-analytics"
+  | "c-investigation"
   | "c-health"
   | "c-routing"
   | "c-reconciliation"

@@ -19,6 +19,11 @@
 .ops-evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin: var(--space-md) 0; }
 .ops-page section { margin: var(--space-lg) 0; }
 .ops-page section h2 { font-size: var(--font-size-h2); }
+.ops-page textarea { width: 100%; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: var(--space-sm); background: var(--surface); color: var(--ink); font: inherit; }
+.ops-citations { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin: var(--space-xs) 0; }
+.ops-citation { border: 0; background: var(--accent-pale); color: var(--accent-strong); border-radius: var(--radius-sm); padding: var(--space-xs) var(--space-sm); font: inherit; font-size: var(--font-size-label); cursor: pointer; overflow-wrap: anywhere; }
+.ops-citation:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ops-investigation { border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-md); margin-top: var(--space-md); }
 @media (max-width: 700px) {
   .ops-evidence-grid { grid-template-columns: 1fr; }
   .ops-table thead { display: none; }

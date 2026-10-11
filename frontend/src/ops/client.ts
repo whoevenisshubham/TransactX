@@ -1,5 +1,5 @@
 import { apiRequest } from "../api";
-import { decodeEvidence, decodeWorklist, type AnalyticsWindow, type CursorPage, type EvidenceBundle, type Investigation, type RecoveryAttempt, type Worklist, type WorklistFilters } from "./contracts";
+import { decodeAnalyticsPage, decodeEvidence, decodeInvestigation, decodeTrace, decodeWorklist, type AnalyticsWindow, type CursorPage, type EvidenceBundle, type Investigation, type RecoveryAttempt, type Trace, type Worklist, type WorklistFilters } from "./contracts";
 
 export interface OpsReadClient {
   worklist(filters: WorklistFilters, token: string, signal?: AbortSignal): Promise<Worklist>;
@@ -19,6 +19,7 @@ export const liveOpsClient: OpsReadClient & {
   createInvestigation(paymentId: string, question: string, idempotencyKey: string, token: string): Promise<{ investigationId: string; status: string; mode: "evidence_only" | "llm" }>;
   investigation(id: string, token: string, signal?: AbortSignal): Promise<Investigation>;
   analytics(token: string, cursor?: string, signal?: AbortSignal): Promise<CursorPage<AnalyticsWindow>>;
+  trace(traceId: string, token: string, signal?: AbortSignal): Promise<Trace>;
 } = {
   async worklist(filters, token, signal) {
     const raw = await apiRequest<unknown>(`/api/ops/worklist${query(filters)}`, { signal }, token);
@@ -44,10 +45,16 @@ export const liveOpsClient: OpsReadClient & {
       method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ paymentId, question }),
     }, token);
   },
-  investigation(id, token, signal) {
-    return apiRequest(`/api/ops/investigations/${encodeURIComponent(id)}`, { signal }, token);
+  async investigation(id, token, signal) {
+    const raw = await apiRequest<unknown>(`/api/ops/investigations/${encodeURIComponent(id)}`, { signal }, token);
+    return decodeInvestigation(raw);
   },
-  analytics(token, cursor, signal) {
-    return apiRequest(`/api/ops/analytics/windows${query({ cursor })}`, { signal }, token);
+  async analytics(token, cursor, signal) {
+    const raw = await apiRequest<unknown>(`/api/ops/analytics/windows${query({ cursor })}`, { signal }, token);
+    return decodeAnalyticsPage(raw);
+  },
+  async trace(traceId, token, signal) {
+    const raw = await apiRequest<unknown>(`/api/ops/traces/${encodeURIComponent(traceId)}`, { signal }, token);
+    return decodeTrace(raw);
   },
 };

@@ -14,23 +14,23 @@ export function OpsStatusBadge({ state }: { state: string }) {
 }
 
 export type TableColumn<T> = { key: string; heading: string; render: (item: T) => ReactNode };
-export function DataTable<T>({ caption, columns, rows, rowKey }: {
-  caption: string; columns: TableColumn<T>[]; rows: T[]; rowKey: (item: T) => string;
+export function DataTable<T>({ caption, columns, rows, rowKey, rowId }: {
+  caption: string; columns: TableColumn<T>[]; rows: T[]; rowKey: (item: T) => string; rowId?: (item: T) => string;
 }) {
   return <div className="ops-table-scroll"><table className="ops-table">
     <caption>{caption}</caption>
     <thead><tr>{columns.map((column) => <th key={column.key} scope="col">{column.heading}</th>)}</tr></thead>
-    <tbody>{rows.map((row) => <tr key={rowKey(row)}>{columns.map((column) => <td key={column.key} data-label={column.heading}>{column.render(row)}</td>)}</tr>)}</tbody>
+    <tbody>{rows.map((row) => <tr key={rowKey(row)} id={rowId?.(row)}>{columns.map((column) => <td key={column.key} data-label={column.heading}>{column.render(row)}</td>)}</tr>)}</tbody>
   </table></div>;
 }
 
-export function Timeline<T>({ title, entries, entryKey, when, heading, detail }: {
+export function Timeline<T>({ title, entries, entryKey, when, heading, detail, entryId }: {
   title: string; entries: T[]; entryKey: (entry: T) => string;
-  when: (entry: T) => string; heading: (entry: T) => ReactNode; detail?: (entry: T) => ReactNode;
+  when: (entry: T) => string; heading: (entry: T) => ReactNode; detail?: (entry: T) => ReactNode; entryId?: (entry: T) => string;
 }) {
   return <section className="ops-timeline" aria-label={title}>
     <h2>{title}</h2>
-    <ol>{entries.map((entry) => <li key={entryKey(entry)}>
+    <ol>{entries.map((entry) => <li key={entryKey(entry)} id={entryId?.(entry)}>
       <time dateTime={when(entry)}>{new Date(when(entry)).toLocaleString()}</time>
       <strong>{heading(entry)}</strong>
       {detail?.(entry)}
