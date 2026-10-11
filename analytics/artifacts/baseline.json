@@ -1,0 +1,36 @@
+{
+  "threshold": 3.0,
+  "warmup": 8,
+  "center": [
+    0.007246376811594203,
+    0.0,
+    99.03294367959879,
+    1232.2423456002343,
+    0.14359222177019404,
+    0.9829047340736412
+  ],
+  "scale": [
+    0.03,
+    0.03,
+    30.0,
+    1000.0,
+    0.2,
+    0.03
+  ],
+  "calibrationRunIds": [
+    "controlled_outage-1002",
+    "controlled_outage-1012",
+    "healthy-1000",
+    "healthy-1010",
+    "projection_backlog-1005",
+    "projection_backlog-1015",
+    "recovery_backlog-1004",
+    "recovery_backlog-1014",
+    "rising_latency-1001",
+    "rising_latency-1011",
+    "traffic_burst-1006",
+    "traffic_burst-1016",
+    "transient_drops-1003",
+    "transient_drops-1013"
+  ]
+}

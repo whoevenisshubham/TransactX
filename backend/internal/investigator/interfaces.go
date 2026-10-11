@@ -54,13 +54,6 @@ type InvestigationStore interface {
 }
 
 // TraceReader is restricted to IDs already present in selected evidence.
-type TraceSpan struct{ ID, ParentID, Service, Name, Start, End, Status string }
-type TraceContext struct {
-	SourceStatus SourceStatus
-	CollectedAt  string
-	Truncated    bool
-	Spans        []TraceSpan
-}
 type TraceReader interface {
-	ReadTrace(context.Context, TrustedScope, string) (TraceContext, error)
+	ReadTrace(context.Context, TrustedScope, string) (Trace, error)
 }

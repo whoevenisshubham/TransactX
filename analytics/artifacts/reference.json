@@ -1,0 +1,4034 @@
+[
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 44,
+      "values": [
+        0.09090909090909091,
+        0,
+        1087.3772289618546,
+        1374.8856236318213,
+        0.1770767571240625,
+        0.9090909090909091
+      ]
+    },
+    "score": 0.7223493027015379,
+    "baselineDeviation": 32.94480950940853,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 44,
+      "values": [
+        0,
+        0,
+        97.88589285817116,
+        1384.5029597113366,
+        0.16220942256972762,
+        1
+      ]
+    },
+    "score": 0.4439931066983661,
+    "baselineDeviation": 0.1522606141111023,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 48,
+      "values": [
+        0.020833333333333332,
+        0,
+        98.98922237143083,
+        1238.5925754483012,
+        0.1944865285503587,
+        0.9791666666666666
+      ]
+    },
+    "score": 0.4695230654604249,
+    "baselineDeviation": 0.45289855072463764,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.018867924528301886,
+        0,
+        98.79563279465367,
+        1137.329327162259,
+        0.16689894314031967,
+        0.9811320754716981
+      ]
+    },
+    "score": 0.4382570238772665,
+    "baselineDeviation": 0.3873849238902561,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 65,
+      "values": [
+        0,
+        0.015384615384615385,
+        99.69654160740039,
+        1385.3798454758567,
+        0.1457860290711614,
+        0.9846153846153847
+      ]
+    },
+    "score": 0.4507761357628286,
+    "baselineDeviation": 0.5128205128205129,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0,
+        0.017543859649122806,
+        99.68856617310928,
+        1178.0629423911537,
+        0.1634417431043385,
+        0.9824561403508771
+      ]
+    },
+    "score": 0.46818603065662606,
+    "baselineDeviation": 0.5847953216374269,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0.023809523809523808,
+        0,
+        99.69032337407124,
+        1162.3895764288334,
+        0.17154615592742278,
+        0.9761904761904762
+      ]
+    },
+    "score": 0.47025659621338395,
+    "baselineDeviation": 0.5521048999309869,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0,
+        0.05,
+        98.12013672423298,
+        1062.3137578440994,
+        0.15365202776463716,
+        0.95
+      ]
+    },
+    "score": 0.6085256898783297,
+    "baselineDeviation": 1.6666666666666667,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 56,
+      "values": [
+        0.017857142857142856,
+        0,
+        99.5931091811853,
+        1141.0907211048855,
+        0.1476326943203208,
+        0.9821428571428571
+      ]
+    },
+    "score": 0.43673835557342566,
+    "baselineDeviation": 0.3536922015182884,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 43,
+      "values": [
+        0.046511627906976744,
+        0,
+        98.70486643579501,
+        1244.0274261647173,
+        0.11335049191884798,
+        0.9534883720930233
+      ]
+    },
+    "score": 0.5356796112791123,
+    "baselineDeviation": 1.3088417031794182,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0,
+        0,
+        98.54070312720094,
+        1179.9731636870993,
+        0.1976627101820288,
+        1
+      ]
+    },
+    "score": 0.4820308255094558,
+    "baselineDeviation": 0.2703524420591738,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0.07142857142857142,
+        0,
+        1083.3004927304419,
+        1004.9136060232652,
+        0.17951827466063347,
+        0.9285714285714286
+      ]
+    },
+    "score": 0.7382866805233728,
+    "baselineDeviation": 32.80891830169477,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0,
+        0,
+        98.56752972309543,
+        1074.4033614642535,
+        0.18985059026946607,
+        1
+      ]
+    },
+    "score": 0.46008546102506875,
+    "baselineDeviation": 0.23129184249636017,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 46,
+      "values": [
+        0,
+        0,
+        99.23746184243174,
+        1170.4859594922584,
+        0.166026258383015,
+        1
+      ]
+    },
+    "score": 0.43296013618665163,
+    "baselineDeviation": 0.11217018306410476,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 46,
+      "values": [
+        0.043478260869565216,
+        0,
+        99.36730436299652,
+        1010.5022037329321,
+        0.1037956894240972,
+        0.9565217391304348
+      ]
+    },
+    "score": 0.5444448233562225,
+    "baselineDeviation": 1.2077294685990339,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0.015873015873015872,
+        0.015873015873015872,
+        99.08195024551746,
+        1186.8451473208056,
+        0.16242278970962007,
+        0.9682539682539683
+      ]
+    },
+    "score": 0.4473294544848694,
+    "baselineDeviation": 0.5291005291005291,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0,
+        0,
+        98.21292496780158,
+        1314.8243267488176,
+        0.18193928351732433,
+        1
+      ]
+    },
+    "score": 0.44480637064726875,
+    "baselineDeviation": 0.19173530873565145,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0.0196078431372549,
+        0.0196078431372549,
+        99.7035085645429,
+        1178.8297729293802,
+        0.15088693188920257,
+        0.9607843137254902
+      ]
+    },
+    "score": 0.4462249468090677,
+    "baselineDeviation": 0.7373473449383661,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 56,
+      "values": [
+        0,
+        0.03571428571428571,
+        98.60779546764437,
+        1147.7795396248446,
+        0.13659262025849395,
+        0.9642857142857143
+      ]
+    },
+    "score": 0.5173290061387622,
+    "baselineDeviation": 1.1904761904761905,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0.0392156862745098,
+        0,
+        99.76396020764105,
+        1289.426025265324,
+        0.19717528772003043,
+        0.9607843137254902
+      ]
+    },
+    "score": 0.5307302012873476,
+    "baselineDeviation": 1.0656436487638534,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0.047619047619047616,
+        0.031746031746031744,
+        99.93830870828847,
+        1018.9907529973464,
+        0.17298902571709895,
+        0.9206349206349206
+      ]
+    },
+    "score": 0.6439400032059882,
+    "baselineDeviation": 2.0756604479573544,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 46,
+      "values": [
+        0.021739130434782608,
+        0.021739130434782608,
+        99.25494161007161,
+        1159.686595609317,
+        0.11821015056816239,
+        0.9565217391304348
+      ]
+    },
+    "score": 0.4621118390663861,
+    "baselineDeviation": 0.8794331647735465,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.03389830508474576,
+        0,
+        99.94712328999346,
+        1472.5877390052858,
+        0.15533330203208168,
+        0.9661016949152542
+      ]
+    },
+    "score": 0.5049324350351231,
+    "baselineDeviation": 0.8883976091050519,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 50,
+      "values": [
+        0,
+        0.02,
+        98.2614429490119,
+        1473.207214668268,
+        0.1811871701091659,
+        0.98
+      ]
+    },
+    "score": 0.4960928233607672,
+    "baselineDeviation": 0.6666666666666667,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 52,
+      "values": [
+        0.057692307692307696,
+        0,
+        1182.6452384906013,
+        1367.964414462444,
+        0.17394899055442872,
+        0.9423076923076923
+      ]
+    },
+    "score": 0.7073623462219752,
+    "baselineDeviation": 36.12040982703342,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0,
+        0,
+        299.37483885968413,
+        1430.099473967677,
+        0.18174826994753965,
+        1
+      ]
+    },
+    "score": 0.4974275551900065,
+    "baselineDeviation": 6.678063172669511,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0.04477611940298507,
+        0.014925373134328358,
+        399.7008313415448,
+        1444.6401213061251,
+        0.18869527861940932,
+        0.9402985074626866
+      ]
+    },
+    "score": 0.6108675600961302,
+    "baselineDeviation": 10.022262922064867,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 65,
+      "values": [
+        0.03076923076923077,
+        0.046153846153846156,
+        499.5811630817429,
+        1408.5140627514013,
+        0.13496706905995504,
+        0.9230769230769231
+      ]
+    },
+    "score": 0.6705213599706075,
+    "baselineDeviation": 13.351607313404804,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0,
+        0,
+        599.1994787258998,
+        1441.4454490722733,
+        0.12822566868766827,
+        1
+      ]
+    },
+    "score": 0.5244546954819422,
+    "baselineDeviation": 16.672217834876697,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 66,
+      "values": [
+        0.015151515151515152,
+        0,
+        699.7106132574636,
+        1312.2668304908673,
+        0.11254584751749722,
+        0.9848484848484849
+      ]
+    },
+    "score": 0.5590376653014583,
+    "baselineDeviation": 20.022588985928827,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.01694915254237288,
+        0,
+        798.9434745395757,
+        1446.1100122107837,
+        0.10756815109110697,
+        0.9830508474576272
+      ]
+    },
+    "score": 0.5889158664887065,
+    "baselineDeviation": 23.3303510286659,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 54,
+      "values": [
+        0,
+        0,
+        898.5937588613006,
+        1398.7815994036994,
+        0.14903819829646472,
+        1
+      ]
+    },
+    "score": 0.5628354010622871,
+    "baselineDeviation": 26.65202717272339,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.01694915254237288,
+        0,
+        99.30462439374548,
+        1460.4250083502507,
+        0.15016542396826008,
+        0.9830508474576272
+      ]
+    },
+    "score": 0.4382012543714276,
+    "baselineDeviation": 0.3234258576926226,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 65,
+      "values": [
+        0,
+        0,
+        99.48634853404761,
+        1028.1090049209686,
+        0.15293272471096805,
+        1
+      ]
+    },
+    "score": 0.44611005088669287,
+    "baselineDeviation": 0.046702514703870074,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 41,
+      "values": [
+        0,
+        0,
+        98.1869480317843,
+        1005.282766390523,
+        0.17414461858212482,
+        1
+      ]
+    },
+    "score": 0.4710060513816561,
+    "baselineDeviation": 0.1527619840596539,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0,
+        0.04081632653061224,
+        99.54086897887109,
+        1029.4809799287066,
+        0.1396464561314702,
+        0.9591836734693877
+      ]
+    },
+    "score": 0.5949528876779705,
+    "baselineDeviation": 1.3605442176870748,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 69,
+      "values": [
+        0.014492753623188406,
+        0,
+        99.01879341982064,
+        1242.400622045571,
+        0.17552942366494564,
+        0.9855072463768116
+      ]
+    },
+    "score": 0.436044533638864,
+    "baselineDeviation": 0.24154589371980678,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 45,
+      "values": [
+        0,
+        0,
+        98.89281450737116,
+        1085.0893501331,
+        0.15741108099725337,
+        1
+      ]
+    },
+    "score": 0.4210994174691495,
+    "baselineDeviation": 0.06909429613529666,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 52,
+      "values": [
+        0.038461538461538464,
+        0,
+        98.63659501703526,
+        1353.5778711999942,
+        0.18253358165830474,
+        0.9615384615384616
+      ]
+    },
+    "score": 0.5026890696468098,
+    "baselineDeviation": 1.0405053883314754,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0,
+        0,
+        96.69255828265364,
+        1181.8270594304431,
+        0.14815101762896662,
+        1
+      ]
+    },
+    "score": 0.49347249166504836,
+    "baselineDeviation": 0.022793979293862926,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.6949152542372882,
+        0,
+        1099.0429112363877,
+        1177.6798248218424,
+        0.18383786917769226,
+        0.3050847457627119
+      ]
+    },
+    "score": 0.7229973228094985,
+    "baselineDeviation": 33.33366558522629,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0.7611940298507462,
+        0,
+        1098.6132487902614,
+        1063.301601215231,
+        0.1846030660485659,
+        0.23880597014925373
+      ]
+    },
+    "score": 0.7419060765859811,
+    "baselineDeviation": 33.319343503688756,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.7358490566037735,
+        0,
+        1098.9209096691052,
+        1464.0833434902006,
+        0.17853622141795328,
+        0.2641509433962264
+      ]
+    },
+    "score": 0.7391875135806318,
+    "baselineDeviation": 33.32959886631688,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 54,
+      "values": [
+        0.8148148148148148,
+        0,
+        1099.707585878305,
+        1355.2048687873407,
+        0.10027734970652305,
+        0.18518518518518517
+      ]
+    },
+    "score": 0.7357420863871794,
+    "baselineDeviation": 33.35582140662354,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 50,
+      "values": [
+        0.84,
+        0.02,
+        1098.4775958235339,
+        1375.312899907758,
+        0.14984004008200055,
+        0.14
+      ]
+    },
+    "score": 0.7215689337030683,
+    "baselineDeviation": 33.314821738131165,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.8813559322033898,
+        0,
+        1098.6750597158402,
+        1098.331827875483,
+        0.13142356231088928,
+        0.11864406779661017
+      ]
+    },
+    "score": 0.7333548049284438,
+    "baselineDeviation": 33.321403867874714,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 64,
+      "values": [
+        0.84375,
+        0,
+        1099.6917300589707,
+        1358.3088129309008,
+        0.15356382252219855,
+        0.15625
+      ]
+    },
+    "score": 0.7177750628065682,
+    "baselineDeviation": 33.355292879312394,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0.7758620689655172,
+        0,
+        1099.1726884338784,
+        1252.7850623804939,
+        0.1678352137648693,
+        0.22413793103448276
+      ]
+    },
+    "score": 0.7142116863180847,
+    "baselineDeviation": 33.33799149180932,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0.017241379310344827,
+        0.017241379310344827,
+        99.43480036267015,
+        1327.6986914530562,
+        0.10899959044005503,
+        0.9655172413793104
+      ]
+    },
+    "score": 0.4830042864839405,
+    "baselineDeviation": 0.5795830898110274,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0,
+        0.015873015873015872,
+        98.9374052230536,
+        1080.80365669438,
+        0.10969302981375498,
+        0.9841269841269841
+      ]
+    },
+    "score": 0.46269598818946256,
+    "baselineDeviation": 0.5291005291005291,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0,
+        0,
+        99.29906272448001,
+        1220.8254695331013,
+        0.12924768813383514,
+        1
+      ]
+    },
+    "score": 0.42042614175460036,
+    "baselineDeviation": 0.008870634829374068,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0.017543859649122806,
+        0,
+        99.51840028204509,
+        1152.4319848579705,
+        0.10525201462922737,
+        0.9824561403508771
+      ]
+    },
+    "score": 0.4815051391576802,
+    "baselineDeviation": 0.3432494279176201,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 66,
+      "values": [
+        0.045454545454545456,
+        0.015151515151515152,
+        99.03808477813246,
+        1256.1227065079304,
+        0.11235813856237963,
+        0.9393939393939394
+      ]
+    },
+    "score": 0.556510647762206,
+    "baselineDeviation": 1.4503598226567254,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0.029850746268656716,
+        0.014925373134328358,
+        99.38076441279787,
+        1445.793615766379,
+        0.1553450998528535,
+        0.9552238805970149
+      ]
+    },
+    "score": 0.48435735898755694,
+    "baselineDeviation": 0.9226951158875434,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 52,
+      "values": [
+        0,
+        0,
+        98.88531673669857,
+        1407.6009625883116,
+        0.17644361581490925,
+        1
+      ]
+    },
+    "score": 0.4331543560540966,
+    "baselineDeviation": 0.1753586169880773,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0.014705882352941176,
+        0.014705882352941176,
+        99.09989987273471,
+        1157.7801983653142,
+        0.18055027585321579,
+        0.9705882352941176
+      ]
+    },
+    "score": 0.4679700616336373,
+    "baselineDeviation": 0.4901960784313726,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 62,
+      "values": [
+        0.27419354838709675,
+        0.03225806451612903,
+        1096.8282501445785,
+        1375.595871524541,
+        0.17138851130692082,
+        0.6935483870967742
+      ]
+    },
+    "score": 0.7338403495821185,
+    "baselineDeviation": 33.259843548832656,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 55,
+      "values": [
+        0.18181818181818182,
+        0.03636363636363636,
+        1094.3500710546352,
+        1274.8057675190569,
+        0.17354882839897304,
+        0.7818181818181819
+      ]
+    },
+    "score": 0.7221934686416179,
+    "baselineDeviation": 33.17723757916788,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 62,
+      "values": [
+        0.27419354838709675,
+        0,
+        1093.8062150529452,
+        1274.0261855503634,
+        0.1937243903638615,
+        0.7258064516129032
+      ]
+    },
+    "score": 0.7178675698130326,
+    "baselineDeviation": 33.15910904577821,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0.23880597014925373,
+        0,
+        1094.60839373865,
+        1226.2684433789384,
+        0.11771821877788032,
+        0.7611940298507462
+      ]
+    },
+    "score": 0.7304846608770305,
+    "baselineDeviation": 33.185848335301706,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.2641509433962264,
+        0.018867924528301886,
+        1097.7973802246102,
+        1385.307372428548,
+        0.11125334795473146,
+        0.7169811320754716
+      ]
+    },
+    "score": 0.7257604673803814,
+    "baselineDeviation": 33.29214788483371,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0.225,
+        0,
+        1089.6215522558011,
+        1112.4733241886518,
+        0.10429052654319698,
+        0.775
+      ]
+    },
+    "score": 0.7455146642478633,
+    "baselineDeviation": 33.01962028587341,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 47,
+      "values": [
+        0.19148936170212766,
+        0,
+        1095.9795846731004,
+        1187.647733638879,
+        0.15486550854066877,
+        0.8085106382978723
+      ]
+    },
+    "score": 0.7176438338047381,
+    "baselineDeviation": 33.23155469978339,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0.14705882352941177,
+        0.014705882352941176,
+        1089.3726787792932,
+        1271.4751332986978,
+        0.11958216639992923,
+        0.8382352941176471
+      ]
+    },
+    "score": 0.7190965570893278,
+    "baselineDeviation": 33.011324503323145,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0.02040816326530612,
+        0,
+        98.2185627897343,
+        1386.37151948813,
+        0.12601127488912367,
+        0.9795918367346939
+      ]
+    },
+    "score": 0.47259689644696673,
+    "baselineDeviation": 0.43872621512373056,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0,
+        0.01694915254237288,
+        99.29100908786602,
+        1026.667148931525,
+        0.1639581687879796,
+        0.9830508474576272
+      ]
+    },
+    "score": 0.4913973030224155,
+    "baselineDeviation": 0.5649717514124294,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0,
+        0.025,
+        96.95104418928277,
+        1082.4937463938872,
+        0.16757594127206932,
+        0.975
+      ]
+    },
+    "score": 0.5437530089224746,
+    "baselineDeviation": 0.8333333333333334,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 41,
+      "values": [
+        0.024390243902439025,
+        0,
+        99.15711315957618,
+        1070.7992843746142,
+        0.13308195273878867,
+        0.975609756097561
+      ]
+    },
+    "score": 0.4436659418661735,
+    "baselineDeviation": 0.5714622363614941,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 69,
+      "values": [
+        0.014492753623188406,
+        0,
+        99.65025270947015,
+        1069.4264540129818,
+        0.10500558750152802,
+        0.9855072463768116
+      ]
+    },
+    "score": 0.4907917658820656,
+    "baselineDeviation": 0.24154589371980678,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 50,
+      "values": [
+        0.02,
+        0.02,
+        98.38652539095597,
+        1051.7095389051879,
+        0.15230157327496005,
+        0.96
+      ]
+    },
+    "score": 0.5065885170574284,
+    "baselineDeviation": 0.7634911357880414,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0.025,
+        0,
+        97.67651922362019,
+        1362.9076438679865,
+        0.19732077655325342,
+        0.975
+      ]
+    },
+    "score": 0.5448635911274566,
+    "baselineDeviation": 0.5917874396135266,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 55,
+      "values": [
+        0,
+        0,
+        99.69766259891564,
+        1198.6356766337929,
+        0.12988041070111966,
+        1
+      ]
+    },
+    "score": 0.44087390074161315,
+    "baselineDeviation": 0.022157297310561812,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 50,
+      "values": [
+        0.02,
+        0,
+        99.54274770947534,
+        61191.85842134351,
+        1.1762852045396415,
+        0.98
+      ]
+    },
+    "score": 0.5395532459835883,
+    "baselineDeviation": 59.95961607574328,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0,
+        0.02040816326530612,
+        98.03728803774302,
+        121075.60146823576,
+        2.1959640544329866,
+        0.9795918367346939
+      ]
+    },
+    "score": 0.5451480369094627,
+    "baselineDeviation": 119.84335912263553,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0.014705882352941176,
+        0.04411764705882353,
+        99.46095840314634,
+        181495.30453069758,
+        3.19933821118584,
+        0.9411764705882353
+      ]
+    },
+    "score": 0.6421621780337614,
+    "baselineDeviation": 180.26306218509734,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0.014925373134328358,
+        0.04477611940298507,
+        98.5558489919884,
+        241084.18007012398,
+        4.1403109381723535,
+        0.9402985074626866
+      ]
+    },
+    "score": 0.648101337611206,
+    "baselineDeviation": 239.85193772452374,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 43,
+      "values": [
+        0.023255813953488372,
+        0.023255813953488372,
+        99.25892355024722,
+        301451.88390003965,
+        5.151091337945182,
+        0.9534883720930233
+      ]
+    },
+    "score": 0.5662021539635953,
+    "baselineDeviation": 300.2196415544394,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0,
+        0,
+        98.07800606470002,
+        361112.1593379441,
+        6.130055621186945,
+        1
+      ]
+    },
+    "score": 0.5203535522024956,
+    "baselineDeviation": 359.8799169923439,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 46,
+      "values": [
+        0.043478260869565216,
+        0.021739130434782608,
+        99.96435687110352,
+        421270.7153934031,
+        7.191962437543752,
+        0.9347826086956522
+      ]
+    },
+    "score": 0.6209329307159731,
+    "baselineDeviation": 420.0384730478029,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0.0392156862745098,
+        0,
+        99.03861157287028,
+        481183.1267961691,
+        8.112964658142454,
+        0.9607843137254902
+      ]
+    },
+    "score": 0.5675861388419827,
+    "baselineDeviation": 479.9508844505689,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 52,
+      "values": [
+        0,
+        0,
+        99.5673719339943,
+        1157.695875695237,
+        0.1799409050146331,
+        1
+      ]
+    },
+    "score": 0.4558661613215963,
+    "baselineDeviation": 0.18174341622219536,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0,
+        0.02040816326530612,
+        99.24609982011572,
+        1085.7253185776456,
+        0.10347732819494082,
+        0.9795918367346939
+      ]
+    },
+    "score": 0.5051487449631412,
+    "baselineDeviation": 0.6802721088435374,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0.047619047619047616,
+        0.015873015873015872,
+        99.8766101955596,
+        1413.771967517717,
+        0.10361485097640215,
+        0.9365079365079365
+      ]
+    },
+    "score": 0.5980427389224979,
+    "baselineDeviation": 1.5465599188568233,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 65,
+      "values": [
+        0.03076923076923077,
+        0,
+        99.68141472910919,
+        1303.9521584082902,
+        0.19010287389339628,
+        0.9692307692307692
+      ]
+    },
+    "score": 0.48891075556351893,
+    "baselineDeviation": 0.7840951319212189,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 55,
+      "values": [
+        0.01818181818181818,
+        0.01818181818181818,
+        99.58849192448702,
+        1376.6489144856002,
+        0.1201279536112397,
+        0.9636363636363636
+      ]
+    },
+    "score": 0.46255417676917243,
+    "baselineDeviation": 0.6422790145759194,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0,
+        0,
+        99.46376705592225,
+        1487.3009967653595,
+        0.10137829486820428,
+        1
+      ]
+    },
+    "score": 0.53238719676207,
+    "baselineDeviation": 0.25505865116512516,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0,
+        0,
+        99.51303184388178,
+        1454.3183925413002,
+        0.18978685820488708,
+        1
+      ]
+    },
+    "score": 0.4764819333914882,
+    "baselineDeviation": 0.2309731821734652,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 66,
+      "values": [
+        0,
+        0.015151515151515152,
+        99.17345459972357,
+        1494.8651241179678,
+        0.13299714357805295,
+        0.9848484848484849
+      ]
+    },
+    "score": 0.4736051891706782,
+    "baselineDeviation": 0.5050505050505051,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 43,
+      "values": [
+        0.046511627906976744,
+        0.023255813953488372,
+        99.33663119338821,
+        1378.8945303761886,
+        0.14827196261844716,
+        0.9302325581395349
+      ]
+    },
+    "score": 0.560854388389838,
+    "baselineDeviation": 1.7557391978035446,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 46,
+      "values": [
+        0.043478260869565216,
+        0,
+        99.89325918941339,
+        1133.3817520601733,
+        0.12723024945023062,
+        0.9565217391304348
+      ]
+    },
+    "score": 0.5105822306067054,
+    "baselineDeviation": 1.2077294685990339,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.018867924528301886,
+        0,
+        99.42754960640164,
+        1405.9039102583206,
+        0.16480455211675046,
+        0.9811320754716981
+      ]
+    },
+    "score": 0.4525386891905764,
+    "baselineDeviation": 0.3873849238902561,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0,
+        0,
+        99.04458967055184,
+        1422.1532419655116,
+        0.10870281501450309,
+        1
+      ]
+    },
+    "score": 0.4733205609044456,
+    "baselineDeviation": 0.18991089636527728,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 61,
+      "values": [
+        0.01639344262295082,
+        0.01639344262295082,
+        99.41861085928406,
+        1040.0203476965141,
+        0.11427204706341948,
+        0.9672131147540983
+      ]
+    },
+    "score": 0.4740984913490161,
+    "baselineDeviation": 0.546448087431694,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0.017543859649122806,
+        0,
+        99.3314953715832,
+        1082.3796275684322,
+        0.18728185784587228,
+        0.9824561403508771
+      ]
+    },
+    "score": 0.47887746104521106,
+    "baselineDeviation": 0.3432494279176201,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.01694915254237288,
+        0,
+        98.85409016466315,
+        1346.7964030012135,
+        0.18142674272887038,
+        0.9830508474576272
+      ]
+    },
+    "score": 0.4485333058726046,
+    "baselineDeviation": 0.3234258576926226,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 41,
+      "values": [
+        0,
+        0.024390243902439025,
+        97.12249441340752,
+        1417.6249312651294,
+        0.16723983978419776,
+        0.975609756097561
+      ]
+    },
+    "score": 0.5245307728636729,
+    "baselineDeviation": 0.8130081300813009,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0,
+        0,
+        97.53224144385054,
+        1059.4072240231694,
+        0.18029745194683178,
+        1
+      ]
+    },
+    "score": 0.4796649533987983,
+    "baselineDeviation": 0.1835261508831887,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0.029411764705882353,
+        0,
+        99.02155207465574,
+        1436.8664614876245,
+        0.12596674597029894,
+        0.9705882352941176
+      ]
+    },
+    "score": 0.4578984055722107,
+    "baselineDeviation": 0.7388462631429383,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0,
+        0.018867924528301886,
+        96.83111741229102,
+        1010.482770180507,
+        0.18464906713969306,
+        0.9811320754716981
+      ]
+    },
+    "score": 0.5597796779385191,
+    "baselineDeviation": 0.6289308176100629,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0,
+        0.0196078431372549,
+        98.84739660833065,
+        1385.32330106666,
+        0.19989924048171412,
+        0.9803921568627451
+      ]
+    },
+    "score": 0.4968168304091942,
+    "baselineDeviation": 0.6535947712418301,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.01694915254237288,
+        0,
+        99.39930890488486,
+        1098.3329939252133,
+        0.11899665699370282,
+        0.9830508474576272
+      ]
+    },
+    "score": 0.4422025807541987,
+    "baselineDeviation": 0.3234258576926226,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0,
+        0,
+        97.63584110051357,
+        1328.1624532503033,
+        0.1822350258214522,
+        1
+      ]
+    },
+    "score": 0.4759327131918067,
+    "baselineDeviation": 0.19321402025629084,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 69,
+      "values": [
+        0.014492753623188406,
+        0,
+        99.03180497060117,
+        1054.1093720052206,
+        0.12239870138945741,
+        0.9855072463768116
+      ]
+    },
+    "score": 0.45286019360545393,
+    "baselineDeviation": 0.24154589371980678,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 45,
+      "values": [
+        0,
+        0.022222222222222223,
+        98.70430938212593,
+        1055.5616119978838,
+        0.15029922399854947,
+        0.9777777777777777
+      ]
+    },
+    "score": 0.48206373891387994,
+    "baselineDeviation": 0.7407407407407408,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 188,
+      "values": [
+        0.005319148936170213,
+        0.015957446808510637,
+        98.9758349535049,
+        1237.549150196597,
+        0.17184194278441625,
+        0.9787234042553191
+      ]
+    },
+    "score": 0.45149534788126844,
+    "baselineDeviation": 0.5319148936170213,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 244,
+      "values": [
+        0.01639344262295082,
+        0.00819672131147541,
+        99.15107663182887,
+        1111.6181469758794,
+        0.1840918542451876,
+        0.9754098360655737
+      ]
+    },
+    "score": 0.47013947275638873,
+    "baselineDeviation": 0.30490219371188726,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 212,
+      "values": [
+        0.014150943396226415,
+        0.009433962264150943,
+        99.22232617284442,
+        1277.7639709185585,
+        0.16707658963836713,
+        0.9764150943396226
+      ]
+    },
+    "score": 0.4546165267068822,
+    "baselineDeviation": 0.31446540880503143,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 244,
+      "values": [
+        0.00819672131147541,
+        0.020491803278688523,
+        99.03279495385453,
+        1253.5906959989409,
+        0.14704377761305149,
+        0.9713114754098361
+      ]
+    },
+    "score": 0.44951333410031524,
+    "baselineDeviation": 0.6830601092896175,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 264,
+      "values": [
+        0.015151515151515152,
+        0.007575757575757576,
+        99.20396389225043,
+        1226.0929377397742,
+        0.19352998803096133,
+        0.9772727272727273
+      ]
+    },
+    "score": 0.4843624899493629,
+    "baselineDeviation": 0.2635046113306983,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 272,
+      "values": [
+        0.007352941176470588,
+        0.014705882352941176,
+        98.66830194394457,
+        1398.8844442197928,
+        0.18597384338055079,
+        0.9779411764705882
+      ]
+    },
+    "score": 0.4859783089051753,
+    "baselineDeviation": 0.4901960784313726,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 168,
+      "values": [
+        0.02976190476190476,
+        0.005952380952380952,
+        99.79714872002725,
+        1123.6079843668788,
+        0.15339636721671746,
+        0.9642857142857143
+      ]
+    },
+    "score": 0.481357463688892,
+    "baselineDeviation": 0.7505175983436853,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 208,
+      "values": [
+        0.009615384615384616,
+        0.019230769230769232,
+        99.07238946565934,
+        1305.5098134802136,
+        0.18352472955115579,
+        0.9711538461538461
+      ]
+    },
+    "score": 0.47049738491214343,
+    "baselineDeviation": 0.6410256410256411,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0,
+        0.017543859649122806,
+        99.10728077535154,
+        1212.3732251021925,
+        0.18163626170629435,
+        0.9824561403508771
+      ]
+    },
+    "score": 0.4626580510248112,
+    "baselineDeviation": 0.5847953216374269,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0,
+        0,
+        98.78183204915791,
+        1486.2204005922536,
+        0.10971567607246188,
+        1
+      ]
+    },
+    "score": 0.49568746756066984,
+    "baselineDeviation": 0.2539780549920192,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 54,
+      "values": [
+        0,
+        0,
+        97.90014039066045,
+        1494.6206361522804,
+        0.16094871561537388,
+        1
+      ]
+    },
+    "score": 0.4706564237033829,
+    "baselineDeviation": 0.2623782905520461,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 55,
+      "values": [
+        0.07272727272727272,
+        0,
+        1093.1554957232174,
+        1313.899998779593,
+        0.17335225744068344,
+        0.9272727272727272
+      ]
+    },
+    "score": 0.7114678242704003,
+    "baselineDeviation": 33.13741840145396,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0,
+        0,
+        99.33338649589462,
+        1333.3394498911375,
+        0.10015313701340782,
+        1
+      ]
+    },
+    "score": 0.49182204105594557,
+    "baselineDeviation": 0.10109710429090318,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.03389830508474576,
+        0.01694915254237288,
+        99.83953260817819,
+        1337.1824806389568,
+        0.16125458649608534,
+        0.9491525423728814
+      ]
+    },
+    "score": 0.49715664111241326,
+    "baselineDeviation": 1.1250730566919942,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0,
+        0,
+        99.3694172722708,
+        1250.6114963845298,
+        0.1440759624822805,
+        1
+      ]
+    },
+    "score": 0.40794472189875564,
+    "baselineDeviation": 0.01836915078429547,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 45,
+      "values": [
+        0,
+        0.022222222222222223,
+        97.82212717280461,
+        1156.7768958866623,
+        0.10451939789383193,
+        0.9777777777777777
+      ]
+    },
+    "score": 0.5394197330680055,
+    "baselineDeviation": 0.7407407407407408,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0.017543859649122806,
+        0,
+        99.40792769646589,
+        1373.3914062466147,
+        0.169372420821719,
+        0.9824561403508771
+      ]
+    },
+    "score": 0.4611951613995159,
+    "baselineDeviation": 0.3432494279176201,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 44,
+      "values": [
+        0.045454545454545456,
+        0,
+        99.85812887331464,
+        1321.5869064489764,
+        0.1478977432071077,
+        0.9545454545454546
+      ]
+    },
+    "score": 0.5005299793154824,
+    "baselineDeviation": 1.2736056214317086,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0,
+        0,
+        98.19846054745888,
+        1087.6986429428418,
+        0.15207242165802537,
+        1
+      ]
+    },
+    "score": 0.4234118002247491,
+    "baselineDeviation": 0.04240099943915665,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0,
+        0,
+        99.44348682653025,
+        1478.9058988798702,
+        0.19234020159618273,
+        1
+      ]
+    },
+    "score": 0.48989201351323186,
+    "baselineDeviation": 0.24666355327963582,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 66,
+      "values": [
+        0.015151515151515152,
+        0,
+        99.54309439773476,
+        1033.103315600724,
+        0.18891284535968839,
+        0.9848484848484849
+      ]
+    },
+    "score": 0.4917595311660812,
+    "baselineDeviation": 0.2635046113306983,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0.02040816326530612,
+        0,
+        97.83932182044543,
+        1379.9916511389574,
+        0.1729125977753787,
+        0.9795918367346939
+      ]
+    },
+    "score": 0.4957836967550108,
+    "baselineDeviation": 0.43872621512373056,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 47,
+      "values": [
+        0,
+        0,
+        98.38830123251887,
+        1488.1757082368567,
+        0.19983340060089289,
+        1
+      ]
+    },
+    "score": 0.5166810230040779,
+    "baselineDeviation": 0.28120589415349423,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 43,
+      "values": [
+        0,
+        0,
+        99.46115611345485,
+        1231.5104113291682,
+        0.11775111676885938,
+        1
+      ]
+    },
+    "score": 0.4318161471556242,
+    "baselineDeviation": 0.014273747795202022,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0.047619047619047616,
+        0.023809523809523808,
+        98.69617973804377,
+        1026.1604204757334,
+        0.10736218070320619,
+        0.9285714285714286
+      ]
+    },
+    "score": 0.6207340134538325,
+    "baselineDeviation": 1.8111101834070868,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 66,
+      "values": [
+        0,
+        0.015151515151515152,
+        99.2136845194229,
+        1276.322480196691,
+        0.1596410335931701,
+        0.9848484848484849
+      ]
+    },
+    "score": 0.442654816138195,
+    "baselineDeviation": 0.5050505050505051,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0,
+        0.034482758620689655,
+        98.06615700608069,
+        1113.9201799857447,
+        0.17635686105362952,
+        0.9655172413793104
+      ]
+    },
+    "score": 0.5332892688671417,
+    "baselineDeviation": 1.1494252873563218,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0.014705882352941176,
+        0,
+        99.14667808390902,
+        1211.43457738006,
+        0.17903120988885138,
+        0.9852941176470589
+      ]
+    },
+    "score": 0.4442326144546356,
+    "baselineDeviation": 0.24865018471156577,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0.025,
+        0,
+        99.40488408842756,
+        1056.8888563602927,
+        0.17648455724950174,
+        0.975
+      ]
+    },
+    "score": 0.47247487568118307,
+    "baselineDeviation": 0.5917874396135266,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0,
+        0,
+        98.75907578035901,
+        1154.298819452122,
+        0.18444513188622802,
+        1
+      ]
+    },
+    "score": 0.44517255696955604,
+    "baselineDeviation": 0.2042645505801699,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 64,
+      "values": [
+        0.015625,
+        0,
+        98.81242779673639,
+        1217.6466644976692,
+        0.12337113631675152,
+        0.984375
+      ]
+    },
+    "score": 0.4330121629371435,
+    "baselineDeviation": 0.27928743961352653,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0,
+        0.05084745762711865,
+        99.51641298193604,
+        1194.5889567591996,
+        0.10809577929186615,
+        0.9491525423728814
+      ]
+    },
+    "score": 0.608843112137777,
+    "baselineDeviation": 1.6949152542372883,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0,
+        0,
+        199.4849103783735,
+        1166.9597982430555,
+        0.11310617486774112,
+        1
+      ]
+    },
+    "score": 0.46621468948066264,
+    "baselineDeviation": 3.3483988899591575,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0.02040816326530612,
+        0,
+        299.0085935855892,
+        1079.7449772981863,
+        0.18360869392281365,
+        0.9795918367346939
+      ]
+    },
+    "score": 0.5031354621930871,
+    "baselineDeviation": 6.665854996866347,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 56,
+      "values": [
+        0.017857142857142856,
+        0,
+        399.5987488067376,
+        1017.354457504614,
+        0.16424823038586817,
+        0.9821428571428571
+      ]
+    },
+    "score": 0.5099254354041903,
+    "baselineDeviation": 10.018860170904626,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0,
+        0,
+        499.5201987100934,
+        1079.3747618487216,
+        0.1558458712627127,
+        1
+      ]
+    },
+    "score": 0.49107935468858477,
+    "baselineDeviation": 13.349575167683152,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0,
+        0.023809523809523808,
+        599.351617728443,
+        1439.404328136919,
+        0.18613404190604407,
+        0.9761904761904762
+      ]
+    },
+    "score": 0.584765659318211,
+    "baselineDeviation": 16.677289134961473,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 61,
+      "values": [
+        0,
+        0.01639344262295082,
+        698.9630819301665,
+        1441.2388312097967,
+        0.191381292220314,
+        0.9836065573770492
+      ]
+    },
+    "score": 0.5870999943420253,
+    "baselineDeviation": 19.997671275018924,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 69,
+      "values": [
+        0,
+        0,
+        798.055213507138,
+        1093.2216863911779,
+        0.18864776319733445,
+        1
+      ]
+    },
+    "score": 0.5707132146903429,
+    "baselineDeviation": 23.30074232758464,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 65,
+      "values": [
+        0,
+        0.03076923076923077,
+        898.3953293199888,
+        1339.331580614326,
+        0.1985874850367141,
+        0.9692307692307692
+      ]
+    },
+    "score": 0.6490037475868224,
+    "baselineDeviation": 26.645412854679666,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 47,
+      "values": [
+        0,
+        0,
+        97.85231270970766,
+        1173.8464363883184,
+        0.17571707876376708,
+        1
+      ]
+    },
+    "score": 0.45097851887957185,
+    "baselineDeviation": 0.16062428496786518,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0,
+        0.029850746268656716,
+        98.1174450873935,
+        1130.9683581736726,
+        0.1787398236677178,
+        0.9701492537313433
+      ]
+    },
+    "score": 0.5332892902150604,
+    "baselineDeviation": 0.9950248756218906,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 60,
+      "values": [
+        0.016666666666666666,
+        0,
+        99.29251810578306,
+        1421.279847003839,
+        0.1130569205022677,
+        0.9833333333333333
+      ]
+    },
+    "score": 0.4534860439116435,
+    "baselineDeviation": 0.31400966183574874,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0.0392156862745098,
+        0,
+        98.72551339577444,
+        1321.68541411124,
+        0.14268780389603644,
+        0.9607843137254902
+      ]
+    },
+    "score": 0.48774520223862083,
+    "baselineDeviation": 1.0656436487638534,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 64,
+      "values": [
+        0.015625,
+        0.015625,
+        98.93357621070524,
+        1296.4948639658037,
+        0.17151116579130654,
+        0.96875
+      ]
+    },
+    "score": 0.4544886427276241,
+    "baselineDeviation": 0.5208333333333334,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 56,
+      "values": [
+        0.03571428571428571,
+        0,
+        99.88391051844505,
+        1453.9413436765894,
+        0.13468257765146893,
+        0.9642857142857143
+      ]
+    },
+    "score": 0.4783258226768565,
+    "baselineDeviation": 0.9489302967563836,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 67,
+      "values": [
+        0.014925373134328358,
+        0.029850746268656716,
+        99.0963593977772,
+        1332.666371905192,
+        0.14901960045616053,
+        0.9552238805970149
+      ]
+    },
+    "score": 0.48835048975876605,
+    "baselineDeviation": 0.9950248756218906,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 56,
+      "values": [
+        0.017857142857142856,
+        0.03571428571428571,
+        99.01114251488337,
+        1335.1264087268737,
+        0.1627427770461513,
+        0.9464285714285714
+      ]
+    },
+    "score": 0.5180303496556455,
+    "baselineDeviation": 1.2158720881689937,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 45,
+      "values": [
+        0.8,
+        0,
+        1098.433331211019,
+        1289.7887653165626,
+        0.11156835755822679,
+        0.2
+      ]
+    },
+    "score": 0.7342519617433744,
+    "baselineDeviation": 33.31334625104734,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0.7380952380952381,
+        0,
+        1096.1814926664958,
+        1091.0490820440843,
+        0.14979621648582678,
+        0.2619047619047619
+      ]
+    },
+    "score": 0.7306955599077841,
+    "baselineDeviation": 33.2382849662299,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0.8793103448275862,
+        0,
+        1098.6587859778042,
+        1059.0631448093304,
+        0.1994439298831104,
+        0.1206896551724138
+      ]
+    },
+    "score": 0.7530331584215116,
+    "baselineDeviation": 33.32086140994018,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 55,
+      "values": [
+        0.7818181818181819,
+        0,
+        1098.69518405059,
+        1210.1963816618256,
+        0.14063573930818224,
+        0.21818181818181817
+      ]
+    },
+    "score": 0.7223330150062961,
+    "baselineDeviation": 33.32207467903304,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0.8,
+        0,
+        1097.0427927678884,
+        1033.6096317579832,
+        0.10160796072083556,
+        0.2
+      ]
+    },
+    "score": 0.7438825358850907,
+    "baselineDeviation": 33.266994969609655,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 54,
+      "values": [
+        0.8333333333333334,
+        0,
+        1099.6488467614456,
+        1263.7973791135491,
+        0.10373416269531611,
+        0.16666666666666666
+      ]
+    },
+    "score": 0.7446037459302975,
+    "baselineDeviation": 33.35386343606156,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0.8235294117647058,
+        0,
+        1097.6161475722004,
+        1102.3358640188583,
+        0.12400600218942542,
+        0.17647058823529413
+      ]
+    },
+    "score": 0.7360708654672994,
+    "baselineDeviation": 33.28610679642005,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 61,
+      "values": [
+        0.7377049180327869,
+        0,
+        1097.6840135776206,
+        1267.47400946465,
+        0.1928869875042711,
+        0.26229508196721313
+      ]
+    },
+    "score": 0.7115968729632945,
+    "baselineDeviation": 33.288368996600724,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.05660377358490566,
+        0,
+        1085.5961522074444,
+        1144.1576036364993,
+        0.17454065884294423,
+        0.9433962264150944
+      ]
+    },
+    "score": 0.702869655773837,
+    "baselineDeviation": 32.88544028426152,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 65,
+      "values": [
+        0.015384615384615385,
+        0.03076923076923077,
+        98.89777641998468,
+        1341.4479278865433,
+        0.12006540316369019,
+        0.9538461538461539
+      ]
+    },
+    "score": 0.5146024552670261,
+    "baselineDeviation": 1.0256410256410258,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0,
+        0,
+        98.66675190276831,
+        1237.028358601107,
+        0.19053934716531967,
+        1
+      ]
+    },
+    "score": 0.44794949927299443,
+    "baselineDeviation": 0.23473562697562816,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0,
+        0,
+        99.14402256959137,
+        1370.6804196123703,
+        0.13317652928414336,
+        1
+      ]
+    },
+    "score": 0.41625861550934223,
+    "baselineDeviation": 0.13843807401213598,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0.014705882352941176,
+        0,
+        99.14202655756664,
+        1372.0304005722032,
+        0.15863163919375994,
+        0.9852941176470589
+      ]
+    },
+    "score": 0.4365748473280501,
+    "baselineDeviation": 0.24865018471156577,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 47,
+      "values": [
+        0,
+        0.0425531914893617,
+        99.18494209890702,
+        1437.4362064851223,
+        0.10783068474503103,
+        0.9574468085106383
+      ]
+    },
+    "score": 0.609953110685232,
+    "baselineDeviation": 1.4184397163120568,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 66,
+      "values": [
+        0.045454545454545456,
+        0,
+        99.58302971233394,
+        1273.6024947390197,
+        0.18101294567258475,
+        0.9545454545454546
+      ]
+    },
+    "score": 0.5108969631046182,
+    "baselineDeviation": 1.2736056214317086,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 51,
+      "values": [
+        0,
+        0,
+        99.28041815613494,
+        1385.0031252840113,
+        0.15981085788934954,
+        1
+      ]
+    },
+    "score": 0.42278643059030946,
+    "baselineDeviation": 0.15276077968377694,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 56,
+      "values": [
+        0.17857142857142858,
+        0.017857142857142856,
+        1098.4560519066426,
+        1440.069703213715,
+        0.18739334257087692,
+        0.8035714285714286
+      ]
+    },
+    "score": 0.7340783554528029,
+    "baselineDeviation": 33.31410360756813,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 54,
+      "values": [
+        0.3148148148148148,
+        0.018518518518518517,
+        1098.414597432574,
+        1324.4764917417863,
+        0.14269596736426166,
+        0.6666666666666666
+      ]
+    },
+    "score": 0.7210093254135882,
+    "baselineDeviation": 33.31272179176584,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 41,
+      "values": [
+        0.21951219512195122,
+        0,
+        1094.2641975333524,
+        1385.4025732786422,
+        0.16669308135224525,
+        0.7804878048780488
+      ]
+    },
+    "score": 0.7231018369134667,
+    "baselineDeviation": 33.17437512845846,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 45,
+      "values": [
+        0.28888888888888886,
+        0.022222222222222223,
+        1097.667531967579,
+        1467.2121224191583,
+        0.11704356867030369,
+        0.6888888888888889
+      ]
+    },
+    "score": 0.7348744788003584,
+    "baselineDeviation": 33.28781960959934,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0.2647058823529412,
+        0,
+        1094.4062880474546,
+        1447.5257094244039,
+        0.1994162421441982,
+        0.7352941176470589
+      ]
+    },
+    "score": 0.7382843261873754,
+    "baselineDeviation": 33.179111478928526,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 43,
+      "values": [
+        0.23255813953488372,
+        0,
+        1093.876185599156,
+        1409.9999253926821,
+        0.14823071960956224,
+        0.7674418604651163
+      ]
+    },
+    "score": 0.7353428868668422,
+    "baselineDeviation": 33.161441397318576,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0.14285714285714285,
+        0,
+        1094.7675544612157,
+        1452.3180254535416,
+        0.14352308505861994,
+        0.8571428571428571
+      ]
+    },
+    "score": 0.7344443970886237,
+    "baselineDeviation": 33.19115369272056,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0.2413793103448276,
+        0,
+        1095.9353389700639,
+        1054.7605407551584,
+        0.12159119620247291,
+        0.7586206896551724
+      ]
+    },
+    "score": 0.7453143536087736,
+    "baselineDeviation": 33.2300798430155,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 48,
+      "values": [
+        0,
+        0,
+        98.5139395330446,
+        1256.8389679720135,
+        0.16228602234212888,
+        1
+      ]
+    },
+    "score": 0.41572394995787487,
+    "baselineDeviation": 0.09346900285967422,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0.02040816326530612,
+        0,
+        98.95310293150189,
+        1495.7476933890946,
+        0.1725868267023838,
+        0.9795918367346939
+      ]
+    },
+    "score": 0.48028050195417643,
+    "baselineDeviation": 0.43872621512373056,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0.015873015873015872,
+        0,
+        99.78600212510051,
+        1133.7908985850383,
+        0.10311118547524767,
+        0.9841269841269841
+      ]
+    },
+    "score": 0.5061690335309683,
+    "baselineDeviation": 0.2875546353807223,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 55,
+      "values": [
+        0,
+        0.01818181818181818,
+        98.84979095351687,
+        1474.679363741066,
+        0.1308861863106088,
+        0.9818181818181818
+      ]
+    },
+    "score": 0.4645359407136887,
+    "baselineDeviation": 0.6060606060606061,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 68,
+      "values": [
+        0,
+        0.014705882352941176,
+        99.20632559631574,
+        1106.0562968317695,
+        0.13141379910139941,
+        0.9852941176470589
+      ]
+    },
+    "score": 0.445158538780743,
+    "baselineDeviation": 0.4901960784313726,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 66,
+      "values": [
+        0.030303030303030304,
+        0.015151515151515152,
+        99.82134178167654,
+        1310.3464081831414,
+        0.18639670986335685,
+        0.9545454545454546
+      ]
+    },
+    "score": 0.5143848820301772,
+    "baselineDeviation": 0.9453093176062207,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 61,
+      "values": [
+        0.01639344262295082,
+        0,
+        99.32305648619679,
+        1479.7878782878247,
+        0.18049655229906128,
+        0.9836065573770492
+      ]
+    },
+    "score": 0.48914102692214945,
+    "baselineDeviation": 0.30490219371188726,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 43,
+      "values": [
+        0,
+        0.023255813953488372,
+        98.54425069910343,
+        1115.014078613764,
+        0.18922177732147144,
+        0.9767441860465116
+      ]
+    },
+    "score": 0.4946410267420676,
+    "baselineDeviation": 0.7751937984496124,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 48,
+      "values": [
+        0.020833333333333332,
+        0.020833333333333332,
+        99.81368144444984,
+        61199.458847140806,
+        1.1597474790567306,
+        0.9583333333333334
+      ]
+    },
+    "score": 0.5595189505126729,
+    "baselineDeviation": 59.96721650154057,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 45,
+      "values": [
+        0.022222222222222223,
+        0,
+        99.70969150529594,
+        121352.15135538603,
+        2.100123395986069,
+        0.9777777777777777
+      ]
+    },
+    "score": 0.5497231948969689,
+    "baselineDeviation": 120.1199090097858,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 52,
+      "values": [
+        0,
+        0.057692307692307696,
+        98.22045790005512,
+        181150.13245400754,
+        3.1597939103851505,
+        0.9423076923076923
+      ]
+    },
+    "score": 0.6542185534428411,
+    "baselineDeviation": 179.9178901084073,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0,
+        0,
+        98.90950318683917,
+        241161.67342667302,
+        4.135206140116244,
+        1
+      ]
+    },
+    "score": 0.5055789935016858,
+    "baselineDeviation": 239.92943108107278,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 56,
+      "values": [
+        0,
+        0.05357142857142857,
+        99.46666100660657,
+        301231.1077126371,
+        5.168431805685822,
+        0.9464285714285714
+      ]
+    },
+    "score": 0.6413775425076326,
+    "baselineDeviation": 299.9988653670369,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 44,
+      "values": [
+        0.06818181818181818,
+        0.045454545454545456,
+        1081.190340950514,
+        361398.2233933452,
+        6.179214913827279,
+        0.8863636363636364
+      ]
+    },
+    "score": 0.7615030202332692,
+    "baselineDeviation": 360.165981047745,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.018867924528301886,
+        0.07547169811320754,
+        99.49967033879688,
+        421429.8969768882,
+        7.171327731465866,
+        0.9056603773584906
+      ]
+    },
+    "score": 0.6792379890669521,
+    "baselineDeviation": 420.19765463128795,
+    "baselineAlert": true
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 52,
+      "values": [
+        0,
+        0.019230769230769232,
+        99.32226397033727,
+        481248.6700110089,
+        8.12349582268507,
+        0.9807692307692307
+      ]
+    },
+    "score": 0.5301656089718185,
+    "baselineDeviation": 480.0164276654087,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0,
+        0.023809523809523808,
+        98.23679964356438,
+        1446.0509584403148,
+        0.10794930435807411,
+        0.9761904761904762
+      ]
+    },
+    "score": 0.5201972904272375,
+    "baselineDeviation": 0.7936507936507936,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 64,
+      "values": [
+        0,
+        0,
+        99.07339474423121,
+        1101.7249369454041,
+        0.13878555731863607,
+        1
+      ]
+    },
+    "score": 0.4140800263206738,
+    "baselineDeviation": 0.0013483688210807069,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 62,
+      "values": [
+        0.016129032258064516,
+        0,
+        99.36508388825854,
+        1206.7987665740811,
+        0.14504468162093492,
+        0.9838709677419355
+      ]
+    },
+    "score": 0.4284397139398222,
+    "baselineDeviation": 0.2960885148823437,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 55,
+      "values": [
+        0,
+        0,
+        99.70030231572298,
+        1258.2584671019101,
+        0.13003783967736363,
+        1
+      ]
+    },
+    "score": 0.42796968166853944,
+    "baselineDeviation": 0.026016121501675798,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0.015873015873015872,
+        0,
+        98.82922710880901,
+        1307.8973449920152,
+        0.17165553913273435,
+        0.9841269841269841
+      ]
+    },
+    "score": 0.4378594011800193,
+    "baselineDeviation": 0.2875546353807223,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 59,
+      "values": [
+        0.01694915254237288,
+        0.01694915254237288,
+        99.73045313528162,
+        1150.9783015397763,
+        0.11587578300603468,
+        0.9661016949152542
+      ]
+    },
+    "score": 0.46507388282888734,
+    "baselineDeviation": 0.5649717514124294,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.03773584905660377,
+        0,
+        99.78627888700997,
+        1206.580933841683,
+        0.17848428387226498,
+        0.9622641509433962
+      ]
+    },
+    "score": 0.49092094555459626,
+    "baselineDeviation": 1.016315741500319,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0.017543859649122806,
+        0.05263157894736842,
+        99.07484441540367,
+        1135.708816560285,
+        0.1457020233418695,
+        0.9298245614035088
+      ]
+    },
+    "score": 0.6019961377950295,
+    "baselineDeviation": 1.7693390890044145,
+    "baselineAlert": false
+  },
+  {
+    "status": "out_of_distribution",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 41,
+      "values": [
+        0.07317073170731707,
+        0,
+        1081.8956296295803,
+        1356.3511739722203,
+        0.15559458092289535,
+        0.926829268292683
+      ]
+    },
+    "score": 0.7168980385386927,
+    "baselineDeviation": 32.76208953166605,
+    "baselineAlert": true
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 57,
+      "values": [
+        0,
+        0,
+        98.69015824909044,
+        1042.217639820031,
+        0.10853908338396834,
+        1
+      ]
+    },
+    "score": 0.45300508705330467,
+    "baselineDeviation": 0.0,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 60,
+      "values": [
+        0,
+        0.016666666666666666,
+        97.2920485462841,
+        1139.158253673881,
+        0.1932886843593831,
+        0.9833333333333333
+      ]
+    },
+    "score": 0.5112002528722507,
+    "baselineDeviation": 0.5555555555555556,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0,
+        0,
+        98.12570170146532,
+        1000.3921032713947,
+        0.12025578094147997,
+        1
+      ]
+    },
+    "score": 0.4595891035178024,
+    "baselineDeviation": 0.0,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 48,
+      "values": [
+        0,
+        0.020833333333333332,
+        99.23985550518034,
+        1288.7648647426186,
+        0.12852024582094385,
+        0.9791666666666666
+      ]
+    },
+    "score": 0.452786050641427,
+    "baselineDeviation": 0.6944444444444444,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 63,
+      "values": [
+        0,
+        0,
+        98.48987455121276,
+        1063.9550318117954,
+        0.15779276094754982,
+        1
+      ]
+    },
+    "score": 0.420866462223479,
+    "baselineDeviation": 0.0710026958867789,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 53,
+      "values": [
+        0.018867924528301886,
+        0.018867924528301886,
+        99.25084470688574,
+        1162.7931020522633,
+        0.1870018646273922,
+        0.9622641509433962
+      ]
+    },
+    "score": 0.4838927115040486,
+    "baselineDeviation": 0.6880194376748324,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 40,
+      "values": [
+        0.025,
+        0.025,
+        99.81533782108096,
+        1190.2955019111903,
+        0.11349007155422805,
+        0.95
+      ]
+    },
+    "score": 0.5018849221033395,
+    "baselineDeviation": 1.096824469121375,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 65,
+      "values": [
+        0.03076923076923077,
+        0,
+        99.80705592946563,
+        1275.9568214271146,
+        0.14520485348559709,
+        0.9692307692307692
+      ]
+    },
+    "score": 0.4487163950014134,
+    "baselineDeviation": 0.7840951319212189,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 49,
+      "values": [
+        0,
+        0.02040816326530612,
+        99.33607380954629,
+        1265.2872668107962,
+        0.12564974000155102,
+        0.9795918367346939
+      ]
+    },
+    "score": 0.4483964773469598,
+    "baselineDeviation": 0.6802721088435374,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0,
+        0.017241379310344827,
+        98.82296144320746,
+        1495.4033572600263,
+        0.10448261797716937,
+        0.9827586206896551
+      ]
+    },
+    "score": 0.5059491151829173,
+    "baselineDeviation": 0.5747126436781609,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 58,
+      "values": [
+        0.017241379310344827,
+        0,
+        99.75682076482684,
+        1289.2250770612045,
+        0.1839858431999654,
+        0.9827586206896551
+      ]
+    },
+    "score": 0.4647027424126902,
+    "baselineDeviation": 0.3331667499583541,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 41,
+      "values": [
+        0.024390243902439025,
+        0,
+        99.25140411969389,
+        1008.5748628822224,
+        0.17576218184155068,
+        0.975609756097561
+      ]
+    },
+    "score": 0.49209203622872044,
+    "baselineDeviation": 0.5714622363614941,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 54,
+      "values": [
+        0.037037037037037035,
+        0.018518518518518517,
+        99.63036813594378,
+        1108.7000566674715,
+        0.10422106122454296,
+        0.9444444444444444
+      ]
+    },
+    "score": 0.5373381748997211,
+    "baselineDeviation": 1.2820096543065596,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 42,
+      "values": [
+        0.023809523809523808,
+        0.023809523809523808,
+        98.05351890499766,
+        1001.9002306056656,
+        0.18335651580691809,
+        0.9523809523809523
+      ]
+    },
+    "score": 0.5478252543372327,
+    "baselineDeviation": 1.017459389756296,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 44,
+      "values": [
+        0,
+        0,
+        98.25978466394447,
+        1299.4085180072689,
+        0.18950032602388445,
+        1
+      ]
+    },
+    "score": 0.4506367696215157,
+    "baselineDeviation": 0.22954052126845204,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 276,
+      "values": [
+        0.021739130434782608,
+        0.0036231884057971015,
+        99.39632436851046,
+        1126.1699373378767,
+        0.15004339271995798,
+        0.9746376811594203
+      ]
+    },
+    "score": 0.44584572097957015,
+    "baselineDeviation": 0.4830917874396135,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 260,
+      "values": [
+        0.011538461538461539,
+        0.007692307692307693,
+        99.32267784635364,
+        1462.0961717420469,
+        0.15034758401071863,
+        0.9807692307692307
+      ]
+    },
+    "score": 0.4505354503470767,
+    "baselineDeviation": 0.25641025641025644,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 184,
+      "values": [
+        0.005434782608695652,
+        0.021739130434782608,
+        98.76405348365095,
+        1389.9385198663426,
+        0.13842136978604377,
+        0.9728260869565217
+      ]
+    },
+    "score": 0.4521464446311446,
+    "baselineDeviation": 0.7246376811594203,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 212,
+      "values": [
+        0.018867924528301886,
+        0.0047169811320754715,
+        99.37487185246752,
+        1071.1454388815184,
+        0.14863171096198416,
+        0.9764150943396226
+      ]
+    },
+    "score": 0.44739542161190693,
+    "baselineDeviation": 0.3873849238902561,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 264,
+      "values": [
+        0.003787878787878788,
+        0.01893939393939394,
+        99.01777342210997,
+        1436.8441025303619,
+        0.17571685732953585,
+        0.9772727272727273
+      ]
+    },
+    "score": 0.46894804562622333,
+    "baselineDeviation": 0.6313131313131314,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 212,
+      "values": [
+        0.018867924528301886,
+        0.0047169811320754715,
+        99.58034839876257,
+        1359.873824521506,
+        0.11827102967913442,
+        0.9764150943396226
+      ]
+    },
+    "score": 0.45069613750780546,
+    "baselineDeviation": 0.3873849238902561,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 212,
+      "values": [
+        0.018867924528301886,
+        0.0047169811320754715,
+        99.3895359194886,
+        1069.6922514377156,
+        0.19082068562061866,
+        0.9764150943396226
+      ]
+    },
+    "score": 0.4815359375117082,
+    "baselineDeviation": 0.3873849238902561,
+    "baselineAlert": false
+  },
+  {
+    "status": "ready",
+    "vector": {
+      "schemaVersion": "tx.features.v1",
+      "sampleCount": 188,
+      "values": [
+        0.005319148936170213,
+        0.010638297872340425,
+        99.16482134376673,
+        1421.4830559268505,
+        0.1901776208244027,
+        0.9840425531914894
+      ]
+    },
+    "score": 0.47863185349470594,
+    "baselineDeviation": 0.3546099290780142,
+    "baselineAlert": false
+  }
+]

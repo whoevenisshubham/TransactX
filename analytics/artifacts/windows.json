@@ -1,0 +1,111 @@
+[
+  {
+    "id": "fd333253-4da8-5f17-8427-d5d304690c4a",
+    "entityType": "execution_target",
+    "entityId": "RAIL-A",
+    "from": "2026-10-07T00:00:00Z",
+    "to": "2026-10-07T00:05:00Z",
+    "sampleCount": 44,
+    "featureSchemaVersion": "tx.features.v1",
+    "features": {
+      "failureRate": 0,
+      "healthAvailabilityRate": 0.9090909090909091,
+      "oldestRecoveryAgeMs": 1374.8856236318213,
+      "p95LatencyMs": 1087.3772289618546,
+      "recoveryAttemptsPerPayment": 0.1770767571240625,
+      "timeoutRate": 0.09090909090909091
+    },
+    "baselineAlert": {
+      "code": "operational_deviation",
+      "message": "Observed feature deviation exceeds baseline threshold."
+    },
+    "model": {
+      "version": "synthetic-iforest-v1",
+      "status": "out_of_distribution",
+      "score": null,
+      "threshold": null
+    },
+    "advisory": true
+  },
+  {
+    "id": "b97b7e97-2105-56c9-9ea1-32a9969623ac",
+    "entityType": "execution_target",
+    "entityId": "RAIL-A",
+    "from": "2026-10-07T00:40:00Z",
+    "to": "2026-10-07T00:45:00Z",
+    "sampleCount": 56,
+    "featureSchemaVersion": "tx.features.v1",
+    "features": {
+      "failureRate": 0,
+      "healthAvailabilityRate": 0.9821428571428571,
+      "oldestRecoveryAgeMs": 1141.0907211048855,
+      "p95LatencyMs": 99.5931091811853,
+      "recoveryAttemptsPerPayment": 0.1476326943203208,
+      "timeoutRate": 0.017857142857142856
+    },
+    "baselineAlert": null,
+    "model": {
+      "version": "synthetic-iforest-v1",
+      "status": "ready",
+      "score": 0.43673835557342566,
+      "threshold": 0.6
+    },
+    "advisory": true
+  },
+  {
+    "id": "d8f94689-a6fa-53ba-b0e3-0171a9222b3c",
+    "entityType": "execution_target",
+    "entityId": "RAIL-A",
+    "from": "2026-10-07T04:40:00Z",
+    "to": "2026-10-07T04:45:00Z",
+    "sampleCount": 59,
+    "featureSchemaVersion": "tx.features.v1",
+    "features": {
+      "failureRate": 0,
+      "healthAvailabilityRate": 0.3050847457627119,
+      "oldestRecoveryAgeMs": 1177.6798248218424,
+      "p95LatencyMs": 1099.0429112363877,
+      "recoveryAttemptsPerPayment": 0.18383786917769226,
+      "timeoutRate": 0.6949152542372882
+    },
+    "baselineAlert": {
+      "code": "operational_deviation",
+      "message": "Observed feature deviation exceeds baseline threshold."
+    },
+    "model": {
+      "version": "synthetic-iforest-v1",
+      "status": "out_of_distribution",
+      "score": null,
+      "threshold": null
+    },
+    "advisory": true
+  },
+  {
+    "id": "30c01db1-0c31-540f-a82c-406c44b2436f",
+    "entityType": "execution_target",
+    "entityId": "RAIL-A",
+    "from": "2026-10-07T06:40:00Z",
+    "to": "2026-10-07T06:45:00Z",
+    "sampleCount": 62,
+    "featureSchemaVersion": "tx.features.v1",
+    "features": {
+      "failureRate": 0.03225806451612903,
+      "healthAvailabilityRate": 0.6935483870967742,
+      "oldestRecoveryAgeMs": 1375.595871524541,
+      "p95LatencyMs": 1096.8282501445785,
+      "recoveryAttemptsPerPayment": 0.17138851130692082,
+      "timeoutRate": 0.27419354838709675
+    },
+    "baselineAlert": {
+      "code": "operational_deviation",
+      "message": "Observed feature deviation exceeds baseline threshold."
+    },
+    "model": {
+      "version": "synthetic-iforest-v1",
+      "status": "out_of_distribution",
+      "score": null,
+      "threshold": null
+    },
+    "advisory": true
+  }
+]

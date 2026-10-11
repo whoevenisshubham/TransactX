@@ -179,3 +179,21 @@ type Warning struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
+type Trace struct {
+	TraceId      string       `json:"traceId"`
+	SourceStatus SourceStatus `json:"sourceStatus"`
+	CollectedAt  string       `json:"collectedAt"`
+	Truncated    bool         `json:"truncated"`
+	Spans        []Span       `json:"spans"`
+}
+
+type Span struct {
+	SpanId       string             `json:"spanId"`
+	ParentSpanId *string            `json:"parentSpanId"`
+	Service      string             `json:"service"`
+	Name         string             `json:"name"`
+	StartedAt    string             `json:"startedAt"`
+	FinishedAt   *string            `json:"finishedAt"`
+	Status       string             `json:"status"`
+	Attributes   map[string]*string `json:"attributes"`
+}

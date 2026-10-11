@@ -4,12 +4,13 @@
   "documents": [
     {
       "path": "docs/architecture.md",
-      "sha256": "74699be3c7e2a9fa497b00c944ce45a3e8430cd0fb4b1161d70bb897100a0add",
+      "sha256": "f6f6ac186a1532fe445216b19f505b9b3cef08d27ddea05ad883c5e90f22fa87",
       "implementationStatus": "existing",
       "allowedRoles": [
         "OPS_ADMIN",
         "OPS_VIEWER"
-      ]
+      ],
+      "hashEncoding": "UTF-8 with LF line endings"
     }
   ],
   "note": "C0 candidate source allowlist only. C1 must review sections and ingest; no runtime retrieval exists."
