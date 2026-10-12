@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/transactx/backend/internal/analytics"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/operations"
@@ -297,4 +298,83 @@ func (h *Handler) opsTraceDetails(writer http.ResponseWriter, request *http.Requ
 	}
 
 	writeData(writer, http.StatusOK, request, traceResp)
+}
+
+func (h *Handler) opsAnalyticsWindows(writer http.ResponseWriter, request *http.Request) {
+	if h.analyticsRepo == nil {
+		writeAPIError(writer, request, common.NewAPIError("SERVICE_UNAVAILABLE", "analytics repository not configured", http.StatusServiceUnavailable))
+		return
+	}
+
+	filter := analytics.WindowFilter{
+		EntityType: request.URL.Query().Get("entityType"),
+		EntityID:   request.URL.Query().Get("entityId"),
+		Cursor:     request.URL.Query().Get("cursor"),
+	}
+
+	if limitStr := request.URL.Query().Get("limit"); limitStr != "" {
+		if limit, err := strconv.Atoi(limitStr); err == nil {
+			filter.Limit = limit
+		} else {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_LIMIT", "limit must be a valid integer", http.StatusBadRequest))
+			return
+		}
+	}
+
+	if fromStr := request.URL.Query().Get("from"); fromStr != "" {
+		t, err := time.Parse(time.RFC3339, fromStr)
+		if err != nil {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_TIMESTAMP", "from must be RFC3339 format", http.StatusBadRequest))
+			return
+		}
+		filter.From = &t
+	}
+
+	if toStr := request.URL.Query().Get("to"); toStr != "" {
+		t, err := time.Parse(time.RFC3339, toStr)
+		if err != nil {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_TIMESTAMP", "to must be RFC3339 format", http.StatusBadRequest))
+			return
+		}
+		filter.To = &t
+	}
+
+	page, err := h.analyticsRepo.QueryWindows(request.Context(), filter)
+	if err != nil {
+		if errors.Is(err, analytics.ErrInvalidCursor) {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_CURSOR", err.Error(), http.StatusBadRequest))
+			return
+		}
+		h.logger.Error("failed to query analytics windows", "error", err)
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to query analytics windows", http.StatusInternalServerError))
+		return
+	}
+
+	writeData(writer, http.StatusOK, request, page)
+}
+
+func (h *Handler) opsMetricsSummary(writer http.ResponseWriter, request *http.Request) {
+	if h.analyticsRepo == nil {
+		writeAPIError(writer, request, common.NewAPIError("SERVICE_UNAVAILABLE", "analytics repository not configured", http.StatusServiceUnavailable))
+		return
+	}
+
+	asOf := time.Now().UTC()
+	if asOfStr := request.URL.Query().Get("asOf"); asOfStr != "" {
+		t, err := time.Parse(time.RFC3339, asOfStr)
+		if err != nil {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_TIMESTAMP", "asOf must be RFC3339 format", http.StatusBadRequest))
+			return
+		}
+		asOf = t
+	}
+
+	summary, err := h.analyticsRepo.ComputeMetricsSummary(request.Context(), asOf)
+	if err != nil {
+		h.logger.Error("failed to compute metrics summary", "error", err)
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to compute metrics summary", http.StatusInternalServerError))
+		return
+	}
+
+	writeData(writer, http.StatusOK, request, summary)
 }

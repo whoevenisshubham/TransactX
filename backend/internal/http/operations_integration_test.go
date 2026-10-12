@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/transactx/backend/internal/analytics"
 	"github.com/transactx/backend/internal/audit"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/database"
@@ -396,6 +397,162 @@ func TestOperations_TraceDetails(t *testing.T) {
 	}
 	if collectedResp.Data.Spans[0].SpanID != spanID {
 		t.Errorf("expected span ID %s, got %s", spanID, collectedResp.Data.Spans[0].SpanID)
+	}
+}
+
+func TestOperations_Analytics_WindowsAndMetricsSummary(t *testing.T) {
+	server, pool, jwt := setupOperationsTestServer(t, true)
+	defer server.Close()
+	defer pool.Close()
+
+	adminToken, _ := jwt.Issue(uuid.NewString(), users.RoleOpsAdmin, time.Now())
+	viewerToken, _ := jwt.Issue(uuid.NewString(), users.RoleOpsViewer, time.Now())
+	customerToken, _ := jwt.Issue(uuid.NewString(), users.RoleCustomer, time.Now())
+
+	client := server.Client()
+
+	// 1. Runtime status reports analyticsEnabled: true, modelStatus: "unavailable"
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/ops/runtime", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from runtime status, got %v (%d)", err, resp.StatusCode)
+	}
+	var runtimeResp struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&runtimeResp); err != nil {
+		t.Fatalf("failed to decode runtime status: %v", err)
+	}
+	if analyticsEnabled, ok := runtimeResp.Data["analyticsEnabled"].(bool); !ok || !analyticsEnabled {
+		t.Errorf("expected analyticsEnabled == true, got %v", runtimeResp.Data["analyticsEnabled"])
+	}
+	if modelStatus, ok := runtimeResp.Data["modelStatus"].(string); !ok || modelStatus != "unavailable" {
+		t.Errorf("expected modelStatus == 'unavailable', got %v", runtimeResp.Data["modelStatus"])
+	}
+
+	// 2. Windows endpoint - 401 unauthenticated
+	resp, err = client.Get(server.URL + "/api/ops/analytics/windows")
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unauthenticated, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 3. Windows endpoint - 403 customer
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/analytics/windows", nil)
+	req.Header.Set("Authorization", "Bearer "+customerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 customer, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 4. Windows endpoint - viewer gets 200 with schema compliance
+	testWinID := uuid.New()
+	windowFrom := time.Now().UTC().Truncate(5 * time.Minute).Add(-10 * time.Minute)
+	windowTo := windowFrom.Add(5 * time.Minute)
+	insertWinQuery := `
+		INSERT INTO operational_aggregate_windows (
+			id, entity_type, entity_id, window_from, window_to, sample_count,
+			feature_schema_version, features, raw_aggregates, model_status
+		) VALUES (
+			$1, 'bank', 'BANK_TEST_OPS', $2, $3, 25,
+			'tx.features.v1', '{"timeoutRate": 0.04, "failureRate": 0.08}'::jsonb, '{}'::jsonb, 'ready'
+		) ON CONFLICT (entity_type, entity_id, window_from, feature_schema_version) DO NOTHING`
+	_, _ = pool.Exec(context.Background(), insertWinQuery, testWinID, windowFrom, windowTo)
+
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/analytics/windows?entityType=bank&entityId=BANK_TEST_OPS&limit=5", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 viewer, got %v (%d)", err, resp.StatusCode)
+	}
+	var winPageResp struct {
+		Data analytics.AnalyticsPage `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&winPageResp); err != nil {
+		t.Fatalf("failed to decode windows page: %v", err)
+	}
+	if len(winPageResp.Data.Items) == 0 {
+		t.Fatalf("expected at least 1 analytics window item")
+	}
+	found := false
+	for _, it := range winPageResp.Data.Items {
+		if it.EntityID == "BANK_TEST_OPS" && it.EntityType == "bank" {
+			found = true
+			if it.FeatureSchemaVersion != analytics.FeatureSchemaVersionV1 {
+				t.Errorf("expected schema version %s, got %s", analytics.FeatureSchemaVersionV1, it.FeatureSchemaVersion)
+			}
+			if it.SampleCount != 25 {
+				t.Errorf("expected sampleCount 25, got %d", it.SampleCount)
+			}
+			if it.Features.TimeoutRate == nil || *it.Features.TimeoutRate != 0.04 {
+				t.Errorf("expected timeoutRate 0.04, got %v", it.Features.TimeoutRate)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected to find inserted BANK_TEST_OPS window in returned items")
+	}
+
+	// 5. Windows endpoint - validation error cases
+	badReqs := []struct {
+		url          string
+		expectedCode int
+	}{
+		{server.URL + "/api/ops/analytics/windows?from=not-a-date", http.StatusBadRequest},
+		{server.URL + "/api/ops/analytics/windows?to=not-a-date", http.StatusBadRequest},
+		{server.URL + "/api/ops/analytics/windows?limit=invalid", http.StatusBadRequest},
+		{server.URL + "/api/ops/analytics/windows?cursor=bad!cursor", http.StatusBadRequest},
+	}
+	for _, tc := range badReqs {
+		r, _ := http.NewRequest(http.MethodGet, tc.url, nil)
+		r.Header.Set("Authorization", "Bearer "+viewerToken)
+		res, err := client.Do(r)
+		if err != nil || res.StatusCode != tc.expectedCode {
+			t.Errorf("for url %s expected status %d, got %v (%d)", tc.url, tc.expectedCode, err, res.StatusCode)
+		}
+	}
+
+	// 6. Metrics summary - 401 unauthenticated
+	resp, err = client.Get(server.URL + "/api/ops/metrics/summary")
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unauthenticated on metrics summary, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 7. Metrics summary - 403 customer
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/metrics/summary", nil)
+	req.Header.Set("Authorization", "Bearer "+customerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 customer on metrics summary, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 8. Metrics summary - 200 admin
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/metrics/summary", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 admin on metrics summary, got %v (%d)", err, resp.StatusCode)
+	}
+	var metricsSummaryResp struct {
+		Data analytics.MetricsSummary `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&metricsSummaryResp); err != nil {
+		t.Fatalf("failed to decode metrics summary: %v", err)
+	}
+	if len(metricsSummaryResp.Data.Sources) == 0 {
+		t.Errorf("expected non-empty sources in metrics summary")
+	}
+	if metricsSummaryResp.Data.Payments.Attempted == "" {
+		t.Errorf("expected decimal string for payments.attempted")
+	}
+
+	// 9. Metrics summary - invalid asOf returns 400
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/metrics/summary?asOf=bad-time", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for bad asOf, got %v (%d)", err, resp.StatusCode)
 	}
 }
 

@@ -60,131 +60,162 @@ func (w *Worker) Run(ctx context.Context) error {
 	w.cancel = cancel
 	defer cancel()
 
-	if !w.config.RecoveryEnabled || w.env.RecoveryScheduler == nil {
-		w.logger.Info("recovery job family disabled; worker idling")
-		select {
-		case <-runCtx.Done():
-		case <-w.stopCh:
-		}
-		return nil
-	}
+	hasJobs := false
 
 	scheduler := w.env.RecoveryScheduler
+	if w.config.RecoveryEnabled && scheduler != nil {
+		hasJobs = true
+		// 1. Initial Heartbeat
+		if err := scheduler.Heartbeat(runCtx); err != nil {
+			w.logger.Warn("initial worker heartbeat failed", "error", err)
+		} else {
+			w.logger.Info("worker registered initial heartbeat",
+				"worker_label", w.config.WorkerLabel,
+				"families", w.config.WorkerJobFamilies,
+				"build_sha", w.config.BuildSHA,
+			)
+		}
 
-	// 1. Initial Heartbeat
-	if err := scheduler.Heartbeat(runCtx); err != nil {
-		w.logger.Warn("initial worker heartbeat failed", "error", err)
-	} else {
-		w.logger.Info("worker registered initial heartbeat",
-			"worker_label", w.config.WorkerLabel,
-			"families", w.config.WorkerJobFamilies,
-			"build_sha", w.config.BuildSHA,
-		)
+		// 2. Heartbeat Loop
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			ticker := time.NewTicker(w.config.RecoveryHeartbeat)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if err := scheduler.Heartbeat(runCtx); err != nil && !errors.Is(err, context.Canceled) {
+						w.logger.Warn("worker heartbeat failed", "error", err)
+					}
+				case <-runCtx.Done():
+					return
+				case <-w.stopCh:
+					return
+				}
+			}
+		}()
+
+		// 3. Discovery Loop
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			ticker := time.NewTicker(w.config.RecoveryScanInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					discovered, err := scheduler.DiscoverStale(runCtx, 100)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						w.logger.Warn("discovery scan failed", "error", err)
+					} else if len(discovered) > 0 {
+						w.logger.Info("discovered stale payments", "count", len(discovered))
+					}
+				case <-runCtx.Done():
+					return
+				case <-w.stopCh:
+					return
+				}
+			}
+		}()
+
+		// 4. Sweep Interrupted Loop
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			sweepInterval := w.config.RecoveryLease / 2
+			if sweepInterval < time.Second {
+				sweepInterval = 5 * time.Second
+			}
+			ticker := time.NewTicker(sweepInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					swept, err := scheduler.SweepInterrupted(runCtx, 100)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						w.logger.Warn("sweep interrupted attempts failed", "error", err)
+					} else if swept > 0 {
+						w.logger.Info("swept expired interrupted attempts", "count", swept)
+					}
+				case <-runCtx.Done():
+					return
+				case <-w.stopCh:
+					return
+				}
+			}
+		}()
+
+		// 5. Claim and Process Loop (bounded polling)
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-w.stopCh:
+					return
+				default:
+					claimed, err := scheduler.ClaimAndProcessBatch(runCtx)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						w.logger.Warn("claim and process batch failed", "error", err)
+						select {
+						case <-time.After(500 * time.Millisecond):
+						case <-runCtx.Done():
+							return
+						case <-w.stopCh:
+							return
+						}
+					} else if claimed == 0 {
+						select {
+						case <-time.After(200 * time.Millisecond):
+						case <-runCtx.Done():
+							return
+						case <-w.stopCh:
+							return
+						}
+					}
+				}
+			}
+		}()
 	}
 
-	// 2. Heartbeat Loop
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		ticker := time.NewTicker(w.config.RecoveryHeartbeat)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if err := scheduler.Heartbeat(runCtx); err != nil && !errors.Is(err, context.Canceled) {
-					w.logger.Warn("worker heartbeat failed", "error", err)
-				}
-			case <-runCtx.Done():
-				return
-			case <-w.stopCh:
-				return
+	// 6. Analytics Window Aggregator Loop
+	if w.env.AnalyticsService != nil {
+		hasJobs = true
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			if processed, err := w.env.AnalyticsService.AggregateCompletedWindows(runCtx); err != nil && !errors.Is(err, context.Canceled) {
+				w.logger.Warn("initial analytics window aggregation failed", "error", err)
+			} else if processed > 0 {
+				w.logger.Info("initial operational aggregate windows processed", "count", processed)
 			}
-		}
-	}()
 
-	// 3. Discovery Loop
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		ticker := time.NewTicker(w.config.RecoveryScanInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				discovered, err := scheduler.DiscoverStale(runCtx, 100)
-				if err != nil && !errors.Is(err, context.Canceled) {
-					w.logger.Warn("discovery scan failed", "error", err)
-				} else if len(discovered) > 0 {
-					w.logger.Info("discovered stale payments", "count", len(discovered))
-				}
-			case <-runCtx.Done():
-				return
-			case <-w.stopCh:
-				return
-			}
-		}
-	}()
-
-	// 4. Sweep Interrupted Loop
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		sweepInterval := w.config.RecoveryLease / 2
-		if sweepInterval < time.Second {
-			sweepInterval = 5 * time.Second
-		}
-		ticker := time.NewTicker(sweepInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				swept, err := scheduler.SweepInterrupted(runCtx, 100)
-				if err != nil && !errors.Is(err, context.Canceled) {
-					w.logger.Warn("sweep interrupted attempts failed", "error", err)
-				} else if swept > 0 {
-					w.logger.Info("swept expired interrupted attempts", "count", swept)
-				}
-			case <-runCtx.Done():
-				return
-			case <-w.stopCh:
-				return
-			}
-		}
-	}()
-
-	// 5. Claim and Process Loop (bounded polling)
-	w.wg.Add(1)
-	go func() {
-		defer w.wg.Done()
-		for {
-			select {
-			case <-runCtx.Done():
-				return
-			case <-w.stopCh:
-				return
-			default:
-				claimed, err := scheduler.ClaimAndProcessBatch(runCtx)
-				if err != nil && !errors.Is(err, context.Canceled) {
-					w.logger.Warn("claim and process batch failed", "error", err)
-					select {
-					case <-time.After(500 * time.Millisecond):
-					case <-runCtx.Done():
-						return
-					case <-w.stopCh:
-						return
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					processed, err := w.env.AnalyticsService.AggregateCompletedWindows(runCtx)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						w.logger.Warn("analytics window aggregation failed", "error", err)
+					} else if processed > 0 {
+						w.logger.Info("aggregated completed operational windows", "count", processed)
 					}
-				} else if claimed == 0 {
-					select {
-					case <-time.After(200 * time.Millisecond):
-					case <-runCtx.Done():
-						return
-					case <-w.stopCh:
-						return
-					}
+				case <-runCtx.Done():
+					return
+				case <-w.stopCh:
+					return
 				}
 			}
-		}
-	}()
+		}()
+	}
+
+	if !hasJobs {
+		w.logger.Info("no background jobs configured; worker idling")
+	}
 
 	// Wait until context canceled or stop requested
 	select {
@@ -196,9 +227,11 @@ func (w *Worker) Run(ctx context.Context) error {
 	w.wg.Wait()
 
 	// Final heartbeat on shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer shutdownCancel()
-	_ = scheduler.Heartbeat(shutdownCtx)
+	if w.config.RecoveryEnabled && scheduler != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer shutdownCancel()
+		_ = scheduler.Heartbeat(shutdownCtx)
+	}
 	w.logger.Info("worker stopped cleanly")
 	return nil
 }

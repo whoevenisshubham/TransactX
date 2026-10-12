@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/analytics"
 	"github.com/transactx/backend/internal/audit"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
@@ -51,6 +52,8 @@ type Environment struct {
 	RecoveryScheduler    *recovery.Scheduler
 	TelemetryProvider    *telemetry.Provider
 	TelemetryShutdown    func(context.Context) error
+	AnalyticsRepo        analytics.Repository
+	AnalyticsService     *analytics.Service
 	ownsDB               bool
 }
 
@@ -287,6 +290,18 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		logger.Warn("initialize telemetry provider failed, proceeding without otel", "error", err)
 	}
 
+	analyticsRepo := analytics.NewPostgresRepository(db)
+	var entityTargets []analytics.EntityTarget
+	for code := range bankIDs {
+		entityTargets = append(entityTargets, analytics.EntityTarget{Type: "bank", ID: code})
+	}
+	for _, targets := range executionTargets {
+		for _, t := range targets {
+			entityTargets = append(entityTargets, analytics.EntityTarget{Type: "execution_target", ID: t.ID})
+		}
+	}
+	analyticsSvc := analytics.NewService(analyticsRepo, entityTargets, logger)
+
 	return &Environment{
 		Config:               cfg,
 		DB:                   db,
@@ -309,6 +324,8 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		RecoveryScheduler:    recoveryScheduler,
 		TelemetryProvider:    telProvider,
 		TelemetryShutdown:    telShutdown,
+		AnalyticsRepo:        analyticsRepo,
+		AnalyticsService:     analyticsSvc,
 	}, nil
 }
 

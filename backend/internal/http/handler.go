@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/analytics"
 	"github.com/transactx/backend/internal/audit"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
@@ -58,6 +59,7 @@ type Handler struct {
 	operationsSvc           *operations.Service
 	traceStore              *telemetry.TraceStore
 	telemetryMetrics        *telemetry.Metrics
+	analyticsRepo           analytics.Repository
 }
 
 type RuntimeOptions struct {
@@ -213,6 +215,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		handler.operationsSvc = operations.NewService(handler.operationsRepo, adapters, logger)
 		handler.traceStore = telemetry.NewTraceStore(db, logger)
 		handler.telemetryMetrics = telemetry.NewMetrics()
+		handler.analyticsRepo = analytics.NewPostgresRepository(db)
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -282,6 +285,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		mux.Handle("POST /api/ops/payments/{paymentID}/recovery/recheck", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.opsPaymentRecoveryRecheck))))
 		mux.Handle("GET /api/ops/payments/{paymentID}/evidence/export", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsPaymentEvidenceExport))))
 	}
+	mux.Handle("GET /api/ops/analytics/windows", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsAnalyticsWindows))))
+	mux.Handle("GET /api/ops/metrics/summary", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsMetricsSummary))))
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))
@@ -304,7 +309,14 @@ func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Reques
 		"canControlRecovery":     h.recoveryControlEnabled,
 		"canRunChaos":            h.chaosEnabled,
 		"traceCollectionEnabled": h.traceStore != nil,
+		"analyticsEnabled":       h.analyticsRepo != nil,
+		"modelStatus":            "unavailable",
 	})
+}
+
+// SetAnalyticsRepository allows test injection of an analytics repository.
+func (h *Handler) SetAnalyticsRepository(repo analytics.Repository) {
+	h.analyticsRepo = repo
 }
 
 func (h *Handler) health(writer http.ResponseWriter, request *http.Request) {
