@@ -378,4 +378,8 @@ Status: **IMPLEMENTED**
 
 Restricts self-registration to CUSTOMER and MERCHANT roles, preventing privilege escalation. Introduces OPS_VIEWER as a read-only operations role with access to operational telemetry (GET /api/ops/*) while denying mutations (403 Forbidden). Adds explicit configuration control flags (ALLOW_REGISTRATION, CHAOS_ENABLED, RECOVERY_CONTROL_ENABLED) that fail-safe closed in production and are reported via GET /api/ops/runtime. Mandates inter-service participant tokens for Bank A and Bank B in production, and records all administrative operational mutations in append-only operational_audit_logs.
 
+## ADR-034: Transactional Outbox Facts and Atomic Event Production
 
+Status: **IMPLEMENTED**
+
+Introduces payment event versioning (`payments.event_version`), immutable outbox events (`outbox_events`), and delivery state (`outbox_deliveries`) via Migration 000024. PostgreSQL triggers on `payments` atomically assign monotonically increasing event versions and insert typed outbox events (`payment.created.v1`, `payment.state_changed.v1`) and deliveries for `ops-worklist-v1` within the source transaction. Triggers on `recovery_attempts` and `recovery_jobs` emit recovery lifecycle facts (`recovery.attempt_started.v1`, `recovery.attempt_finished.v1`, `recovery.attention_required.v1`). Source rollbacks discard all outbox effects, updates on `outbox_events` are strictly denied by an immutability trigger, and customer private data is excluded from payloads.
