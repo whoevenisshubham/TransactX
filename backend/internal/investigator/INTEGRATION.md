@@ -1,6 +1,6 @@
-# C0-C3 integration specification (tx.v2.1)
+# C0-C4 integration specification (tx.v2.1)
 
-The typed evidence interfaces, immutable synthetic fixtures, C1 reviewed corpus, C2 evidence-only orchestration and C3 optional provider/grounding path compile independently. Final fixed evaluation remains pending in C4. Do not mount a fixture reader, `MemoryCorpus`, or `MemoryInvestigationStore` in production. Shared contract remains unchanged.
+The typed evidence interfaces, immutable synthetic fixtures, C1 reviewed corpus, C2 evidence-only orchestration, C3 optional provider/grounding path and C4 fixed evaluation compile independently. Do not mount a fixture reader, `MemoryCorpus`, or `MemoryInvestigationStore` in production. Shared contract remains unchanged.
 
 M2 implements EvidenceReader with existing JWT middleware and trusted actor, role and selected payment scope. Use a 3-second read deadline, central read-only repeatable-read snapshot then bounded participant reads, exact original target/operation identities, safe errors and canonical redacted snapshot hashing. Unknown/timeout is not FAILED. Do not trigger recovery/reconciliation/integrity/health sampling from reads. Wrong identity fixture is a negative authorization input, not a valid reader result. Injected document is untrusted test data, outside the approved corpus.
 
@@ -22,8 +22,10 @@ Reserve the full worst-case token/cost allowance transactionally before the firs
 
 The provider-facing tool schemas omit actor, role and payment ID; the orchestrator injects selected payment after strict decoding. Final validation checks assertion meaning, not just citation existence, then replaces provider-controlled financial fact prose, summary, coverage, missing evidence and recommendations with deterministic renderings. On refusal, timeout, 429, malformed output, changed snapshot, unknown evidence, wrong typed value, tool rejection or usage failure, return a sanitized failed job while retaining the evidence-only report when possible. ADR-036 is package-local pending M1/M2 placement during integration.
 
-M1 may consume JSON fixtures' evidence/report payloads after shared schema validation. Preserve mode/partial/unknown/trace missing states and snapshot drilldowns. These C0 reports are expected fixture values, not runtime output or live LLM results. No runtime financial grounding claim is made by C0's fixture tests.
+M1 should consume `evaluation/results.json` `uiFixtures` after shared schema validation. Preserve mode labels, partial/missing evidence, safe provider-failure fallback, nullable usage and snapshot drilldowns. `validatedLLMFixtureOnly` exists to exercise rendering and is not a live-provider result. The C0 reports remain expected values, not runtime output.
 
 C1 local result: six manifest-only documents produce 35 deterministic chunks. Eight reviewed cases reach recall@5 1.000 in the offline deterministic evaluator. The disposable PostgreSQL lifecycle test covers staging, duplicate ingestion, role filtering, parameterized injection-shaped queries, removal on version switch and old citation resolution when `DATABASE_URL` is present. An unset database URL is a recorded skip, not a PostgreSQL pass. No live corpus is active yet.
 
-Next: C4 adds at least 40 reviewed fixed cases, committed metrics/hashes and the final M1/M2 handoff. C1 corpus content, user questions and tool results remain untrusted data and never instructions.
+C4 local result: 40 fixed cases cover 16 factual/recovery, eight retrieval, eight adversarial and eight missing/contradictory scenarios. The deterministic suite requires every case and all eight security blocks to pass, every published report to pass typed citation meaning checks, all eight missing-evidence cases to abstain, and reviewed recall@5 >=0.85. Exact dataset/result hashes, command and tested source commit are recorded in `evaluation/results.json`; live-provider status remains a separate explicit field. See `C4_HANDOFF.md` for mounting and UI acceptance steps.
+
+Next: M2 supplies the B10/B11 migration, durable stores/readers, authenticated mounts and operational windows; M1 renders schema-compatible results and mode/limitation labels. C1 corpus content, user questions and tool results remain untrusted data and never instructions. C6 live integration is not satisfied by this offline suite.
