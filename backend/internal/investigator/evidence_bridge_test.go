@@ -2,10 +2,27 @@ package investigator
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 )
+
+type recordingEvidenceJSONSource struct {
+	raw   []byte
+	err   error
+	calls int
+	scope TrustedScope
+	id    string
+}
+
+func (source *recordingEvidenceJSONSource) ReadPaymentEvidenceJSON(_ context.Context, scope TrustedScope, paymentID string) ([]byte, error) {
+	source.calls++
+	source.scope = scope
+	source.id = paymentID
+	return source.raw, source.err
+}
 
 func healthyEvidenceJSON(t *testing.T) (json.RawMessage, EvidenceBundle) {
 	t.Helper()
@@ -84,5 +101,48 @@ func TestDecodeTrustedEvidenceBundleRejectsUntrustedInput(t *testing.T) {
 				t.Fatal("untrusted evidence input was accepted")
 			}
 		})
+	}
+}
+
+func TestBridgedEvidenceReaderValidatesBeforeAndAfterSource(t *testing.T) {
+	raw, expected := healthyEvidenceJSON(t)
+	source := &recordingEvidenceJSONSource{raw: raw}
+	reader := BridgedEvidenceReader{Source: source}
+	scope := bridgeScope(expected.PaymentId)
+
+	bundle, err := reader.ReadPaymentEvidence(context.Background(), scope, expected.PaymentId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.calls != 1 || source.scope != scope || source.id != expected.PaymentId || bundle.SnapshotId != expected.SnapshotId {
+		t.Fatal("bridge did not preserve trusted source inputs and evidence identity")
+	}
+
+	if _, err := reader.ReadPaymentEvidence(context.Background(), scope, "foreign-payment"); !errors.Is(err, ErrScopeViolation) {
+		t.Fatalf("foreign request: got %v, want scope violation", err)
+	}
+	if source.calls != 1 {
+		t.Fatal("source ran before foreign payment scope was rejected")
+	}
+
+	badSource := &recordingEvidenceJSONSource{raw: []byte(`{"paymentId":"foreign-payment"}`)}
+	if _, err := (BridgedEvidenceReader{Source: badSource}).ReadPaymentEvidence(context.Background(), scope, expected.PaymentId); err == nil {
+		t.Fatal("invalid source bundle was accepted")
+	}
+	if badSource.calls != 1 {
+		t.Fatal("valid trusted request did not reach source")
+	}
+}
+
+func TestBridgedEvidenceReaderPropagatesSourceFailure(t *testing.T) {
+	_, expected := healthyEvidenceJSON(t)
+	want := errors.New("operations unavailable")
+	source := &recordingEvidenceJSONSource{err: want}
+	_, err := (BridgedEvidenceReader{Source: source}).ReadPaymentEvidence(context.Background(), bridgeScope(expected.PaymentId), expected.PaymentId)
+	if !errors.Is(err, want) {
+		t.Fatalf("got %v, want source failure", err)
+	}
+	if _, err := (BridgedEvidenceReader{}).ReadPaymentEvidence(context.Background(), bridgeScope(expected.PaymentId), expected.PaymentId); err == nil {
+		t.Fatal("nil source was accepted")
 	}
 }

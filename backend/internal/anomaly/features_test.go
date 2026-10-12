@@ -3,6 +3,7 @@ package anomaly
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func measurement(value float64) *float64 { return &value }
@@ -66,5 +67,50 @@ func TestFromLiveFeaturesRejectsInvalidLiveInput(t *testing.T) {
 				t.Fatal("invalid live input was accepted")
 			}
 		})
+	}
+}
+
+func TestEvaluateLiveFeaturesKeepsBaselineAvailableWithoutModel(t *testing.T) {
+	values := LiveFeatureValues{
+		TimeoutRate:                measurement(0.01),
+		FailureRate:                measurement(0.02),
+		P95LatencyMs:               measurement(125),
+		OldestRecoveryAgeMs:        measurement(2_000),
+		RecoveryAttemptsPerPayment: measurement(0.3),
+		HealthAvailabilityRate:     measurement(0.99),
+	}
+	vector, err := FromLiveFeatures(FeatureSchemaVersion, 42, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := FitBaseline([]FeatureVector{vector, vector, vector, vector, vector, vector, vector, vector}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evaluation, err := EvaluateLiveFeatures(nil, baseline, FeatureSchemaVersion, 42, values, time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.Model.Status != "unavailable" || evaluation.Baseline.Status != "ready" || !evaluation.Advisory || evaluation.MissingFeatureRatio != 0 {
+		t.Fatalf("unexpected baseline-default evaluation: %+v", evaluation)
+	}
+
+	values.P95LatencyMs = nil
+	evaluation, err = EvaluateLiveFeatures(nil, baseline, FeatureSchemaVersion, 42, values, time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evaluation.MissingFeatureRatio != 1.0/6.0 || evaluation.Baseline.Status != "ready" {
+		t.Fatalf("missing measurement was not preserved: %+v", evaluation)
+	}
+}
+
+func TestEvaluateLiveFeaturesRejectsInvalidBoundary(t *testing.T) {
+	if _, err := EvaluateLiveFeatures(nil, nil, FeatureSchemaVersion, 20, LiveFeatureValues{}, time.Time{}); err == nil {
+		t.Fatal("zero server observation time was accepted")
+	}
+	if _, err := EvaluateLiveFeatures(nil, nil, "tx.features.future", 20, LiveFeatureValues{}, time.Now()); err == nil {
+		t.Fatal("invalid live schema was accepted")
 	}
 }

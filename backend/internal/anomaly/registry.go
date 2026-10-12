@@ -1,6 +1,7 @@
 package anomaly
 
 import (
+	"errors"
 	"io"
 	"sync/atomic"
 	"time"
@@ -34,4 +35,18 @@ func Evaluate(model *Model, baseline *Baseline, v FeatureVector, now time.Time) 
 		}
 	}
 	return Evaluation{Model: model.ScoreAt(v, now), Baseline: baseline.Score(v), MissingFeatureRatio: float64(missing) / 6, Advisory: true}
+}
+
+// EvaluateLiveFeatures is the runtime boundary for B10 named aggregate
+// features. It rejects invalid input before invoking either scorer and always
+// uses a server-owned observation time for model age checks.
+func EvaluateLiveFeatures(model *Model, baseline *Baseline, schemaVersion string, sampleCount int, values LiveFeatureValues, observedAt time.Time) (Evaluation, error) {
+	if observedAt.IsZero() {
+		return Evaluation{}, errors.New("missing live feature observation time")
+	}
+	vector, err := FromLiveFeatures(schemaVersion, sampleCount, values)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	return Evaluate(model, baseline, vector, observedAt), nil
 }
