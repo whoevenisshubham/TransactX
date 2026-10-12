@@ -1,6 +1,10 @@
 package investigator
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -53,6 +57,35 @@ func TestFixedInvestigatorEvaluationPassesAllGates(t *testing.T) {
 	}
 	if artifact.UIFixtures["validatedLLMFixtureOnly"].Mode != ModeLLM || artifact.UIFixtures["providerFailedFallback"].Error == nil {
 		t.Error("UI fixture modes/failure do not exercise the integration contract")
+	}
+}
+
+func TestCommittedEvaluationArtifactMatchesDataset(t *testing.T) {
+	rawDataset, err := os.ReadFile(filepath.Join("evaluation", "cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(canonicalLF(rawDataset))
+	rawArtifact, err := os.ReadFile(filepath.Join("evaluation", "results.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var artifact EvaluationArtifact
+	if err := json.Unmarshal(rawArtifact, &artifact); err != nil {
+		t.Fatal(err)
+	}
+	if artifact.DatasetSHA256 != hex.EncodeToString(digest[:]) {
+		t.Fatalf("artifact dataset hash %s does not match fixed cases", artifact.DatasetSHA256)
+	}
+	if artifact.DirtyTree || artifact.SourceCommit == "" || artifact.Command == "" {
+		t.Fatal("artifact lacks clean source provenance")
+	}
+	metrics := artifact.Metrics
+	if metrics.PassedCases != 40 || metrics.TotalCases != 40 || metrics.SecurityBlocked != 8 || metrics.RetrievalRecallAt5 < 0.85 || metrics.MissingEvidenceAbstains != 8 {
+		t.Fatalf("committed evaluation does not pass release gates: %+v", metrics)
+	}
+	if metrics.ProviderCalls != 0 || metrics.PaidCostUSD != "0.00" || artifact.LiveProvider.Status != "pending" {
+		t.Fatal("offline artifact incorrectly claims live provider usage")
 	}
 }
 

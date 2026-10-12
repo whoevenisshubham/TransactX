@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/transactx/backend/internal/investigator"
 )
@@ -18,8 +19,11 @@ func main() {
 	dirty := flag.Bool("dirty-tree", false, "whether the evaluated source tree was dirty")
 	command := flag.String("command", "", "reproduction command recorded in the artifact")
 	flag.Parse()
-	if *source == "" || *evaluatedAt == "" || *command == "" {
-		fatal(fmt.Errorf("-source, -evaluated-at and -command are required"))
+	if *source == "" || *evaluatedAt == "" {
+		fatal(fmt.Errorf("-source and -evaluated-at are required"))
+	}
+	if *command == "" {
+		*command = reproductionCommand(*root, *dataset, *out, *source, *evaluatedAt, *dirty)
 	}
 	artifact, err := investigator.EvaluateInvestigator(investigator.EvaluationOptions{
 		RepositoryRoot: *root, DatasetPath: *dataset, SourceCommit: *source,
@@ -33,6 +37,15 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+}
+
+func reproductionCommand(root, dataset, out, source, evaluatedAt string, dirty bool) string {
+	command := fmt.Sprintf("go -C backend run ./internal/investigator/cmd/evaluate -root %s -dataset %s -source %s -evaluated-at %s -dirty-tree=%t",
+		strconv.Quote(root), strconv.Quote(dataset), strconv.Quote(source), strconv.Quote(evaluatedAt), dirty)
+	if out != "" {
+		command += " -out " + strconv.Quote(out)
+	}
+	return command
 }
 
 func writeArtifact(artifact investigator.EvaluationArtifact, out string) error {
