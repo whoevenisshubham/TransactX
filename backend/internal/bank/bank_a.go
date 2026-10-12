@@ -251,6 +251,39 @@ func (bank *BankA) GetOperationStatus(ctx context.Context, request OperationStat
 	return OperationResult{PaymentID: operation.PaymentID, OperationID: operation.OperationID, BankReference: fmt.Sprintf("BANK-A-%s", operation.OperationID), Status: operationStatus(operation.Status)}, nil
 }
 
+// GetOperationPresence checks whether the operation is present in BankA's operations.
+func (bank *BankA) GetOperationPresence(ctx context.Context, paymentID, operationID uuid.UUID) (OperationPresenceResult, error) {
+	if err := bank.checkContext(ctx); err != nil {
+		return OperationPresenceResult{}, err
+	}
+	if operationID == uuid.Nil || paymentID == uuid.Nil {
+		return OperationPresenceResult{}, &AdapterError{Code: ErrCodePermanentFailure, Message: "payment ID and operation ID are required for presence check"}
+	}
+	bank.mu.RLock()
+	defer bank.mu.RUnlock()
+	operation, ok := bank.operations[operationID]
+	if !ok {
+		return OperationPresenceResult{
+			PaymentID:   paymentID,
+			OperationID: operationID,
+			Presence:    PresenceAbsent,
+			ObservedAt:  time.Now().UTC(),
+			Status:      nil,
+		}, nil
+	}
+	if operation.PaymentID != paymentID {
+		return OperationPresenceResult{}, &AdapterError{Code: ErrCodePermanentFailure, Message: "operation payment does not match"}
+	}
+	status := operationStatus(operation.Status)
+	return OperationPresenceResult{
+		PaymentID:   paymentID,
+		OperationID: operationID,
+		Presence:    PresencePresent,
+		ObservedAt:  time.Now().UTC(),
+		Status:      &status,
+	}, nil
+}
+
 func (bank *BankA) GetLedgerSnapshot(ctx context.Context, scope LedgerScope) (LedgerSnapshot, error) {
 	if err := bank.checkContext(ctx); err != nil {
 		return LedgerSnapshot{}, err
@@ -440,3 +473,7 @@ func operationStatus(status string) OperationStatus {
 func operationResultWithID(paymentID, operationID uuid.UUID) OperationResult {
 	return OperationResult{PaymentID: paymentID, OperationID: operationID, BankReference: fmt.Sprintf("BANK-A-%s", operationID), Status: OperationSucceeded}
 }
+
+var _ BankAdapter = (*BankA)(nil)
+var _ OperationPresenceReader = (*BankA)(nil)
+

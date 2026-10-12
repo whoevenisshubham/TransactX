@@ -348,11 +348,13 @@ record binding.
 
 ## ADR-032: Shared recovery serialization and state continuation
 
-Status: **DECIDED** (Draft / Implemented in B1)
+Status: **IMPLEMENTED**
 
 All payment continuation paths (initial execution duplicate requests, caller retries,
 and background worker recovery) converge on `Service.Resume`. Per-payment session advisory
 locking runs on dedicated connections with guaranteed cleanup to prevent pool contamination.
 Re-reads state after lock acquisition, resolves original persisted route, validates central
 ledger for COMMITTED state without duplicate transactions, treats terminal states as NO_OP,
-and enforces bounded concurrency with a minimum connection pool reserve.
+and enforces bounded concurrency with a minimum connection pool reserve. In addition, banking
+participant operations can only be safely replayed when authoritative absence is affirmatively
+proven via `OperationPresenceReader`, with the participant rejecting racing originals with 409 Conflict.

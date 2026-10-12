@@ -429,6 +429,9 @@ func (repository *Repository) ensureBankOperation(ctx context.Context, payment P
 			return operationPending, statusErr
 		}
 		if !validOperationCorrelation(status, payment.ID, operationID) {
+			if res, err, ok := repository.checkPresenceAndReplay(ctx, payment, operationID, adapter, invoke); ok {
+				return res, err
+			}
 			_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
 			return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an unresolved status"}
 		}
@@ -442,9 +445,15 @@ func (repository *Repository) ensureBankOperation(ctx context.Context, payment P
 			_ = repository.updateBankOperation(ctx, operationID, bankOperationFailed)
 			return operationFailed, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: operationType + " failed"}
 		case bank.OperationPending:
+			if res, err, ok := repository.checkPresenceAndReplay(ctx, payment, operationID, adapter, invoke); ok {
+				return res, err
+			}
 			_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
 			return operationPending, nil
 		default:
+			if res, err, ok := repository.checkPresenceAndReplay(ctx, payment, operationID, adapter, invoke); ok {
+				return res, err
+			}
 			_ = repository.updateBankOperation(ctx, operationID, bankOperationPending)
 			return operationPending, &bank.AdapterError{Code: bank.ErrCodeTransientFailure, Message: operationType + " returned an invalid or unsupported status"}
 		}
@@ -493,6 +502,52 @@ func (repository *Repository) ensureBankOperation(ctx context.Context, payment P
 
 func validOperationCorrelation(result bank.OperationResult, paymentID, operationID uuid.UUID) bool {
 	return result.PaymentID == paymentID && result.OperationID == operationID
+}
+
+func (repository *Repository) checkPresenceAndReplay(ctx context.Context, payment Payment, operationID uuid.UUID, adapter bank.BankAdapter, invoke func() (bank.OperationResult, error)) (operationResolution, error, bool) {
+	presenceReader, ok := adapter.(bank.OperationPresenceReader)
+	if !ok {
+		return operationPending, nil, false
+	}
+	if repository.recoveryMetrics != nil {
+		repository.recoveryMetrics.PresenceChecked.Add(1)
+	}
+	presence, pErr := presenceReader.GetOperationPresence(ctx, payment.ID, operationID)
+	if pErr != nil {
+		if repository.recoveryMetrics != nil {
+			repository.recoveryMetrics.PresenceError.Add(1)
+		}
+		return operationPending, nil, false
+	}
+	if presence.Presence != bank.PresenceAbsent {
+		if repository.recoveryMetrics != nil {
+			repository.recoveryMetrics.PresencePresent.Add(1)
+		}
+		return operationPending, nil, false
+	}
+	// Operation is authoritatively absent on the participant.
+	// Absence plus participant execution uniqueness/payload identity permits replay.
+	if repository.recoveryMetrics != nil {
+		repository.recoveryMetrics.PresenceAbsent.Add(1)
+		repository.recoveryMetrics.PresenceReplayed.Add(1)
+	}
+	_ = repository.updateBankOperation(ctx, operationID, bankOperationProcessing)
+	result, callErr := invoke()
+	if callErr != nil {
+		status := bankOperationFailed
+		if isTransientBankError(callErr) {
+			status = bankOperationPending
+		}
+		_ = repository.updateBankOperation(ctx, operationID, status)
+		if status == bankOperationPending {
+			return operationPending, nil, true
+		}
+		return operationFailed, callErr, true
+	}
+	if err := repository.updateBankOperationResult(ctx, operationID, bankOperationSucceeded, result.BankReference); err != nil {
+		return operationPending, err, true
+	}
+	return operationSucceeded, nil, true
 }
 
 func (repository *Repository) compensateHold(ctx context.Context, payment Payment, sourceBankID uuid.UUID, sourceAdapter bank.BankAdapter, holdID uuid.UUID) bool {

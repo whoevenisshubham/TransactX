@@ -1,7 +1,7 @@
 # ADR-032: Shared Recovery Serialization and State Continuation
 
 ## Status
-**DRAFT** (Task B1 complete; finalization upon completion of Task B2 presence verification)
+**IMPLEMENTED** (Tasks B1 & B2 complete)
 
 ## Context
 TransactX executes distributed routed payments across independent banking participants (Bank A, Bank B) and central PostgreSQL storage. Failures such as process crashes, timeouts, network drops, or worker restarts can leave payments in non-terminal states (`CREATED`, `VALIDATING`, `ROUTING`, `PROCESSING`, `BANK_SETTLED_CENTRAL_PENDING`, `COMMITTED`, `PENDING_RECONCILIATION`).
@@ -40,12 +40,24 @@ To prevent database connection starvation:
 - Payment continuation is throttled by a bounded semaphore configured via `TX_PAYMENT_CONCURRENCY` (default 2).
 - Configuration validation enforces that the pool size exceeds concurrency limit by a minimum reserve of 2 query connections (`dbMaxConns - paymentConcurrency >= 2`).
 
-### 8. Observability & Operational Metrics
+### 8. Operation Absence and Safe Replay Capability (Task B2)
+When an operation on a banking participant remains unconfirmed or in a pending/unresolved state:
+- **Authoritative Absence vs. Network Ambiguity**: "Absent" MUST be an affirmative confirmation directly from the participant's operations log/ledger (`pgx.ErrNoRows`). Transient connection errors, 500s, or timeouts must NEVER be inferred as absence.
+- **`OperationPresenceReader` Interface**: Adapters implement `GetOperationPresence(ctx, paymentID, operationID) (OperationPresenceResult, error)`.
+- **Safe Replay Semantics**: An unconfirmed operation may be replayed if and only if:
+  1. The adapter implements `OperationPresenceReader`.
+  2. The participant returns authoritative `PresenceAbsent`.
+  3. Replay is executed using the exact immutable parameters (same `operation_id`, amount, currencies, accounts) recorded in the central database before the initial dispatch.
+  4. The participant's data store enforces uniqueness on `operation_id` and idempotency hash, rejecting any conflicting payload or racing late-arriving original request with `409 Conflict`.
+- **Failing Closed on Unknown or Non-Capable Adapters**: If an adapter does not implement `OperationPresenceReader`, or returns `PresencePresent` or transient errors, the engine strictly refrains from replaying and keeps the operation parked in pending reconciliation for operator review.
+
+### 9. Observability & Operational Metrics
 The recovery subsystem tracks atomic metrics for:
 - `lock_wait_total_ns` and `lock_wait_count`
 - `resume_count`, `resume_noop`, `resume_completed`, `resume_failed`, `resume_attention`
 - `overload_count`
+- `presence_checked`, `presence_absent`, `presence_present`, `presence_error`, `presence_replayed`
 
 ## Consequences
-- **Positive**: Strict mutual exclusion between customer retries and recovery workers; eliminate double-credit and double-debit vulnerabilities; zero connection pool leak risk on lock failure.
+- **Positive**: Strict mutual exclusion between customer retries and recovery workers; eliminate double-credit and double-debit vulnerabilities; zero connection pool leak risk on lock failure; safe recovery of dropped dispatches without duplicate execution risks.
 - **Negative**: Callers must wait for the lock or bounded semaphore when retrying actively executing payments; transient delays during peak lock contention.

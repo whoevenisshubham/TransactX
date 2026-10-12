@@ -41,14 +41,19 @@ var _ RecoveryResumer = (*Service)(nil)
 
 // RecoveryMetrics records performance and operational counters for recovery.
 type RecoveryMetrics struct {
-	LockWaitTotalNs atomic.Int64
-	LockWaitCount   atomic.Int64
-	ResumeCount     atomic.Int64
-	ResumeNoOp      atomic.Int64
-	ResumeCompleted atomic.Int64
-	ResumeFailed    atomic.Int64
-	ResumeAttention atomic.Int64
-	OverloadCount   atomic.Int64
+	LockWaitTotalNs  atomic.Int64
+	LockWaitCount    atomic.Int64
+	ResumeCount      atomic.Int64
+	ResumeNoOp       atomic.Int64
+	ResumeCompleted  atomic.Int64
+	ResumeFailed     atomic.Int64
+	ResumeAttention  atomic.Int64
+	OverloadCount    atomic.Int64
+	PresenceChecked  atomic.Int64
+	PresenceAbsent   atomic.Int64
+	PresencePresent  atomic.Int64
+	PresenceError    atomic.Int64
+	PresenceReplayed atomic.Int64
 }
 
 // Snapshot returns a copy of current metrics counters.
@@ -65,6 +70,11 @@ func (m *RecoveryMetrics) Snapshot() map[string]int64 {
 		"resume_failed":      m.ResumeFailed.Load(),
 		"resume_attention":   m.ResumeAttention.Load(),
 		"overload_count":     m.OverloadCount.Load(),
+		"presence_checked":   m.PresenceChecked.Load(),
+		"presence_absent":    m.PresenceAbsent.Load(),
+		"presence_present":   m.PresencePresent.Load(),
+		"presence_error":     m.PresenceError.Load(),
+		"presence_replayed":  m.PresenceReplayed.Load(),
 	}
 }
 
@@ -78,6 +88,9 @@ func (service *Service) ensureConcurrencyInit() {
 		}
 		if service.recoveryMetrics == nil {
 			service.recoveryMetrics = &RecoveryMetrics{}
+		}
+		if service.payments != nil {
+			service.payments.SetRecoveryMetrics(service.recoveryMetrics)
 		}
 	})
 }
