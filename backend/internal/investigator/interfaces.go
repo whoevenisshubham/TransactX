@@ -14,6 +14,8 @@ type RunbookChunk struct {
 	ID, Path, Heading, SHA256, Version, Content string
 	StartLine, EndLine                          int
 	AllowedRoles                                []string
+	SourceSHA256, ImplementationStatus          string
+	Tags                                        []string
 }
 type RunbookRetriever interface {
 	Retrieve(context.Context, TrustedScope, string, []string, int) ([]RunbookChunk, error)

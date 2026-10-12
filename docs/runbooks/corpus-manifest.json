@@ -1,17 +1,101 @@
 {
-  "version": "tx.corpus.c0.v1",
+  "version": "tx.corpus.c1.v1",
   "active": false,
   "documents": [
     {
       "path": "docs/architecture.md",
       "sha256": "f6f6ac186a1532fe445216b19f505b9b3cef08d27ddea05ad883c5e90f22fa87",
       "implementationStatus": "existing",
-      "allowedRoles": [
-        "OPS_ADMIN",
-        "OPS_VIEWER"
+      "allowedRoles": ["OPS_ADMIN", "OPS_VIEWER"],
+      "tags": ["architecture", "payment", "routing", "reconciliation", "integrity"],
+      "sections": [
+        "Current routed-payment status",
+        "Routed protocol",
+        "Deterministic routing",
+        "Release candidate maintained commitment lifecycle",
+        "Release candidate integrity and registration lifecycle"
+      ],
+      "hashEncoding": "UTF-8 with LF line endings"
+    },
+    {
+      "path": "docs/decisions.md",
+      "sha256": "c66771ab4edf7f2d02c009d9295a6ff2d0f19aafecbea73120713db18f7a687e",
+      "implementationStatus": "existing",
+      "allowedRoles": ["OPS_ADMIN", "OPS_VIEWER"],
+      "tags": ["decisions", "payment", "recovery", "routing", "reconciliation", "integrity"],
+      "sections": [
+        "ADR-014: M1-6 Durable Routed Saga",
+        "ADR-015: M1-6 Unknown-Outcome Recovery",
+        "ADR-016: M1-6 Bank Participant Persistence",
+        "ADR-018: Deterministic Route Candidates and Genuine Execution Targets",
+        "ADR-022: M3-7 Runtime Financial Integrity Engine",
+        "ADR-024: Durable reconciliation metrics and operational live updates",
+        "ADR-025: Explicit durable Merkle maintenance",
+        "ADR-026: Canonical projection mirrors participant ledger facts"
+      ],
+      "hashEncoding": "UTF-8 with LF line endings"
+    },
+    {
+      "path": "docs/runbooks/payment-evidence.md",
+      "sha256": "f4af354f42b2fa8a2bfa36a98a8aedec49c9d6788ae8801f1c11f83116213d3e",
+      "implementationStatus": "planned",
+      "allowedRoles": ["OPS_ADMIN", "OPS_VIEWER"],
+      "tags": ["investigation", "evidence", "payment", "authorization", "injection"],
+      "sections": [
+        "Capability status",
+        "Evidence precedence and scope",
+        "Central payment states",
+        "Operation evidence",
+        "Untrusted questions and documents"
+      ],
+      "hashEncoding": "UTF-8 with LF line endings"
+    },
+    {
+      "path": "docs/runbooks/routed-payment-recovery.md",
+      "sha256": "8f81614c00598dd99294548c5cc0f1bf1522e33f9f49a32609c3592e7fecd80b",
+      "implementationStatus": "existing",
+      "allowedRoles": ["OPS_ADMIN", "OPS_VIEWER"],
+      "tags": ["payment", "recovery", "unknown_outcome", "missing_target", "compensation"],
+      "sections": [
+        "Capability status",
+        "Unknown participant outcome",
+        "Operation absent before dispatch",
+        "Bank-settled central-pending",
+        "Missing original execution target",
+        "Compensation boundary"
+      ],
+      "hashEncoding": "UTF-8 with LF line endings"
+    },
+    {
+      "path": "docs/runbooks/reconciliation-integrity-and-traces.md",
+      "sha256": "1f5f7628ab2e7211de77a00f5e249a265b9abbe1b52c1000d0e0e1e3240a4e3e",
+      "implementationStatus": "existing",
+      "allowedRoles": ["OPS_ADMIN", "OPS_VIEWER"],
+      "tags": ["reconciliation", "integrity", "traces", "missing_evidence", "contradiction"],
+      "sections": [
+        "Capability status",
+        "Reconciliation interpretation",
+        "Integrity interpretation",
+        "Trace interpretation",
+        "Conflicting evidence"
+      ],
+      "hashEncoding": "UTF-8 with LF line endings"
+    },
+    {
+      "path": "docs/runbooks/projections-and-anomaly-analytics.md",
+      "sha256": "9bba73c7b69702eec00a56587bae86348ca3c72ecf2570b45c87769beecbcbeb",
+      "implementationStatus": "planned",
+      "allowedRoles": ["OPS_ADMIN", "OPS_VIEWER"],
+      "tags": ["outbox", "projection", "analytics", "baseline", "model", "drift"],
+      "sections": [
+        "Capability status",
+        "Outbox and projection lag",
+        "Operational analytics windows",
+        "Baseline and experimental model",
+        "Drift and limitations"
       ],
       "hashEncoding": "UTF-8 with LF line endings"
     }
   ],
-  "note": "C0 candidate source allowlist only. C1 must review sections and ingest; no runtime retrieval exists."
+  "note": "C1 reviewed allowlist. The committed manifest remains inactive until M2 migration 000027 exists and a staged corpus is validated and atomically activated."
 }
