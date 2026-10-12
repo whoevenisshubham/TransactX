@@ -358,3 +358,17 @@ ledger for COMMITTED state without duplicate transactions, treats terminal state
 and enforces bounded concurrency with a minimum connection pool reserve. In addition, banking
 participant operations can only be safely replayed when authoritative absence is affirmatively
 proven via `OperationPresenceReader`, with the participant rejecting racing originals with 409 Conflict.
+
+## ADR-033: Durable recovery scheduling, leases, and attempts
+
+Status: **IMPLEMENTED**
+
+Introduces durable queue and attempt audit tables via Migration 000022 (`recovery_jobs`,
+`recovery_attempts`, `worker_heartbeats`). Distributed workers claim due jobs in short
+transactions using `FOR UPDATE SKIP LOCKED`, incrementing monotonic lease epochs and creating
+per-lease attempt rows. Completion uses conditional Compare-And-Swap (CAS) requiring an active lease
+and matching epoch, rejecting late results from superseded workers. Running jobs with expired leases
+are reclaimed or swept as INTERRUPTED. Backoff follows exponential progression with injectable jitter,
+and attempt exhaustion caps at 20 attempts before parking safely in `needs_attention` without altering
+monetary records. Stale discovery acts as a bounded safety net and never un-parks attention jobs.
+

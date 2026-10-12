@@ -383,8 +383,9 @@ func TestMigrator_BaselineSuccessOnPopulatedDB(t *testing.T) {
 		t.Fatalf("failed to create migrator: %v", err)
 	}
 
-	// Baseline up to 000021
-	err = migrator.Baseline(context.Background(), "000021")
+	// Baseline up to latest migration file
+	latestVersion := files[len(files)-1].Version
+	err = migrator.Baseline(context.Background(), latestVersion)
 	if err != nil {
 		t.Fatalf("Baseline failed on populated database: %v", err)
 	}
@@ -398,13 +399,13 @@ func TestMigrator_BaselineSuccessOnPopulatedDB(t *testing.T) {
 		t.Fatalf("expected 0 applied after baseline, got %d", applied)
 	}
 
-	// Status should show all 21 applied
+	// Status should show all applied
 	status, err := migrator.Status(context.Background())
 	if err != nil {
 		t.Fatalf("Status failed: %v", err)
 	}
-	if len(status.Applied) != 21 {
-		t.Fatalf("expected 21 applied, got %d", len(status.Applied))
+	if len(status.Applied) != len(files) {
+		t.Fatalf("expected %d applied, got %d", len(files), len(status.Applied))
 	}
 }
 
