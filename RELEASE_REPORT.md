@@ -6,6 +6,7 @@
 - **Target Release Base**: `origin/release/transactx-v2`
 - **Verification Date**: October 12, 2026
 - **Current Status**: **COMPLETE** (Tasks B0 through B13 fully implemented and verified)
+- **Draft Pull Request**: [#24 (Add M2 reliability foundations, transactional outbox, and platform recovery)](https://github.com/whoevenisshubham/TransactX/pull/24)
 - **Zero Paid Token / Cloud Cost**: **CONFIRMED** (100% native execution; ₹0.00 external spend)
 - **Release Ownership Boundary**: M2 code and gate verification are complete. As specified in project rules, M2 does not directly merge into `release/transactx-v2`; M1 owns integration, delivery, and tagging.
 
@@ -149,4 +150,6 @@ The experiment matrix (`backend/internal/experiments/crash_matrix.go`) executed 
 ## 7. Delivery & Release Sign-Off
 All Milestone 2 tasks (B0 through B13) are complete, validated against live PostgreSQL 18.6, and committed to `v2/m2-reliability-platform`.
 
-Branch is clean, tested, and ready for M1 release integration.
+- **Draft Pull Request**: https://github.com/whoevenisshubham/TransactX/pull/24
+- **Branch**: `v2/m2-reliability-platform` (tracking `origin/v2/m2-reliability-platform`)
+Branch is clean, tested, pushed to origin, and ready for M1 release integration.
