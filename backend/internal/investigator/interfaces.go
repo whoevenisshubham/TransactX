@@ -81,11 +81,14 @@ type Job struct {
 	EvidenceAttempts, RetrievalAttempts                                 int
 	UsageReservationID                                                  string
 	ProviderRounds                                                      int
+	ProviderCallPending                                                 bool
 	ProviderRequestIDs                                                  []string
 	ProviderModel                                                       string
 	PromptVersion                                                       string
 	ProviderContinuation                                                []json.RawMessage
+	ProviderPendingToolCalls                                            []ProviderToolCall
 	ProviderToolOutputs                                                 []ProviderToolOutput
+	ProviderPendingReport                                               *InvestigationReport
 	UsageKnown                                                          bool
 	Report                                                              *InvestigationReport
 	Usage                                                               Usage
@@ -100,14 +103,17 @@ type NewJob struct {
 }
 
 // M2 must implement actor-scoped idempotency, lease epochs and transactional
-// reservations. SaveCheckpoint rejects stale lease owners/epochs.
+// reservations. Every mutating method after Claim rejects stale lease
+// owners/epochs. CompleteUsage atomically persists the terminal Job and actual
+// usage. MarkUsageUncertain is idempotent and retains the reserved allowance.
 type InvestigationStore interface {
 	Create(context.Context, NewJob) (Job, bool, error)
 	Claim(context.Context, string, string, time.Duration) (Job, error)
 	SaveCheckpoint(context.Context, Job) error
 	Get(context.Context, TrustedScope, string) (Job, error)
-	ReserveUsage(context.Context, string, int64, int64) (string, error)
-	CompleteUsage(context.Context, string, Usage) error
+	ReserveUsage(context.Context, Job, int64, int64) (string, error)
+	CompleteUsage(context.Context, Job) error
+	MarkUsageUncertain(context.Context, Job) error
 }
 
 // TraceReader is restricted to IDs already present in selected evidence.

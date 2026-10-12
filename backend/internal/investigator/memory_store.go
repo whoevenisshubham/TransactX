@@ -16,29 +16,38 @@ var (
 	ErrJobNotClaimable     = errors.New("investigation job is not claimable")
 	ErrLeaseLost           = errors.New("investigation lease lost")
 	ErrUsageBudget         = errors.New("investigation usage budget unavailable")
+	ErrActorLimitExceeded  = errors.New("actor active investigation limit exceeded")
+	ErrGlobalLimitExceeded = errors.New("global active investigation limit exceeded")
 )
 
 type memoryUsageReservation struct {
 	jobID                         string
 	reservedInput, reservedOutput int64
-	completed                     bool
+	status                        string
 }
+
+const (
+	usageReserved  = "reserved"
+	usageCompleted = "completed"
+	usageUncertain = "uncertain"
+)
 
 // MemoryInvestigationStore is a concurrency-safe test/evaluation store. M2
 // must supply the durable production implementation; runtime composition must
 // never silently fall back to this store.
 type MemoryInvestigationStore struct {
-	mu           sync.Mutex
-	now          func() time.Time
-	jobs         map[string]Job
-	idempotency  map[string]string
-	reservations map[string]memoryUsageReservation
-	inputLimit   int64
-	outputLimit  int64
-	reservedIn   int64
-	reservedOut  int64
-	usedIn       int64
-	usedOut      int64
+	mu              sync.Mutex
+	now             func() time.Time
+	jobs            map[string]Job
+	idempotency     map[string]string
+	reservations    map[string]memoryUsageReservation
+	jobReservations map[string]string
+	inputLimit      int64
+	outputLimit     int64
+	reservedIn      int64
+	reservedOut     int64
+	usedIn          int64
+	usedOut         int64
 }
 
 func NewMemoryInvestigationStore(now func() time.Time) *MemoryInvestigationStore {
@@ -46,10 +55,11 @@ func NewMemoryInvestigationStore(now func() time.Time) *MemoryInvestigationStore
 		now = time.Now
 	}
 	return &MemoryInvestigationStore{
-		now:          now,
-		jobs:         make(map[string]Job),
-		idempotency:  make(map[string]string),
-		reservations: make(map[string]memoryUsageReservation),
+		now:             now,
+		jobs:            make(map[string]Job),
+		idempotency:     make(map[string]string),
+		reservations:    make(map[string]memoryUsageReservation),
+		jobReservations: make(map[string]string),
 	}
 }
 
@@ -77,6 +87,22 @@ func (store *MemoryInvestigationStore) Create(ctx context.Context, request NewJo
 			return Job{}, false, ErrIdempotencyConflict
 		}
 		return cloneJob(existing), false, nil
+	}
+	actorActive, globalActive := 0, 0
+	for _, existing := range store.jobs {
+		if existing.Status != StatusQueued && existing.Status != StatusRunning {
+			continue
+		}
+		globalActive++
+		if existing.ActorID == request.Scope.ActorID {
+			actorActive++
+		}
+	}
+	if actorActive >= 1 {
+		return Job{}, false, ErrActorLimitExceeded
+	}
+	if globalActive >= 2 {
+		return Job{}, false, ErrGlobalLimitExceeded
 	}
 	job := Job{
 		ID:             uuid.NewString(),
@@ -137,6 +163,11 @@ func (store *MemoryInvestigationStore) SaveCheckpoint(ctx context.Context, job J
 	if current.ActorID != job.ActorID || current.Role != job.Role || current.PaymentID != job.PaymentID || current.Question != job.Question || current.RequestHash != job.RequestHash {
 		return ErrScopeViolation
 	}
+	if current.UsageReservationID != job.UsageReservationID {
+		if current.UsageReservationID != "" || job.UsageReservationID == "" || store.jobReservations[job.ID] != job.UsageReservationID {
+			return ErrScopeViolation
+		}
+	}
 	if job.Status != "running" && job.Status != "completed" && job.Status != "failed" && job.Status != "cancelled" {
 		return errors.New("invalid investigation job status")
 	}
@@ -163,7 +194,7 @@ func (store *MemoryInvestigationStore) Get(ctx context.Context, scope TrustedSco
 	return cloneJob(job), nil
 }
 
-func (store *MemoryInvestigationStore) ReserveUsage(ctx context.Context, jobID string, input, output int64) (string, error) {
+func (store *MemoryInvestigationStore) ReserveUsage(ctx context.Context, job Job, input, output int64) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -172,35 +203,60 @@ func (store *MemoryInvestigationStore) ReserveUsage(ctx context.Context, jobID s
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if _, exists := store.jobs[jobID]; !exists {
+	current, exists := store.jobs[job.ID]
+	if !exists {
 		return "", ErrJobNotFound
+	}
+	if err := validateUsageLease(current, job); err != nil {
+		return "", err
+	}
+	if existingID := store.jobReservations[job.ID]; existingID != "" {
+		existing := store.reservations[existingID]
+		if existing.reservedInput == input && existing.reservedOutput == output && existing.status == usageReserved {
+			return existingID, nil
+		}
+		return "", ErrUsageBudget
 	}
 	if store.inputLimit == 0 || store.outputLimit == 0 || store.usedIn+store.reservedIn+input > store.inputLimit || store.usedOut+store.reservedOut+output > store.outputLimit {
 		return "", ErrUsageBudget
 	}
 	id := uuid.NewString()
-	store.reservations[id] = memoryUsageReservation{jobID: jobID, reservedInput: input, reservedOutput: output}
+	store.reservations[id] = memoryUsageReservation{jobID: job.ID, reservedInput: input, reservedOutput: output, status: usageReserved}
+	store.jobReservations[job.ID] = id
 	store.reservedIn += input
 	store.reservedOut += output
 	return id, nil
 }
 
-func (store *MemoryInvestigationStore) CompleteUsage(ctx context.Context, reservationID string, usage Usage) error {
+func (store *MemoryInvestigationStore) CompleteUsage(ctx context.Context, job Job) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	reservation, exists := store.reservations[reservationID]
-	if !exists || reservation.completed {
+	current, exists := store.jobs[job.ID]
+	if !exists {
+		return ErrJobNotFound
+	}
+	if reservation, exists := store.reservations[job.UsageReservationID]; exists && reservation.status == usageCompleted {
+		if reservation.jobID != job.ID || current.Status != StatusCompleted || current.UsageReservationID != job.UsageReservationID || current.ActorID != job.ActorID || current.Role != job.Role || current.PaymentID != job.PaymentID || current.RequestHash != job.RequestHash {
+			return ErrUsageBudget
+		}
+		return nil
+	}
+	if err := validateUsageLease(current, job); err != nil {
+		return err
+	}
+	reservation, exists := store.reservations[job.UsageReservationID]
+	if !exists || reservation.jobID != job.ID || reservation.status != usageReserved || job.Status != StatusCompleted || job.Report == nil {
 		return ErrUsageBudget
 	}
 	actualInput, actualOutput := reservation.reservedInput, reservation.reservedOutput
-	if usage.InputTokens != nil {
-		actualInput = *usage.InputTokens
+	if job.Usage.InputTokens != nil {
+		actualInput = *job.Usage.InputTokens
 	}
-	if usage.OutputTokens != nil {
-		actualOutput = *usage.OutputTokens
+	if job.Usage.OutputTokens != nil {
+		actualOutput = *job.Usage.OutputTokens
 	}
 	if actualInput < 0 || actualOutput < 0 || actualInput > reservation.reservedInput || actualOutput > reservation.reservedOutput {
 		return ErrUsageBudget
@@ -209,8 +265,44 @@ func (store *MemoryInvestigationStore) CompleteUsage(ctx context.Context, reserv
 	store.reservedOut -= reservation.reservedOutput
 	store.usedIn += actualInput
 	store.usedOut += actualOutput
-	reservation.completed = true
-	store.reservations[reservationID] = reservation
+	reservation.status = usageCompleted
+	store.reservations[job.UsageReservationID] = reservation
+	store.jobs[job.ID] = cloneJob(job)
+	return nil
+}
+
+func (store *MemoryInvestigationStore) MarkUsageUncertain(ctx context.Context, job Job) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	current, exists := store.jobs[job.ID]
+	if !exists {
+		return ErrJobNotFound
+	}
+	if err := validateUsageLease(current, job); err != nil {
+		return err
+	}
+	reservation, exists := store.reservations[job.UsageReservationID]
+	if !exists || reservation.jobID != job.ID || reservation.status == usageCompleted {
+		return ErrUsageBudget
+	}
+	if reservation.status == usageUncertain {
+		return nil
+	}
+	reservation.status = usageUncertain
+	store.reservations[job.UsageReservationID] = reservation
+	return nil
+}
+
+func validateUsageLease(current, supplied Job) error {
+	if current.LeaseOwner == "" || current.LeaseOwner != supplied.LeaseOwner || current.LeaseEpoch != supplied.LeaseEpoch || current.Status != StatusRunning {
+		return ErrLeaseLost
+	}
+	if current.ActorID != supplied.ActorID || current.Role != supplied.Role || current.PaymentID != supplied.PaymentID || current.RequestHash != supplied.RequestHash {
+		return ErrScopeViolation
+	}
 	return nil
 }
 

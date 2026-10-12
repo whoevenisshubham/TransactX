@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -160,6 +161,20 @@ func (provider *functionalProvider) Generate(_ context.Context, request Generati
 	return provider.fn(call, request)
 }
 
+type firstBlockingTraceReader struct {
+	calls   atomic.Int32
+	started chan struct{}
+	release chan struct{}
+}
+
+func (reader *firstBlockingTraceReader) ReadTrace(_ context.Context, _ TrustedScope, traceID string) (Trace, error) {
+	if reader.calls.Add(1) == 1 {
+		close(reader.started)
+		<-reader.release
+	}
+	return Trace{TraceId: traceID, SourceStatus: "available"}, nil
+}
+
 func int64Pointer(value int64) *int64 { return &value }
 
 func generatedReport(t *testing.T, request GenerationRequest) InvestigationReport {
@@ -258,6 +273,130 @@ func TestGeneratedServiceGroundsAndRendersProviderReport(t *testing.T) {
 	}
 }
 
+func TestGeneratedServiceRetainsBudgetWhenProviderUsageIsUncertain(t *testing.T) {
+	fixture := loadFixture(t, "healthy.json")
+	clock := &testClock{now: time.Now().UTC()}
+	store := NewMemoryInvestigationStore(clock.Now)
+	store.SetUsageLimits(200, 200)
+	provider := &functionalProvider{fn: func(_ int32, _ GenerationRequest) (GenerationResult, error) {
+		return GenerationResult{}, context.DeadlineExceeded
+	}}
+	service := newGeneratedService(t, clock, fixture, provider, store, ToolDependencies{})
+	scope := TrustedScope{ActorID: "operator", Role: "OPS_VIEWER", SelectedPaymentID: fixture.TrustedPaymentId}
+	job, _, err := service.Start(context.Background(), scope, fixture.TrustedPaymentId, "What is the state?", "uncertain-timeout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err := service.Run(context.Background(), job.ID, "worker-a")
+	if !errors.Is(err, context.DeadlineExceeded) || failed.Status != StatusFailed || failed.ErrorCode != "provider_timeout" || provider.calls.Load() != 1 {
+		t.Fatalf("provider timeout = %+v, calls=%d, err=%v", failed, provider.calls.Load(), err)
+	}
+
+	second, _, err := service.Start(context.Background(), scope, fixture.TrustedPaymentId, "Try again", "uncertain-timeout-retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgetFailure, err := service.Run(context.Background(), second.ID, "worker-b")
+	if !errors.Is(err, ErrUsageBudget) || budgetFailure.ErrorCode != "budget_exhausted" || provider.calls.Load() != 1 {
+		t.Fatalf("uncertain budget was reused: %+v, calls=%d, err=%v", budgetFailure, provider.calls.Load(), err)
+	}
+}
+
+func TestGeneratedServiceDoesNotRetryCheckpointedInFlightCall(t *testing.T) {
+	fixture := loadFixture(t, "healthy.json")
+	clock := &testClock{now: time.Now().UTC()}
+	store := NewMemoryInvestigationStore(clock.Now)
+	store.SetUsageLimits(200, 200)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	provider := &functionalProvider{fn: func(_ int32, _ GenerationRequest) (GenerationResult, error) {
+		close(started)
+		<-release
+		return GenerationResult{}, ErrProviderUnavailable
+	}}
+	service := newGeneratedService(t, clock, fixture, provider, store, ToolDependencies{})
+	scope := TrustedScope{ActorID: "operator", Role: "OPS_VIEWER", SelectedPaymentID: fixture.TrustedPaymentId}
+	job, _, err := service.Start(context.Background(), scope, fixture.TrustedPaymentId, "What is the state?", "in-flight-crash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type runResult struct {
+		job Job
+		err error
+	}
+	firstResult := make(chan runResult, 1)
+	go func() {
+		result, runErr := service.Run(context.Background(), job.ID, "worker-a")
+		firstResult <- runResult{job: result, err: runErr}
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("provider call did not start")
+	}
+	persisted, err := store.Get(context.Background(), scope, job.ID)
+	if err != nil || !persisted.ProviderCallPending || persisted.ProviderRounds != 1 {
+		t.Fatalf("in-flight checkpoint = %+v, err=%v", persisted, err)
+	}
+	clock.Advance(service.config.LeaseDuration + time.Second)
+	resumed, err := service.Run(context.Background(), job.ID, "worker-b")
+	if !errors.Is(err, ErrProviderUsageUncertain) || resumed.Status != StatusFailed || resumed.ErrorCode != "provider_usage_uncertain" || provider.calls.Load() != 1 {
+		t.Fatalf("resumed in-flight call = %+v, calls=%d, err=%v", resumed, provider.calls.Load(), err)
+	}
+	close(release)
+	select {
+	case stale := <-firstResult:
+		if !errors.Is(stale.err, ErrLeaseLost) {
+			t.Fatalf("stale worker result = %+v, err=%v", stale.job, stale.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stale worker did not exit")
+	}
+}
+
+func TestGeneratedServiceCompletesCheckpointedProviderReportWithoutRetry(t *testing.T) {
+	fixture := loadFixture(t, "healthy.json")
+	clock := &testClock{now: time.Now().UTC()}
+	store := NewMemoryInvestigationStore(clock.Now)
+	store.SetUsageLimits(200, 200)
+	provider := &functionalProvider{fn: func(_ int32, _ GenerationRequest) (GenerationResult, error) {
+		return GenerationResult{}, errors.New("provider must not be called")
+	}}
+	service := newGeneratedService(t, clock, fixture, provider, store, ToolDependencies{})
+	scope := TrustedScope{ActorID: "operator", Role: "OPS_VIEWER", SelectedPaymentID: fixture.TrustedPaymentId}
+	queued, _, err := service.Start(context.Background(), scope, fixture.TrustedPaymentId, "What is the state?", "pending-report-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := store.Claim(context.Background(), queued.ID, "worker-a", service.config.LeaseDuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservationID, err := store.ReserveUsage(context.Background(), job, 200, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := GenerationRequest{Question: job.Question, Evidence: fixture.Evidence, PromptVersion: InvestigatorPromptVersion}
+	report := generatedReport(t, request)
+	job.Snapshot = &fixture.Evidence
+	job.RetrievalComplete = true
+	job.UsageReservationID = reservationID
+	job.PromptVersion = InvestigatorPromptVersion
+	job.ProviderRounds = 1
+	job.ProviderRequestIDs = []string{"resp-checkpointed"}
+	job.ProviderPendingReport = &report
+	job.Usage = Usage{InputTokens: int64Pointer(10), OutputTokens: int64Pointer(5)}
+	job.UsageKnown = true
+	if err := store.SaveCheckpoint(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(service.config.LeaseDuration + time.Second)
+	completed, err := service.Run(context.Background(), job.ID, "worker-b")
+	if err != nil || completed.Status != StatusCompleted || completed.Report == nil || completed.ProviderPendingReport != nil || provider.calls.Load() != 0 {
+		t.Fatalf("checkpointed report resume = %+v, calls=%d, err=%v", completed, provider.calls.Load(), err)
+	}
+}
+
 func TestGeneratedServiceRejectsWrongMeaningAndProviderScopeInjection(t *testing.T) {
 	fixture := loadFixture(t, "healthy.json")
 	clock := &testClock{now: time.Now().UTC()}
@@ -332,13 +471,77 @@ func TestGeneratedServiceExecutesBoundedToolRound(t *testing.T) {
 	}
 }
 
+func TestGeneratedServiceResumesCheckpointedToolCallWithoutAnotherProviderRequest(t *testing.T) {
+	fixture := loadFixture(t, "healthy.json")
+	traceID := "0123456789abcdef0123456789abcdef"
+	fixture.Evidence.Traces.TraceIds = []string{traceID}
+	fixture.Evidence.Traces.SourceStatus = "available"
+	clock := &testClock{now: time.Now().UTC()}
+	store := NewMemoryInvestigationStore(clock.Now)
+	store.SetUsageLimits(200, 200)
+	trace := &firstBlockingTraceReader{started: make(chan struct{}), release: make(chan struct{})}
+	provider := &functionalProvider{fn: func(call int32, request GenerationRequest) (GenerationResult, error) {
+		if call == 1 {
+			return GenerationResult{
+				ProviderRequestID: "resp-tool-before-crash", ProviderModel: "fixture-model",
+				ToolCalls:    []ProviderToolCall{{CallID: "call-trace-resume", Name: ToolReadTraceContext, Arguments: json.RawMessage(`{"traceId":"` + traceID + `"}`)}},
+				Continuation: []json.RawMessage{json.RawMessage(`{"type":"function_call","call_id":"call-trace-resume","name":"read_trace_context","arguments":"{\"traceId\":\"` + traceID + `\"}"}`)},
+				Usage:        Usage{InputTokens: int64Pointer(10), OutputTokens: int64Pointer(5)},
+			}, nil
+		}
+		if call != 2 || len(request.ToolOutputs) != 1 || request.ToolOutputs[0].CallID != "call-trace-resume" {
+			t.Fatalf("resumed request = call %d, %+v", call, request)
+		}
+		report := generatedReport(t, request)
+		return GenerationResult{Report: &report, ProviderRequestID: "resp-after-tool-resume", ProviderModel: "fixture-model", Usage: Usage{InputTokens: int64Pointer(8), OutputTokens: int64Pointer(4)}}, nil
+	}}
+	service := newGeneratedService(t, clock, fixture, provider, store, ToolDependencies{Trace: trace})
+	scope := TrustedScope{ActorID: "operator", Role: "OPS_ADMIN", SelectedPaymentID: fixture.TrustedPaymentId}
+	job, _, err := service.Start(context.Background(), scope, fixture.TrustedPaymentId, "What does the trace show?", "tool-crash-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type runResult struct {
+		job Job
+		err error
+	}
+	firstResult := make(chan runResult, 1)
+	go func() {
+		result, runErr := service.Run(context.Background(), job.ID, "worker-a")
+		firstResult <- runResult{job: result, err: runErr}
+	}()
+	select {
+	case <-trace.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("checkpointed tool call did not start")
+	}
+	persisted, err := store.Get(context.Background(), scope, job.ID)
+	if err != nil || len(persisted.ProviderPendingToolCalls) != 1 || len(persisted.ProviderToolOutputs) != 0 || provider.calls.Load() != 1 {
+		t.Fatalf("pending tool checkpoint = %+v, calls=%d, err=%v", persisted, provider.calls.Load(), err)
+	}
+	clock.Advance(service.config.LeaseDuration + time.Second)
+	completed, err := service.Run(context.Background(), job.ID, "worker-b")
+	if err != nil || completed.Status != StatusCompleted || provider.calls.Load() != 2 || trace.calls.Load() != 2 || len(completed.ProviderPendingToolCalls) != 0 || len(completed.ProviderToolOutputs) != 1 {
+		t.Fatalf("resumed tool result = %+v, provider calls=%d, tool calls=%d, err=%v", completed, provider.calls.Load(), trace.calls.Load(), err)
+	}
+	close(trace.release)
+	select {
+	case stale := <-firstResult:
+		if !errors.Is(stale.err, ErrLeaseLost) {
+			t.Fatalf("stale tool worker result = %+v, err=%v", stale.job, stale.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stale tool worker did not exit")
+	}
+}
+
 func TestMemoryUsageReservationsPreventParallelOverspend(t *testing.T) {
 	clock := &testClock{now: time.Now().UTC()}
 	store := NewMemoryInvestigationStore(clock.Now)
 	store.SetUsageLimits(100, 100)
-	scope := TrustedScope{ActorID: "operator", Role: "OPS_ADMIN", SelectedPaymentID: "payment"}
 	jobs := make([]Job, 2)
 	for index := range jobs {
+		scope := TrustedScope{ActorID: fmt.Sprintf("operator-%d", index), Role: "OPS_ADMIN", SelectedPaymentID: "payment"}
 		job, _, err := store.Create(context.Background(), NewJob{
 			Scope: scope, PaymentID: scope.SelectedPaymentID, Question: "q", IdempotencyKey: string(rune('a' + index)),
 			RequestHash: strings.Repeat(string(rune('a'+index)), 64), Mode: ModeLLM, CreatedAt: clock.Now(), DeadlineAt: clock.Now().Add(time.Minute),
@@ -346,20 +549,24 @@ func TestMemoryUsageReservationsPreventParallelOverspend(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		jobs[index] = job
+		claimed, err := store.Claim(context.Background(), job.ID, fmt.Sprintf("worker-%d", index), time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		jobs[index] = claimed
 	}
 	var successes atomic.Int32
 	var wait sync.WaitGroup
 	for _, job := range jobs {
 		wait.Add(1)
-		go func(jobID string) {
+		go func(job Job) {
 			defer wait.Done()
-			if _, err := store.ReserveUsage(context.Background(), jobID, 80, 80); err == nil {
+			if _, err := store.ReserveUsage(context.Background(), job, 80, 80); err == nil {
 				successes.Add(1)
 			} else if !errors.Is(err, ErrUsageBudget) {
 				t.Errorf("reservation error = %v", err)
 			}
-		}(job.ID)
+		}(job)
 	}
 	wait.Wait()
 	if successes.Load() != 1 {
