@@ -119,7 +119,7 @@ func (service *Service) executeProviderTools(ctx context.Context, job *Job, call
 			_ = service.saveDetached(*job)
 			return err
 		}
-		entry.Status = "succeeded"
+		entry.Status = "completed"
 		entry.EvidenceIds = append([]string(nil), result.EvidenceIds...)
 		job.ToolTimeline = append(job.ToolTimeline, entry)
 		job.SourceHashes = append(job.SourceHashes, SourceHash{ToolName: call.Name, SHA256: result.SourceHash})

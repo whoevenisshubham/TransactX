@@ -234,7 +234,7 @@ func (service *Service) executeCoreTool(ctx context.Context, job Job, call ToolC
 		entry.Status = timelineStatus(err)
 		return ToolResult{}, entry, err
 	}
-	entry.Status = "succeeded"
+	entry.Status = "completed"
 	entry.EvidenceIds = append([]string(nil), result.EvidenceIds...)
 	return result, entry, nil
 }
@@ -273,13 +273,10 @@ func (service *Service) saveDetached(job Job) error {
 }
 
 func timelineStatus(err error) string {
-	if errors.Is(err, context.Canceled) {
-		return "cancelled"
+	if errors.Is(err, ErrUnknownTool) || errors.Is(err, ErrInvalidToolArguments) || errors.Is(err, ErrToolBudgetExceeded) || errors.Is(err, ErrDuplicateToolCall) || errors.Is(err, ErrScopeViolation) {
+		return "rejected"
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "deadline_exceeded"
-	}
-	return "error"
+	return "failed"
 }
 
 func validateInvestigationRequest(scope TrustedScope, paymentID, question, idempotencyKey string) error {

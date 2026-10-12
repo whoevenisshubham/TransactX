@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -156,6 +157,11 @@ func TestEvidenceOnlyServiceCompletesIdempotently(t *testing.T) {
 	if len(completed.SourceHashes) != 2 || len(completed.ToolTimeline) != 2 {
 		t.Fatalf("checkpoint evidence missing: hashes=%v timeline=%v", completed.SourceHashes, completed.ToolTimeline)
 	}
+	for _, entry := range completed.ToolTimeline {
+		if entry.Status != "completed" {
+			t.Fatalf("successful timeline status = %q, want completed", entry.Status)
+		}
+	}
 	public := PublicInvestigation(completed)
 	if public.Report == nil || public.Error != nil || public.CompletedAt == nil || public.ToolTimeline == nil {
 		t.Fatalf("public response = %+v", public)
@@ -174,6 +180,79 @@ func TestEvidenceOnlyServiceCompletesIdempotently(t *testing.T) {
 	foreignPayment.SelectedPaymentID = "99999999-9999-4999-8999-999999999999"
 	if _, _, err := service.Start(context.Background(), foreignPayment, fixture.TrustedPaymentId, "question", "foreign"); !errors.Is(err, ErrScopeViolation) {
 		t.Fatalf("foreign payment start = %v", err)
+	}
+}
+
+func TestPublicInvestigationMatchesSharedContractShape(t *testing.T) {
+	input, output := int64(10), int64(5)
+	completedAt := time.Date(2026, 10, 12, 1, 2, 3, 0, time.UTC)
+	job := Job{
+		ID: "00000000-0000-4000-8000-000000000001", Status: StatusFailed, Mode: ModeLLM,
+		ErrorCode: "provider_rate_limited", CreatedAt: completedAt.Add(-time.Second), CompletedAt: completedAt,
+		ProviderModel: "fixture-model", PromptVersion: InvestigatorPromptVersion,
+		Usage: Usage{InputTokens: &input, OutputTokens: &output}, ToolTimeline: []ToolTimelineEntry{},
+	}
+	response := PublicInvestigation(job)
+	if response.Error == nil || response.Error.Message == "" || response.Usage.Model == nil || *response.Usage.Model != "fixture-model" || response.Usage.PromptVersion != InvestigatorPromptVersion {
+		t.Fatalf("public response omitted shared-contract metadata: %+v", response)
+	}
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shape map[string]any
+	if err := json.Unmarshal(raw, &shape); err != nil {
+		t.Fatal(err)
+	}
+	usage := shape["usage"].(map[string]any)
+	problem := shape["error"].(map[string]any)
+	if len(usage) != 4 || len(problem) != 2 {
+		t.Fatalf("public usage/error keys = %v/%v", usage, problem)
+	}
+}
+
+func TestReportsStayWithinSharedContractBounds(t *testing.T) {
+	fixture := loadFixture(t, "healthy.json")
+	operation := fixture.Evidence.Operations[0]
+	fixture.Evidence.Operations = nil
+	for index := 0; index < 20; index++ {
+		copy := operation
+		copy.OperationId = fmt.Sprintf("%08d-2222-4222-8222-222222222222", index)
+		copy.EvidenceId = "operation:" + copy.OperationId
+		fixture.Evidence.Operations = append(fixture.Evidence.Operations, copy)
+	}
+	report, err := BuildEvidenceOnlyReport(fixture.Evidence, nil, "Summarize participant operations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Facts) != 9 {
+		t.Fatalf("grouped fact count = %d, want 9", len(report.Facts))
+	}
+	for _, fact := range report.Facts {
+		if len(fact.EvidenceIds) > 10 || len(fact.Assertions) > 10 {
+			t.Fatalf("fact exceeds shared contract: %+v", fact)
+		}
+	}
+
+	partial := loadFixture(t, "partial_evidence.json").Evidence
+	partial.Operations = nil
+	missingOperation := loadFixture(t, "partial_evidence.json").Evidence.Operations[0]
+	for index := 0; index < 20; index++ {
+		copy := missingOperation
+		copy.OperationId = fmt.Sprintf("%08d-2222-4222-8222-222222222222", index)
+		copy.EvidenceId = "operation:" + copy.OperationId
+		partial.Operations = append(partial.Operations, copy)
+	}
+	partial.Sources = []Source{{Name: "central", Status: "available"}}
+	for index := 1; index < 20; index++ {
+		partial.Sources = append(partial.Sources, Source{Name: fmt.Sprintf("participant-%02d", index), Status: "unavailable"})
+	}
+	report, err = BuildEvidenceOnlyReport(partial, nil, "Explain trace reconciliation and integrity evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.MissingEvidence) != 20 || !strings.HasPrefix(report.MissingEvidence[19], "additional_missing_evidence_omitted:") {
+		t.Fatalf("bounded missing evidence = %v", report.MissingEvidence)
 	}
 }
 
@@ -300,7 +379,7 @@ func TestServiceMarksCentralSourceFailureWithoutPublishingReport(t *testing.T) {
 		t.Fatalf("source failure = %+v, err=%v", failed, err)
 	}
 	persisted, getErr := store.Get(context.Background(), scope, job.ID)
-	if getErr != nil || persisted.Report != nil || len(persisted.ToolTimeline) != 1 || persisted.ToolTimeline[0].Status != "error" {
+	if getErr != nil || persisted.Report != nil || len(persisted.ToolTimeline) != 1 || persisted.ToolTimeline[0].Status != "failed" {
 		t.Fatalf("persisted source failure = %+v, err=%v", persisted, getErr)
 	}
 }

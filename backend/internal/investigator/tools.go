@@ -341,6 +341,9 @@ func validateEvidenceBundle(scope TrustedScope, requestedPaymentID string, bundl
 	if bundle.SnapshotId == "" || bundle.Payment.EvidenceId == "" || bundle.CollectedAt == "" {
 		return errors.New("invalid evidence identity")
 	}
+	if len(bundle.Operations) > 20 || len(bundle.Transitions) > 200 || len(bundle.Reconciliation.RunIds) > 20 || len(bundle.Traces.TraceIds) > 20 || len(bundle.Sources) > 20 || len(bundle.Warnings) > 20 {
+		return errors.New("evidence bundle exceeds shared contract bounds")
+	}
 	if _, err := time.Parse(time.RFC3339Nano, bundle.CollectedAt); err != nil {
 		return errors.New("invalid evidence collection time")
 	}

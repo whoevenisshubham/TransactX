@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 func BuildEvidenceOnlyReport(evidence EvidenceBundle, chunks []RunbookChunk, question string) (InvestigationReport, error) {
@@ -38,19 +39,33 @@ func BuildEvidenceOnlyReport(evidence EvidenceBundle, chunks []RunbookChunk, que
 		},
 	}
 
+	availableOperations := make([]Operation, 0, len(evidence.Operations))
 	for _, operation := range evidence.Operations {
 		if operation.SourceStatus != "available" || operation.ParticipantStatus == nil {
 			continue
 		}
-		operationID := operation.OperationId
+		availableOperations = append(availableOperations, operation)
+	}
+	for start := 0; start < len(availableOperations); start += 3 {
+		end := start + 3
+		if end > len(availableOperations) {
+			end = len(availableOperations)
+		}
+		fact := Fact{EvidenceIds: []string{}, Assertions: []Assertion{}}
+		statements := make([]string, 0, end-start)
+		for _, operation := range availableOperations[start:end] {
+			operationID := operation.OperationId
+			fact.EvidenceIds = append(fact.EvidenceIds, operation.EvidenceId)
+			fact.Assertions = append(fact.Assertions,
+				Assertion{Field: "operation_id", Value: operation.OperationId, EntityId: &operationID, EvidenceId: operation.EvidenceId},
+				Assertion{Field: "participant_status", Value: *operation.ParticipantStatus, EntityId: &operationID, EvidenceId: operation.EvidenceId},
+				Assertion{Field: "bank_code", Value: operation.BankCode, EntityId: &operationID, EvidenceId: operation.EvidenceId},
+			)
+			statements = append(statements, fmt.Sprintf("Participant %s reports operation %s as %s.", operation.BankCode, operation.OperationType, *operation.ParticipantStatus))
+		}
+		fact.Text = strings.Join(statements, " ")
 		report.Facts = append(report.Facts, Fact{
-			Text:        fmt.Sprintf("Participant %s reports operation %s as %s.", operation.BankCode, operation.OperationType, *operation.ParticipantStatus),
-			EvidenceIds: []string{operation.EvidenceId},
-			Assertions: []Assertion{
-				{Field: "operation_id", Value: operation.OperationId, EntityId: &operationID, EvidenceId: operation.EvidenceId},
-				{Field: "participant_status", Value: *operation.ParticipantStatus, EntityId: &operationID, EvidenceId: operation.EvidenceId},
-				{Field: "bank_code", Value: operation.BankCode, EntityId: &operationID, EvidenceId: operation.EvidenceId},
-			},
+			Text: fact.Text, EvidenceIds: fact.EvidenceIds, Assertions: fact.Assertions,
 		})
 	}
 
@@ -124,6 +139,10 @@ func missingEvidenceForQuestion(evidence EvidenceBundle, question string) ([]str
 		result = append(result, value)
 	}
 	sort.Strings(result)
+	if len(result) > 20 {
+		omitted := len(result) - 19
+		result = append(result[:19], fmt.Sprintf("additional_missing_evidence_omitted:%d", omitted))
+	}
 	coverage := "complete_for_question"
 	if len(result) > 0 {
 		coverage = "limited"
@@ -137,6 +156,9 @@ func missingEvidenceForQuestion(evidence EvidenceBundle, question string) ([]str
 func ValidateReportGrounding(report InvestigationReport, evidence EvidenceBundle, chunks []RunbookChunk) error {
 	if report.SchemaVersion != "tx.investigation.v1" || (report.Mode != ModeEvidenceOnly && report.Mode != ModeLLM) || report.SnapshotId != evidence.SnapshotId || report.CollectedAt != evidence.CollectedAt {
 		return errors.New("report envelope does not match evidence snapshot")
+	}
+	if utf8.RuneCountInString(report.Summary) > 1000 || len(report.Facts) > 20 || len(report.Inferences) > 10 || len(report.Recommendations) > 10 || len(report.MissingEvidence) > 20 {
+		return errors.New("report exceeds shared contract bounds")
 	}
 	evidenceRegistry := make(map[string]map[string]string)
 	evidenceRegistry[evidence.Payment.EvidenceId] = map[string]string{
@@ -153,7 +175,7 @@ func ValidateReportGrounding(report InvestigationReport, evidence EvidenceBundle
 		entityRegistry[operation.EvidenceId] = operation.OperationId
 	}
 	for _, fact := range report.Facts {
-		if len(fact.EvidenceIds) == 0 || len(fact.Assertions) == 0 {
+		if utf8.RuneCountInString(fact.Text) > 1000 || len(fact.EvidenceIds) == 0 || len(fact.EvidenceIds) > 10 || len(fact.Assertions) == 0 || len(fact.Assertions) > 10 {
 			return errors.New("published fact lacks typed citations")
 		}
 		for _, evidenceID := range fact.EvidenceIds {
@@ -172,7 +194,7 @@ func ValidateReportGrounding(report InvestigationReport, evidence EvidenceBundle
 		}
 	}
 	for _, inference := range report.Inferences {
-		if strings.TrimSpace(inference.Text) == "" || len(inference.EvidenceIds) == 0 {
+		if strings.TrimSpace(inference.Text) == "" || utf8.RuneCountInString(inference.Text) > 1000 || len(inference.EvidenceIds) == 0 || len(inference.EvidenceIds) > 10 {
 			return errors.New("inference lacks text or evidence citations")
 		}
 		for _, evidenceID := range inference.EvidenceIds {
@@ -186,13 +208,18 @@ func ValidateReportGrounding(report InvestigationReport, evidence EvidenceBundle
 		chunkRegistry[chunk.ID] = struct{}{}
 	}
 	for _, recommendation := range report.Recommendations {
-		if len(recommendation.RunbookChunkIds) == 0 {
+		if utf8.RuneCountInString(recommendation.Text) > 1000 || len(recommendation.RunbookChunkIds) == 0 || len(recommendation.RunbookChunkIds) > 5 {
 			return errors.New("recommendation lacks a runbook citation")
 		}
 		for _, chunkID := range recommendation.RunbookChunkIds {
 			if _, exists := chunkRegistry[chunkID]; !exists {
 				return fmt.Errorf("recommendation cites unknown runbook chunk %q", chunkID)
 			}
+		}
+	}
+	for _, missing := range report.MissingEvidence {
+		if utf8.RuneCountInString(missing) > 1000 {
+			return errors.New("missing-evidence entry exceeds shared contract bounds")
 		}
 	}
 	switch report.EvidenceCoverage {
@@ -208,7 +235,7 @@ func ValidateReportGrounding(report InvestigationReport, evidence EvidenceBundle
 // renderings. Free-form provider text can remain only in explicitly labelled
 // inferences backed by known evidence IDs.
 func GroundGeneratedReport(report InvestigationReport, evidence EvidenceBundle, chunks []RunbookChunk, question string) (InvestigationReport, error) {
-	if report.Mode != ModeLLM || len(report.Facts) > 50 || len(report.Inferences) > 20 || len(report.Recommendations) > 10 {
+	if report.Mode != ModeLLM || len(report.Facts) > 20 || len(report.Inferences) > 10 || len(report.Recommendations) > 10 || len(report.MissingEvidence) > 20 {
 		return InvestigationReport{}, errors.New("generated report exceeds structural bounds")
 	}
 	if err := ValidateReportGrounding(report, evidence, chunks); err != nil {

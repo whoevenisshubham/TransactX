@@ -1,5 +1,5 @@
-"""Validate C0 fixtures against the unchanged shared schema and canonical hashes."""
-import hashlib,json
+"""Validate C0 evidence and C4 UI fixtures against the unchanged shared schema."""
+import hashlib,json,os
 from pathlib import Path
 from jsonschema import Draft202012Validator,FormatChecker
 ROOT=Path(__file__).resolve().parents[1]
@@ -23,5 +23,14 @@ def check():
    elif isinstance(x,list):
     for v in x:scan(v)
   scan(c['evidence'])
- print(f"C0: {len(manifest['cases'])} immutable schema/identity fixtures valid")
+ evaluation_path=Path(os.environ.get('TRANSACTX_EVALUATION_PATH',ROOT/'backend/internal/investigator/evaluation/results.json'))
+ evaluation=json.loads(evaluation_path.read_text())
+ investigation_validator=Draft202012Validator({'$ref':'#/$defs/Investigation','$defs':schema['$defs']},format_checker=FormatChecker())
+ for name,fixture in evaluation['uiFixtures'].items():
+  investigation_validator.validate(fixture)
+  scan(fixture)
+ assert evaluation['metrics']['providerCalls']==0
+ assert evaluation['metrics']['paidCostUsd']=='0.00'
+ assert evaluation['liveProvider']['status']=='pending'
+ print(f"C0/C4: {len(manifest['cases'])} immutable evidence fixtures and {len(evaluation['uiFixtures'])} investigation UI fixtures valid")
 if __name__=='__main__':check()

@@ -427,14 +427,26 @@ func evaluationUIFixtures(reports map[string]InvestigationReport, evaluatedAt st
 	completed := reports["healthy.json"]
 	partial := reports["partial_evidence.json"]
 	completedAt := evaluatedAt
+	inputTokens, outputTokens := int64(10), int64(5)
+	fixtureModel := "fixture-model-not-live"
+	timeline := []ToolTimelineEntry{{
+		ToolName:  ToolReadPaymentEvidence,
+		Arguments: json.RawMessage(`{"paymentId":"11111111-1111-4111-8111-111111111111"}`),
+		StartedAt: evaluatedAt, FinishedAt: evaluatedAt, Status: "completed",
+		EvidenceIds: []string{"payment:11111111-1111-4111-8111-111111111111"},
+	}}
 	llm := completed
 	llm.Mode = ModeLLM
 	llm.Inferences = []Inference{{Text: "Advisory inference: Fixture-only provider inference for UI rendering.", EvidenceIds: []string{completed.Facts[0].EvidenceIds[0]}}}
 	return map[string]InvestigationResponse{
-		"completedEvidenceOnly":   {Id: "00000000-0000-4000-8000-000000000001", Status: StatusCompleted, Mode: ModeEvidenceOnly, Report: &completed, ToolTimeline: []ToolTimelineEntry{}, CreatedAt: evaluatedAt, CompletedAt: &completedAt},
-		"partialEvidenceOnly":     {Id: "00000000-0000-4000-8000-000000000002", Status: StatusCompleted, Mode: ModeEvidenceOnly, Report: &partial, ToolTimeline: []ToolTimelineEntry{}, CreatedAt: evaluatedAt, CompletedAt: &completedAt},
-		"providerFailedFallback":  {Id: "00000000-0000-4000-8000-000000000003", Status: StatusFailed, Mode: ModeLLM, Report: &partial, ToolTimeline: []ToolTimelineEntry{}, Error: &InvestigationError{Code: "provider_rate_limited"}, CreatedAt: evaluatedAt, CompletedAt: &completedAt},
-		"validatedLLMFixtureOnly": {Id: "00000000-0000-4000-8000-000000000004", Status: StatusCompleted, Mode: ModeLLM, Report: &llm, ToolTimeline: []ToolTimelineEntry{}, CreatedAt: evaluatedAt, CompletedAt: &completedAt},
+		"completedEvidenceOnly":  {Id: "00000000-0000-4000-8000-000000000001", Status: StatusCompleted, Mode: ModeEvidenceOnly, Report: &completed, ToolTimeline: append([]ToolTimelineEntry(nil), timeline...), CreatedAt: evaluatedAt, CompletedAt: &completedAt},
+		"partialEvidenceOnly":    {Id: "00000000-0000-4000-8000-000000000002", Status: StatusCompleted, Mode: ModeEvidenceOnly, Report: &partial, ToolTimeline: append([]ToolTimelineEntry(nil), timeline...), CreatedAt: evaluatedAt, CompletedAt: &completedAt},
+		"providerFailedFallback": {Id: "00000000-0000-4000-8000-000000000003", Status: StatusFailed, Mode: ModeLLM, Report: &partial, ToolTimeline: append([]ToolTimelineEntry(nil), timeline...), Error: &InvestigationError{Code: "provider_rate_limited", Message: publicInvestigationErrorMessage("provider_rate_limited")}, CreatedAt: evaluatedAt, CompletedAt: &completedAt, Usage: InvestigationUsage{PromptVersion: InvestigatorPromptVersion}},
+		"validatedLLMFixtureOnly": {
+			Id: "00000000-0000-4000-8000-000000000004", Status: StatusCompleted, Mode: ModeLLM, Report: &llm,
+			ToolTimeline: append([]ToolTimelineEntry(nil), timeline...), CreatedAt: evaluatedAt, CompletedAt: &completedAt,
+			Usage: InvestigationUsage{InputTokens: &inputTokens, OutputTokens: &outputTokens, Model: &fixtureModel, PromptVersion: InvestigatorPromptVersion},
+		},
 	}
 }
 
