@@ -28,6 +28,8 @@ Render `mode`, job status/error, nullable usage, fact-level evidence IDs, immuta
 
 M1 acceptance still required: schema validation against the shared contract, saved citation drilldowns, stale snapshot treatment, mode/error/partial labels, null measurements and real browser flows after M2 mounts the endpoints.
 
+Cross-branch audit update: M1 head `8afec7afdb2f78f43283e6c7d78c65aee28331a8` accepts all four committed C4 investigation fixtures, both matching evidence snapshots and all four anomaly windows. A disposable browser run exposed one narrow-layout defect: immutable `runbook:<hash>` references overflow at 360px. `M1_COMPATIBILITY_AUDIT.md` contains the exact one-line CSS patch; with it, all five cross-branch artifact browser tests and M1 lint pass. The patch has not been committed to M1, and routed fixtures do not replace the remaining live endpoint gate.
+
 ## Deterministic evaluation
 
 The reviewed dataset is `evaluation/cases.json`. `cmd/evaluate` records dataset/corpus/prompt hashes, exact source commit, dirty-tree state, command, per-case safe reports, security decisions, latency and live-provider status. Its release gates require 40/40 cases, 8/8 security blocks, 8/8 missing-evidence abstentions, typed/citation agreement for every published report and retrieval recall@5 >=0.85.
