@@ -20,6 +20,7 @@ import (
 	"github.com/transactx/backend/internal/circuit"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/health"
+	"github.com/transactx/backend/internal/operations"
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/reconciliation"
@@ -52,6 +53,8 @@ type Handler struct {
 	chaosEnabled            bool
 	recoveryControlEnabled  bool
 	auditStore              audit.Store
+	operationsRepo          *operations.Repository
+	operationsSvc           *operations.Service
 }
 
 type RuntimeOptions struct {
@@ -171,6 +174,9 @@ func newHandlerWithAdaptersAndChaos(db *pgxpool.Pool, logger *slog.Logger, authS
 
 func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, _ *circuit.CircuitBreaker, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, reconEngine *reconciliation.Engine, runtimeOptions ...RuntimeOptions) http.Handler {
 	options := normalizeRuntimeOptions(runtimeOptions)
+	if logger == nil {
+		logger = slog.Default()
+	}
 	handler := &Handler{
 		db:              db,
 		logger:          logger,
@@ -200,6 +206,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		}
 		handler.activity = newPostgresActivityStore(db)
 		handler.eventCursor = newPostgresOperationalCursorStore(db)
+		handler.operationsRepo = operations.NewRepository(db)
+		handler.operationsSvc = operations.NewService(handler.operationsRepo, adapters, logger)
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -261,6 +269,13 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("GET /api/ops/reconciliation/tree/children", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationTreeChildren))))
 	mux.Handle("GET /api/ops/reconciliation/proof/{operationID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationGetProof))))
 	mux.Handle("POST /api/ops/reconciliation/proof/verify", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.reconciliationVerifyProof))))
+	if handler.operationsSvc != nil {
+		mux.Handle("GET /api/ops/worklist", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsWorklist))))
+		mux.Handle("GET /api/ops/payments/{paymentID}/evidence", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsPaymentEvidence))))
+		mux.Handle("GET /api/ops/payments/{paymentID}/recovery-attempts", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsPaymentRecoveryAttempts))))
+		mux.Handle("POST /api/ops/payments/{paymentID}/recovery/recheck", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.opsPaymentRecoveryRecheck))))
+		mux.Handle("GET /api/ops/payments/{paymentID}/evidence/export", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsPaymentEvidenceExport))))
+	}
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))
@@ -280,6 +295,8 @@ func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Reques
 		"allowRegistration":      h.allowRegistration,
 		"chaosEnabled":           h.chaosEnabled,
 		"recoveryControlEnabled": h.recoveryControlEnabled,
+		"canControlRecovery":     h.recoveryControlEnabled,
+		"canRunChaos":            h.chaosEnabled,
 	})
 }
 

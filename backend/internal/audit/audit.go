@@ -80,7 +80,7 @@ func (s *PostgresStore) ListRecent(ctx context.Context, limit int) ([]Entry, err
 	}
 	query := `
 		SELECT id, actor_id, actor_role, operation, entity_type, entity_id,
-		       reason_code, details, request_id, trace_id, result, created_at
+		       reason_code, details, COALESCE(request_id, ''), COALESCE(trace_id, ''), result, created_at
 		FROM operational_audit_logs
 		ORDER BY created_at DESC
 		LIMIT $1`
