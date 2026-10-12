@@ -28,7 +28,7 @@ func TestPostgresCorpusLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
+	t.Cleanup(admin.Close)
 	schema := "tx_corpus_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	identifier := pgx.Identifier{schema}.Sanitize()
 	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
