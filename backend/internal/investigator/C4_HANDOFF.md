@@ -13,6 +13,8 @@ This handoff is source-compatible with shared contract `tx.v2.1`. It does not mo
 
 M2 acceptance still required: canonical migration 000027 tests, trusted real evidence reads, cross-worker claim/resume, concurrent usage reservations, authenticated POST/GET denial and success paths, active-corpus ingestion through the canonical schema, persisted citation resolution and native B10 analytics windows. The M3-owned repository contract now passes against test-only disposable PostgreSQL DDL, but that does not replace these runtime gates or the C4 memory evaluation's limitations.
 
+The M2 branch is now source-available, but its audited head `c64a9e62870e4ed802910b9ee84e0dee73ffc9bb` does not implement the complete contract above and overlaps this package's model/service files. Follow `M2_COMPATIBILITY_AUDIT.md`: retain the M3 service, use the strict evidence and live-feature adapter seams, reconcile migration 000027 deliberately, and do not mount both investigator implementations. Availability of the branch is not a passing live gate.
+
 ## M1 response and fixture contract
 
 `evaluation/results.json` contains `uiFixtures` in the exact package `InvestigationResponse` shape:
