@@ -138,6 +138,18 @@ func (service *Service) GetForUser(ctx context.Context, userID, paymentID uuid.U
 	return service.payments.GetForUser(ctx, userID, paymentID)
 }
 
+// GetPayment retrieves a payment by its unique ID.
+func (service *Service) GetPayment(ctx context.Context, paymentID uuid.UUID) (*Payment, error) {
+	if service.payments == nil {
+		return nil, ErrNotFound
+	}
+	p, err := service.payments.Get(ctx, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 func (service *Service) CreateWithResult(ctx context.Context, input CreateInput) (Payment, bool, error) {
 	key := strings.TrimSpace(input.IdempotencyKey)
 	currency := strings.ToUpper(strings.TrimSpace(input.Currency))

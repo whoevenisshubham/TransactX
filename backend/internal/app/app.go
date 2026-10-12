@@ -1,0 +1,314 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/auth"
+	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/chaos"
+	"github.com/transactx/backend/internal/circuit"
+	"github.com/transactx/backend/internal/config"
+	"github.com/transactx/backend/internal/database"
+	"github.com/transactx/backend/internal/health"
+	apihttp "github.com/transactx/backend/internal/http"
+	"github.com/transactx/backend/internal/payments"
+	"github.com/transactx/backend/internal/recipients"
+	"github.com/transactx/backend/internal/reconciliation"
+	"github.com/transactx/backend/internal/recovery"
+)
+
+// Environment encapsulates the initialized platform runtime components shared between API and Worker.
+type Environment struct {
+	Config               config.Config
+	DB                   *pgxpool.Pool
+	Logger               *slog.Logger
+	AuthService          *auth.Service
+	JWTManager           *auth.JWTManager
+	HealthService        *health.Service
+	HealthTargets        map[string]health.HealthChecker
+	ChaosRepo            chaos.Repository
+	ChaosController      *chaos.Controller
+	CircuitBreaker       *circuit.CircuitBreaker
+	Adapters             map[uuid.UUID]bank.BankAdapter
+	RouteTargets         map[uuid.UUID]string
+	BankIDs              map[string]uuid.UUID
+	ExecutionTargets     map[payments.RouteKey][]payments.ExecutionTarget
+	ReconciliationEngine *reconciliation.Engine
+	ParticipantSources   map[string]reconciliation.LedgerSnapshotSource
+	PaymentsService      *payments.Service
+	RecoveryRepo         *recovery.Repository
+	RecoveryScheduler    *recovery.Scheduler
+	ownsDB               bool
+}
+
+// BuildEnvironment establishes the database pool and constructs the shared platform environment.
+func BuildEnvironment(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Environment, error) {
+	if cfg.DatabaseURL == "" {
+		return nil, errors.New("DATABASE_URL is required to build environment")
+	}
+	db, err := database.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("connect to PostgreSQL: %w", err)
+	}
+	env, err := BuildEnvironmentWithPool(ctx, cfg, db, logger)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	env.ownsDB = true
+	return env, nil
+}
+
+// BuildEnvironmentWithPool builds the shared platform environment using an existing database connection pool.
+func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpool.Pool, logger *slog.Logger) (*Environment, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if db == nil {
+		return nil, errors.New("database pool is required")
+	}
+
+	jwtManager, err := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTLifetime)
+	if err != nil {
+		return nil, fmt.Errorf("configure JWT: %w", err)
+	}
+	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
+	if cfg.ParticipantProvisioning {
+		authService.WithParticipantProvisioner(auth.NewSimulationParticipantAccountProvisioner())
+	}
+	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
+	chaosRepo := chaos.NewRepository(db)
+	chaosController := chaos.NewController(chaosRepo)
+
+	adapters := make(map[uuid.UUID]bank.BankAdapter)
+	healthTargets := make(map[string]health.HealthChecker)
+	routeTargets := make(map[uuid.UUID]string)
+	bankIDs := make(map[string]uuid.UUID)
+
+	configureBank := func(bankURL, code string) error {
+		if bankURL == "" {
+			return nil
+		}
+		var bankID uuid.UUID
+		if err := db.QueryRow(ctx, `SELECT id FROM banks WHERE code = $1 AND status = 'ACTIVE'`, code).Scan(&bankID); err != nil {
+			return fmt.Errorf("resolve configured bank %s: %w", code, err)
+		}
+		adapter, clientErr := bank.NewHTTPClient(bankURL, nil)
+		if clientErr != nil {
+			return fmt.Errorf("configure bank adapter %s: %w", code, clientErr)
+		}
+		chaosAdapter := chaos.NewChaosAdapter(code, adapter, chaosController)
+		adapters[bankID] = chaosAdapter
+		healthTargets[code] = chaosAdapter
+		routeTargets[bankID] = code
+		bankIDs[code] = bankID
+		return nil
+	}
+
+	if err := configureBank(cfg.BankAURL, cfg.BankACode); err != nil {
+		return nil, err
+	}
+	if err := configureBank(cfg.BankBURL, cfg.BankBCode); err != nil {
+		return nil, err
+	}
+
+	executionTargets := make(map[payments.RouteKey][]payments.ExecutionTarget)
+	for _, targetCfg := range cfg.ExecutionTargets {
+		srcID, srcOK := bankIDs[targetCfg.SourceBank]
+		dstID, dstOK := bankIDs[targetCfg.DestinationBank]
+		if !srcOK || !dstOK {
+			return nil, fmt.Errorf("execution target bank not found: %s -> %s", targetCfg.SourceBank, targetCfg.DestinationBank)
+		}
+		srcAdapter := adapters[srcID]
+		if targetCfg.SourceEndpoint != "" {
+			var err error
+			srcAdapter, err = bank.NewHTTPClient(targetCfg.SourceEndpoint, nil)
+			if err != nil {
+				return nil, fmt.Errorf("configure source adapter for %s: %w", targetCfg.CandidateID, err)
+			}
+		}
+		dstAdapter := adapters[dstID]
+		if targetCfg.DestinationEndpoint != "" {
+			var err error
+			dstAdapter, err = bank.NewHTTPClient(targetCfg.DestinationEndpoint, nil)
+			if err != nil {
+				return nil, fmt.Errorf("configure destination adapter for %s: %w", targetCfg.CandidateID, err)
+			}
+		}
+		if targetCfg.Endpoint != "" {
+			endpointAdapter, err := bank.NewHTTPClient(targetCfg.Endpoint, nil)
+			if err != nil {
+				return nil, fmt.Errorf("configure health target for %s: %w", targetCfg.ExecutionTargetID, err)
+			}
+			healthTargets[targetCfg.ExecutionTargetID] = chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, endpointAdapter, chaosController)
+		}
+		key := payments.RouteKey{SourceBankID: srcID, DestinationBankID: dstID}
+		executionTargets[key] = append(executionTargets[key], payments.ExecutionTarget{
+			CandidateID:        targetCfg.CandidateID,
+			ExecutionTargetID:  targetCfg.ExecutionTargetID,
+			SourceAdapter:      chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, srcAdapter, chaosController),
+			DestinationAdapter: chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, dstAdapter, chaosController),
+		})
+	}
+
+	circuitCfg := circuit.Config{
+		FailureThreshold:     cfg.CircuitFailureThreshold,
+		TimeoutThreshold:     cfg.CircuitTimeoutThreshold,
+		RollingWindow:        cfg.CircuitRollingWindow,
+		OpenCooldown:         cfg.CircuitOpenCooldown,
+		HalfOpenProbeLimit:   cfg.CircuitHalfOpenProbeLimit,
+		SuccessThreshold:     cfg.CircuitSuccessThreshold,
+		RestorationSteps:     cfg.CircuitRestorationSteps,
+		SuccessPolicy:        circuit.SuccessPolicy(cfg.CircuitSuccessPolicy),
+		StepSuccessThreshold: 2,
+	}
+	circuitRepo := circuit.NewRepository(db)
+	circuitBreaker, err := circuit.NewBreaker(circuitCfg, circuitRepo)
+	if err != nil {
+		return nil, fmt.Errorf("initialize circuit breaker: %w", err)
+	}
+	healthService.SetSampleObserver(circuitBreaker.RecordHealthSample)
+	healthService.SetProbeGate(circuitBreaker)
+
+	var executionTargetIDs []string
+	for _, targets := range executionTargets {
+		for _, et := range targets {
+			if et.ExecutionTargetID != "" {
+				executionTargetIDs = append(executionTargetIDs, et.ExecutionTargetID)
+			}
+		}
+	}
+	var bankCodes []string
+	for code := range bankIDs {
+		bankCodes = append(bankCodes, code)
+	}
+	var explicitHealthTargetIDs []string
+	for targetID := range healthTargets {
+		if _, isBank := bankIDs[targetID]; !isBank {
+			explicitHealthTargetIDs = append(explicitHealthTargetIDs, targetID)
+		}
+	}
+	chaosController.SetTargetValidator(chaos.BuildTargetValidator(explicitHealthTargetIDs, executionTargetIDs, bankCodes...))
+	if err := chaosController.Hydrate(ctx); err != nil {
+		return nil, fmt.Errorf("hydrate chaos scenarios: %w", err)
+	}
+
+	knownParticipants := make(reconciliation.KnownParticipants)
+	participantAdapters := make(map[string]bank.BankAdapter)
+	for code, bankID := range bankIDs {
+		knownParticipants[code] = true
+		participantAdapters[code] = adapters[bankID]
+	}
+	reconRepo := reconciliation.NewRunRepository(db)
+	reconEngine := reconciliation.NewEngine(
+		knownParticipants,
+		reconRepo,
+		func(_ context.Context, participantID string, _ reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			return reconciliation.NewDurableCentralRepositoryParticipant(db, participantID, 15*time.Minute)
+		},
+		func(_ context.Context, participantID string, _ reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
+			adapter, ok := participantAdapters[participantID]
+			if !ok {
+				return nil, reconciliation.ErrInvalidParticipant
+			}
+			return reconciliation.NewDurableRepositoryParticipant(
+				db, adapter, participantID, "participant:"+participantID, 15*time.Minute,
+			)
+		},
+	)
+	participantSources := make(map[string]reconciliation.LedgerSnapshotSource, len(participantAdapters))
+	for code, adapter := range participantAdapters {
+		participantSources[code] = adapter
+	}
+
+	accountsRepo := accounts.NewRepository(db)
+	recipientsRepo := recipients.NewRepository(db)
+	paymentsRepo := payments.NewRepository(db)
+	var paymentsSvc *payments.Service
+	if len(adapters) == 0 {
+		paymentsSvc = payments.NewService(accountsRepo, recipientsRepo, paymentsRepo, nil)
+	} else if len(executionTargets) > 0 {
+		paymentsSvc = payments.NewServiceWithExecutionTargets(accountsRepo, recipientsRepo, paymentsRepo, adapters, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline)
+	} else if len(routeTargets) > 0 {
+		paymentsSvc = payments.NewServiceWithAdaptiveRouting(accountsRepo, recipientsRepo, paymentsRepo, adapters, routeTargets, healthService)
+	} else {
+		paymentsSvc = payments.NewServiceWithAdapters(accountsRepo, recipientsRepo, paymentsRepo, adapters)
+	}
+	paymentsSvc.SetCircuitEligibility(circuitBreaker.EligibilityHook())
+	paymentsSvc.SetPaymentConcurrency(cfg.PaymentConcurrency)
+
+	recoveryRepo := recovery.NewRepository(db)
+	var recoveryScheduler *recovery.Scheduler
+	if cfg.RecoveryEnabled {
+		recoveryCfg := recovery.Config{
+			WorkerLabel:    cfg.WorkerLabel,
+			BuildSHA:       cfg.BuildSHA,
+			Concurrency:    cfg.RecoveryConcurrency,
+			StaleAge:       cfg.RecoveryStaleAfter,
+			ScanInterval:   cfg.RecoveryScanInterval,
+			LeaseDuration:  cfg.RecoveryLease,
+			AttemptTimeout: cfg.RecoveryAttemptTimeout,
+			MaxAttempts:    cfg.RecoveryMaxAttempts,
+			JobFamilies:    cfg.WorkerJobFamilies,
+		}
+		var err error
+		recoveryScheduler, err = recovery.NewScheduler(recoveryRepo, paymentsSvc, recoveryCfg)
+		if err != nil {
+			return nil, fmt.Errorf("initialize recovery scheduler: %w", err)
+		}
+	}
+
+	return &Environment{
+		Config:               cfg,
+		DB:                   db,
+		Logger:               logger,
+		AuthService:          authService,
+		JWTManager:           jwtManager,
+		HealthService:        healthService,
+		HealthTargets:        healthTargets,
+		ChaosRepo:            chaosRepo,
+		ChaosController:      chaosController,
+		CircuitBreaker:       circuitBreaker,
+		Adapters:             adapters,
+		RouteTargets:         routeTargets,
+		BankIDs:              bankIDs,
+		ExecutionTargets:     executionTargets,
+		ReconciliationEngine: reconEngine,
+		ParticipantSources:   participantSources,
+		PaymentsService:      paymentsSvc,
+		RecoveryRepo:         recoveryRepo,
+		RecoveryScheduler:    recoveryScheduler,
+	}, nil
+}
+
+// Close releases the resources owned by Environment.
+func (e *Environment) Close() {
+	if e.ownsDB && e.DB != nil {
+		e.DB.Close()
+	}
+}
+
+// NewHTTPHandler constructs the API HTTP handler backed by the Environment.
+func (e *Environment) NewHTTPHandler() http.Handler {
+	runtimeOptions := apihttp.RuntimeOptions{
+		SimulationMode:     e.Config.SimulationMode,
+		CORSAllowedOrigins: e.Config.CORSAllowedOrigins,
+		ParticipantSources: e.ParticipantSources,
+	}
+	if len(e.Adapters) == 0 {
+		return apihttp.NewHandlerWithReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
+	} else if len(e.ExecutionTargets) > 0 {
+		return apihttp.NewHandlerWithExecutionTargetsCircuitChaosReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.Adapters, e.HealthTargets, e.ExecutionTargets, e.HealthService, payments.SelectionMode(e.Config.RoutingMode), e.Config.RoutingStaticBaseline, e.CircuitBreaker, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
+	} else {
+		return apihttp.NewHandlerWithBankAdaptersHealthRoutingChaosReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.Adapters, e.HealthTargets, e.RouteTargets, e.HealthService, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
+	}
+}
