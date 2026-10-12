@@ -84,7 +84,7 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 	hRepo := &memoryHealthRepo{}
 	cfg := health.DefaultConfig()
 	cfg.LatencyLowerBound = 1 * time.Millisecond
-	cfg.LatencyUpperBound = 10 * time.Millisecond
+	cfg.LatencyUpperBound = 50 * time.Millisecond
 	cfg.LatencyWeight = 0.60
 	cfg.AvailabilityWeight = 0.20
 	cfg.SuccessWeight = 0.20
@@ -121,7 +121,7 @@ func runLatencySimulation(ctx context.Context, seed int64, totalRequests int, mo
 				Type:       chaos.ScenarioTypeLatency,
 				Parameters: chaos.ScenarioParameters{
 					DurationMs: int64(degradeEnd-degradeStart) * 100,
-					LatencyMs:  15,
+					LatencyMs:  35,
 				},
 			}, "test-admin", "OPS_ADMIN")
 			if err == nil {
