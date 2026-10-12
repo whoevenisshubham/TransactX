@@ -25,6 +25,10 @@ type loginRequest struct {
 }
 
 func (h *Handler) register(writer http.ResponseWriter, request *http.Request) {
+	if !h.allowRegistration {
+		writeAPIError(writer, request, common.NewAPIError("REGISTRATION_DISABLED", "public registration is disabled", http.StatusForbidden))
+		return
+	}
 	var input registerRequest
 	if err := decodeJSON(writer, request, &input); err != nil {
 		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "request body is invalid", http.StatusBadRequest))

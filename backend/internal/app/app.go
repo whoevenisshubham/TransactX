@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/audit"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/chaos"
@@ -94,7 +95,7 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 	routeTargets := make(map[uuid.UUID]string)
 	bankIDs := make(map[string]uuid.UUID)
 
-	configureBank := func(bankURL, code string) error {
+	configureBank := func(bankURL, code, token string) error {
 		if bankURL == "" {
 			return nil
 		}
@@ -106,6 +107,9 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		if clientErr != nil {
 			return fmt.Errorf("configure bank adapter %s: %w", code, clientErr)
 		}
+		if token != "" {
+			adapter.SetServiceToken(token)
+		}
 		chaosAdapter := chaos.NewChaosAdapter(code, adapter, chaosController)
 		adapters[bankID] = chaosAdapter
 		healthTargets[code] = chaosAdapter
@@ -114,10 +118,10 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		return nil
 	}
 
-	if err := configureBank(cfg.BankAURL, cfg.BankACode); err != nil {
+	if err := configureBank(cfg.BankAURL, cfg.BankACode, cfg.BankAServiceToken); err != nil {
 		return nil, err
 	}
-	if err := configureBank(cfg.BankBURL, cfg.BankBCode); err != nil {
+	if err := configureBank(cfg.BankBURL, cfg.BankBCode, cfg.BankBServiceToken); err != nil {
 		return nil, err
 	}
 
@@ -300,9 +304,13 @@ func (e *Environment) Close() {
 // NewHTTPHandler constructs the API HTTP handler backed by the Environment.
 func (e *Environment) NewHTTPHandler() http.Handler {
 	runtimeOptions := apihttp.RuntimeOptions{
-		SimulationMode:     e.Config.SimulationMode,
-		CORSAllowedOrigins: e.Config.CORSAllowedOrigins,
-		ParticipantSources: e.ParticipantSources,
+		SimulationMode:         e.Config.SimulationMode,
+		CORSAllowedOrigins:     e.Config.CORSAllowedOrigins,
+		ParticipantSources:     e.ParticipantSources,
+		AllowRegistration:      e.Config.AllowRegistration,
+		ChaosEnabled:           e.Config.ChaosEnabled,
+		RecoveryControlEnabled: e.Config.RecoveryControlEnabled,
+		AuditStore:             audit.NewPostgresStore(e.DB),
 	}
 	if len(e.Adapters) == 0 {
 		return apihttp.NewHandlerWithReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.ChaosController, e.ReconciliationEngine, runtimeOptions)

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/transactx/backend/internal/accounts"
+	"github.com/transactx/backend/internal/audit"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/chaos"
@@ -47,16 +48,29 @@ type Handler struct {
 	streamHeartbeatInterval time.Duration
 	simulationMode          bool
 	corsAllowedOrigins      []string
+	allowRegistration       bool
+	chaosEnabled            bool
+	recoveryControlEnabled  bool
+	auditStore              audit.Store
 }
 
 type RuntimeOptions struct {
-	SimulationMode     bool
-	CORSAllowedOrigins []string
-	ParticipantSources map[string]reconciliation.LedgerSnapshotSource
+	SimulationMode         bool
+	CORSAllowedOrigins     []string
+	ParticipantSources     map[string]reconciliation.LedgerSnapshotSource
+	AllowRegistration      bool
+	ChaosEnabled           bool
+	RecoveryControlEnabled bool
+	AuditStore             audit.Store
 }
 
 func normalizeRuntimeOptions(options []RuntimeOptions) RuntimeOptions {
-	result := RuntimeOptions{CORSAllowedOrigins: []string{"http://localhost:5173"}}
+	result := RuntimeOptions{
+		CORSAllowedOrigins:     []string{"http://localhost:5173"},
+		AllowRegistration:      true,
+		ChaosEnabled:           true,
+		RecoveryControlEnabled: true,
+	}
 	if len(options) > 0 {
 		result = options[0]
 		if len(result.CORSAllowedOrigins) == 0 {
@@ -169,8 +183,12 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		circuitBreaker:  circuitBreaker,
 		chaosController: chaosController,
 		reconEngine:     reconEngine,
-		simulationMode:  options.SimulationMode,
-		corsAllowedOrigins: append([]string(nil), options.CORSAllowedOrigins...),
+		simulationMode:         options.SimulationMode,
+		corsAllowedOrigins:     append([]string(nil), options.CORSAllowedOrigins...),
+		allowRegistration:      options.AllowRegistration,
+		chaosEnabled:           options.ChaosEnabled,
+		recoveryControlEnabled: options.RecoveryControlEnabled,
+		auditStore:             options.AuditStore,
 	}
 	if db != nil {
 		handler.integrityRuns = reconciliation.NewPostgresIntegrityRunStore(db)
@@ -201,45 +219,48 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		handler.healthService.SetSampleObserver(handler.circuitBreaker.RecordHealthSample)
 		handler.healthService.SetProbeGate(handler.circuitBreaker)
 	}
+	opsReadRole := auth.RequireRole(users.RoleOpsAdmin, users.RoleOpsViewer)
+	opsWriteRole := auth.RequireRole(users.RoleOpsAdmin)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)
 	if healthService != nil {
-		mux.Handle("GET /api/ops/health/{targetID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.healthSnapshot))))
-		mux.Handle("POST /api/ops/health/{targetID}/sample", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.healthSample))))
+		mux.Handle("GET /api/ops/health/{targetID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.healthSnapshot))))
+		mux.Handle("POST /api/ops/health/{targetID}/sample", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.healthSample))))
 	}
 	if handler.circuitBreaker != nil {
-		mux.Handle("GET /api/ops/circuit", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.circuitSnapshots))))
-		mux.Handle("GET /api/ops/circuit/{targetID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.circuitSnapshot))))
-		mux.Handle("GET /api/ops/circuit/{targetID}/events", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.circuitEvents))))
+		mux.Handle("GET /api/ops/circuit", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.circuitSnapshots))))
+		mux.Handle("GET /api/ops/circuit/{targetID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.circuitSnapshot))))
+		mux.Handle("GET /api/ops/circuit/{targetID}/events", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.circuitEvents))))
 	}
 	if handler.chaosController != nil {
-		mux.Handle("POST /api/ops/chaos/start", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosStart))))
-		mux.Handle("GET /api/ops/chaos/scenarios", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosScenarios))))
-		mux.Handle("GET /api/ops/chaos/scenarios/{scenarioID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosScenario))))
-		mux.Handle("POST /api/ops/chaos/scenarios/{scenarioID}/stop", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosStop))))
-		mux.Handle("POST /api/ops/chaos/reset", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.chaosReset))))
+		mux.Handle("POST /api/ops/chaos/start", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.chaosStart))))
+		mux.Handle("GET /api/ops/chaos/scenarios", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.chaosScenarios))))
+		mux.Handle("GET /api/ops/chaos/scenarios/{scenarioID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.chaosScenario))))
+		mux.Handle("POST /api/ops/chaos/scenarios/{scenarioID}/stop", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.chaosStop))))
+		mux.Handle("POST /api/ops/chaos/reset", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.chaosReset))))
 	}
 	if handler.simulationMode {
-		mux.Handle("POST /api/ops/chaos/ledger-corruption-fixture", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.ledgerCorruptionFixture))))
+		mux.Handle("POST /api/ops/chaos/ledger-corruption-fixture", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.ledgerCorruptionFixture))))
 	}
-	mux.Handle("POST /api/ops/integrity/check", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityCheck))))
-	mux.Handle("GET /api/ops/integrity/status", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityStatus))))
-	mux.Handle("GET /api/ops/integrity/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.integrityRun))))
-	mux.Handle("GET /api/ops/routing/distribution", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.routingDistribution))))
-	mux.Handle("GET /api/ops/activity", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.activityFeed))))
-	mux.Handle("GET /api/ops/runtime", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.runtimeStatus))))
-	mux.Handle("GET /api/ops/events/stream", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.operationalEvents))))
+	mux.Handle("POST /api/ops/integrity/check", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.integrityCheck))))
+	mux.Handle("GET /api/ops/integrity/status", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.integrityStatus))))
+	mux.Handle("GET /api/ops/integrity/runs/{runID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.integrityRun))))
+	mux.Handle("GET /api/ops/routing/distribution", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.routingDistribution))))
+	mux.Handle("GET /api/ops/activity", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.activityFeed))))
+	mux.Handle("GET /api/ops/runtime", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.runtimeStatus))))
+	mux.Handle("GET /api/ops/events/stream", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.operationalEvents))))
 	// Reconciliation endpoints are always registered; the handler returns
 	// NOT_FOUND gracefully when no engine is configured.
-	mux.Handle("POST /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationCreateRun))))
-	mux.Handle("GET /api/ops/reconciliation/runs", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationListRuns))))
-	mux.Handle("GET /api/ops/reconciliation/runs/{runID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationGetRun))))
-	mux.Handle("GET /api/ops/reconciliation/runs/{runID}/discrepancies", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationListDiscrepancies))))
-	mux.Handle("GET /api/ops/reconciliation/tree/root", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationTreeRoot))))
-	mux.Handle("GET /api/ops/reconciliation/tree/children", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationTreeChildren))))
-	mux.Handle("GET /api/ops/reconciliation/proof/{operationID}", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationGetProof))))
-	mux.Handle("POST /api/ops/reconciliation/proof/verify", auth.Authentication(jwtManager, auth.RequireRole(users.RoleOpsAdmin)(http.HandlerFunc(handler.reconciliationVerifyProof))))
+	mux.Handle("POST /api/ops/reconciliation/runs", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.reconciliationCreateRun))))
+	mux.Handle("GET /api/ops/reconciliation/runs", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationListRuns))))
+	mux.Handle("GET /api/ops/reconciliation/runs/{runID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationGetRun))))
+	mux.Handle("GET /api/ops/reconciliation/runs/{runID}/discrepancies", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationListDiscrepancies))))
+	mux.Handle("GET /api/ops/reconciliation/tree/root", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationTreeRoot))))
+	mux.Handle("GET /api/ops/reconciliation/tree/children", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationTreeChildren))))
+	mux.Handle("GET /api/ops/reconciliation/proof/{operationID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.reconciliationGetProof))))
+	mux.Handle("POST /api/ops/reconciliation/proof/verify", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.reconciliationVerifyProof))))
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))
@@ -254,7 +275,12 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 }
 
 func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Request) {
-	writeData(writer, http.StatusOK, request, map[string]bool{"simulationMode": h.simulationMode})
+	writeData(writer, http.StatusOK, request, map[string]any{
+		"simulationMode":         h.simulationMode,
+		"allowRegistration":      h.allowRegistration,
+		"chaosEnabled":           h.chaosEnabled,
+		"recoveryControlEnabled": h.recoveryControlEnabled,
+	})
 }
 
 func (h *Handler) health(writer http.ResponseWriter, request *http.Request) {

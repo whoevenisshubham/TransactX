@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+	"github.com/transactx/backend/internal/audit"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/chaos"
 	"github.com/transactx/backend/internal/common"
@@ -13,6 +15,10 @@ import (
 )
 
 func (handler *Handler) chaosStart(writer http.ResponseWriter, request *http.Request) {
+	if !handler.chaosEnabled {
+		writeAPIError(writer, request, common.NewAPIError("CHAOS_DISABLED", "chaos simulation controls are disabled", http.StatusForbidden))
+		return
+	}
 	if handler.chaosController == nil {
 		writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "chaos controller is not configured", http.StatusNotFound))
 		return
@@ -53,6 +59,23 @@ func (handler *Handler) chaosStart(writer http.ResponseWriter, request *http.Req
 		}
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to start chaos scenario", http.StatusInternalServerError))
 		return
+	}
+
+	if handler.auditStore != nil {
+		var actorUUID *uuid.UUID
+		if uid, err := uuid.Parse(identity.UserID); err == nil {
+			actorUUID = &uid
+		}
+		_ = handler.auditStore.Record(request.Context(), audit.Entry{
+			ActorID:    actorUUID,
+			ActorRole:  identity.Role,
+			Operation:  "CHAOS_START",
+			EntityType: "SCENARIO",
+			EntityID:   scenario.ID.String(),
+			ReasonCode: "OPERATIONAL_CONTROL",
+			RequestID:  common.GetRequestID(request),
+			Result:     "SUCCESS",
+		})
 	}
 
 	writeData(writer, http.StatusCreated, request, scenario)
@@ -109,6 +132,10 @@ func (handler *Handler) chaosScenario(writer http.ResponseWriter, request *http.
 }
 
 func (handler *Handler) chaosStop(writer http.ResponseWriter, request *http.Request) {
+	if !handler.chaosEnabled {
+		writeAPIError(writer, request, common.NewAPIError("CHAOS_DISABLED", "chaos simulation controls are disabled", http.StatusForbidden))
+		return
+	}
 	if handler.chaosController == nil {
 		writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "chaos controller is not configured", http.StatusNotFound))
 		return
@@ -146,10 +173,31 @@ func (handler *Handler) chaosStop(writer http.ResponseWriter, request *http.Requ
 		handler.integrityCoordinator.Trigger(reconciliation.IntegrityEventChaosRecovery)
 	}
 
+	if handler.auditStore != nil {
+		var actorUUID *uuid.UUID
+		if uid, err := uuid.Parse(identity.UserID); err == nil {
+			actorUUID = &uid
+		}
+		_ = handler.auditStore.Record(request.Context(), audit.Entry{
+			ActorID:    actorUUID,
+			ActorRole:  identity.Role,
+			Operation:  "CHAOS_STOP",
+			EntityType: "SCENARIO",
+			EntityID:   scenarioID,
+			ReasonCode: "OPERATIONAL_CONTROL",
+			RequestID:  common.GetRequestID(request),
+			Result:     "SUCCESS",
+		})
+	}
+
 	writeData(writer, http.StatusOK, request, scenario)
 }
 
 func (handler *Handler) chaosReset(writer http.ResponseWriter, request *http.Request) {
+	if !handler.chaosEnabled {
+		writeAPIError(writer, request, common.NewAPIError("CHAOS_DISABLED", "chaos simulation controls are disabled", http.StatusForbidden))
+		return
+	}
 	if handler.chaosController == nil {
 		writeAPIError(writer, request, common.NewAPIError("NOT_FOUND", "chaos controller is not configured", http.StatusNotFound))
 		return
@@ -183,6 +231,23 @@ func (handler *Handler) chaosReset(writer http.ResponseWriter, request *http.Req
 	}
 	if handler.integrityCoordinator != nil {
 		handler.integrityCoordinator.Trigger(reconciliation.IntegrityEventChaosRecovery)
+	}
+
+	if handler.auditStore != nil {
+		var actorUUID *uuid.UUID
+		if uid, err := uuid.Parse(identity.UserID); err == nil {
+			actorUUID = &uid
+		}
+		_ = handler.auditStore.Record(request.Context(), audit.Entry{
+			ActorID:    actorUUID,
+			ActorRole:  identity.Role,
+			Operation:  "CHAOS_RESET",
+			EntityType: "TARGET",
+			EntityID:   targetID,
+			ReasonCode: "OPERATIONAL_CONTROL",
+			RequestID:  common.GetRequestID(request),
+			Result:     "SUCCESS",
+		})
 	}
 
 	writeData(writer, http.StatusOK, request, map[string]any{"status": "reset", "targetId": targetID})

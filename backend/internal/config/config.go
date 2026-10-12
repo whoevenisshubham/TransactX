@@ -100,6 +100,11 @@ type Config struct {
 	WorkerJobFamilies         []string
 	WorkerLabel               string
 	BuildSHA                  string
+	AllowRegistration         bool
+	ChaosEnabled              bool
+	RecoveryControlEnabled    bool
+	BankAServiceToken         string
+	BankBServiceToken         string
 }
 
 func Load() (Config, error) {
@@ -263,6 +268,26 @@ func Load() (Config, error) {
 	workerLabel := strings.TrimSpace(getEnv("TX_WORKER_LABEL", "transactx-worker"))
 	buildSHA := strings.TrimSpace(getEnv("TX_BUILD_SHA", getEnv("GIT_COMMIT", getEnv("BUILD_SHA", "dev"))))
 
+	defaultControlBool := "false"
+	if developmentMode {
+		defaultControlBool = "true"
+	}
+	allowRegistration, err := strconv.ParseBool(getEnv("TX_ALLOW_REGISTRATION", defaultControlBool))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_ALLOW_REGISTRATION must be true or false: %w", err)
+	}
+	chaosEnabled, err := strconv.ParseBool(getEnv("TX_CHAOS_ENABLED", defaultControlBool))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_CHAOS_ENABLED must be true or false: %w", err)
+	}
+	recoveryControlEnabled, err := strconv.ParseBool(getEnv("TX_RECOVERY_CONTROL_ENABLED", defaultControlBool))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_RECOVERY_CONTROL_ENABLED must be true or false: %w", err)
+	}
+
+	bankAServiceToken := strings.TrimSpace(getEnv("BANK_A_SERVICE_TOKEN", os.Getenv("TX_BANK_A_SERVICE_TOKEN")))
+	bankBServiceToken := strings.TrimSpace(getEnv("BANK_B_SERVICE_TOKEN", os.Getenv("TX_BANK_B_SERVICE_TOKEN")))
+
 	migrationsDir := getEnv("TX_MIGRATIONS_DIR", "migrations")
 
 	cfg := Config{
@@ -305,9 +330,22 @@ func Load() (Config, error) {
 		WorkerJobFamilies:         workerJobFamilies,
 		WorkerLabel:               workerLabel,
 		BuildSHA:                  buildSHA,
+		AllowRegistration:         allowRegistration,
+		ChaosEnabled:              chaosEnabled,
+		RecoveryControlEnabled:    recoveryControlEnabled,
+		BankAServiceToken:         bankAServiceToken,
+		BankBServiceToken:         bankBServiceToken,
 	}
 	if !developmentMode && len([]byte(cfg.JWTSecret)) < 32 {
 		return Config{}, errors.New("JWT_SECRET must contain at least 32 bytes outside development mode")
+	}
+	if !developmentMode {
+		if cfg.BankAURL != "" && cfg.BankAServiceToken == "" {
+			return Config{}, errors.New("BANK_A_SERVICE_TOKEN is required outside development mode when BANK_A_URL is configured")
+		}
+		if cfg.BankBURL != "" && cfg.BankBServiceToken == "" {
+			return Config{}, errors.New("BANK_B_SERVICE_TOKEN is required outside development mode when BANK_B_URL is configured")
+		}
 	}
 	if participantProvisioning && cfg.DefaultBankCode != cfg.BankACode && cfg.DefaultBankCode != cfg.BankBCode {
 		return Config{}, fmt.Errorf("DEFAULT_BANK_CODE must match BANK_A_CODE or BANK_B_CODE when participant provisioning is enabled")

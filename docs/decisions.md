@@ -372,3 +372,10 @@ are reclaimed or swept as INTERRUPTED. Backoff follows exponential progression w
 and attempt exhaustion caps at 20 attempts before parking safely in `needs_attention` without altering
 monetary records. Stale discovery acts as a bounded safety net and never un-parks attention jobs.
 
+## ADR-039: Public Demo RBAC and Gated Operational Controls
+
+Status: **IMPLEMENTED**
+
+Restricts self-registration to CUSTOMER and MERCHANT roles, preventing privilege escalation. Introduces OPS_VIEWER as a read-only operations role with access to operational telemetry (GET /api/ops/*) while denying mutations (403 Forbidden). Adds explicit configuration control flags (ALLOW_REGISTRATION, CHAOS_ENABLED, RECOVERY_CONTROL_ENABLED) that fail-safe closed in production and are reported via GET /api/ops/runtime. Mandates inter-service participant tokens for Bank A and Bank B in production, and records all administrative operational mutations in append-only operational_audit_logs.
+
+

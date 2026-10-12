@@ -82,6 +82,19 @@ func provision(ctx context.Context, db *pgxpool.Pool, password, defaultBankCode,
 	if _, err := tx.Exec(ctx, `INSERT INTO accounts (id, user_id, bank_id, bank_account_id, account_number, balance_paise, version, status) VALUES ($1, $2, $3, $4, $5, 0, 0, 'ACTIVE') ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, bank_id = EXCLUDED.bank_id, bank_account_id = EXCLUDED.bank_account_id, status = 'ACTIVE'`, accountID, adminID, bankID, accountID, accountNumber); err != nil {
 		return err
 	}
+
+	viewerID := uuid.NewMD5(uuid.NameSpaceOID, []byte("transactx-viewer"))
+	viewerPhone := strings.TrimSpace(getEnv("DEV_VIEWER_PHONE", "8888888888"))
+	viewerPaymentID := strings.ToLower(strings.TrimSpace(getEnv("DEV_VIEWER_PAYMENT_ID", "viewer@transactx")))
+	viewerName := strings.TrimSpace(getEnv("DEV_VIEWER_NAME", "Development Viewer"))
+	if _, err := tx.Exec(ctx, `INSERT INTO users (id, name, phone, upi_id, password_hash, role) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, upi_id = EXCLUDED.upi_id, password_hash = EXCLUDED.password_hash, role = EXCLUDED.role, updated_at = CURRENT_TIMESTAMP`, viewerID, viewerName, viewerPhone, viewerPaymentID, hash, users.RoleOpsViewer); err != nil {
+		return err
+	}
+	viewerAccountID := uuid.NewMD5(uuid.NameSpaceOID, []byte("transactx-viewer-account"))
+	viewerAccountNumber := "TX-VIEWER-DEV-001"
+	if _, err := tx.Exec(ctx, `INSERT INTO accounts (id, user_id, bank_id, bank_account_id, account_number, balance_paise, version, status) VALUES ($1, $2, $3, $4, $5, 0, 0, 'ACTIVE') ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, bank_id = EXCLUDED.bank_id, bank_account_id = EXCLUDED.bank_account_id, status = 'ACTIVE'`, viewerAccountID, viewerID, bankID, viewerAccountID, viewerAccountNumber); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 

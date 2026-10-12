@@ -16,6 +16,10 @@ import (
 // Registration is restricted to TX_SIMULATION_MODE=true and OPS_ADMIN.
 // It does not write to PostgreSQL or mutate production payment authority.
 func (handler *Handler) ledgerCorruptionFixture(writer http.ResponseWriter, request *http.Request) {
+	if !handler.chaosEnabled {
+		writeAPIError(writer, request, common.NewAPIError("CHAOS_DISABLED", "chaos simulation controls are disabled", http.StatusForbidden))
+		return
+	}
 	ctx := request.Context()
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	scope := reconciliation.Scope{From: base, To: base.Add(time.Hour)}
