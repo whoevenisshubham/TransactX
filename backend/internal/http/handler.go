@@ -21,6 +21,7 @@ import (
 	"github.com/transactx/backend/internal/circuit"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/health"
+	"github.com/transactx/backend/internal/investigator"
 	"github.com/transactx/backend/internal/operations"
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/recipients"
@@ -60,6 +61,7 @@ type Handler struct {
 	traceStore              *telemetry.TraceStore
 	telemetryMetrics        *telemetry.Metrics
 	analyticsRepo           analytics.Repository
+	investigatorSvc         *investigator.Service
 }
 
 type RuntimeOptions struct {
@@ -216,6 +218,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		handler.traceStore = telemetry.NewTraceStore(db, logger)
 		handler.telemetryMetrics = telemetry.NewMetrics()
 		handler.analyticsRepo = analytics.NewPostgresRepository(db)
+		investigatorRepo := investigator.NewPostgresRepository(db)
+		handler.investigatorSvc = investigator.NewService(investigatorRepo, handler.operationsSvc, logger)
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -287,6 +291,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	}
 	mux.Handle("GET /api/ops/analytics/windows", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsAnalyticsWindows))))
 	mux.Handle("GET /api/ops/metrics/summary", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsMetricsSummary))))
+	mux.Handle("POST /api/ops/investigations", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsCreateInvestigation))))
+	mux.Handle("GET /api/ops/investigations/{investigationID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsGetInvestigation))))
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))
@@ -308,6 +314,8 @@ func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Reques
 		"recoveryControlEnabled": h.recoveryControlEnabled,
 		"canControlRecovery":     h.recoveryControlEnabled,
 		"canRunChaos":            h.chaosEnabled,
+		"canInvestigate":         h.investigatorSvc != nil,
+		"investigatorMode":       "evidence_only",
 		"traceCollectionEnabled": h.traceStore != nil,
 		"analyticsEnabled":       h.analyticsRepo != nil,
 		"modelStatus":            "unavailable",
@@ -317,6 +325,11 @@ func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Reques
 // SetAnalyticsRepository allows test injection of an analytics repository.
 func (h *Handler) SetAnalyticsRepository(repo analytics.Repository) {
 	h.analyticsRepo = repo
+}
+
+// SetInvestigatorService allows test injection of an investigator service.
+func (h *Handler) SetInvestigatorService(svc *investigator.Service) {
+	h.investigatorSvc = svc
 }
 
 func (h *Handler) health(writer http.ResponseWriter, request *http.Request) {

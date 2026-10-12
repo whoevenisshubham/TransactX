@@ -22,6 +22,8 @@ import (
 	"github.com/transactx/backend/internal/database"
 	"github.com/transactx/backend/internal/health"
 	apihttp "github.com/transactx/backend/internal/http"
+	"github.com/transactx/backend/internal/investigator"
+	"github.com/transactx/backend/internal/operations"
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/reconciliation"
@@ -54,6 +56,8 @@ type Environment struct {
 	TelemetryShutdown    func(context.Context) error
 	AnalyticsRepo        analytics.Repository
 	AnalyticsService     *analytics.Service
+	InvestigatorRepo     investigator.Repository
+	InvestigatorService  *investigator.Service
 	ownsDB               bool
 }
 
@@ -297,10 +301,18 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 	}
 	for _, targets := range executionTargets {
 		for _, t := range targets {
-			entityTargets = append(entityTargets, analytics.EntityTarget{Type: "execution_target", ID: t.ID})
+			entityTargets = append(entityTargets, analytics.EntityTarget{Type: "execution_target", ID: t.ExecutionTargetID})
 		}
 	}
 	analyticsSvc := analytics.NewService(analyticsRepo, entityTargets, logger)
+
+	operationsRepo := operations.NewRepository(db)
+	operationsSvc := operations.NewService(operationsRepo, adapters, logger)
+	investigatorRepo := investigator.NewPostgresRepository(db)
+	investigatorSvc := investigator.NewService(investigatorRepo, operationsSvc, logger)
+	if err := investigatorSvc.SeedRunbooks(ctx); err != nil {
+		logger.Warn("seed runbooks failed", "error", err)
+	}
 
 	return &Environment{
 		Config:               cfg,
@@ -326,6 +338,8 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		TelemetryShutdown:    telShutdown,
 		AnalyticsRepo:        analyticsRepo,
 		AnalyticsService:     analyticsSvc,
+		InvestigatorRepo:     investigatorRepo,
+		InvestigatorService:  investigatorSvc,
 	}, nil
 }
 

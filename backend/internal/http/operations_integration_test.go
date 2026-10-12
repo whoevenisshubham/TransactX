@@ -19,6 +19,7 @@ import (
 	"github.com/transactx/backend/internal/audit"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/database"
+	"github.com/transactx/backend/internal/investigator"
 	"github.com/transactx/backend/internal/operations"
 	"github.com/transactx/backend/internal/telemetry"
 	"github.com/transactx/backend/internal/users"
@@ -554,5 +555,270 @@ func TestOperations_Analytics_WindowsAndMetricsSummary(t *testing.T) {
 	if err != nil || resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400 for bad asOf, got %v (%d)", err, resp.StatusCode)
 	}
+}
+
+func TestOperations_Investigation_CreateAndFetch(t *testing.T) {
+	server, pool, jwt := setupOperationsTestServer(t, true)
+	defer server.Close()
+	defer pool.Close()
+
+	ctx := context.Background()
+	_, _ = pool.Exec(ctx, "DELETE FROM investigation_jobs;")
+
+	adminToken, _ := jwt.Issue(uuid.NewString(), users.RoleOpsAdmin, time.Now())
+	viewerToken, _ := jwt.Issue(uuid.NewString(), users.RoleOpsViewer, time.Now())
+	customerToken, _ := jwt.Issue(uuid.NewString(), users.RoleCustomer, time.Now())
+
+	client := server.Client()
+
+	// 1. Role gating on POST /api/ops/investigations
+	// 1a. Unauthenticated gets 401
+	body := []byte(`{"paymentId":"` + uuid.NewString() + `","question":"Why is this pending?"}`)
+	resp, err := client.Post(server.URL+"/api/ops/investigations", "application/json", bytes.NewReader(body))
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unauthenticated on create investigation, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 1b. Customer gets 403
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+customerToken)
+	req.Header.Set("Idempotency-Key", "test-key-cust")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 customer on create investigation, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 2. Validation on POST /api/ops/investigations
+	// 2a. Missing Idempotency-Key header gets 400
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on missing Idempotency-Key header, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 2b. Invalid paymentId (non-UUID) gets 400
+	badPaymentBody := []byte(`{"paymentId":"not-a-uuid","question":"Why is this pending?"}`)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", bytes.NewReader(badPaymentBody))
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	req.Header.Set("Idempotency-Key", "test-key-bad-pid")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on invalid paymentId, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 2c. Empty question gets 400
+	emptyQBody := []byte(`{"paymentId":"` + uuid.NewString() + `","question":""}`)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", bytes.NewReader(emptyQBody))
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	req.Header.Set("Idempotency-Key", "test-key-empty-q")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on empty question, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 3. GET /api/ops/investigations/{investigationID} validation & role checks
+	// 3a. Unauthenticated gets 401
+	randomInvID := uuid.New()
+	resp, err = client.Get(fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, randomInvID))
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unauthenticated on get investigation, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 3b. Customer gets 403
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, randomInvID), nil)
+	req.Header.Set("Authorization", "Bearer "+customerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 customer on get investigation, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 3c. Invalid UUID gets 400
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/investigations/not-a-uuid", nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on invalid investigation UUID, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 3d. Non-existent UUID gets 404
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, randomInvID), nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 on missing investigation, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 4. Create valid investigation by OPS_VIEWER
+	paymentID := createOpsTestPayment(t, pool)
+	idempKey := "idemp-ops-" + uuid.NewString()
+
+	createReqBody := []byte(fmt.Sprintf(`{"paymentId":"%s","question":"Why is this payment pending reconciliation?"}`, paymentID))
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", bytes.NewReader(createReqBody))
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	req.Header.Set("Idempotency-Key", idempKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 on valid create investigation, got %v (%d)", err, resp.StatusCode)
+	}
+
+	var acceptedResp struct {
+		Data investigator.InvestigationAccepted `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&acceptedResp); err != nil {
+		t.Fatalf("failed to decode accepted response: %v", err)
+	}
+	if acceptedResp.Data.InvestigationID == uuid.Nil {
+		t.Fatalf("expected valid investigationId in response")
+	}
+	if acceptedResp.Data.Status != "queued" {
+		t.Errorf("expected status queued, got %s", acceptedResp.Data.Status)
+	}
+	if acceptedResp.Data.Mode != "evidence_only" {
+		t.Errorf("expected mode evidence_only, got %s", acceptedResp.Data.Mode)
+	}
+	invID := acceptedResp.Data.InvestigationID
+
+	// 5. Idempotency Replay: same key, same payload -> 202 with same investigationID
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", bytes.NewReader(createReqBody))
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	req.Header.Set("Idempotency-Key", idempKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 on idempotent replay, got %v (%d)", err, resp.StatusCode)
+	}
+	var replayResp struct {
+		Data investigator.InvestigationAccepted `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&replayResp)
+	if replayResp.Data.InvestigationID != invID {
+		t.Fatalf("expected replayed investigation ID %s, got %s", invID, replayResp.Data.InvestigationID)
+	}
+
+	// 6. Idempotency Conflict: same key, different question -> 409 Conflict
+	conflictingBody := []byte(fmt.Sprintf(`{"paymentId":"%s","question":"Different question for conflict"}`, paymentID))
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", bytes.NewReader(conflictingBody))
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	req.Header.Set("Idempotency-Key", idempKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 conflict on altered payload, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 7. GET /api/ops/investigations/{investigationID} before execution
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, invID), nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on get queued investigation, got %v (%d)", err, resp.StatusCode)
+	}
+	var queuedInvResp struct {
+		Data investigator.Investigation `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&queuedInvResp); err != nil {
+		t.Fatalf("failed to decode queued investigation: %v", err)
+	}
+	if queuedInvResp.Data.ID != invID {
+		t.Fatalf("investigation ID mismatch: %s vs %s", invID, queuedInvResp.Data.ID)
+	}
+	if queuedInvResp.Data.Status != "queued" {
+		t.Fatalf("expected status queued, got %s", queuedInvResp.Data.Status)
+	}
+
+	// 8. Execute the job via Investigator Repo & Service
+	invRepo := investigator.NewPostgresRepository(pool)
+	opsRepo := operations.NewRepository(pool)
+	opsSvc := operations.NewService(opsRepo, nil, nil)
+	invSvc := investigator.NewService(invRepo, opsSvc, nil)
+	_ = invSvc.SeedRunbooks(ctx)
+
+	claimed, err := invRepo.ClaimNextJob(ctx, "worker-integration-test", 1*time.Minute)
+	if err != nil || claimed == nil {
+		t.Fatalf("expected to claim queued job, got %v", err)
+	}
+	if claimed.ID != invID {
+		t.Fatalf("claimed job ID mismatch: %s vs %s", invID, claimed.ID)
+	}
+	if err := invSvc.ExecuteJob(ctx, claimed); err != nil {
+		t.Fatalf("execute job failed: %v", err)
+	}
+
+	// 9. GET /api/ops/investigations/{investigationID} after execution
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, invID), nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on get completed investigation, got %v (%d)", err, resp.StatusCode)
+	}
+	var completedInvResp struct {
+		Data investigator.Investigation `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&completedInvResp); err != nil {
+		t.Fatalf("failed to decode completed investigation: %v", err)
+	}
+	if completedInvResp.Data.Status != "completed" {
+		t.Fatalf("expected status completed, got %s", completedInvResp.Data.Status)
+	}
+	if completedInvResp.Data.Report == nil {
+		t.Fatalf("expected non-nil report on completed investigation")
+	}
+	if completedInvResp.Data.Report.SchemaVersion != "tx.investigation.v1" {
+		t.Errorf("expected schemaVersion tx.investigation.v1, got %s", completedInvResp.Data.Report.SchemaVersion)
+	}
+	if completedInvResp.Data.Report.Mode != "evidence_only" {
+		t.Errorf("expected report mode evidence_only, got %s", completedInvResp.Data.Report.Mode)
+	}
+	if len(completedInvResp.Data.Report.Facts) == 0 {
+		t.Errorf("expected facts in report, got 0")
+	}
+	if len(completedInvResp.Data.ToolTimeline) < 2 {
+		t.Errorf("expected tool timeline with at least 2 steps, got %d", len(completedInvResp.Data.ToolTimeline))
+	}
+}
+
+func createOpsTestPayment(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
+	ctx := context.Background()
+	bankID := uuid.New()
+	bankCode := "BANK_TEST_" + uuid.NewString()[:8]
+	_, _ = pool.Exec(ctx, "INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Bank Test', 'ACTIVE')", bankID, bankCode)
+
+	senderID := uuid.New()
+	senderPhone := "+9199" + uuid.NewString()[:8]
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, phone, name, upi_id, password_hash, role)
+		VALUES ($1, $2, 'Test User', $3, 'hash', 'CUSTOMER');
+	`, senderID, senderPhone, senderPhone+"@upi")
+	if err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+
+	accID := uuid.New()
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, status)
+		VALUES ($1, $2, $3, $4, 5000000, 'ACTIVE');
+	`, accID, senderID, bankID, "ACC_"+uuid.NewString()[:8])
+
+	paymentID := uuid.New()
+	query := `
+		INSERT INTO payments (
+			id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise,
+			currency, state, source_bank_id, destination_bank_id,
+			created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $3, 50000, 'INR', 'PENDING_RECONCILIATION', $4, $4, NOW(), NOW()
+		);
+	`
+	_, err = pool.Exec(ctx, query, paymentID, senderID, accID, bankID)
+	if err != nil {
+		t.Fatalf("failed to insert test payment: %v", err)
+	}
+	return paymentID
 }
 

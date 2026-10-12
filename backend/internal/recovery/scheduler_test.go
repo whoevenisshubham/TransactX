@@ -364,7 +364,7 @@ func TestRecovery_Discovery_StalePagination_NeverUnparksNeedsAttention(t *testin
 		t.Fatal(err)
 	}
 
-	discovered, err := td.repo.DiscoverStalePayments(ctx, staleAge, 100)
+	discovered, err := td.repo.DiscoverStalePayments(ctx, staleAge, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}

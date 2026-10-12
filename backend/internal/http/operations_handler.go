@@ -13,6 +13,7 @@ import (
 	"github.com/transactx/backend/internal/analytics"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/common"
+	"github.com/transactx/backend/internal/investigator"
 	"github.com/transactx/backend/internal/operations"
 	"github.com/transactx/backend/internal/telemetry"
 )
@@ -377,4 +378,88 @@ func (h *Handler) opsMetricsSummary(writer http.ResponseWriter, request *http.Re
 	}
 
 	writeData(writer, http.StatusOK, request, summary)
+}
+
+func (h *Handler) opsCreateInvestigation(writer http.ResponseWriter, request *http.Request) {
+	if h.investigatorSvc == nil {
+		writeAPIError(writer, request, common.NewAPIError("SERVICE_UNAVAILABLE", "investigator service not configured", http.StatusServiceUnavailable))
+		return
+	}
+
+	idempotencyKey := strings.TrimSpace(request.Header.Get("Idempotency-Key"))
+	if idempotencyKey == "" {
+		writeAPIError(writer, request, common.NewAPIError("MISSING_IDEMPOTENCY_KEY", "Idempotency-Key header is required", http.StatusBadRequest))
+		return
+	}
+
+	var req investigator.CreateJobRequest
+	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "malformed request body", http.StatusBadRequest))
+		return
+	}
+
+	actorID := "anonymous"
+	if identity, ok := auth.IdentityFromRequest(request); ok {
+		actorID = identity.UserID
+	}
+
+	accepted, err := h.investigatorSvc.CreateInvestigation(request.Context(), actorID, idempotencyKey, req)
+	if err != nil {
+		if errors.Is(err, investigator.ErrInvalidPaymentID) {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_PAYMENT_ID", err.Error(), http.StatusBadRequest))
+			return
+		}
+		if errors.Is(err, investigator.ErrInvalidQuestion) {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_QUESTION", err.Error(), http.StatusBadRequest))
+			return
+		}
+		if errors.Is(err, investigator.ErrIdempotencyConflict) {
+			writeAPIError(writer, request, common.NewAPIError("IDEMPOTENCY_CONFLICT", err.Error(), http.StatusConflict))
+			return
+		}
+		if errors.Is(err, investigator.ErrActorLimitExceeded) {
+			writeAPIError(writer, request, common.NewAPIError("ACTOR_LIMIT_EXCEEDED", err.Error(), http.StatusTooManyRequests))
+			return
+		}
+		if errors.Is(err, investigator.ErrGlobalLimitExceeded) {
+			writeAPIError(writer, request, common.NewAPIError("GLOBAL_LIMIT_EXCEEDED", err.Error(), http.StatusTooManyRequests))
+			return
+		}
+		if errors.Is(err, investigator.ErrRateLimitExceeded) {
+			writeAPIError(writer, request, common.NewAPIError("RATE_LIMIT_EXCEEDED", err.Error(), http.StatusTooManyRequests))
+			return
+		}
+		h.logger.Error("failed to create investigation", "error", err)
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to create investigation", http.StatusInternalServerError))
+		return
+	}
+
+	writeData(writer, http.StatusAccepted, request, accepted)
+}
+
+func (h *Handler) opsGetInvestigation(writer http.ResponseWriter, request *http.Request) {
+	if h.investigatorSvc == nil {
+		writeAPIError(writer, request, common.NewAPIError("SERVICE_UNAVAILABLE", "investigator service not configured", http.StatusServiceUnavailable))
+		return
+	}
+
+	investigationIDStr := request.PathValue("investigationID")
+	investigationID, err := uuid.Parse(investigationIDStr)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_INVESTIGATION_ID", "investigationID must be a valid UUID", http.StatusBadRequest))
+		return
+	}
+
+	inv, err := h.investigatorSvc.GetInvestigation(request.Context(), investigationID)
+	if err != nil {
+		if errors.Is(err, investigator.ErrJobNotFound) {
+			writeAPIError(writer, request, common.NewAPIError("INVESTIGATION_NOT_FOUND", err.Error(), http.StatusNotFound))
+			return
+		}
+		h.logger.Error("failed to get investigation", "error", err, "investigation_id", investigationID)
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to get investigation", http.StatusInternalServerError))
+		return
+	}
+
+	writeData(writer, http.StatusOK, request, inv)
 }
