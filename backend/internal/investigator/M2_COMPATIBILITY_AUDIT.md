@@ -19,7 +19,7 @@ M1/M2 integration must retain M3's investigator service, public DTO validation, 
 | Reservations | M2 stores one reserved/actual token count and reserved/committed/released status | Store separate input/output allowance and actual usage, cost cap, provider/request identity and an uncertain terminal state; keep reservation and lease transitions transactional |
 | Corpus | M2 runbook_corpus_chunks has an active flag and SeedRunbooks inserts four ad-hoc chunks | Use corpus_versions plus immutable runbook_chunks, stage exact tx.corpus.c1.v1 manifest content, role-filter with simple websearch_to_tsquery, activate atomically, retain retired citations, and do not call SeedRunbooks |
 | B10 features | M2 emits the six tx.features.v1 named nullable fields in the correct schema | Call anomaly.EvaluateLiveFeatures so observation time, ordering, copies, ranges, finiteness and schema are checked before baseline/model scoring |
-| B10 baseline | M2 flags fixed failureRate > 0.15 or timeoutRate > 0.10 | Replace with M3 FitBaseline over only prior independently designated healthy durable windows; threshold remains 3 with an eight-window per-feature warmup |
+| B10 baseline | M2 flags fixed failureRate > 0.15 or timeoutRate > 0.10 | Query only independently designated healthy durable rows for the same entity, pass them through M3 FitLiveBaseline, and keep threshold 3 with an eight-window per-feature warmup |
 | B10 model | M2 always records unavailable/insufficient_data | Call anomaly.EvaluateLiveFeatures with server-owned observation time. Baseline remains default; load the experimental model only through the pinned-hash registry and never use it for payment policy |
 | HTTP/worker mount | M2 mounts its local service/repository | Mount M3 CreateInvestigationRequest/CreateResponse/PublicInvestigation, inject trusted scope from existing auth, run M3 Service.Run under epoch-fenced claims, and keep provider budget zero by default |
 
@@ -29,7 +29,7 @@ Migration 000027 has already been named on M2, so integration must reconcile app
 
 For live evidence, a composition-layer `EvidenceJSONSource` may import both operations and investigator without creating a package cycle. It parses the already validated selected payment UUID, invokes M2's reader with server-owned scope, and serializes the returned DTO. `BridgedEvidenceReader` validates actor, allowed role and selected-payment equality before invoking that source, then performs strict decode and identity validation. Reader errors and decoder errors must be sanitized at the HTTP boundary.
 
-For live analytics, map the B10 window FeatureSchemaVersion, SampleCount and named Features into anomaly.LiveFeatureValues and call anomaly.EvaluateLiveFeatures with a server-owned observation time. Persist the original M3 baseline result and model status/version/score/threshold with the completed window. Never recalibrate from the window being scored or from later windows.
+For live analytics, query prior independently designated healthy B10 rows for the same entity and call anomaly.FitLiveBaseline with the scored window's start. This enforces unique IDs/window keys, exact five-minute UTC boundaries, no overlap/future leakage, the frozen feature schema and a 10,000-row safety bound; it cannot determine whether M2's healthy designation itself is correct, so that query remains an owned review gate. Map the scored window FeatureSchemaVersion, SampleCount and named Features into anomaly.LiveFeatureValues and call anomaly.EvaluateLiveFeatures with a server-owned observation time. Persist the original M3 baseline result and model status/version/score/threshold with the completed window. Never recalibrate from the window being scored or from later windows.
 
 ## Required live acceptance gates
 
@@ -38,7 +38,7 @@ For live analytics, map the B10 window FeatureSchemaVersion, SampleCount and nam
 - Concurrent actor idempotency, claim/lease loss, checkpoint resume and usage reservation tests pass against PostgreSQL.
 - Authenticated POST/GET success and cross-actor/payment/role denial paths exercise the mounted M3 service.
 - A real operations evidence read passes BridgedEvidenceReader; foreign identity is rejected before the source call, while unknown fields, oversized output and source timeout fail closed.
-- B10 durable windows map through EvaluateLiveFeatures, use only prior healthy calibration windows, and persist baseline-default results. Model-off, stale, missing, insufficient and out-of-distribution states remain explicit.
+- B10 durable windows calibrate through FitLiveBaseline, map through EvaluateLiveFeatures, and persist baseline-default results. Tests must include cross-entity, duplicate, overlap/future and malformed-window rejection. Model-off, stale, missing, insufficient and out-of-distribution states remain explicit.
 - M1 validates real mounted responses and browser states. Offline fixtures, the disposable C1 DDL and the synthetic anomaly evaluation do not satisfy these live gates.
 
 No provider request, paid resource, shared migration edit or production corpus activation was performed by this audit.
