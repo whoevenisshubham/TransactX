@@ -179,6 +179,13 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("TX_PAYMENT_CONCURRENCY must be a positive integer: %w", err)
 	}
 
+	if dbMaxConns < 3 {
+		return Config{}, fmt.Errorf("TX_DB_MAX_CONNS must be at least 3 to allow concurrency plus 2 query reserve: %d", dbMaxConns)
+	}
+	if paymentConcurrency > dbMaxConns-2 {
+		return Config{}, fmt.Errorf("TX_PAYMENT_CONCURRENCY (%d) exceeds pool capacity preserving 2 query reserve (TX_DB_MAX_CONNS=%d)", paymentConcurrency, dbMaxConns)
+	}
+
 	migrationsDir := getEnv("TX_MIGRATIONS_DIR", "migrations")
 
 	cfg := Config{

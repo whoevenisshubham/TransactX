@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,6 +54,10 @@ type Service struct {
 	staticBaseline         string
 	circuitEligibility     CircuitEligibility
 	routeDecisionResolver  func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)
+	concurrencySem         chan struct{}
+	concurrencyLimit       int
+	concurrencyOnce        sync.Once
+	recoveryMetrics        *RecoveryMetrics
 }
 
 func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapter bank.BankAdapter) *Service {
@@ -150,24 +155,11 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 	requestHash := paymentRequestHash(input.SourceAccountID, recipientIdentifier, input.AmountPaise, currency, note)
 	if payment, duplicate, err := service.payments.GetIdempotent(ctx, input.UserID, key, requestHash); err != nil || duplicate {
 		if err == nil && duplicate && service.hasRoutedAdapters() {
-			if payment.State == StateBankSettledCentralPending {
-				recovered, recoveryErr := service.payments.RecoverBankSettledCentralPending(ctx, payment.ID)
-				return recovered, true, recoveryErr
+			resumeResult, resumeErr := service.Resume(ctx, payment.ID)
+			if resumeErr != nil {
+				return resumeResult.Payment, true, resumeErr
 			}
-			if payment.State == StatePendingReconciliation || payment.State == StateProcessing {
-				sourceAdapter, destinationAdapter, ok, err := service.RoutedAdaptersForPayment(ctx, payment)
-				if err != nil {
-					return Payment{}, true, err
-				}
-				if ok {
-					recoveryErr := service.payments.RecoverRoutedPayment(ctx, payment, sourceAdapter, destinationAdapter)
-					recovered, getErr := service.payments.Get(ctx, payment.ID)
-					if getErr != nil {
-						return Payment{}, true, getErr
-					}
-					return recovered, true, recoveryErr
-				}
-			}
+			return resumeResult.Payment, true, nil
 		}
 		return payment, duplicate, err
 	}

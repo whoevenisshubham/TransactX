@@ -147,6 +147,9 @@ func (repository *Repository) createRoutedIdempotent(ctx context.Context, paymen
 		if repository.adapterResolver != nil {
 			if src, dst, ok := repository.adapterResolver(ctx, existing); ok {
 				sourceAdapter, destinationAdapter = src, dst
+			} else {
+				// Execution target is no longer configured; fail closed and leave existing state pending
+				return existing, true, nil
 			}
 		}
 		return repository.replayRoutedPayment(ctx, existing, true, sourceBankID, destinationBankID, sourceAdapter, destinationAdapter)
@@ -181,6 +184,8 @@ func (repository *Repository) replayRoutedPayment(ctx context.Context, payment P
 		sagaErr = repository.RecoverRoutedPayment(ctx, current, sourceAdapter, destinationAdapter)
 	case StateBankSettledCentralPending:
 		current, sagaErr = repository.RecoverBankSettledCentralPending(ctx, current.ID)
+	case StateCommitted:
+		current, sagaErr = repository.CompleteCommittedPayment(ctx, current.ID)
 	}
 	if refreshed, getErr := repository.Get(ctx, payment.ID); getErr == nil {
 		current = refreshed
@@ -191,6 +196,15 @@ func (repository *Repository) replayRoutedPayment(ctx context.Context, payment P
 }
 
 func (repository *Repository) lockPayment(ctx context.Context, paymentID uuid.UUID) (func(), error) {
+	if repository == nil || repository.db == nil {
+		if repository != nil && (repository.getFn != nil || repository.recoverRoutedFn != nil) {
+			return func() {}, nil
+		}
+		return nil, errors.New("repository database is not initialized")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	lockKey := int64(binary.BigEndian.Uint64(paymentID[:8])) ^ int64(binary.BigEndian.Uint64(paymentID[8:]))
 	for {
 		conn, err := repository.db.Acquire(ctx)
@@ -204,7 +218,14 @@ func (repository *Repository) lockPayment(ctx context.Context, paymentID uuid.UU
 		}
 		if locked {
 			unlock := func() {
-				_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, lockKey)
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				var unlocked bool
+				err := conn.QueryRow(cleanupCtx, `SELECT pg_advisory_unlock($1)`, lockKey).Scan(&unlocked)
+				if err != nil || !unlocked {
+					// Unlock failed or lock was not held - destroy underlying connection so it cannot contaminate pool!
+					_ = conn.Conn().Close(cleanupCtx)
+				}
 				conn.Release()
 			}
 			return unlock, nil
@@ -505,6 +526,36 @@ func (repository *Repository) settleRoutedCentral(ctx context.Context, payment P
 		return tx.Commit(ctx)
 	}
 	if currentState == StateCommitted {
+		// Validates central ledger before completing without adding another ledger transaction
+		var ledgerTxID uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT id FROM ledger_transactions WHERE payment_id = $1`, payment.ID).Scan(&ledgerTxID); err != nil {
+			return fmt.Errorf("cannot complete committed payment %s without valid ledger transaction: %w", payment.ID, err)
+		}
+		var debitSum, creditSum int64
+		rows, err := tx.Query(ctx, `SELECT entry_type, amount_paise FROM ledger_entries WHERE ledger_transaction_id = $1`, ledgerTxID)
+		if err != nil {
+			return fmt.Errorf("failed to query ledger entries for transaction %s: %w", ledgerTxID, err)
+		}
+		var entryCount int
+		for rows.Next() {
+			var entryType string
+			var amount int64
+			if err := rows.Scan(&entryType, &amount); err != nil {
+				rows.Close()
+				return err
+			}
+			entryCount++
+			if entryType == ledger.EntryDebit {
+				debitSum += amount
+			} else if entryType == ledger.EntryCredit {
+				creditSum += amount
+			}
+		}
+		rows.Close()
+		if entryCount < 2 || debitSum != creditSum || debitSum <= 0 {
+			return fmt.Errorf("ledger entries invalid/unbalanced for transaction %s (entries: %d, debit: %d, credit: %d)", ledgerTxID, entryCount, debitSum, creditSum)
+		}
+
 		current := Payment{State: currentState}
 		if err := Transition(&current, StateCompleted); err != nil {
 			return err
@@ -574,6 +625,22 @@ func (repository *Repository) RecoverBankSettledCentralPending(ctx context.Conte
 		return Payment{}, err
 	}
 	if payment.State != StateBankSettledCentralPending {
+		return payment, nil
+	}
+	if err := repository.settleRoutedCentral(ctx, payment); err != nil {
+		return Payment{}, err
+	}
+	return repository.Get(ctx, paymentID)
+}
+
+// CompleteCommittedPayment verifies the central ledger transaction for a COMMITTED
+// payment and completes the state transition to COMPLETED without adding another ledger transaction.
+func (repository *Repository) CompleteCommittedPayment(ctx context.Context, paymentID uuid.UUID) (Payment, error) {
+	payment, err := repository.Get(ctx, paymentID)
+	if err != nil {
+		return Payment{}, err
+	}
+	if payment.State != StateCommitted {
 		return payment, nil
 	}
 	if err := repository.settleRoutedCentral(ctx, payment); err != nil {

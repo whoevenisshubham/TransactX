@@ -249,3 +249,34 @@ func TestLoad_CircuitSuccessPolicy(t *testing.T) {
 		t.Fatal("expected error for invalid CIRCUIT_SUCCESS_POLICY, got nil")
 	}
 }
+
+func TestLoad_PaymentConcurrencyPoolReserve(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+
+	// Valid default: DBMaxConns=8, PaymentConcurrency=2 (8-2=6 >= 2)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error with defaults: %v", err)
+	}
+	if cfg.DBMaxConns != 8 || cfg.PaymentConcurrency != 2 {
+		t.Fatalf("got conns=%d, concurrency=%d", cfg.DBMaxConns, cfg.PaymentConcurrency)
+	}
+
+	// Exceeds reserve: DBMaxConns=4, PaymentConcurrency=3 (4-3=1 < 2)
+	t.Setenv("TX_DB_MAX_CONNS", "4")
+	t.Setenv("TX_PAYMENT_CONCURRENCY", "3")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when concurrency exceeds pool reserve, got nil")
+	}
+
+	// Valid constrained: DBMaxConns=4, PaymentConcurrency=2 (4-2=2 >= 2)
+	t.Setenv("TX_DB_MAX_CONNS", "4")
+	t.Setenv("TX_PAYMENT_CONCURRENCY", "2")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error for valid constrained pool: %v", err)
+	}
+	if cfg.DBMaxConns != 4 || cfg.PaymentConcurrency != 2 {
+		t.Fatalf("got conns=%d, concurrency=%d", cfg.DBMaxConns, cfg.PaymentConcurrency)
+	}
+}

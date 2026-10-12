@@ -345,3 +345,14 @@ does not require the aligned bucket start itself to be inside the scope. This
 allows a proof returned for an arbitrary closed scope to be posted back
 unchanged without weakening participant, scope, generation, root, version, or
 record binding.
+
+## ADR-032: Shared recovery serialization and state continuation
+
+Status: **DECIDED** (Draft / Implemented in B1)
+
+All payment continuation paths (initial execution duplicate requests, caller retries,
+and background worker recovery) converge on `Service.Resume`. Per-payment session advisory
+locking runs on dedicated connections with guaranteed cleanup to prevent pool contamination.
+Re-reads state after lock acquisition, resolves original persisted route, validates central
+ledger for COMMITTED state without duplicate transactions, treats terminal states as NO_OP,
+and enforces bounded concurrency with a minimum connection pool reserve.
