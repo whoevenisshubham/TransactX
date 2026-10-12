@@ -19,6 +19,7 @@ import (
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/database"
 	"github.com/transactx/backend/internal/operations"
+	"github.com/transactx/backend/internal/telemetry"
 	"github.com/transactx/backend/internal/users"
 )
 
@@ -302,3 +303,99 @@ func TestOperations_RecoveryRecheck_GatedAndIdempotent(t *testing.T) {
 		t.Fatalf("expected 409 Conflict on altered payload with same key, got %d", respConflict.StatusCode)
 	}
 }
+
+func TestOperations_TraceDetails(t *testing.T) {
+	server, pool, jwtManager := setupOperationsTestServer(t, true)
+	defer server.Close()
+	defer pool.Close()
+
+	adminToken, _ := jwtManager.Issue(uuid.NewString(), users.RoleOpsAdmin, time.Now())
+	viewerToken, _ := jwtManager.Issue(uuid.NewString(), users.RoleOpsViewer, time.Now())
+	customerToken, _ := jwtManager.Issue(uuid.NewString(), users.RoleCustomer, time.Now())
+
+	traceID := "4bf92f3577b34da6a3ce929d0e0e4736"
+
+	// 1. Unauthenticated gets 401
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/ops/traces/"+traceID, nil)
+	resp, err := server.Client().Do(req)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 2. Customer gets 403 Forbidden
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/traces/"+traceID, nil)
+	req.Header.Set("Authorization", "Bearer "+customerToken)
+	resp, err = server.Client().Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for customer, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 3. Malformed trace ID returns 400 Bad Request
+	badIDs := []string{
+		"4BF92F3577B34DA6A3CE929D0E0E4736",
+		"short-id-123",
+		"4bf92f3577b34da6a3ce929d0e0e473g",
+	}
+	for _, bid := range badIDs {
+		req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/traces/"+bid, nil)
+		req.Header.Set("Authorization", "Bearer "+viewerToken)
+		resp, err = server.Client().Do(req)
+		if err != nil || resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for bad trace ID %q, got %d", bid, resp.StatusCode)
+		}
+	}
+
+	// 4. Missing trace returns 200 with sourceStatus: not_collected
+	missingID := "00000000000000000000000000000001"
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/traces/"+missingID, nil)
+	req.Header.Set("Authorization", "Bearer "+viewerToken)
+	resp, err = server.Client().Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for missing trace, got %v (%d)", err, resp.StatusCode)
+	}
+	var notCollectedResp struct {
+		Data telemetry.TraceResponse `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&notCollectedResp)
+	if notCollectedResp.Data.SourceStatus != "not_collected" {
+		t.Errorf("expected sourceStatus not_collected, got %s", notCollectedResp.Data.SourceStatus)
+	}
+
+	// 5. Existing trace returns 200 with available spans
+	testTraceID := "abcdef0123456789abcdef0123456789"
+	spanID := "0123456789abcdef"
+	now := time.Now().UTC()
+	insertQuery := `
+		INSERT INTO trace_spans (
+			span_id, trace_id, parent_span_id, service_name, span_name, span_kind,
+			start_time, end_time, duration_ms, status_code, status_message,
+			attributes, events, links, payment_id
+		) VALUES (
+			$1, $2, NULL, 'transactx-api', 'POST /api/payments', 'SERVER',
+			$3, $4, 42, 'OK', NULL,
+			'{"http.method": "POST", "http.route": "/api/payments"}'::jsonb,
+			'[]'::jsonb, '[]'::jsonb, NULL
+		) ON CONFLICT (trace_id, span_id) DO NOTHING`
+	_, _ = pool.Exec(context.Background(), insertQuery, spanID, testTraceID, now.Add(-42*time.Millisecond), now)
+
+	req, _ = http.NewRequest(http.MethodGet, server.URL+"/api/ops/traces/"+testTraceID, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err = server.Client().Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for existing trace, got %v (%d)", err, resp.StatusCode)
+	}
+	var collectedResp struct {
+		Data telemetry.TraceResponse `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&collectedResp)
+	if collectedResp.Data.SourceStatus != "available" {
+		t.Errorf("expected sourceStatus available, got %s", collectedResp.Data.SourceStatus)
+	}
+	if len(collectedResp.Data.Spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(collectedResp.Data.Spans))
+	}
+	if collectedResp.Data.Spans[0].SpanID != spanID {
+		t.Errorf("expected span ID %s, got %s", spanID, collectedResp.Data.Spans[0].SpanID)
+	}
+}
+

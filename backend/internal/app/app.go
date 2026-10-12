@@ -25,6 +25,7 @@ import (
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/reconciliation"
 	"github.com/transactx/backend/internal/recovery"
+	"github.com/transactx/backend/internal/telemetry"
 )
 
 // Environment encapsulates the initialized platform runtime components shared between API and Worker.
@@ -48,6 +49,8 @@ type Environment struct {
 	PaymentsService      *payments.Service
 	RecoveryRepo         *recovery.Repository
 	RecoveryScheduler    *recovery.Scheduler
+	TelemetryProvider    *telemetry.Provider
+	TelemetryShutdown    func(context.Context) error
 	ownsDB               bool
 }
 
@@ -271,6 +274,19 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		}
 	}
 
+	telCfg := telemetry.DefaultConfig("transactx-api")
+	telCfg.Environment = "development"
+	if !cfg.DevelopmentMode {
+		telCfg.Environment = "production"
+	}
+	if cfg.BuildSHA != "" {
+		telCfg.BuildSHA = cfg.BuildSHA
+	}
+	telProvider, telShutdown, err := telemetry.InitProvider(ctx, telCfg, db, logger)
+	if err != nil {
+		logger.Warn("initialize telemetry provider failed, proceeding without otel", "error", err)
+	}
+
 	return &Environment{
 		Config:               cfg,
 		DB:                   db,
@@ -291,11 +307,18 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		PaymentsService:      paymentsSvc,
 		RecoveryRepo:         recoveryRepo,
 		RecoveryScheduler:    recoveryScheduler,
+		TelemetryProvider:    telProvider,
+		TelemetryShutdown:    telShutdown,
 	}, nil
 }
 
 // Close releases the resources owned by Environment.
 func (e *Environment) Close() {
+	if e.TelemetryShutdown != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = e.TelemetryShutdown(shutdownCtx)
+		cancel()
+	}
 	if e.ownsDB && e.DB != nil {
 		e.DB.Close()
 	}
@@ -312,11 +335,16 @@ func (e *Environment) NewHTTPHandler() http.Handler {
 		RecoveryControlEnabled: e.Config.RecoveryControlEnabled,
 		AuditStore:             audit.NewPostgresStore(e.DB),
 	}
+	var handler http.Handler
 	if len(e.Adapters) == 0 {
-		return apihttp.NewHandlerWithReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
+		handler = apihttp.NewHandlerWithReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
 	} else if len(e.ExecutionTargets) > 0 {
-		return apihttp.NewHandlerWithExecutionTargetsCircuitChaosReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.Adapters, e.HealthTargets, e.ExecutionTargets, e.HealthService, payments.SelectionMode(e.Config.RoutingMode), e.Config.RoutingStaticBaseline, e.CircuitBreaker, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
+		handler = apihttp.NewHandlerWithExecutionTargetsCircuitChaosReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.Adapters, e.HealthTargets, e.ExecutionTargets, e.HealthService, payments.SelectionMode(e.Config.RoutingMode), e.Config.RoutingStaticBaseline, e.CircuitBreaker, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
 	} else {
-		return apihttp.NewHandlerWithBankAdaptersHealthRoutingChaosReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.Adapters, e.HealthTargets, e.RouteTargets, e.HealthService, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
+		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingChaosReconciliationAndRuntimeOptions(e.DB, e.Logger, e.AuthService, e.JWTManager, e.Adapters, e.HealthTargets, e.RouteTargets, e.HealthService, e.ChaosController, e.ReconciliationEngine, runtimeOptions)
 	}
+	if e.TelemetryProvider != nil {
+		handler = telemetry.HTTPMiddleware(e.TelemetryProvider.Tracer(), e.TelemetryProvider.Metrics())(handler)
+	}
+	return handler
 }

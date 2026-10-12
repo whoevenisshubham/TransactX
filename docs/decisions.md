@@ -390,3 +390,9 @@ Status: **IMPLEMENTED**
 
 Introduces idempotent consumer inbox (`consumer_inbox`) and derived worklist projection (`ops_payment_worklist`) via Migration 000025. Projections consume transactional outbox deliveries under shared transaction advisory locks (`WorklistMaintenanceLockKey = 78891001`), deduplicating events via `consumer_inbox` and enforcing nondecreasing `event_version` guards to prevent out-of-order regressions. Malformed or unsupported schema versions are quarantined without dropping data or stalling the pipeline. A dedicated offline maintenance CLI (`cmd/rebuild-worklist`) acquires exclusive transaction advisory locks, supports a non-destructive `--preview` diff mode, validates snapshot counts in temporary staging tables, performs atomic truncate-and-swap projection reconstruction, and logs full audit entries in `operational_audit_logs`.
 
+## ADR-040: OpenTelemetry Distributed Tracing, Bounded Storage, and Span Links
+
+Status: **IMPLEMENTED**
+
+Instruments all platform processes (`transactx-api`, `transactx-worker`, `transactx-bank-a`, `transactx-bank-b`) with the OpenTelemetry Go SDK and standard W3C Trace Context propagation. Features a safe, non-blocking asynchronous exporter (`BoundedPostgresExporter`) backed by the `trace_spans` table (Migration 000026) with a strictly bounded 1,000-span queue that drops on overload to guarantee zero financial or transaction impact. Implements strict attribute cardinality limits (max 20 attributes, 256 char string cap, credentials/tokens/PII blacklisted) and automated 24-hour / 20,000-span TTL cleanup. Employs OpenTelemetry span links (`trace.Link`) for background recovery attempts to preserve causal provenance across process restarts without manufacturing synthetic parent spans. Exposes an operational read-only trace API (`GET /api/ops/traces/{traceID}`) for `OPS_ADMIN` and `OPS_VIEWER` roles returning bounded snapshots up to 200 spans.
+

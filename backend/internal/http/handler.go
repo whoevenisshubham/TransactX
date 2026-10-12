@@ -24,6 +24,7 @@ import (
 	"github.com/transactx/backend/internal/payments"
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/reconciliation"
+	"github.com/transactx/backend/internal/telemetry"
 	"github.com/transactx/backend/internal/users"
 )
 
@@ -55,6 +56,8 @@ type Handler struct {
 	auditStore              audit.Store
 	operationsRepo          *operations.Repository
 	operationsSvc           *operations.Service
+	traceStore              *telemetry.TraceStore
+	telemetryMetrics        *telemetry.Metrics
 }
 
 type RuntimeOptions struct {
@@ -208,6 +211,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		handler.eventCursor = newPostgresOperationalCursorStore(db)
 		handler.operationsRepo = operations.NewRepository(db)
 		handler.operationsSvc = operations.NewService(handler.operationsRepo, adapters, logger)
+		handler.traceStore = telemetry.NewTraceStore(db, logger)
+		handler.telemetryMetrics = telemetry.NewMetrics()
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -259,6 +264,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("GET /api/ops/activity", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.activityFeed))))
 	mux.Handle("GET /api/ops/runtime", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.runtimeStatus))))
 	mux.Handle("GET /api/ops/events/stream", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.operationalEvents))))
+	mux.Handle("GET /api/ops/traces/{traceID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsTraceDetails))))
 	// Reconciliation endpoints are always registered; the handler returns
 	// NOT_FOUND gracefully when no engine is configured.
 	mux.Handle("POST /api/ops/reconciliation/runs", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.reconciliationCreateRun))))
@@ -297,6 +303,7 @@ func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Reques
 		"recoveryControlEnabled": h.recoveryControlEnabled,
 		"canControlRecovery":     h.recoveryControlEnabled,
 		"canRunChaos":            h.chaosEnabled,
+		"traceCollectionEnabled": h.traceStore != nil,
 	})
 }
 

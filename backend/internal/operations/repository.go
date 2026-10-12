@@ -547,6 +547,31 @@ func (r *Repository) GetPaymentRawEvidence(ctx context.Context, paymentID uuid.U
 		traceRows.Close()
 	}
 
+	traceSpanQuery := `
+		SELECT DISTINCT trace_id
+		FROM trace_spans
+		WHERE payment_id = $1
+		LIMIT 10`
+	spanRows, err := tx.Query(ctx, traceSpanQuery, paymentID)
+	if err == nil {
+		for spanRows.Next() {
+			var tid string
+			if err := spanRows.Scan(&tid); err == nil {
+				found := false
+				for _, existing := range data.TraceIDs {
+					if existing == tid {
+						found = true
+						break
+					}
+				}
+				if !found {
+					data.TraceIDs = append(data.TraceIDs, tid)
+				}
+			}
+		}
+		spanRows.Close()
+	}
+
 	return data, nil
 }
 

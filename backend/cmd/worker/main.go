@@ -9,10 +9,12 @@ import (
 
 	"github.com/transactx/backend/internal/app"
 	"github.com/transactx/backend/internal/config"
+	"github.com/transactx/backend/internal/telemetry"
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	jsonHandler := slog.NewJSONHandler(os.Stdout, nil)
+	logger := slog.New(telemetry.NewTraceCorrelatingHandler(jsonHandler))
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("load configuration", "error", err)

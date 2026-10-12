@@ -13,6 +13,7 @@ import (
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/common"
 	"github.com/transactx/backend/internal/operations"
+	"github.com/transactx/backend/internal/telemetry"
 )
 
 func (h *Handler) opsWorklist(writer http.ResponseWriter, request *http.Request) {
@@ -258,4 +259,42 @@ func (h *Handler) opsPaymentEvidenceExport(writer http.ResponseWriter, request *
 	}
 
 	writeData(writer, http.StatusOK, request, exportBundle)
+}
+
+func (h *Handler) opsTraceDetails(writer http.ResponseWriter, request *http.Request) {
+	traceID := request.PathValue("traceID")
+	if traceID == "" {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_ARGUMENT", "traceId path parameter is required", http.StatusBadRequest))
+		return
+	}
+
+	if err := telemetry.ValidateTraceID(traceID); err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_ARGUMENT", "traceId must be a 32-character lowercase hex string", http.StatusBadRequest))
+		return
+	}
+
+	if h.traceStore == nil {
+		resp := telemetry.TraceResponse{
+			TraceID:      traceID,
+			SourceStatus: "not_collected",
+			CollectedAt:  time.Now().UTC(),
+			Truncated:    false,
+			Spans:        []telemetry.SpanDTO{},
+		}
+		writeData(writer, http.StatusOK, request, resp)
+		return
+	}
+
+	traceResp, err := h.traceStore.GetTrace(request.Context(), traceID)
+	if err != nil {
+		if errors.Is(err, telemetry.ErrInvalidTraceID) {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_ARGUMENT", err.Error(), http.StatusBadRequest))
+			return
+		}
+		h.logger.Error("failed to query trace details", "error", err, "trace_id", traceID)
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to read trace", http.StatusInternalServerError))
+		return
+	}
+
+	writeData(writer, http.StatusOK, request, traceResp)
 }
