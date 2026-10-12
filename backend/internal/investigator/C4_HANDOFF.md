@@ -11,7 +11,7 @@ This handoff is source-compatible with shared contract `tx.v2.1`. It does not mo
 - Stage corpus `tx.corpus.c1.v1`, verify its manifest hash/chunk count, then activate it only after migration and role-filtered retrieval checks. Retain retired chunks for saved citation drilldowns.
 - Apply the existing JWT/RBAC, body-size, unknown-field, idempotency and rate-limit middleware. Never expose SQL, shell, mutation or arbitrary URL tools. Preserve the 30-second job, three-second evidence read, two core attempts, topK five, eight unique tools and two provider-round bounds.
 
-M2 acceptance still required: disposable PostgreSQL migration/repository tests, trusted real evidence reads, cross-worker claim/resume, concurrent usage reservations, authenticated POST/GET denial and success paths, active-corpus ingestion, persisted citation resolution and native B10 analytics windows. None is replaced by the C4 memory evaluation.
+M2 acceptance still required: canonical migration 000027 tests, trusted real evidence reads, cross-worker claim/resume, concurrent usage reservations, authenticated POST/GET denial and success paths, active-corpus ingestion through the canonical schema, persisted citation resolution and native B10 analytics windows. The M3-owned repository contract now passes against test-only disposable PostgreSQL DDL, but that does not replace these runtime gates or the C4 memory evaluation's limitations.
 
 ## M1 response and fixture contract
 
