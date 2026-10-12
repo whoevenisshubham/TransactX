@@ -383,3 +383,10 @@ Restricts self-registration to CUSTOMER and MERCHANT roles, preventing privilege
 Status: **IMPLEMENTED**
 
 Introduces payment event versioning (`payments.event_version`), immutable outbox events (`outbox_events`), and delivery state (`outbox_deliveries`) via Migration 000024. PostgreSQL triggers on `payments` atomically assign monotonically increasing event versions and insert typed outbox events (`payment.created.v1`, `payment.state_changed.v1`) and deliveries for `ops-worklist-v1` within the source transaction. Triggers on `recovery_attempts` and `recovery_jobs` emit recovery lifecycle facts (`recovery.attempt_started.v1`, `recovery.attempt_finished.v1`, `recovery.attention_required.v1`). Source rollbacks discard all outbox effects, updates on `outbox_events` are strictly denied by an immutability trigger, and customer private data is excluded from payloads.
+
+## ADR-035: Worklist Projection, Consumer Inbox, and Safe Offline Rebuild
+
+Status: **IMPLEMENTED**
+
+Introduces idempotent consumer inbox (`consumer_inbox`) and derived worklist projection (`ops_payment_worklist`) via Migration 000025. Projections consume transactional outbox deliveries under shared transaction advisory locks (`WorklistMaintenanceLockKey = 78891001`), deduplicating events via `consumer_inbox` and enforcing nondecreasing `event_version` guards to prevent out-of-order regressions. Malformed or unsupported schema versions are quarantined without dropping data or stalling the pipeline. A dedicated offline maintenance CLI (`cmd/rebuild-worklist`) acquires exclusive transaction advisory locks, supports a non-destructive `--preview` diff mode, validates snapshot counts in temporary staging tables, performs atomic truncate-and-swap projection reconstruction, and logs full audit entries in `operational_audit_logs`.
+
