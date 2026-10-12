@@ -86,6 +86,9 @@ type Config struct {
 	CircuitSuccessThreshold   int
 	CircuitRestorationSteps   int
 	CircuitSuccessPolicy      string
+	DBMaxConns                int
+	PaymentConcurrency        int
+	MigrationsDir             string
 }
 
 func Load() (Config, error) {
@@ -166,6 +169,18 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("CIRCUIT_SUCCESS_POLICY must be DECREMENT or RESET: %q", circuitSuccessPolicy)
 	}
 
+	dbMaxConns, err := strconv.Atoi(getEnv("TX_DB_MAX_CONNS", "8"))
+	if err != nil || dbMaxConns <= 0 {
+		return Config{}, fmt.Errorf("TX_DB_MAX_CONNS must be a positive integer: %w", err)
+	}
+
+	paymentConcurrency, err := strconv.Atoi(getEnv("TX_PAYMENT_CONCURRENCY", "2"))
+	if err != nil || paymentConcurrency <= 0 {
+		return Config{}, fmt.Errorf("TX_PAYMENT_CONCURRENCY must be a positive integer: %w", err)
+	}
+
+	migrationsDir := getEnv("TX_MIGRATIONS_DIR", "migrations")
+
 	cfg := Config{
 		Address:                   getEnv("APP_ADDR", ":8080"),
 		DatabaseURL:               getEnv("DATABASE_URL", ""),
@@ -192,6 +207,9 @@ func Load() (Config, error) {
 		CircuitSuccessThreshold:   circuitSuccessThreshold,
 		CircuitRestorationSteps:   circuitRestorationSteps,
 		CircuitSuccessPolicy:      circuitSuccessPolicy,
+		DBMaxConns:                dbMaxConns,
+		PaymentConcurrency:        paymentConcurrency,
+		MigrationsDir:             migrationsDir,
 	}
 	if !developmentMode && len([]byte(cfg.JWTSecret)) < 32 {
 		return Config{}, errors.New("JWT_SECRET must contain at least 32 bytes outside development mode")
