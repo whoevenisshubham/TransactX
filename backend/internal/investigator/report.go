@@ -171,6 +171,16 @@ func ValidateReportGrounding(report InvestigationReport, evidence EvidenceBundle
 			}
 		}
 	}
+	for _, inference := range report.Inferences {
+		if strings.TrimSpace(inference.Text) == "" || len(inference.EvidenceIds) == 0 {
+			return errors.New("inference lacks text or evidence citations")
+		}
+		for _, evidenceID := range inference.EvidenceIds {
+			if _, exists := evidenceRegistry[evidenceID]; !exists {
+				return fmt.Errorf("inference cites unknown evidence %q", evidenceID)
+			}
+		}
+	}
 	chunkRegistry := make(map[string]struct{}, len(chunks))
 	for _, chunk := range chunks {
 		chunkRegistry[chunk.ID] = struct{}{}
@@ -191,4 +201,71 @@ func ValidateReportGrounding(report InvestigationReport, evidence EvidenceBundle
 		return errors.New("invalid evidence coverage")
 	}
 	return nil
+}
+
+// GroundGeneratedReport validates semantic citation meaning and replaces the
+// model-controlled financial prose and recommendations with deterministic
+// renderings. Free-form provider text can remain only in explicitly labelled
+// inferences backed by known evidence IDs.
+func GroundGeneratedReport(report InvestigationReport, evidence EvidenceBundle, chunks []RunbookChunk, question string) (InvestigationReport, error) {
+	if report.Mode != ModeLLM || len(report.Facts) > 50 || len(report.Inferences) > 20 || len(report.Recommendations) > 10 {
+		return InvestigationReport{}, errors.New("generated report exceeds structural bounds")
+	}
+	if err := ValidateReportGrounding(report, evidence, chunks); err != nil {
+		return InvestigationReport{}, err
+	}
+	for index := range report.Facts {
+		report.Facts[index].Text = renderAssertions(report.Facts[index].Assertions)
+	}
+	for index, inference := range report.Inferences {
+		if len([]rune(inference.Text)) > 500 {
+			return InvestigationReport{}, errors.New("generated inference exceeds length bound")
+		}
+		report.Inferences[index].Text = "Advisory inference: " + inference.Text
+	}
+	recommendations := make([]Recommendation, 0, len(report.Recommendations))
+	chunkByID := make(map[string]RunbookChunk, len(chunks))
+	for _, chunk := range chunks {
+		chunkByID[chunk.ID] = chunk
+	}
+	seenRecommendations := make(map[string]struct{})
+	for _, recommendation := range report.Recommendations {
+		for _, chunkID := range recommendation.RunbookChunkIds {
+			if _, duplicate := seenRecommendations[chunkID]; duplicate {
+				continue
+			}
+			chunk := chunkByID[chunkID]
+			recommendations = append(recommendations, Recommendation{
+				Text:            fmt.Sprintf("Review the approved %q runbook section; it is %s guidance, not financial evidence.", chunk.Heading, chunk.ImplementationStatus),
+				RunbookChunkIds: []string{chunkID},
+			})
+			seenRecommendations[chunkID] = struct{}{}
+			if len(recommendations) == 3 {
+				break
+			}
+		}
+		if len(recommendations) == 3 {
+			break
+		}
+	}
+	report.Recommendations = recommendations
+	report.Summary = evidenceSummary(evidence)
+	report.MissingEvidence, report.EvidenceCoverage = missingEvidenceForQuestion(evidence, question)
+	return report, nil
+}
+
+func renderAssertions(assertions []Assertion) string {
+	if len(assertions) == 1 {
+		switch assertions[0].Field {
+		case "central_state":
+			return fmt.Sprintf("The central payment is %s.", assertions[0].Value)
+		case "amount_paise":
+			return fmt.Sprintf("The selected payment amount is %s in integer paise.", assertions[0].Value)
+		}
+	}
+	values := make([]string, len(assertions))
+	for index, assertion := range assertions {
+		values[index] = assertion.Field + "=" + assertion.Value
+	}
+	return "Verified typed evidence: " + strings.Join(values, ", ") + "."
 }

@@ -393,4 +393,20 @@ func TestGroundingChecksAssertionMeaning(t *testing.T) {
 	if err := ValidateReportGrounding(report, fixture.Evidence, nil); err == nil {
 		t.Fatal("wrong amount with valid evidence ID passed grounding")
 	}
+	report, err = BuildEvidenceOnlyReport(fixture.Evidence, nil, "current state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report.Facts[0].EvidenceIds[0] = "payment:unknown"
+	if err := ValidateReportGrounding(report, fixture.Evidence, nil); err == nil {
+		t.Fatal("unknown evidence ID passed grounding")
+	}
+	report, err = BuildEvidenceOnlyReport(fixture.Evidence, nil, "current state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report.SnapshotId = "sha256:changed"
+	if err := ValidateReportGrounding(report, fixture.Evidence, nil); err == nil {
+		t.Fatal("changed snapshot identity passed grounding")
+	}
 }

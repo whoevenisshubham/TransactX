@@ -28,22 +28,33 @@ const (
 var ErrInvalidInvestigationRequest = errors.New("invalid investigation request")
 
 type ServiceConfig struct {
-	JobTimeout      time.Duration
-	EvidenceTimeout time.Duration
-	LeaseDuration   time.Duration
-	RetrievalTopK   int
-	MaxCoreAttempts int
-	Now             func() time.Time
+	JobTimeout        time.Duration
+	EvidenceTimeout   time.Duration
+	LeaseDuration     time.Duration
+	RetrievalTopK     int
+	MaxCoreAttempts   int
+	Mode              string
+	Provider          Provider
+	PromptVersion     string
+	InputTokenLimit   int
+	OutputTokenLimit  int
+	MaxProviderRounds int
+	Now               func() time.Time
 }
 
 func DefaultServiceConfig() ServiceConfig {
 	return ServiceConfig{
-		JobTimeout:      30 * time.Second,
-		EvidenceTimeout: 3 * time.Second,
-		LeaseDuration:   15 * time.Second,
-		RetrievalTopK:   5,
-		MaxCoreAttempts: 2,
-		Now:             time.Now,
+		JobTimeout:        30 * time.Second,
+		EvidenceTimeout:   3 * time.Second,
+		LeaseDuration:     15 * time.Second,
+		RetrievalTopK:     5,
+		MaxCoreAttempts:   2,
+		Mode:              ModeEvidenceOnly,
+		PromptVersion:     InvestigatorPromptVersion,
+		InputTokenLimit:   8000,
+		OutputTokenLimit:  1200,
+		MaxProviderRounds: 2,
+		Now:               time.Now,
 	}
 }
 
@@ -71,6 +82,12 @@ func NewService(config ServiceConfig, store InvestigationStore, dependencies Too
 	if config.JobTimeout <= 0 || config.EvidenceTimeout <= 0 || config.LeaseDuration <= 0 || config.RetrievalTopK < 1 || config.RetrievalTopK > 5 || config.MaxCoreAttempts < 1 || config.MaxCoreAttempts > 3 {
 		return nil, errors.New("invalid investigation service configuration")
 	}
+	if config.Mode != ModeEvidenceOnly && config.Mode != ModeLLM {
+		return nil, errors.New("invalid investigator mode")
+	}
+	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
+		return nil, errors.New("invalid provider generation configuration")
+	}
 	if config.Now == nil {
 		config.Now = time.Now
 	}
@@ -86,10 +103,10 @@ func (service *Service) Start(ctx context.Context, scope TrustedScope, paymentID
 		return Job{}, false, err
 	}
 	now := service.config.Now().UTC()
-	requestHash := investigationRequestHash(paymentID, question, ModeEvidenceOnly)
+	requestHash := investigationRequestHash(paymentID, question, service.config.Mode)
 	job, created, err := service.store.Create(ctx, NewJob{
 		Scope: scope, PaymentID: paymentID, Question: question, IdempotencyKey: idempotencyKey,
-		RequestHash: requestHash, Mode: ModeEvidenceOnly, DeadlineAt: now.Add(service.config.JobTimeout), CreatedAt: now,
+		RequestHash: requestHash, Mode: service.config.Mode, DeadlineAt: now.Add(service.config.JobTimeout), CreatedAt: now,
 	})
 	if err != nil {
 		return Job{}, false, err
@@ -173,6 +190,9 @@ func (service *Service) Run(ctx context.Context, jobID, workerID string) (Job, e
 		}
 	}
 
+	if job.Mode == ModeLLM {
+		return service.runGenerated(jobContext, job)
+	}
 	report, err := BuildEvidenceOnlyReport(*job.Snapshot, job.Chunks, job.Question)
 	if err != nil {
 		return service.fail(job, "report_validation_failed", err)

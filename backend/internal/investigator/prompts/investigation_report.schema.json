@@ -1,0 +1,66 @@
+{
+  "type": "object",
+  "properties": {
+    "schemaVersion": {"type": "string", "enum": ["tx.investigation.v1"]},
+    "mode": {"type": "string", "enum": ["llm"]},
+    "summary": {"type": "string"},
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string"},
+          "evidenceIds": {"type": "array", "items": {"type": "string"}},
+          "assertions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {"type": "string", "enum": ["central_state", "amount_paise", "participant_status", "operation_id", "bank_code", "route_target", "recovery_status"]},
+                "value": {"type": "string"},
+                "entityId": {"type": ["string", "null"]},
+                "evidenceId": {"type": "string"}
+              },
+              "required": ["field", "value", "entityId", "evidenceId"],
+              "additionalProperties": false
+            }
+          },
+          "contradiction": {"type": "boolean"}
+        },
+        "required": ["text", "evidenceIds", "assertions", "contradiction"],
+        "additionalProperties": false
+      }
+    },
+    "inferences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string"},
+          "evidenceIds": {"type": "array", "items": {"type": "string"}},
+          "contradiction": {"type": "boolean"}
+        },
+        "required": ["text", "evidenceIds", "contradiction"],
+        "additionalProperties": false
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string"},
+          "runbookChunkIds": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["text", "runbookChunkIds"],
+        "additionalProperties": false
+      }
+    },
+    "missingEvidence": {"type": "array", "items": {"type": "string"}},
+    "evidenceCoverage": {"type": "string", "enum": ["complete_for_question", "limited", "insufficient"]},
+    "snapshotId": {"type": "string"},
+    "collectedAt": {"type": "string"}
+  },
+  "required": ["schemaVersion", "mode", "summary", "facts", "inferences", "recommendations", "missingEvidence", "evidenceCoverage", "snapshotId", "collectedAt"],
+  "additionalProperties": false
+}

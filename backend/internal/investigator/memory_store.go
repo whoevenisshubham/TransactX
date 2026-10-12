@@ -37,6 +37,8 @@ type MemoryInvestigationStore struct {
 	outputLimit  int64
 	reservedIn   int64
 	reservedOut  int64
+	usedIn       int64
+	usedOut      int64
 }
 
 func NewMemoryInvestigationStore(now func() time.Time) *MemoryInvestigationStore {
@@ -173,7 +175,7 @@ func (store *MemoryInvestigationStore) ReserveUsage(ctx context.Context, jobID s
 	if _, exists := store.jobs[jobID]; !exists {
 		return "", ErrJobNotFound
 	}
-	if store.inputLimit == 0 || store.outputLimit == 0 || store.reservedIn+input > store.inputLimit || store.reservedOut+output > store.outputLimit {
+	if store.inputLimit == 0 || store.outputLimit == 0 || store.usedIn+store.reservedIn+input > store.inputLimit || store.usedOut+store.reservedOut+output > store.outputLimit {
 		return "", ErrUsageBudget
 	}
 	id := uuid.NewString()
@@ -193,6 +195,20 @@ func (store *MemoryInvestigationStore) CompleteUsage(ctx context.Context, reserv
 	if !exists || reservation.completed {
 		return ErrUsageBudget
 	}
+	actualInput, actualOutput := reservation.reservedInput, reservation.reservedOutput
+	if usage.InputTokens != nil {
+		actualInput = *usage.InputTokens
+	}
+	if usage.OutputTokens != nil {
+		actualOutput = *usage.OutputTokens
+	}
+	if actualInput < 0 || actualOutput < 0 || actualInput > reservation.reservedInput || actualOutput > reservation.reservedOutput {
+		return ErrUsageBudget
+	}
+	store.reservedIn -= reservation.reservedInput
+	store.reservedOut -= reservation.reservedOutput
+	store.usedIn += actualInput
+	store.usedOut += actualOutput
 	reservation.completed = true
 	store.reservations[reservationID] = reservation
 	return nil

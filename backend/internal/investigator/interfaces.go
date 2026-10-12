@@ -2,6 +2,7 @@ package investigator
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -31,11 +32,13 @@ type ReconciliationReader interface {
 	ReadRelatedReconciliation(context.Context, TrustedScope, string, string) (ReconciliationContext, error)
 }
 type GenerationRequest struct {
-	Scope                                                  TrustedScope
+	Question                                               string
 	Evidence                                               EvidenceBundle
 	Chunks                                                 []RunbookChunk
 	PromptVersion                                          string
 	InputTokenLimit, OutputTokenLimit, ToolRoundsRemaining int
+	Continuation                                           []json.RawMessage
+	ToolOutputs                                            []ProviderToolOutput
 }
 type Usage struct {
 	InputTokens  *int64 `json:"inputTokens"`
@@ -43,8 +46,21 @@ type Usage struct {
 }
 type GenerationResult struct {
 	Report            *InvestigationReport
+	ToolCalls         []ProviderToolCall
+	Continuation      []json.RawMessage
 	Usage             Usage
 	ProviderRequestID string
+	ProviderModel     string
+}
+type ProviderToolCall struct {
+	CallID    string
+	Name      string
+	Arguments json.RawMessage
+}
+type ProviderToolOutput struct {
+	CallID string
+	Name   string
+	Output json.RawMessage
 }
 type Provider interface {
 	Generate(context.Context, GenerationRequest) (GenerationResult, error)
@@ -63,6 +79,14 @@ type Job struct {
 	ToolCallKeys                                                        []string
 	SourceHashes                                                        []SourceHash
 	EvidenceAttempts, RetrievalAttempts                                 int
+	UsageReservationID                                                  string
+	ProviderRounds                                                      int
+	ProviderRequestIDs                                                  []string
+	ProviderModel                                                       string
+	PromptVersion                                                       string
+	ProviderContinuation                                                []json.RawMessage
+	ProviderToolOutputs                                                 []ProviderToolOutput
+	UsageKnown                                                          bool
 	Report                                                              *InvestigationReport
 	Usage                                                               Usage
 }
