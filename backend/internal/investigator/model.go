@@ -1,6 +1,8 @@
 // Package investigator defines read-only integration seams. No runtime orchestration is implemented in C0.
 package investigator
 
+import "encoding/json"
+
 type AnalyticsWindow struct {
 	Id                   string        `json:"id"`
 	EntityType           string        `json:"entityType"`
@@ -124,6 +126,14 @@ type Recommendation struct {
 	RunbookChunkIds []string `json:"runbookChunkIds"`
 }
 
+type ReconciliationContext struct {
+	RunId            string       `json:"runId"`
+	PaymentId        string       `json:"paymentId"`
+	SourceStatus     SourceStatus `json:"sourceStatus"`
+	DiscrepancyCount *int64       `json:"discrepancyCount"`
+	ScopeMismatch    bool         `json:"scopeMismatch"`
+}
+
 type RecoveryAttempt struct {
 	AttemptId    string   `json:"attemptId"`
 	PaymentId    string   `json:"paymentId"`
@@ -178,6 +188,20 @@ type Transition struct {
 type Warning struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+type SourceHash struct {
+	ToolName string `json:"toolName"`
+	SHA256   string `json:"sha256"`
+}
+
+type ToolTimelineEntry struct {
+	ToolName    string          `json:"toolName"`
+	Arguments   json.RawMessage `json:"arguments"`
+	StartedAt   string          `json:"startedAt"`
+	FinishedAt  string          `json:"finishedAt"`
+	Status      string          `json:"status"`
+	EvidenceIds []string        `json:"evidenceIds"`
 }
 type Trace struct {
 	TraceId      string       `json:"traceId"`

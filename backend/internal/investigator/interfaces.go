@@ -1,6 +1,9 @@
 package investigator
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // TrustedScope is supplied by authenticated server code, never decoded from tool arguments.
 type TrustedScope struct{ ActorID, Role, SelectedPaymentID string }
@@ -21,7 +24,11 @@ type RunbookRetriever interface {
 	Retrieve(context.Context, TrustedScope, string, []string, int) ([]RunbookChunk, error)
 }
 type AnalyticsReader interface {
-	ReadWindows(context.Context, TrustedScope, string, string, string, int) ([]AnalyticsWindow, error)
+	ReadWindows(context.Context, TrustedScope, string, string, string, string, int) ([]AnalyticsWindow, error)
+}
+
+type ReconciliationReader interface {
+	ReadRelatedReconciliation(context.Context, TrustedScope, string, string) (ReconciliationContext, error)
 }
 type GenerationRequest struct {
 	Scope                                                  TrustedScope
@@ -30,7 +37,10 @@ type GenerationRequest struct {
 	PromptVersion                                          string
 	InputTokenLimit, OutputTokenLimit, ToolRoundsRemaining int
 }
-type Usage struct{ InputTokens, OutputTokens *int64 }
+type Usage struct {
+	InputTokens  *int64 `json:"inputTokens"`
+	OutputTokens *int64 `json:"outputTokens"`
+}
 type GenerationResult struct {
 	Report            *InvestigationReport
 	Usage             Usage
@@ -40,17 +50,38 @@ type Provider interface {
 	Generate(context.Context, GenerationRequest) (GenerationResult, error)
 }
 
-// M2 must implement actor-scoped idempotency, lease epochs and transactional reservations.
 type Job struct {
-	ID, ActorID, PaymentID, Status, Mode, LeaseOwner string
-	LeaseEpoch                                       int64
-	Snapshot                                         *EvidenceBundle
-	Report                                           *InvestigationReport
+	ID, ActorID, Role, PaymentID, Question, IdempotencyKey, RequestHash string
+	Status, Mode, LeaseOwner, ErrorCode                                 string
+	LeaseEpoch                                                          int64
+	LeaseExpiresAt, DeadlineAt, CreatedAt, CompletedAt                  time.Time
+	Snapshot                                                            *EvidenceBundle
+	SnapshotHash                                                        string
+	Chunks                                                              []RunbookChunk
+	RetrievalComplete                                                   bool
+	ToolTimeline                                                        []ToolTimelineEntry
+	ToolCallKeys                                                        []string
+	SourceHashes                                                        []SourceHash
+	EvidenceAttempts, RetrievalAttempts                                 int
+	Report                                                              *InvestigationReport
+	Usage                                                               Usage
 }
+
+type NewJob struct {
+	Scope                               TrustedScope
+	PaymentID, Question, IdempotencyKey string
+	RequestHash, Mode                   string
+	DeadlineAt                          time.Time
+	CreatedAt                           time.Time
+}
+
+// M2 must implement actor-scoped idempotency, lease epochs and transactional
+// reservations. SaveCheckpoint rejects stale lease owners/epochs.
 type InvestigationStore interface {
-	Create(context.Context, TrustedScope, string, string, string) (Job, error)
-	Claim(context.Context, string, string) (Job, error)
+	Create(context.Context, NewJob) (Job, bool, error)
+	Claim(context.Context, string, string, time.Duration) (Job, error)
 	SaveCheckpoint(context.Context, Job) error
+	Get(context.Context, TrustedScope, string) (Job, error)
 	ReserveUsage(context.Context, string, int64, int64) (string, error)
 	CompleteUsage(context.Context, string, Usage) error
 }
