@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/transactx/backend/internal/database"
 	"github.com/transactx/backend/internal/experiments"
 )
 
@@ -40,7 +41,7 @@ func findRepoRoot() string {
 }
 
 func main() {
-	experimentFlag := flag.String("experiment", "all", "Experiment to run: 1|2|3|5|all (or routing|outage|latency|concurrency)")
+	experimentFlag := flag.String("experiment", "all", "Experiment to run: 1|2|3|5|crash|all (or routing|outage|latency|concurrency|crash)")
 	outputDirFlag := flag.String("output-dir", "", "Directory to write artifacts into (defaults to <repo_root>/artifacts)")
 	seedFlag := flag.Int64("seed", 42, "Deterministic seed for simulation")
 	requestsFlag := flag.Int("requests", 300, "Total number of operations/requests per experiment")
@@ -67,6 +68,56 @@ func main() {
 
 	selected := strings.ToLower(strings.TrimSpace(*experimentFlag))
 	runAll := selected == "all"
+
+	// Crash Matrix Experiment (B12): Run recovery fault boundaries and event restart scenarios against PostgreSQL
+	if selected == "crash" || selected == "matrix" {
+		fmt.Println("\n[CRASH MATRIX] Recovery Fault Boundaries & Event Restart Matrix (B12)")
+		dbURL := os.Getenv("DATABASE_URL")
+		if dbURL == "" {
+			fmt.Fprintln(os.Stderr, "Error: DATABASE_URL environment variable is required to run crash matrix experiment")
+			os.Exit(1)
+		}
+		pool, err := database.NewPool(ctx, dbURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error connecting to database: %v\n", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+
+		harness, err := experiments.NewCrashMatrixHarness(pool, *seedFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing crash harness: %v\n", err)
+			os.Exit(1)
+		}
+		defer harness.Close()
+
+		report, err := harness.RunAllScenarios(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error running crash matrix scenarios: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("\nCrash Matrix Results: %d Total | %d Passed | %d Failed | All Invariants: %t\n",
+			report.TotalScenarios, report.PassedCount, report.FailedCount, report.AllInvariantsSatisfied)
+		for _, s := range report.Scenarios {
+			status := "PASS"
+			if !s.Passed {
+				status = "FAIL"
+			}
+			fmt.Printf("  [%s] %-8s %-50s (%.2f ms, state=%s)\n", status, s.ID, s.Name, s.DurationMs, s.ObservedState)
+		}
+
+		jsonPath, csvPath, err := report.SaveArtifacts(outputDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving crash matrix artifacts: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\nSaved Artifacts:\n  JSON: %s\n  CSV:  %s\n  SHA256: %s\n", jsonPath, csvPath, report.ReportSHA256)
+		if report.FailedCount > 0 {
+			os.Exit(1)
+		}
+		return
+	}
 
 	var results []*experiments.ExperimentResult
 

@@ -1,0 +1,472 @@
+{
+  "schemaVersion": "tx.crash_matrix.v1",
+  "runId": "run-1791811565-windows",
+  "runTimestamp": "2026-10-12T13:26:05.8745327Z",
+  "gitCommit": "74f8042f55184920b5f1a5dfa1f0a36facfb067a",
+  "workingTree": "clean",
+  "dirty": false,
+  "toolchain": {
+    "go": "go1.27.0",
+    "platform": "windows/amd64",
+    "postgres": "18.6"
+  },
+  "deterministicSeed": 42,
+  "totalScenarios": 20,
+  "passedCount": 20,
+  "failedCount": 0,
+  "allInvariantsSatisfied": true,
+  "financialSummary": {
+    "nonnegativeBalances": true,
+    "debitCreditConservation": true,
+    "singleLedgerPerPayment": true,
+    "idempotencyUnique": true,
+    "participantUnique": true,
+    "totalLedgerDebitsPaise": 19100,
+    "totalLedgerCreditsPaise": 19100,
+    "totalViolations": 0
+  },
+  "scenarios": [
+    {
+      "id": "REC-01",
+      "name": "Intent committed killed before first stage",
+      "faultBoundary": "Process killed after payment insert in VALIDATING, before bank hold",
+      "passed": true,
+      "durationMs": 46.882,
+      "checkpoints": [
+        "intent_committed_in_validating",
+        "resumer_acquired_lock_and_continued"
+      ],
+      "observedState": "COMPLETED",
+      "invariants": [
+        {
+          "invariantName": "Payment completed on pinned route",
+          "passed": true,
+          "details": "state=COMPLETED, resumeStatus=COMPLETED"
+        },
+        {
+          "invariantName": "Exactly 1 ledger transaction created",
+          "passed": true,
+          "details": "ledgerTxCount=1"
+        }
+      ]
+    },
+    {
+      "id": "REC-02",
+      "name": "Central journal committed request not sent",
+      "faultBoundary": "Process killed after central journal in payment_bank_operations, before participant HTTP dispatch",
+      "passed": true,
+      "durationMs": 16.284,
+      "checkpoints": [
+        "central_operation_journal_committed_pending",
+        "presence_checked_absent_replayed_succeeded"
+      ],
+      "observedState": "COMPLETED",
+      "invariants": [
+        {
+          "invariantName": "Payment completed after safe presence replay",
+          "passed": true,
+          "details": "state=COMPLETED"
+        },
+        {
+          "invariantName": "Presence checked absent and replayed",
+          "passed": true,
+          "details": "presence_replayed=1"
+        }
+      ]
+    },
+    {
+      "id": "REC-03",
+      "name": "Bank effect committed reply dropped",
+      "faultBoundary": "Bank committed hold on participant, but network reply dropped before central update",
+      "passed": true,
+      "durationMs": 11.495,
+      "checkpoints": [
+        "bank_effect_present_central_pending",
+        "resumer_detected_present_did_not_double_hold"
+      ],
+      "observedState": "COMPLETED",
+      "invariants": [
+        {
+          "invariantName": "Payment completed using original bank effect",
+          "passed": true,
+          "details": "state=COMPLETED"
+        },
+        {
+          "invariantName": "Zero duplicate hold operations on bank",
+          "passed": true,
+          "details": "holdsBefore=2, holdsAfter=2"
+        }
+      ]
+    },
+    {
+      "id": "REC-04",
+      "name": "Central result persistence fails",
+      "faultBoundary": "Bank call succeeded, process crashed before persisting success to central database",
+      "passed": true,
+      "durationMs": 11.232,
+      "checkpoints": null,
+      "observedState": "COMPLETED",
+      "invariants": [
+        {
+          "invariantName": "Status lookup recovered outcome and completed payment",
+          "passed": true,
+          "details": "state=COMPLETED"
+        }
+      ]
+    },
+    {
+      "id": "REC-05",
+      "name": "Source confirmed destination finalization unknown",
+      "faultBoundary": "Source hold confirmed, destination provisional credit returned unknown pending error",
+      "passed": true,
+      "durationMs": 6.058,
+      "checkpoints": null,
+      "observedState": "PENDING_RECONCILIATION",
+      "invariants": [
+        {
+          "invariantName": "Payment remains safely pending without blind reversal",
+          "passed": true,
+          "details": "state=PENDING_RECONCILIATION"
+        },
+        {
+          "invariantName": "Resume status is not terminal completed",
+          "passed": true,
+          "details": "resumeStatus=IN_PROGRESS"
+        },
+        {
+          "invariantName": "Zero premature ledger transactions committed",
+          "passed": true,
+          "details": "ledgerTxCount=0"
+        }
+      ]
+    },
+    {
+      "id": "REC-06",
+      "name": "Banks complete central transaction fails",
+      "faultBoundary": "All participant steps succeeded; central crash occurred in BANK_SETTLED_CENTRAL_PENDING",
+      "passed": true,
+      "durationMs": 8.439,
+      "checkpoints": null,
+      "observedState": "COMPLETED",
+      "invariants": [
+        {
+          "invariantName": "Payment settled centrally to COMPLETED",
+          "passed": true,
+          "details": "state=COMPLETED"
+        },
+        {
+          "invariantName": "Exactly 1 ledger transaction with balanced debit and credit",
+          "passed": true,
+          "details": "txs=1, debits=1, credits=1"
+        },
+        {
+          "invariantName": "Zero bank calls executed during central-only continuation",
+          "passed": true,
+          "details": "bankCallsDelta=0"
+        }
+      ]
+    },
+    {
+      "id": "REC-07",
+      "name": "Two workers plus duplicate request",
+      "faultBoundary": "Two worker processes and an incoming duplicate HTTP request execute concurrently",
+      "passed": true,
+      "durationMs": 76.499,
+      "checkpoints": null,
+      "observedState": "COMPLETED",
+      "invariants": [
+        {
+          "invariantName": "Concurrent execution serialized without error",
+          "passed": true,
+          "details": "errors=[]"
+        },
+        {
+          "invariantName": "Exactly 1 ledger transaction created",
+          "passed": true,
+          "details": "ledgerCount=1"
+        },
+        {
+          "invariantName": "Stable single idempotency mapping",
+          "passed": true,
+          "details": "distinctPayments=1"
+        }
+      ]
+    },
+    {
+      "id": "REC-08",
+      "name": "Worker lease expires delayed worker CAS protection",
+      "faultBoundary": "Worker 1 lease expires while delayed; Worker 2 claims job; CAS rejects Worker 1",
+      "passed": true,
+      "durationMs": 174.525,
+      "checkpoints": [
+        "worker_1_claimed_epoch_1",
+        "worker_2_claimed_epoch_2",
+        "worker_1_cas_accepted_false",
+        "worker_2_cas_accepted_true"
+      ],
+      "observedState": "resolved",
+      "invariants": [
+        {
+          "invariantName": "Stale Worker 1 completion rejected by CAS",
+          "passed": true,
+          "details": "worker1Accepted=false, err=\u003cnil\u003e"
+        },
+        {
+          "invariantName": "Active Worker 2 completion accepted by CAS",
+          "passed": true,
+          "details": "worker2Accepted=true, err=\u003cnil\u003e"
+        },
+        {
+          "invariantName": "Final lease epoch matches Worker 2 epoch and resolved",
+          "passed": true,
+          "details": "finalEpoch=2, status=resolved"
+        }
+      ]
+    },
+    {
+      "id": "REC-09",
+      "name": "Lock connection dies during external call",
+      "faultBoundary": "Database connection holding session advisory lock is severed / terminated",
+      "passed": true,
+      "durationMs": 188.566,
+      "checkpoints": [
+        "lock_acquired_on_conn1",
+        "conn1_abruptly_terminated_by_server",
+        "resumer_acquired_lock_on_fresh_conn_and_completed"
+      ],
+      "observedState": "COMPLETED",
+      "invariants": [
+        {
+          "invariantName": "Session advisory lock released on connection death and resumed safely",
+          "passed": true,
+          "details": "state=COMPLETED"
+        }
+      ]
+    },
+    {
+      "id": "REC-10",
+      "name": "Pool constrained and bank slow",
+      "faultBoundary": "Connection pool constrained with high concurrency and slow bank delays",
+      "passed": true,
+      "durationMs": 102.777,
+      "checkpoints": null,
+      "observedState": "zero_deadlocks",
+      "invariants": [
+        {
+          "invariantName": "Bounded semaphore prevented pool exhaustion and deadlocks",
+          "passed": true,
+          "details": "errors=[]"
+        }
+      ]
+    },
+    {
+      "id": "REC-11",
+      "name": "Original execution target removed",
+      "faultBoundary": "Candidate route target removed from service configuration before recovery",
+      "passed": true,
+      "durationMs": 3.69,
+      "checkpoints": null,
+      "observedState": "PROCESSING",
+      "invariants": [
+        {
+          "invariantName": "Safely parked in attention without silent route change",
+          "passed": true,
+          "details": "status=ATTENTION"
+        },
+        {
+          "invariantName": "Action taken explicitly flagged ROUTE_UNAVAILABLE_LEAVE_PENDING",
+          "passed": true,
+          "details": "action=ROUTE_UNAVAILABLE_LEAVE_PENDING"
+        },
+        {
+          "invariantName": "Payment remained in PROCESSING without modification",
+          "passed": true,
+          "details": "state=PROCESSING"
+        }
+      ]
+    },
+    {
+      "id": "REC-12",
+      "name": "Participant returns mismatched identity",
+      "faultBoundary": "Participant status verification returns corrupted or mismatched payment correlation ID",
+      "passed": true,
+      "durationMs": 6.677,
+      "checkpoints": null,
+      "observedState": "PENDING_RECONCILIATION",
+      "invariants": [
+        {
+          "invariantName": "Payment rejected incorrect completion on identity mismatch",
+          "passed": true,
+          "details": "state=PENDING_RECONCILIATION"
+        },
+        {
+          "invariantName": "Zero premature ledger transactions",
+          "passed": true,
+          "details": "ledgerCount=0"
+        }
+      ]
+    },
+    {
+      "id": "REC-13",
+      "name": "Permanent business rejection before irreversible stage",
+      "faultBoundary": "Bank rejects hold with permanent error (INSUFFICIENT_FUNDS)",
+      "passed": true,
+      "durationMs": 8.724,
+      "checkpoints": null,
+      "observedState": "FAILED",
+      "invariants": [
+        {
+          "invariantName": "Payment safely marked terminal FAILED",
+          "passed": true,
+          "details": "state=FAILED"
+        },
+        {
+          "invariantName": "Zero ledger transactions created on permanent rejection",
+          "passed": true,
+          "details": "ledgerCount=0"
+        }
+      ]
+    },
+    {
+      "id": "REC-14",
+      "name": "Exhausted automatic retries",
+      "faultBoundary": "Recovery attempts exhausted maximum retry limit (20 attempts)",
+      "passed": true,
+      "durationMs": 5.818,
+      "checkpoints": null,
+      "observedState": "needs_attention",
+      "invariants": [
+        {
+          "invariantName": "Job transitioned to needs_attention on exhaustion",
+          "passed": true,
+          "details": "status=needs_attention"
+        },
+        {
+          "invariantName": "Reason code ATTEMPTS_EXHAUSTED assigned",
+          "passed": true,
+          "details": "reason=0x2d712ef82c40"
+        },
+        {
+          "invariantName": "Payment financial state remained intact and pending",
+          "passed": true,
+          "details": "paymentState=PROCESSING"
+        }
+      ]
+    },
+    {
+      "id": "EVT-01",
+      "name": "Source rollback emits zero outbox events",
+      "faultBoundary": "Payment creation transaction encounters an error and rolls back",
+      "passed": true,
+      "durationMs": 3.179,
+      "checkpoints": null,
+      "observedState": "events=0, deliveries=0",
+      "invariants": [
+        {
+          "invariantName": "Rollback discarded all transactional outbox events and deliveries",
+          "passed": true,
+          "details": "events=0, deliveries=0"
+        }
+      ]
+    },
+    {
+      "id": "EVT-02",
+      "name": "Committed event delivered to projection",
+      "faultBoundary": "Committed payment state transition emits outbox delivery and updates worklist projection",
+      "passed": true,
+      "durationMs": 9.318,
+      "checkpoints": null,
+      "observedState": "VALIDATING",
+      "invariants": [
+        {
+          "invariantName": "Outbox dispatcher claimed and delivered committed event",
+          "passed": true,
+          "details": "dispatched=1"
+        },
+        {
+          "invariantName": "Worklist projection updated with authoritative state",
+          "passed": true,
+          "details": "count=1, state=VALIDATING"
+        }
+      ]
+    },
+    {
+      "id": "EVT-03",
+      "name": "Consumer duplicate delivery inbox deduplication",
+      "faultBoundary": "Same delivery redelivered due to network ack loss",
+      "passed": true,
+      "durationMs": 3.112,
+      "checkpoints": null,
+      "observedState": "inboxRecords=1",
+      "invariants": [
+        {
+          "invariantName": "Duplicate delivery processed idempotently without error",
+          "passed": true,
+          "details": "dup1=false, dup2=true"
+        },
+        {
+          "invariantName": "Consumer inbox retained exactly 1 delivery record",
+          "passed": true,
+          "details": "inboxRecords=1"
+        }
+      ]
+    },
+    {
+      "id": "EVT-04",
+      "name": "Version regression guard prevents stale regression",
+      "faultBoundary": "Stale out-of-order delivery with lower event version arrives after newer version projected",
+      "passed": true,
+      "durationMs": 5.261,
+      "checkpoints": null,
+      "observedState": "state=COMPLETED, version=2",
+      "invariants": [
+        {
+          "invariantName": "Older event discarded by version guard without error",
+          "passed": true,
+          "details": "err=\u003cnil\u003e"
+        },
+        {
+          "invariantName": "Worklist state protected against backwards version regression",
+          "passed": true,
+          "details": "state=COMPLETED, version=2"
+        }
+      ]
+    },
+    {
+      "id": "EVT-05",
+      "name": "Two dispatcher leases and CAS protection",
+      "faultBoundary": "Two dispatchers compete to claim the same due delivery",
+      "passed": true,
+      "durationMs": 3.151,
+      "checkpoints": null,
+      "observedState": "d1Claimed=0, d2Claimed=1",
+      "invariants": [
+        {
+          "invariantName": "Distributed claim avoided duplicate delivery locking",
+          "passed": true,
+          "details": "d1Claimed=0, d2Claimed=1"
+        }
+      ]
+    },
+    {
+      "id": "EVT-06",
+      "name": "Concurrent projection rebuild advisory lock",
+      "faultBoundary": "Two rebuild executions attempt atomic worklist maintenance concurrently",
+      "passed": true,
+      "durationMs": 0.672,
+      "checkpoints": [
+        "tx1_acquired_lock_true",
+        "tx2_acquired_lock_false"
+      ],
+      "observedState": "tx1Locked=true, tx2Locked=false",
+      "invariants": [
+        {
+          "invariantName": "Exclusive maintenance advisory lock serialized concurrent rebuilds",
+          "passed": true,
+          "details": "tx1Locked=true, tx2Locked=false"
+        }
+      ]
+    }
+  ],
+  "reportSha256": "d6f98a4e7fa0608d9506c529471809d31bc2b059aa59b939387dfd3e33039e73"
+}
