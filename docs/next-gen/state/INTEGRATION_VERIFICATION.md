@@ -152,3 +152,79 @@
 | **Playwright Offline Shell** | `npm run test:browser:offline-shell` | Chromium (headless) | PASS (4.1s) | 2/2 tests passed |
 | **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
 
+---
+
+## 5. Gate 5: Sync Latest M3 and Verify Canonical Store Compatibility
+
+### 5.1 Baseline & Safe Synchronization of Latest M3
+- **Latest Milestone Heads Verified:**
+  - M1 (`origin/v2/m1-product-delivery`): `42d8aef7935b63a9f80a78705f243798b62401c9`
+  - M2 (`origin/v2/m2-production-readiness`): `c9da5fb9035dff259c936fb79785eecbd93efde6`
+  - M3 (`origin/v2/m3-investigation-analytics`): `0947b19c14ac5b7f3eef0fffbe8faa54e6ccd66c`
+  - Release Base: `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d`
+- **Incorporated M3 Commits:**
+  - `e5d2e81` Enforce provider concurrency and cost budgets
+  - `4f39c84` Checkpoint provider budget hardening
+  - `0947b19` Integrate PostgreSQL store conformance
+- **History-Preserving Merge:**
+  - Clean merge into `v2/integration-m1-m2-m3` without force-pushing, rebasing, or discarding prior Gate 4 integration work.
+
+### 5.2 Canonical PostgreSQL Schema Reconciled (`000029_m3_investigator_store`)
+- Reconciled canonical migration `backend/migrations/000029_m3_investigator_store.up.sql` and `000029_m3_investigator_store.down.sql` with M3's durable store persistence contract:
+  - Added `cost_limit_microusd BIGINT NOT NULL DEFAULT 0` to `investigation_usage_limits`.
+  - Added `provider_call_pending BOOLEAN NOT NULL DEFAULT FALSE` to `investigation_jobs`.
+  - Added `reserved_cost_microusd BIGINT NOT NULL DEFAULT 0` and `actual_cost_microusd BIGINT` to `investigation_usage_reservations`.
+  - Dropped legacy non-null constraints on `investigation_usage_reservations` (`actor_id`, `provider`, `model`, `reserved_tokens`) that conflicted with the decoupled reservation schema.
+
+### 5.3 Durable Store Conformance against Canonical Migrations
+- Replaced test-only DDLs in `backend/internal/investigator/store_contract_test.go` and `postgres_corpus_integration_test.go` with automated execution of all 29 canonical repository migrations (`database.NewMigrator(pool, ...).Up(ctx)`) against freshly provisioned disposable PostgreSQL databases.
+- Executed `TestPostgresInvestigationStoreConformance` using `storetest.Run`:
+  - `idempotency_scope_and_copy_isolation`: verified actor and scope isolation, request idempotency, and payload separation.
+  - `lease_fencing_and_checkpoint_resume`: verified lease epoch increments, active lease fencing, and resume from durable checkpoints.
+  - `global_provider_call_bound`: verified active job concurrency bounds and global pending provider call gates.
+  - `transactional_usage_reservations`: verified atomic token/cost reservation and actual-cost finalization preventing budget overspend.
+  - `uncertain_usage_is_lease_fenced_and_retains_budget`: verified that expired lease holders cannot complete jobs and uncertain usage is safely fenced while retaining budget accounting.
+  - **Result:** All 5 subtests passed in 1.11s.
+
+### 5.4 Corpus Lifecycle & Audience Filtering Verification
+- Executed `TestPostgresCorpusLifecycle` on disposable database with canonical migrations:
+  - Staging and activation of approved corpus (6 runbook documents).
+  - SQL assertion for staged version record (`status = 'staging'`, chunk count = 6).
+  - SQL assertion for active version record (`status = 'active'`, `activated_at IS NOT NULL`, exactly 1 active version enforced by partial unique index).
+  - SQL assertion for chunk metrics: unique `chunk_id` per version, non-empty `content_sha256` and `source_sha256`.
+  - SQL assertion and repository test for role-based audience filtering: `CUSTOMER` role is strictly denied access to operational runbooks (`0` customer-accessible chunks).
+  - SQL assertion for version retirement on new version activation (`status = 'retired'`, `deactivated_at IS NOT NULL`) with preserved citation resolution.
+  - SQL assertion verifying resistance to SQL injection in search vectors.
+  - **Result:** Passed in 0.76s.
+
+### 5.5 Crash Matrix & Invariant Re-verification (B12)
+- Fixed test contention in `backend/internal/experiments/crash_matrix.go`: ensured `recovery_jobs` and `recovery_attempts` tables are cleaned before running `REC-08` and `REC-14`, guaranteeing deterministic single-job claim assertions regardless of other test activity.
+- Executed full 20-scenario crash matrix (`TestCrashMatrix_FullRecoveryAndEventMatrix`):
+  - 20/20 scenarios passed in 0.65s (REC-01 through REC-14, EVT-01 through EVT-06).
+  - Financial invariant validation passed: `NonnegativeBalances=true`, `DebitCreditConservation=true`, `SingleLedger=true`, `Violations=0`.
+  - Saved artifacts: `crash_matrix.json`, `crash_matrix.csv`, SHA256 digest `5d82d3e5fa1f844043ee17a72c841d54e2365ae23ce3027aa3c8a8e03a434ce6`.
+
+### 5.6 Gate 5 Verification & Acceptance Suite Evidence Matrix
+
+| Suite | Command | Environment | Result | Evidence |
+|---|---|---|---|---|
+| **M3 Store Conformance** | `go test -v ./internal/investigator -run TestPostgresInvestigationStoreConformance` | Local PostgreSQL 18 | PASS (1.11s) | All 5 conformance subtests pass against canonical migration 000029 |
+| **Corpus Lifecycle** | `go test -v ./internal/investigator -run TestPostgresCorpusLifecycle` | Local PostgreSQL 18 | PASS (0.76s) | Staging, activation, retirement, hashing, and audience filtering verified |
+| **Crash & Recovery Matrix** | `go test -v ./internal/experiments -run TestCrashMatrix_FullRecoveryAndEventMatrix` | Local PostgreSQL 18 | PASS (0.65s) | 20/20 scenarios pass; 0 financial invariant violations |
+| **Full Go Tests** | `go test ./...` | Windows Go 1.24 | PASS | All backend packages pass |
+| **Go Vet** | `go vet ./...` | Windows Go 1.24 | PASS | 0 issues |
+| **Go Build** | `go build ./...` | Windows Go 1.24 | PASS | All 9 binary targets compile cleanly |
+| **Frontend Unit Tests** | `npm test` | Node.js v22 | PASS (498ms) | 96/96 tests pass across 16 suites |
+| **Frontend Lint / Typecheck** | `npm run lint` | TypeScript 7 / Node v22 | PASS | 0 type or lint errors |
+| **Frontend Production Build** | `npm run build` | Vite 8.3.0 | PASS (176ms) | Built production bundle in `dist/` |
+| **Money Parser Integrity** | `npm run test:money` | Node.js v22 | PASS | Integer paise parsing passed |
+| **Playwright Fixtures** | `npx playwright test` | Chromium (headless) | PASS (11.6s) | 8/8 tests passed |
+| **Playwright Offline Shell** | `npm run test:browser:offline-shell` | Chromium (headless) | PASS (4.3s) | 2/2 tests passed |
+| **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
+
+### 5.7 Remaining Operational & Infrastructure Gates
+- **Live Browser Acceptance on Target Staging Host:** Staging environment deployment and live OAuth/IdP sign-in flow pending cluster provisioning.
+- **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
+- **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
+
+
