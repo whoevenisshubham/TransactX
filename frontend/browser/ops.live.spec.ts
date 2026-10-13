@@ -63,13 +63,27 @@ test("viewer creates a real evidence-only investigation completed by the native 
 });
 
 for (const [role, identity] of Object.entries(identities)) {
-  test(`${role} opens a real worklist payment and its evidence`, async ({ page }) => {
+  test(`${role} opens a real worklist payment and its evidence`, async ({ page, context }) => {
+    test.setTimeout(60000);
+    let authoritativeReads = 0;
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname === "/api/ops/worklist" && response.status() === 200) authoritativeReads += 1;
+    });
     await page.setViewportSize({ width: 360, height: 800 });
     await page.goto(`/console/worklist?state=${encodeURIComponent(state)}&paymentId=${encodeURIComponent(paymentId)}`);
     await page.getByLabel("Phone or payment ID").fill(identity!);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Recovery worklist" })).toBeVisible();
+    if (role === "viewer") {
+      await expect(page.getByText("LIVE HINTS CONNECTED", { exact: true })).toBeVisible();
+      const beforeGap = authoritativeReads;
+      await context.setOffline(true);
+      await expect(page.getByText("LIVE HINTS DISCONNECTED", { exact: true })).toBeVisible({ timeout: 40000 });
+      await context.setOffline(false);
+      await expect(page.getByText("LIVE HINTS CONNECTED", { exact: true })).toBeVisible();
+      await expect.poll(() => authoritativeReads).toBeGreaterThan(beforeGap);
+    }
     await page.getByRole("link", { name: paymentId }).click();
     await expect(page.getByRole("heading", { name: "Payment journey" })).toBeVisible();
     await expect(page.getByText(`Central payment`, { exact: false }).first()).toBeVisible();

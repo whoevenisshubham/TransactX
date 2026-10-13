@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "scope": "Maintenance rebuild on restored database and real role/browser/SSE checks",
+  "maintenanceRebuild": {"command": "go run ./cmd/rebuild-worklist", "exitCode": 0, "payments": 4, "worklistRows": 4, "missingPayments": 0, "snapshotMismatches": 0, "pendingOutboxDeliveries": 33},
+  "browser": {
+    "command": "npx playwright test --config playwright.live.config.ts --workers=1 --grep 'opens a real worklist payment'",
+    "admin": "passed: real worklist to evidence, role control, reload, 360px layout",
+    "viewer": "failed before outage: LIVE HINTS CONNECTED never rendered"
+  },
+  "independentNativeStream": {"authenticatedRole": "OPS_VIEWER", "httpStatus": 500, "errorCode": "INTERNAL_ERROR", "message": "streaming is unavailable"},
+  "sourceFinding": "telemetry.statusCapturingResponseWriter does not preserve http.Flusher; app.NewHTTPHandler wraps the operational stream in this middleware, and operationalEvents rejects non-Flusher writers",
+  "limitations": ["Maintenance rebuild with worker stopped; no concurrent rebuild/dispatcher or pinned-lock proof", "Manual repair does not deliver pending outbox events", "SSE reconnect remains failed acceptance", "Recovery defects remain unresolved"],
+  "allProbeProcessesStopped": true,
+  "spending": 0
+}
