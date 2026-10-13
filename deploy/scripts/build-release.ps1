@@ -17,11 +17,18 @@ if ($missing.Count -gt 0 -and -not $AllowIncomplete) { throw "Required v2 comman
 if ($dirty -and -not $AllowDirty -and -not $ValidateOnly) { throw 'Git tree is dirty; commit and rerun for a release artifact.' }
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw 'Go is required.' }
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm is required.' }
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js is required.' }
 if (-not (Get-Command tar -ErrorAction SilentlyContinue)) { throw 'tar is required.' }
+$originOptions = @()
+if ($ValidateOnly) { $originOptions += '--allow-missing' }
+$frontendApiOrigin = @(& node (Join-Path $PSScriptRoot 'verify-api-origin.mjs') @originOptions) -join ''
+if ($LASTEXITCODE -ne 0) { throw 'Frontend API origin validation failed.' }
+$frontendApiOrigin = $frontendApiOrigin.Trim()
 if ($ValidateOnly) {
   Write-Output "Source: $sourceSha"
   Write-Output "Dirty tree: $dirty"
   Write-Output "Missing planned commands: $($missing -join ', ')"
+  Write-Output "Frontend API origin: $(if ($frontendApiOrigin) { $frontendApiOrigin } else { 'unset; required for an archive' })"
   Write-Output 'Validation only: no archive was written.'
   return
 }
@@ -39,12 +46,14 @@ $null = New-Item -ItemType Directory -Path (Join-Path $stage 'deploy')
 $null = New-Item -ItemType Directory -Path (Join-Path $stage 'docs')
 
 Push-Location (Join-Path $repo 'frontend')
+$previousFrontendApiOrigin = $env:VITE_API_BASE_URL
 try {
+  $env:VITE_API_BASE_URL = $frontendApiOrigin
   npm ci; if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
   npm test; if ($LASTEXITCODE -ne 0) { throw 'Frontend tests failed.' }
   npm run lint; if ($LASTEXITCODE -ne 0) { throw 'Frontend type check failed.' }
   npm run build; if ($LASTEXITCODE -ne 0) { throw 'Frontend build failed.' }
-} finally { Pop-Location }
+} finally { $env:VITE_API_BASE_URL = $previousFrontendApiOrigin; Pop-Location }
 
 $oldGoos = $env:GOOS; $oldGoarch = $env:GOARCH; $oldCgo = $env:CGO_ENABLED
 try {
@@ -96,6 +105,7 @@ Copy-Item -LiteralPath (Join-Path $repo 'frontend\package-lock.json') -Destinati
 $metadata = [ordered]@{
   schemaVersion = 'tx.release.v1'; sourceSha = $sourceSha; createdAt = [DateTime]::UtcNow.ToString('o');
   dirtyTree = $dirty; complete = ($missing.Count -eq 0); missingCommands = $missing;
+  frontendApiOrigin = $frontendApiOrigin;
   goVersion = (& go version); nodeVersion = (& node --version); targetArchitectures = @('linux-amd64', 'linux-arm64')
 }
 $metadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $stage 'metadata.json') -Encoding utf8

@@ -184,19 +184,21 @@ test("terminal evidence hides pending warning and exports the server bundle", as
 
 test("saved report labels stale and missing citations without inventing evidence", async ({ page }) => {
   await installFixtureApi(page, "OPS_VIEWER");
+  await page.setViewportSize({ width: 360, height: 800 });
   await page.route(`http://localhost:8080/api/ops/investigations/${investigationId}`, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     const data = fixture("investigation-evidence-only.json").data;
     data.report.snapshotId = "sha256:older-fixture";
     data.report.facts[0].evidenceIds = ["unknown:fixture"];
-    data.report.recommendations = [{ text: "Consult the approved runbook.", runbookChunkIds: ["runbook:fixture:1"] }];
+    data.report.recommendations = [{ text: "Consult the approved runbook.", runbookChunkIds: ["runbook:00986824035ce0aafb0d3c46c3d699ef"] }];
     return fulfillFixture(route, data);
   });
   await page.goto(`/console/investigations/${investigationId}?paymentId=${paymentId}`);
   await expect(page.getByText("This report uses an older evidence snapshot.", { exact: false })).toBeVisible();
   await expect(page.getByText("Evidence unknown:fixture is not in this snapshot")).toBeVisible();
-  await expect(page.getByText("Runbook references: runbook:fixture:1", { exact: false })).toBeVisible();
+  await expect(page.getByText("Runbook references: runbook:00986824035ce0aafb0d3c46c3d699ef", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "View evidence unknown:fixture" })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
 
 test("analytics labels insufficient samples and unavailable model output", async ({ page }) => {

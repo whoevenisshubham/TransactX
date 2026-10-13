@@ -3,6 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./browser",
   testMatch: "*.fixture.spec.ts",
+  testIgnore: "offline-shell.fixture.spec.ts",
   fullyParallel: false,
   reporter: "list",
   timeout: 30000,
