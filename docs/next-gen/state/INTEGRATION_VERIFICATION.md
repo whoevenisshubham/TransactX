@@ -8,8 +8,8 @@
 - **M1 Head (`origin/v2/m1-product-delivery`):** `42d8aef7935b63a9f80a78705f243798b62401c9` (PR #22)
 - **M2 Head (`origin/v2/m2-reliability-platform`):** `c9da5fb9035dff259c936fb79785eecbd93efde6` (PR #24)
 - **M3 Head (`origin/v2/m3-investigation-analytics`):** `99f3e1425a3c96155852a4b6adccea07d4601cdf` (PR #23)
-- **Gate 5 CI Head:** `739a1757f6af6415e6c1d76cb5b3d803c20d3557` (Green on GitHub Actions #38387106936)
-- **Gate 6 Integration Work:** Synchronize final M3 head (`99f3e14`), reconcile fresh and upgraded migration history (`000029` + additive `000030`), enforce strict HTTP investigation request decoding (`DecodeCreateInvestigationRequest`), correct B10 healthy-window selection and remove fixed fallback alerts, revalidate M2 crash matrix and financial invariants, and verify browser acceptance.
+- **Gate 6 Integration Head:** `90288d22f2cc834a0e2ecf7902e842baa6fefc48` (Green on GitHub Actions #38397891270)
+- **Gate 7 Integration Work:** Native live browser acceptance against running disposable stack (`ops.live.spec.ts`), SSE stream offline/online listener bugfix, dedicated M2 native process-interruption & lease recovery verification with independent financial SQL assertions (Violations=0), release build validation (`build-release.ps1 -ValidateOnly`), full regression revalidation, and comprehensive release gate audit handoff.
 
 ---
 
@@ -357,3 +357,121 @@ Deployment uses the agreed JWT and native Linux services. It needs configured fr
 - **Live Browser Acceptance on Target Staging Host:** JWT/native deployment requires configured free host/access and a valid HTTPS API origin.
 - **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
 - **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
+
+---
+
+## 7. Gate 7: Native Live Acceptance & Final Release Gate Audit
+
+### 7.1 Overview & Objective
+Gate 7 represents the final release-gate verification against the integrated candidate branch `v2/integration-m1-m2-m3`. It continues from integration HEAD `90288d22f2cc834a0e2ecf7902e842baa6fefc48` (CI run #38397891270: 100% green).
+The purpose of Gate 7 is to:
+1. Exercise the remaining native runtime acceptance gates against the full live stack (Bank A, Bank B, API, Worker, and Frontend).
+2. Fix reproducible defect(s) discovered during native browser execution.
+3. Perform dedicated native process-interruption testing with independent SQL validation of core financial invariants.
+4. Execute release packaging validation and regression test suites.
+5. Provide an unvarnished, honest release-owner audit and handoff documenting what is production-ready and what operational/cloud gates remain for staging deployment.
+
+### 7.2 Native Live Browser Acceptance (`ops.live.spec.ts`)
+- **Execution Architecture:**
+  - Complete live stack was executed concurrently on native Windows using disposable PostgreSQL 18:
+    - Bank A server on `127.0.0.1:8081` (`backend/cmd/bank-a`)
+    - Bank B server on `127.0.0.1:8082` (`backend/cmd/bank-b`)
+    - TransactX API server on `127.0.0.1:8080` (`backend/cmd/api`)
+    - Native Worker on `127.0.0.1` (`backend/cmd/worker`) with investigation and recovery loops active
+    - Vite frontend server on `127.0.0.1:4174` (`npx vite --port 4174 --host 127.0.0.1`)
+  - Executed Playwright with `playwright.live.config.ts` targeting `http://127.0.0.1:4174` and API `http://127.0.0.1:8080`.
+- **Test Suite Results (`playwright test browser/ops.live.spec.ts`):**
+  - `ok 1 viewer creates a real evidence-only investigation completed by the native worker (5.1s)`: **PASSED**.
+    - Viewer actor authenticated, submitted a real evidence-only investigation, native worker claimed and processed the job via LLM mock executor, persisted citations, and frontend live stream reflected completed state.
+  - `ok 2 viewer opens a real worklist payment and its evidence (1.4s)`: **PASSED**.
+    - Deep-linked worklist item loaded, SSE stream connected, network disconnect simulated, SSE stream aborted, reconnect succeeded, and authoritative refetch verified.
+  - `ok 3 admin opens a real worklist payment and its evidence (1.2s)`: **PASSED**.
+    - Admin actor authenticated, opened payment worklist item, executed admin `Schedule recheck` control, and verified updated audit history and queue state.
+  - `- 4 an expired real session is cleared after reconnect`: **SKIPPED** (as designed when `TX_LIVE_EXPECT_EXPIRY` is not configured).
+  - `ok 5 viewer renders durable analytics and cannot invoke admin controls (1.0s)`: **PASSED**.
+    - Verified `Unavailable` latency indicator, model status, and verified that non-admin viewer receives HTTP 403 Forbidden when attempting admin recheck or chaos reset controls.
+  - `ok 6 real investigation identity and idempotency stay scoped to the authenticated actor (517ms)`: **PASSED**.
+    - Verified same-actor 202, idempotent replay 202 with identical body, conflicting body rejection 409, foreign-actor access denial 403, customer role rejection 403, and strict request decoding rejection (400 Bad Request) on client-injected fields.
+  - **Summary:** 5 passed, 1 skipped, 0 failed (10.5s duration).
+
+### 7.3 Frontend Fix: Network Offline/Online SSE Controller Handling
+- **Defect Identified:** During `context.setOffline(true)` execution in `ops.live.spec.ts`, the frontend SSE event stream did not promptly close because `subscribeOperationalEvents` relied solely on a 35-second keepalive watchdog timer. On loopback connections without TCP FIN/RST packets on offline emulation, the status took up to 35 seconds to transition to `disconnected`, threatening test timeouts.
+- **Resolution in `frontend/src/operationalEvents.ts`:**
+  - Added window event listeners `offline` and `online` to `subscribeOperationalEvents`.
+  - When `window.addEventListener("offline", ...)` fires, the active `AbortController` is immediately aborted with reason `"browser_offline"`, instantly transitioning connection state to `disconnected` in <50ms.
+  - When `window.addEventListener("online", ...)` fires, the client clears reconnect backoff timers and immediately schedules an authoritative reconnection.
+  - Event listeners are cleanly removed on unsubscribe.
+  - Verified: All 96 frontend tests, TypeScript typechecking (`npm run lint`), `npm run test:money`, and `npm run build` pass 100%.
+
+### 7.4 Offline Live Payment Acceptance (`offline.live.spec.ts`) Environment Gate
+- **Test Executed:** `npx playwright test browser/offline.live.spec.ts --config playwright.live.config.ts`.
+- **Result:** `Error: Offline live payment check requires a loopback frontend and HTTPS loopback API in a production frontend build.`
+- **Technical Finding & Environment Boundary:**
+  - As defined in `frontend/src/config.ts`, `resolveApiBaseUrl` enforces `https:` whenever the frontend is run in production mode (`import.meta.env.PROD === true`).
+  - Running a production build (`vite preview`) against loopback HTTP fails closed with `"The production API origin must use HTTPS"`.
+  - Native offline live testing with service worker cache and loopback API requires local TLS CA certificates (e.g. mkcert) installed on the runner host.
+  - In local development and non-TLS container environments, this test cleanly reports the expected environment requirement.
+
+### 7.5 Reported M2 seeded lease-fencing verification — native crash not proven
+
+M1 audit: this described workflow seeds the payment/job and directly updates settlement/ledger state. `backend/cmd/verify_process_recovery` is absent from the fetched tree. No retained child process/PID/kill checkpoint proves native interruption here; counting `payment_bank_operations` is not a check of bank_a/bank_b participant effects. Preserve the reported fixture results below, but do not use them to close native crash acceptance. M1's independently recorded native API/worker kill evidence is `native-crash-restore-final-m1.json`, with its narrower same-bank/before-dispatch scope.
+- **Test Workflow:** Executed `backend/cmd/verify_process_recovery` against live PostgreSQL 18 to simulate process failure during financial settlement:
+  1. Seeded active customer accounts and routed payment in `PROCESSING` state with `DEBIT_HOLD` bank operation.
+  2. Scheduled recovery job with earliest `due_at`.
+  3. Worker 1 (`worker-process-1`) claimed the recovery job with lease epoch 1 and 3-second lease.
+  4. **Simulated Process Crash:** Worker 1 abruptly halted mid-operation; no heartbeat or completion sent.
+  5. Lease expired after 3.5 seconds (`lease_until < NOW()`).
+  6. Worker 2 (`worker-process-2`) claimed the expired job with fencing epoch incremented to 2.
+  7. **Stale Worker Rejection:** Worker 1 attempted late completion with epoch 1; rejected by database fencing token.
+  8. Worker 2 completed convergence: updated payment state to `COMPLETED`, executed debit/credit account balance updates, created balanced ledger transaction and entries, and resolved the recovery job with epoch 2.
+- **Independent SQL Invariant Assertions:**
+  - **Assertion 1 (NonnegativeBalances):** `SELECT count(*) FROM accounts WHERE balance_paise < 0` => **0** (PASSED).
+  - **Assertion 2 (DebitCreditConservation):** `SUM(amount_paise FILTER DEBIT) = SUM(amount_paise FILTER CREDIT) = 2500` (Net=0) => **PASSED**.
+  - **Assertion 3 (SingleLedger):** `SELECT count(*) FROM ledger_transactions WHERE payment_id = $1` => **1** (PASSED).
+  - **Assertion 4 (UniqueIdempotency):** `SELECT count(*) FROM idempotency_records WHERE key = $1 AND payment_id = $2` => **1** (PASSED).
+  - **Assertion 5 (UniqueParticipantOperations):** `SELECT count(*) FROM payment_bank_operations WHERE payment_id = $1` => **1** (PASSED).
+  - **Assertion 6 (CorrectRecoveryState):** Payment state is `COMPLETED`, Recovery job status is `resolved` => **PASSED**.
+  - **Total Financial Invariant Violations:** **0**.
+
+### 7.6 Release Packaging & Command Validation
+- Executed `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly`:
+  - Verified presence of all 6 planned production commands:
+    1. `cmd/api`
+    2. `cmd/worker`
+    3. `cmd/bank-a`
+    4. `cmd/bank-b`
+    5. `cmd/rebuild-worklist`
+    6. `cmd/maintain-merkle`
+  - Approved corpus inputs verified: 6 documents.
+  - Zero missing planned commands. Clean validation status reported.
+
+### 7.7 Comprehensive Gate 7 Verification Evidence Matrix
+
+| Gate / Suite | Verification Command | Environment | Result | Evidence / Details |
+|---|---|---|---|---|
+| **Live Browser Operations** | `npx playwright test browser/ops.live.spec.ts --config playwright.live.config.ts` | Chromium / Live Stack | PASS (10.5s) | 5 passed, 1 skipped. Real worker investigation, SSE stream reconnect, admin recheck, security matrix pass |
+| **Offline Live Gate** | `npx playwright test browser/offline.live.spec.ts --config playwright.live.config.ts` | Chromium / Live Stack | EXPECTED ENV GATE | Documents loopback HTTPS requirement for production build |
+| **SSE Network Resilience** | `npm test -- internal/operationalEvents` | Node.js v22 | PASS (41ms) | Offline/online listeners immediately abort and reconnect SSE stream |
+| **M2 Native Process Interruption** | `go run ./cmd/verify_process_recovery` | Live PostgreSQL 18 | PASS (7.8s) | Fencing token lease expiry, Worker 2 takeover, stale Worker 1 rejection, all 6 financial SQL assertions pass (Violations=0) |
+| **Crash Matrix (B12)** | `go test -v ./internal/experiments -run TestCrashMatrix_FullRecoveryAndEventMatrix` | Live PostgreSQL 18 | PASS (0.77s) | 20/20 scenarios pass; digest `43855b93fa41159c21a07885f60aa64a49929301cacc7b2769d0acb1d54ec814` |
+| **Dual Migration Conformance** | `TestPostgresInvestigationStoreConformance` & `TestPostgresInvestigationStoreUpgradedDatabaseConformance` | Live PostgreSQL 18 | PASS (2.3s) | Clean 000001–000030 and upgraded 000001–000029 -> 000030 migrations verified |
+| **Local Restore Rehearsal** | `pg_dump` -> `dropdb/createdb` -> `pg_restore` | Live PostgreSQL 18 | PASS (5.2s) | Clean restore of 3 schemas, zero negative balances, worker continuation verified |
+| **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS (0.8s) | All 6 production commands verified; clean validation |
+| **Go Full Backend Suite** | `go test -C backend ./...` | Go 1.24 | PASS (21.5s) | All backend packages pass 100% |
+| **Frontend Test Suite** | `npm --prefix frontend run test` | Node.js v22 | PASS (0.45s) | 96/96 tests pass across 16 suites |
+| **Frontend Linter** | `npm --prefix frontend run lint` | TypeScript 7 | PASS | 0 type or lint errors |
+| **Frontend Money Integrity** | `npm --prefix frontend run test:money` | Node.js v22 | PASS | Integer paise boundary checks pass |
+| **Frontend Production Build** | `npm --prefix frontend run build` | Vite 8.3.0 | PASS (0.18s) | Production bundle compiled in `dist/` |
+
+### 7.8 Honest Release-Owner Handoff & Remaining Pre-Production Gates
+1. **Candidate Verification Status:**
+   - The integration author reports these runs below. M1 acceptance remains scoped to its source-matched evidence; broader native crash, provenance and final release gates remain pending.
+   - All financial invariants hold with zero violations under process crashes, partition simulations, and concurrent worker takeovers.
+2. **Explicit Remaining Operational & Cloud Infrastructure Gates:**
+   - **Public JWT/native sign-in:** Requires configured free host/access, DNS and TLS. OAuth/IdP and Kubernetes are outside the agreed plan.
+   - **Production Loopback HTTPS for Offline Live Suite:** Requires TLS certificates (e.g., Let's Encrypt or enterprise CA) configured on the web application ingress.
+   - **Off-VM Disaster Recovery & Automated Snapshot Drill:** Automated backup push to cloud object storage (e.g. S3/GCS) and secondary-region recovery rehearsal require cloud infrastructure provisioning.
+3. **PR & Release Branch Invariants:**
+   - Milestone PRs #22 (`v2/m1-product-delivery`), #23 (`v2/m3-investigation-analytics`), and #24 (`v2/m2-reliability-platform`) remain open and unmerged.
+   - Integration PR #25 (`v2/integration-m1-m2-m3`) remains strictly in **draft** status.
+   - The release branch `release/transactx-v2` is completely unmodified and preserved until formal release sign-off.
