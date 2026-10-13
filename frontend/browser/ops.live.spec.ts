@@ -168,3 +168,47 @@ test("viewer renders durable analytics and cannot invoke admin controls", async 
   });
   expect(deniedChaos.status()).toBe(403);
 });
+
+test("real investigation identity and idempotency stay scoped to the authenticated actor", async ({ request }) => {
+  const api = new URL(process.env.TX_LIVE_API_URL ?? "http://invalid.invalid");
+  const foreignViewer = process.env.TX_LIVE_FOREIGN_VIEWER_ID;
+  const customer = process.env.TX_LIVE_OTHER_ID;
+  const customerPassword = process.env.TX_LIVE_CUSTOMER_PASSWORD;
+  if (process.env.TX_LIVE_DISPOSABLE_DB !== "1" || !["localhost", "127.0.0.1"].includes(api.hostname) || !foreignViewer || !customer || !customerPassword) {
+    throw new Error("Actor-scope check requires a disposable loopback API, second generated viewer and generated customer credentials.");
+  }
+  expect(new Set([identities.viewer, foreignViewer, customer]).size).toBe(3);
+  async function login(identifier: string, secret: string, role: string) {
+    const reply = await request.post(`${api.origin}/api/auth/login`, { data: { identifier, password: secret } });
+    expect(reply.status()).toBe(200);
+    const { data } = await reply.json();
+    expect(data.user.role).toBe(role);
+    return data as { token: string; user: { id: string } };
+  }
+  const own = await login(identities.viewer!, password, "OPS_VIEWER");
+  const foreign = await login(foreignViewer, password, "OPS_VIEWER");
+  const customerSession = await login(customer, customerPassword, "CUSTOMER");
+  const key = crypto.randomUUID();
+  const question = "What collected evidence explains the selected payment state?";
+  const ownHeaders = { Authorization: `Bearer ${own.token}`, "Idempotency-Key": key };
+  // Body fields must never replace the JWT's trusted actor or grant admin rights.
+  const data = { paymentId, question, actorId: foreign.user.id, role: "OPS_ADMIN" };
+  const created = await request.post(`${api.origin}/api/ops/investigations`, { headers: ownHeaders, data });
+  expect(created.status()).toBe(202);
+  const ownId = (await created.json()).data.investigationId;
+  expect(ownId).toMatch(/^[a-f0-9-]{36}$/i);
+  const replay = await request.post(`${api.origin}/api/ops/investigations`, { headers: ownHeaders, data });
+  expect(replay.status()).toBe(202);
+  expect((await replay.json()).data.investigationId).toBe(ownId);
+  const conflict = await request.post(`${api.origin}/api/ops/investigations`, { headers: ownHeaders, data: { paymentId, question: "Changed question" } });
+  expect(conflict.status()).toBe(409);
+  expect((await request.get(`${api.origin}/api/ops/investigations/${ownId}`, { headers: { Authorization: `Bearer ${own.token}` } })).status()).toBe(200);
+  expect((await request.get(`${api.origin}/api/ops/investigations/${ownId}`, { headers: { Authorization: `Bearer ${foreign.token}` } })).status()).toBe(403);
+  const separate = await request.post(`${api.origin}/api/ops/investigations`, { headers: { Authorization: `Bearer ${foreign.token}`, "Idempotency-Key": key }, data: { paymentId, question } });
+  expect(separate.status()).toBe(202);
+  expect((await separate.json()).data.investigationId).not.toBe(ownId);
+  for (const path of ["/api/ops/analytics/windows", `/api/ops/investigations/${ownId}`]) {
+    expect((await request.get(`${api.origin}${path}`, { headers: { Authorization: `Bearer ${customerSession.token}` } })).status()).toBe(403);
+  }
+  expect((await request.post(`${api.origin}/api/ops/investigations`, { headers: { Authorization: `Bearer ${customerSession.token}`, "Idempotency-Key": crypto.randomUUID() }, data: { paymentId, question } })).status()).toBe(403);
+});

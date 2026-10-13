@@ -43,6 +43,17 @@ reload and a 360px view. Missing inputs cause a failure. Use only disposable
 credentials and data; a passing result is scoped to the exact candidate stack
 under test. The full release gate also requires worker-driven projection and
 M3 investigation/analytics responses.
+The investigation/analytics gates require `TX_LIVE_API_URL` and
+`TX_LIVE_DISPOSABLE_DB=1`, an active reviewed corpus, durable analytics windows
+including null measurements, and a native investigator worker. Enable the
+simulation's control routes in the disposable configuration to verify viewer
+denials. The actor-scope case also requires `TX_LIVE_FOREIGN_VIEWER_ID`, a second
+generated viewer using the operator test password, plus the generated customer
+inputs below. Provision these fixtures privately; the tests perform real login
+and never grant roles themselves. For the expiry case, run a separate API with
+`JWT_LIFETIME` at most 10 seconds and set `TX_LIVE_EXPECT_EXPIRY=1`; otherwise
+that case is skipped and no expiry acceptance is claimed. SSE reconnect and
+retained-citation cases remain required even when a candidate fails them.
 The same live suite includes an offline intent case. It requires three distinct
 disposable customer IDs (`TX_LIVE_SENDER_ID`, `TX_LIVE_RECEIVER_ID`,
 `TX_LIVE_OTHER_ID`), their `TX_LIVE_CUSTOMER_PASSWORD`, `TX_LIVE_API_URL`, and
