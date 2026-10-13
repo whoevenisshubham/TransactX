@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { AnalyticsWindow } from "../src/ops/contracts";
 
 const paymentId = process.env.TX_LIVE_PAYMENT_ID;
 const state = process.env.TX_LIVE_PAYMENT_STATE;
@@ -129,4 +130,41 @@ test("an expired real session is cleared after reconnect", async ({ page, contex
   await expect(page.getByRole("heading", { name: "Payment journey" })).toHaveCount(0);
   expect(await page.evaluate(() => sessionStorage.getItem("transactx.token"))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem("transactx.profile"))).toBeNull();
+});
+
+test("viewer renders durable analytics and cannot invoke admin controls", async ({ page, request }) => {
+  const api = new URL(process.env.TX_LIVE_API_URL ?? "http://invalid.invalid");
+  if (process.env.TX_LIVE_DISPOSABLE_DB !== "1" || !["localhost", "127.0.0.1"].includes(api.hostname)) {
+    throw new Error("Analytics/role live check requires an explicitly disposable loopback API with measured windows and control routes enabled.");
+  }
+  await page.setViewportSize({ width: 360, height: 800 });
+  const windowsReply = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/ops/analytics/windows" && response.status() === 200);
+  await page.goto("/console/analytics");
+  await page.getByLabel("Phone or payment ID").fill(identities.viewer!);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const { data }: { data: { items: AnalyticsWindow[] } } = await (await windowsReply).json();
+  expect(data.items.length).toBeGreaterThan(0);
+  await expect(page.getByRole("heading", { name: "Operational analytics" })).toBeVisible();
+  await expect(page.getByText("These measurements never authorize routing or settlement.", { exact: false })).toBeVisible();
+  const table = page.getByRole("table", { name: "Measured operational windows with a table alternative to charts" });
+  await expect(table).toBeVisible();
+  await expect(table.locator("tbody tr")).toHaveCount(data.items.length);
+  const nullableIndex = data.items.findIndex((item) => item.features.p95LatencyMs === null);
+  expect(nullableIndex, "durable windows must include an unavailable latency measurement").toBeGreaterThanOrEqual(0);
+  await expect(table.locator("tbody tr").nth(nullableIndex).getByRole("cell").nth(4)).toHaveText("Unavailable");
+  const modelIndex = data.items.findIndex((item) => item.model.score === null && item.model.status !== "ready");
+  expect(modelIndex, "model-off/insufficient status must be represented").toBeGreaterThanOrEqual(0);
+  await expect(table.locator("tbody tr").nth(modelIndex).getByRole("cell").nth(5)).toContainText(data.items[modelIndex].model.status.replaceAll("_", " "));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  const token = await page.evaluate(() => sessionStorage.getItem("transactx.token"));
+  expect(token).toBeTruthy();
+  const deniedRecheck = await request.post(`${api.origin}/api/ops/payments/${paymentId}/recovery/recheck`, {
+    headers: { Authorization: `Bearer ${token}`, "Idempotency-Key": crypto.randomUUID() }, data: { reason: "Viewer denial verification" },
+  });
+  expect(deniedRecheck.status()).toBe(403);
+  const deniedChaos = await request.post(`${api.origin}/api/ops/chaos/reset`, {
+    headers: { Authorization: `Bearer ${token}` }, data: {},
+  });
+  expect(deniedChaos.status()).toBe(403);
 });
