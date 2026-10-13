@@ -517,6 +517,7 @@ The purpose of Gate 7 is to:
 
 | Gate / Suite | Verification Command | Environment | Result | Evidence / Details |
 |---|---|---|---|---|
+| **GitHub Actions CI** | Run [#38423840921](https://github.com/whoevenisshubham/TransactX/actions/runs/38423840921) | Ubuntu 24.04 (Containers) | **PASS (100% GREEN)** | Frontend + Backend (Migrations, Tests, Race Tests, Build) all pass |
 | **Cross-Bank Recovery Matrix** | `go run -C backend ./cmd/experiments -experiment crossbank` | Live PostgreSQL 18 | PASS (4.7s) | 7/7 scenarios pass; 0 financial invariant violations; JSON/CSV/SHA256 generated |
 | **Crash Matrix (B12)** | `go test -v ./internal/experiments -run TestCrashMatrix_` | Live PostgreSQL 18 | PASS (0.8s) | 20/20 scenarios pass; negative payload and debit-credit fault tests pass |
 | **Analytics Fail-Closed Veto** | `go test -v ./internal/analytics -run TestAnalytics_` | Go 1.24 | PASS (4.2s) | All 13 tests pass; non-boolean values and query/scan errors fail closed |
@@ -527,7 +528,3 @@ The purpose of Gate 7 is to:
 | **Frontend Linter** | `npm --prefix frontend run lint` | TypeScript 7 | PASS | 0 type or lint errors |
 | **Frontend Money Integrity** | `npm --prefix frontend run test:money` | Node.js v22 | PASS | Integer paise boundary checks pass |
 | **Frontend Production Build** | `npm --prefix frontend run build` | Vite 8.3.0 | PASS (0.17s) | Production bundle compiled in `dist/` |
-
-
-
-
