@@ -249,6 +249,32 @@ func (w *Worker) Run(ctx context.Context) error {
 		}()
 	}
 
+	// 8. Outbox & Projections Processing Loop
+	if w.env.ProjectionsService != nil {
+		hasJobs = true
+		w.wg.Add(1)
+		go func() {
+			defer w.wg.Done()
+			ticker := time.NewTicker(200 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					processed, err := w.env.ProjectionsService.ProcessBatch(runCtx, w.config.WorkerLabel, 50)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						w.logger.Warn("outbox projections process batch failed", "error", err)
+					} else if processed > 0 {
+						w.logger.Debug("processed outbox projection events", "count", processed)
+					}
+				case <-runCtx.Done():
+					return
+				case <-w.stopCh:
+					return
+				}
+			}
+		}()
+	}
+
 	if !hasJobs {
 		w.logger.Info("no background jobs configured; worker idling")
 	}

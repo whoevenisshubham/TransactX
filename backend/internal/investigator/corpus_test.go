@@ -18,6 +18,19 @@ import (
 
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
+	for _, candidate := range []string{
+		filepath.Join("..", "..", ".."),
+		filepath.Join(".."),
+		".",
+	} {
+		manifest := filepath.Join(candidate, "docs", "runbooks", "corpus-manifest.json")
+		if _, err := os.Stat(manifest); err == nil {
+			root, err := filepath.Abs(candidate)
+			if err == nil {
+				return root
+			}
+		}
+	}
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)

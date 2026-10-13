@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/transactx/backend/internal/anomaly"
 )
 
 // Repository provides durable storage and query methods for operational aggregate windows.
@@ -307,6 +309,25 @@ func (r *PostgresRepository) SetCursor(ctx context.Context, cursorName string, l
 
 // AggregateWindow computes durable features for a single 5-minute half-open window [from, to).
 func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, entityID string, from, to time.Time) (*AnalyticsWindow, map[string]any, error) {
+	if entityType != "bank" && entityType != "execution_target" {
+		return nil, nil, fmt.Errorf("invalid entity type: %s", entityType)
+	}
+	if entityID == "" {
+		return nil, nil, fmt.Errorf("entity ID cannot be empty")
+	}
+	if from.IsZero() || to.IsZero() {
+		return nil, nil, fmt.Errorf("window boundaries cannot be zero")
+	}
+	if !from.Before(to) {
+		return nil, nil, fmt.Errorf("window from (%v) must be before to (%v)", from, to)
+	}
+	if to.Sub(from) != WindowDuration {
+		return nil, nil, fmt.Errorf("invalid window duration: expected %v, got %v", WindowDuration, to.Sub(from))
+	}
+	if from.After(time.Now().UTC().Add(10 * time.Second)) {
+		return nil, nil, fmt.Errorf("future window rejected: from is in the future")
+	}
+
 	// 1. Authoritative payment metrics as of window_to.
 	// Evaluates payment states strictly at occurred_at <= to using state transitions to ensure
 	// late terminal transitions after window end do not leak into earlier window features.
@@ -492,28 +513,117 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 		}
 	}
 
-	// 6. Transparent statistical baseline check over prior completed healthy windows.
-	var baselineAlert *Warning
-	if sampleCount >= MinimumSampleCount {
-		if features.FailureRate != nil && *features.FailureRate > 0.15 {
-			baselineAlert = &Warning{
-				Code:    "HIGH_FAILURE_RATE",
-				Message: fmt.Sprintf("Observed failure rate %.2f exceeds baseline threshold of 0.15", *features.FailureRate),
-			}
-		} else if features.TimeoutRate != nil && *features.TimeoutRate > 0.10 {
-			baselineAlert = &Warning{
-				Code:    "HIGH_TIMEOUT_RATE",
-				Message: fmt.Sprintf("Observed timeout rate %.2f exceeds baseline threshold of 0.10", *features.TimeoutRate),
+	// 6. Query prior completed healthy windows for the entity.
+	// Windows are independently designated healthy when baseline_alert is NULL
+	// and sample_count >= MinimumSampleCount.
+	var priorHealthy []anomaly.LiveCalibrationWindow
+	priorQuery := `
+		SELECT id::text, entity_type, entity_id, window_from, window_to, sample_count, feature_schema_version, features
+		FROM operational_aggregate_windows
+		WHERE entity_type = $1
+		  AND entity_id = $2
+		  AND window_to <= $3
+		  AND baseline_alert IS NULL
+		  AND sample_count >= $4
+		ORDER BY window_from ASC
+		LIMIT 10000;
+	`
+	rows, qErr := r.pool.Query(ctx, priorQuery, entityType, entityID, from.UTC(), MinimumSampleCount)
+	if qErr == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var wID, wEntType, wEntID, wSchema string
+			var wFrom, wTo time.Time
+			var wSamples int
+			var wFeatJSON []byte
+			if scanErr := rows.Scan(&wID, &wEntType, &wEntID, &wFrom, &wTo, &wSamples, &wSchema, &wFeatJSON); scanErr == nil {
+				var featVals anomaly.LiveFeatureValues
+				if jsonErr := json.Unmarshal(wFeatJSON, &featVals); jsonErr == nil {
+					priorHealthy = append(priorHealthy, anomaly.LiveCalibrationWindow{
+						ID:            wID,
+						EntityType:    wEntType,
+						EntityID:      wEntID,
+						From:          wFrom.UTC(),
+						To:            wTo.UTC(),
+						SchemaVersion: wSchema,
+						SampleCount:   wSamples,
+						Values:        featVals,
+					})
+				}
 			}
 		}
 	}
 
-	// 7. Model status evaluation.
+	// 7. Calibrate baseline and evaluate live features via M3 anomaly package.
+	var baselineAlert *Warning
 	modelInfo := ModelStatusInfo{
 		Status: "unavailable",
 	}
-	if sampleCount < MinimumSampleCount {
-		modelInfo.Status = "insufficient_data"
+
+	liveVals := anomaly.LiveFeatureValues{
+		TimeoutRate:                features.TimeoutRate,
+		FailureRate:                features.FailureRate,
+		P95LatencyMs:               features.P95LatencyMs,
+		OldestRecoveryAgeMs:        features.OldestRecoveryAgeMs,
+		RecoveryAttemptsPerPayment: features.RecoveryAttemptsPerPayment,
+		HealthAvailabilityRate:     features.HealthAvailabilityRate,
+	}
+
+	scoreFrom := from.UTC()
+	var baseline *anomaly.Baseline
+	if (entityType == "bank" || entityType == "execution_target") && entityID != "" && !from.IsZero() && scoreFrom.Equal(scoreFrom.Truncate(WindowDuration)) {
+		baseline, _ = anomaly.FitLiveBaseline(priorHealthy, entityType, entityID, scoreFrom, 3.0)
+	}
+
+	eval, evalErr := anomaly.EvaluateLiveFeatures(nil, baseline, FeatureSchemaVersionV1, sampleCount, liveVals, to.UTC())
+	if evalErr == nil {
+		modelInfo.Version = eval.Model.Version
+		modelInfo.Status = eval.Model.Status
+		modelInfo.Score = eval.Model.Score
+		modelInfo.Threshold = eval.Model.Threshold
+		if sampleCount < MinimumSampleCount {
+			modelInfo.Status = "insufficient_data"
+		}
+
+		if eval.Baseline.Status == "ready" {
+			if len(eval.Baseline.Reasons) > 0 {
+				baselineAlert = &Warning{
+					Code:    "BASELINE_DEVIATION",
+					Message: fmt.Sprintf("Observed deviation exceeds baseline threshold: %s", strings.Join(eval.Baseline.Reasons, ", ")),
+				}
+			}
+		} else if sampleCount >= MinimumSampleCount {
+			// Warmup fallback: transparent statistical baseline checks when baseline is not yet ready.
+			if features.FailureRate != nil && *features.FailureRate > 0.15 {
+				baselineAlert = &Warning{
+					Code:    "HIGH_FAILURE_RATE",
+					Message: fmt.Sprintf("Observed failure rate %.2f exceeds baseline threshold of 0.15", *features.FailureRate),
+				}
+			} else if features.TimeoutRate != nil && *features.TimeoutRate > 0.10 {
+				baselineAlert = &Warning{
+					Code:    "HIGH_TIMEOUT_RATE",
+					Message: fmt.Sprintf("Observed timeout rate %.2f exceeds baseline threshold of 0.10", *features.TimeoutRate),
+				}
+			}
+		}
+	} else {
+		// If live feature evaluation failed, maintain fallback status.
+		if sampleCount < MinimumSampleCount {
+			modelInfo.Status = "insufficient_data"
+		} else {
+			modelInfo.Status = "unavailable"
+			if features.FailureRate != nil && *features.FailureRate > 0.15 {
+				baselineAlert = &Warning{
+					Code:    "HIGH_FAILURE_RATE",
+					Message: fmt.Sprintf("Observed failure rate %.2f exceeds baseline threshold of 0.15", *features.FailureRate),
+				}
+			} else if features.TimeoutRate != nil && *features.TimeoutRate > 0.10 {
+				baselineAlert = &Warning{
+					Code:    "HIGH_TIMEOUT_RATE",
+					Message: fmt.Sprintf("Observed timeout rate %.2f exceeds baseline threshold of 0.10", *features.TimeoutRate),
+				}
+			}
+		}
 	}
 
 	rawAggregates := map[string]any{

@@ -517,3 +517,171 @@ func TestAnalytics_Service_AggregateCompletedWindows(t *testing.T) {
 	}
 	_ = age
 }
+
+func TestAnalytics_AggregateWindow_RejectsMalformedAndFutureInputs(t *testing.T) {
+	pool := getTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	repo := NewPostgresRepository(pool)
+	now := time.Now().UTC().Truncate(WindowDuration)
+	validFrom := now.Add(-10 * time.Minute)
+	validTo := now.Add(-5 * time.Minute)
+
+	// 1. Invalid entity type
+	_, _, err := repo.AggregateWindow(ctx, "unsupported_entity", "BANK_A", validFrom, validTo)
+	if err == nil || !strings.Contains(err.Error(), "invalid entity type") {
+		t.Errorf("expected error for invalid entity type, got: %v", err)
+	}
+
+	// 2. Empty entity ID
+	_, _, err = repo.AggregateWindow(ctx, "bank", "", validFrom, validTo)
+	if err == nil || !strings.Contains(err.Error(), "entity ID cannot be empty") {
+		t.Errorf("expected error for empty entity ID, got: %v", err)
+	}
+
+	// 3. Zero time boundaries
+	_, _, err = repo.AggregateWindow(ctx, "bank", "BANK_A", time.Time{}, validTo)
+	if err == nil || !strings.Contains(err.Error(), "window boundaries cannot be zero") {
+		t.Errorf("expected error for zero from, got: %v", err)
+	}
+
+	// 4. Inverted time boundaries
+	_, _, err = repo.AggregateWindow(ctx, "bank", "BANK_A", validTo, validFrom)
+	if err == nil || !strings.Contains(err.Error(), "must be before to") {
+		t.Errorf("expected error for inverted boundaries, got: %v", err)
+	}
+
+	// 5. Invalid duration (not 5 minutes)
+	_, _, err = repo.AggregateWindow(ctx, "bank", "BANK_A", validFrom, validFrom.Add(3*time.Minute))
+	if err == nil || !strings.Contains(err.Error(), "invalid window duration") {
+		t.Errorf("expected error for invalid duration, got: %v", err)
+	}
+
+	// 6. Future window
+	futureFrom := now.Add(1 * time.Hour)
+	_, _, err = repo.AggregateWindow(ctx, "bank", "BANK_A", futureFrom, futureFrom.Add(WindowDuration))
+	if err == nil || !strings.Contains(err.Error(), "future window rejected") {
+		t.Errorf("expected error for future window, got: %v", err)
+	}
+}
+
+func TestAnalytics_FitLiveBaseline_PriorHealthyCalibrationAndAlerts(t *testing.T) {
+	pool := getTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	repo := NewPostgresRepository(pool)
+	testBankCode := "BANK_CALIB_" + uuid.NewString()[:8]
+	baseTime := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+
+	// Seed 8 prior completed healthy windows (sample_count >= 20, baseline_alert = NULL)
+	for i := 0; i < 8; i++ {
+		wFrom := baseTime.Add(time.Duration(i) * WindowDuration)
+		wTo := wFrom.Add(WindowDuration)
+		lowFail := 0.01
+		lowTimeout := 0.005
+		lat := 100.0
+		recovAge := 500.0
+		recovAtt := 0.1
+		avail := 0.99
+
+		healthyWin := &AnalyticsWindow{
+			ID:                   uuid.NewString(),
+			EntityType:           "bank",
+			EntityID:             testBankCode,
+			From:                 wFrom,
+			To:                   wTo,
+			SampleCount:          40,
+			FeatureSchemaVersion: FeatureSchemaVersionV1,
+			Features: FeatureVector{
+				FailureRate:                &lowFail,
+				TimeoutRate:                &lowTimeout,
+				P95LatencyMs:               &lat,
+				OldestRecoveryAgeMs:        &recovAge,
+				RecoveryAttemptsPerPayment: &recovAtt,
+				HealthAvailabilityRate:     &avail,
+			},
+			BaselineAlert: nil,
+			Model: ModelStatusInfo{
+				Status: "unavailable",
+			},
+			Advisory: true,
+		}
+		raw := map[string]any{"seeded": true}
+		if err := repo.UpsertWindow(ctx, healthyWin, raw); err != nil {
+			t.Fatalf("seed healthy window %d failed: %v", i, err)
+		}
+	}
+
+	// Now aggregate window 8 (from = baseTime + 8*WindowDuration)
+	scoreFrom := baseTime.Add(8 * WindowDuration)
+	scoreTo := scoreFrom.Add(WindowDuration)
+
+	// Insert payments in window 8 with 30 payments, 10 failures to trigger high failure rate deviation
+	bankID := uuid.New()
+	_, _ = pool.Exec(ctx, "INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Bank Calib', 'ACTIVE')", bankID, testBankCode)
+
+	senderID := uuid.New()
+	senderPhone := "+9199" + uuid.NewString()[:8]
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO users (id, phone, name, upi_id, password_hash, role)
+		VALUES ($1, $2, 'Calib Sender', $3, 'hash', 'CUSTOMER') ON CONFLICT DO NOTHING;
+	`, senderID, senderPhone, senderPhone+"@upi")
+
+	accID := uuid.New()
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, status)
+		VALUES ($1, $2, $3, $4, 5000000, 'ACTIVE') ON CONFLICT DO NOTHING;
+	`, accID, senderID, bankID, "ACC_"+uuid.NewString()[:8])
+
+	for p := 0; p < 30; p++ {
+		payID := uuid.New()
+		payState := "COMPLETED"
+		var failReason *string
+		if p < 10 {
+			payState = "FAILED"
+			reason := "NETWORK_ERROR"
+			failReason = &reason
+		}
+		_, err := pool.Exec(ctx, `
+			INSERT INTO payments (
+				id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise,
+				currency, state, source_bank_id, destination_bank_id, failure_reason,
+				created_at, updated_at
+			) VALUES ($1, $2, $3, $3, 10000, 'INR', $4, $5, $5, $6, $7, $7);
+		`, payID, senderID, accID, payState, bankID, failReason, scoreFrom.Add(time.Duration(p)*5*time.Second))
+		if err != nil {
+			t.Fatalf("insert payment %d: %v", p, err)
+		}
+
+		_, err = pool.Exec(ctx, `
+			INSERT INTO payment_state_transitions (id, payment_id, from_state, to_state, transitioned_at)
+			VALUES ($1, $2, 'CREATED', $3, $4);
+		`, uuid.New(), payID, payState, scoreFrom.Add(time.Duration(p)*5*time.Second+time.Second))
+		if err != nil {
+			t.Fatalf("insert transition %d: %v", p, err)
+		}
+	}
+
+	win, _, err := repo.AggregateWindow(ctx, "bank", testBankCode, scoreFrom, scoreTo)
+	if err != nil {
+		t.Fatalf("AggregateWindow failed: %v", err)
+	}
+
+	if win.SampleCount != 30 {
+		t.Fatalf("expected sampleCount 30, got %d", win.SampleCount)
+	}
+
+	if win.BaselineAlert == nil {
+		t.Fatalf("expected BaselineAlert from calibrated baseline, got nil")
+	}
+
+	if win.BaselineAlert.Code != "BASELINE_DEVIATION" {
+		t.Errorf("expected BaselineAlert code 'BASELINE_DEVIATION', got %s", win.BaselineAlert.Code)
+	}
+	if !strings.Contains(win.BaselineAlert.Message, "failureRate_deviation") {
+		t.Errorf("expected failureRate_deviation in alert message, got: %s", win.BaselineAlert.Message)
+	}
+}
+

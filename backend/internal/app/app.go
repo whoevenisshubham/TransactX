@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,7 +26,9 @@ import (
 	apihttp "github.com/transactx/backend/internal/http"
 	"github.com/transactx/backend/internal/investigator"
 	"github.com/transactx/backend/internal/operations"
+	"github.com/transactx/backend/internal/outbox"
 	"github.com/transactx/backend/internal/payments"
+	"github.com/transactx/backend/internal/projections"
 	"github.com/transactx/backend/internal/recipients"
 	"github.com/transactx/backend/internal/reconciliation"
 	"github.com/transactx/backend/internal/recovery"
@@ -59,6 +63,7 @@ type Environment struct {
 	InvestigatorStore    investigator.InvestigationStore
 	CorpusRepo           *investigator.PostgresCorpusRepository
 	InvestigatorService  *investigator.Service
+	ProjectionsService   *projections.Service
 	ownsDB               bool
 }
 
@@ -335,7 +340,20 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		return nil, fmt.Errorf("initialize investigator service: %w", err)
 	}
 
-	if build, err := investigator.BuildCorpus(".", "docs/runbooks/corpus-manifest.json"); err == nil {
+	outboxStore := outbox.NewPostgresStore(db)
+	outboxDispatcher := outbox.NewDispatcher(db)
+	projector := projections.NewProjector(db, outbox.ConsumerOpsWorklist)
+	projectionsSvc := projections.NewService(db, outboxStore, outboxDispatcher, projector)
+
+	manifestPath := "docs/runbooks/corpus-manifest.json"
+	rootDir := "."
+	if _, err := os.Stat(manifestPath); err != nil {
+		if _, err2 := os.Stat(filepath.Join("..", manifestPath)); err2 == nil {
+			rootDir = ".."
+			manifestPath = filepath.Join("..", manifestPath)
+		}
+	}
+	if build, err := investigator.BuildCorpus(rootDir, manifestPath); err == nil {
 		if err := corpusRepo.Stage(ctx, build); err == nil {
 			_ = corpusRepo.Activate(ctx, build.Version, build.ManifestSHA256)
 		}
@@ -368,6 +386,7 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		InvestigatorStore:    investigatorStore,
 		CorpusRepo:           corpusRepo,
 		InvestigatorService:  investigatorSvc,
+		ProjectionsService:   projectionsSvc,
 	}, nil
 }
 
