@@ -9,6 +9,7 @@
 - **M2 Head (`origin/v2/m2-reliability-platform`):** `c9da5fb9035dff259c936fb79785eecbd93efde6` (PR #24)
 - **M3 Head (`origin/v2/m3-investigation-analytics`):** `99f3e1425a3c96155852a4b6adccea07d4601cdf` (PR #23)
 - **Gate 8 Integration Head:** `c5785c95985c9aff933f4c7e68a89d8299678218` (Green on GitHub Actions #38423840921)
+- **Gate 9 Integration Head:** `120d30a68796e85b4f25c641eec5502adf94b5d8` (Green on GitHub Actions [#38426686726](https://github.com/whoevenisshubham/TransactX/actions/runs/38426686726))
 - **Gate 9 Integration Work:** Latest M1 delivery work synchronization (`bc7c167`), delivery documentation staging allowlist validation, release builder validation (`build-release.ps1` and `build-release.sh`), live accessibility and WCAG AA contrast styling, re-verification of Gate 8 cross-bank (CB-01 to CB-07) and crash matrix (B12) suites, full Go and frontend regression suites, and release handoff documentation.
 
 ---
@@ -633,6 +634,7 @@ In accordance with M1 and integration requirements, the following release gates 
 
 | Gate / Suite | Verification Command | Environment | Result | Evidence / Details |
 |---|---|---|---|---|
+| **GitHub Actions CI** | Run [#38426686726](https://github.com/whoevenisshubham/TransactX/actions/runs/38426686726) | Ubuntu 24.04 (Containers) | **PASS (100% GREEN)** | Backend (Migrations, Tests, Race Tests, Build) + Frontend all pass |
 | **M1 Delivery Staging** | `node deploy/scripts/stage-delivery-docs.mjs .` | Node.js v22 | **PASS** | Validated 13 delivery documents/evidence files/queries against approved allowlist |
 | **Release Builder Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | **PASS** | All 8 production commands present; 6 corpus documents verified; 0 missing commands |
 | **Cross-Bank Recovery Matrix** | `go run -C backend ./cmd/experiments -experiment crossbank` | Live PostgreSQL 18 | **PASS (5.56s)** | 7/7 scenarios pass; 0 financial invariant violations across Bank A, Bank B, and central ledger |
