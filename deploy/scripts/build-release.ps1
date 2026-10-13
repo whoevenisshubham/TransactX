@@ -11,7 +11,7 @@ if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repo 'deploy\out' }
 $sourceSha = (& git -C $repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceSha -notmatch '^[0-9a-f]{40}$') { throw 'Cannot determine source SHA.' }
 $dirty = @(& git -C $repo status --porcelain).Count -gt 0
-$commands = @('api', 'bank-a', 'bank-b', 'worker', 'migrate', 'maintain-merkle', 'corpus')
+$commands = @('api', 'bank-a', 'bank-b', 'worker', 'migrate', 'maintain-merkle', 'corpus', 'rebuild-worklist')
 $commandSources = @{}
 foreach ($command in $commands) { $commandSources[$command] = "cmd/$command" }
 $commandSources['corpus'] = 'internal/investigator/cmd/corpus'

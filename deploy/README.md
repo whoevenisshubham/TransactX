@@ -130,6 +130,11 @@ with `-root <bundle-root> -manifest <bundle-root>/docs/runbooks/corpus-manifest.
 and the configured local database connection to stage it; `-activate` explicitly
 activates the version. `-dry-run` validates the packaged inputs without database
 writes. The corpus command does not call a model provider.
+It also includes `transactx-rebuild-worklist` for the reviewed maintenance
+rehearsal. Installation links both tools under `run/`; complete-bundle
+validation requires all eight commands for both architectures and the corpus
+manifest. Rebuild acceptance still requires the canonical backend lock and
+worker integration gates; shipping the command does not prove those gates.
 
 See [RESTORE_REHEARSAL.md](RESTORE_REHEARSAL.md) for the isolated local procedure,
 measured fixture result, refusal checks and remaining recovery gates.

@@ -21,7 +21,7 @@ sha="$(git -C "$repo" rev-parse HEAD)"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid source SHA.' >&2; exit 1; }
 dirty=false
 [[ -z "$(git -C "$repo" status --porcelain)" ]] || dirty=true
-commands=(api bank-a bank-b worker migrate maintain-merkle corpus)
+commands=(api bank-a bank-b worker migrate maintain-merkle corpus rebuild-worklist)
 command_source() {
   if [[ "$1" == corpus ]]; then printf 'internal/investigator/cmd/corpus'; else printf 'cmd/%s' "$1"; fi
 }

@@ -6,6 +6,7 @@ expected_hash=''
 source_sha=''
 validate_only=false
 activate=false
+required_commands=(api bank-a bank-b worker migrate maintain-merkle corpus rebuild-worklist)
 while (($#)); do
   case "$1" in
     --archive) archive="${2:-}"; shift 2 ;;
@@ -32,6 +33,15 @@ metadata="$(tar -xOzf "$archive" ./metadata.json 2>/dev/null)" || { echo 'Archiv
 printf '%s\n' "$metadata" | grep -Eq "\"sourceSha\"[[:space:]]*:[[:space:]]*\"$source_sha\"" || { echo 'Source SHA mismatch.' >&2; exit 1; }
 complete=false
 if printf '%s\n' "$metadata" | grep -Eq '"complete"[[:space:]]*:[[:space:]]*true'; then complete=true; fi
+if $complete; then
+  members="$(tar -tzf "$archive")"
+  for arch in linux-amd64 linux-arm64; do
+    for command in "${required_commands[@]}"; do
+      grep -Fxq "./bin/$arch/transactx-$command" <<< "$members" || { echo "Missing $arch binary: $command" >&2; exit 1; }
+    done
+  done
+  grep -Fxq './docs/runbooks/corpus-manifest.json' <<< "$members" || { echo 'Approved corpus manifest is missing.' >&2; exit 1; }
+fi
 
 prefix=/opt/transactx
 release="$prefix/releases/$source_sha"
@@ -57,7 +67,7 @@ if [[ ! -d "$release" ]]; then
   grep -Eq "\"sourceSha\"[[:space:]]*:[[:space:]]*\"$source_sha\"" "$stage/metadata.json" || { echo 'Source SHA mismatch.' >&2; exit 1; }
   find "$stage/deploy/scripts" -maxdepth 1 -type f -name '*.sh' -exec chmod 0755 {} +
   mkdir -p "$stage/run"
-  for command in api bank-a bank-b worker migrate maintain-merkle; do
+  for command in "${required_commands[@]}"; do
     binary="$stage/bin/$arch/transactx-$command"
     [[ -f "$binary" ]] || { echo "Missing $arch binary: $command" >&2; exit 1; }
     chmod 0755 "$binary"
