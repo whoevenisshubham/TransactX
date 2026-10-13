@@ -42,8 +42,8 @@ func TestPostgresCorpusLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply canonical migrations: %v", err)
 	}
-	if applied < 29 {
-		t.Fatalf("expected at least 29 migrations applied, got %d", applied)
+	if applied < 30 {
+		t.Fatalf("expected at least 30 migrations applied, got %d", applied)
 	}
 
 	repository, err := NewPostgresCorpusRepository(pool)

@@ -393,9 +393,9 @@ func (h *Handler) opsCreateInvestigation(writer http.ResponseWriter, request *ht
 		return
 	}
 
-	var req investigator.CreateInvestigationRequest
-	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
-		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "malformed request body", http.StatusBadRequest))
+	req, err := investigator.DecodeCreateInvestigationRequest(request.Body)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", err.Error(), http.StatusBadRequest))
 		return
 	}
 

@@ -192,7 +192,14 @@ test("real investigation identity and idempotency stay scoped to the authenticat
   const question = "What collected evidence explains the selected payment state?";
   const ownHeaders = { Authorization: `Bearer ${own.token}`, "Idempotency-Key": key };
   // Body fields must never replace the JWT's trusted actor or grant admin rights.
-  const data = { paymentId, question, actorId: foreign.user.id, role: "OPS_ADMIN" };
+  // With strict request decoding, injected body fields are rejected (400 Bad Request).
+  const rejected = await request.post(`${api.origin}/api/ops/investigations`, {
+    headers: ownHeaders,
+    data: { paymentId, question, actorId: foreign.user.id, role: "OPS_ADMIN" },
+  });
+  expect(rejected.status()).toBe(400);
+
+  const data = { paymentId, question };
   const created = await request.post(`${api.origin}/api/ops/investigations`, { headers: ownHeaders, data });
   expect(created.status()).toBe(202);
   const ownId = (await created.json()).data.investigationId;

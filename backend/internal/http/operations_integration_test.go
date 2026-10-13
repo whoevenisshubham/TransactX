@@ -831,3 +831,212 @@ func createOpsTestPayment(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 	return paymentID
 }
 
+func TestOperations_Investigation_StrictDecoderAndScopeContract(t *testing.T) {
+	server, pool, jwt := setupOperationsTestServer(t, true)
+	defer server.Close()
+	defer pool.Close()
+
+	actor1ID := uuid.NewString()
+	actor2ID := uuid.NewString()
+	viewer1Token, _ := jwt.Issue(actor1ID, users.RoleOpsViewer, time.Now())
+	viewer2Token, _ := jwt.Issue(actor2ID, users.RoleOpsViewer, time.Now())
+	customerToken, _ := jwt.Issue(uuid.NewString(), users.RoleCustomer, time.Now())
+	adminToken, _ := jwt.Issue(uuid.NewString(), users.RoleOpsAdmin, time.Now())
+
+	client := server.Client()
+	paymentID := createOpsTestPayment(t, pool)
+
+	// 1. Customer role rejected with 403 Forbidden on POST /api/ops/investigations
+	validBody := fmt.Sprintf(`{"paymentId":"%s","question":"Why is payment stuck?"}`, paymentID)
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(validBody))
+	req.Header.Set("Authorization", "Bearer "+customerToken)
+	req.Header.Set("Idempotency-Key", "cust-key-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 customer on POST /api/ops/investigations, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 2. Reject injected actor field (400 Bad Request)
+	injectedActorBody := fmt.Sprintf(`{"paymentId":"%s","question":"Why?","actor":"hacker_override"}`, paymentID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(injectedActorBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", "key-inj-actor-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on injected actor field, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 3. Reject injected role field (400 Bad Request)
+	injectedRoleBody := fmt.Sprintf(`{"paymentId":"%s","question":"Why?","role":"OPS_ADMIN"}`, paymentID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(injectedRoleBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", "key-inj-role-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on injected role field, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 4. Reject injected provider field (400 Bad Request)
+	injectedProviderBody := fmt.Sprintf(`{"paymentId":"%s","question":"Why?","provider":"openai"}`, paymentID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(injectedProviderBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", "key-inj-prov-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on injected provider field, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 5. Reject injected mode field (400 Bad Request)
+	injectedModeBody := fmt.Sprintf(`{"paymentId":"%s","question":"Why?","mode":"llm"}`, paymentID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(injectedModeBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", "key-inj-mode-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on injected mode field, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 6. Reject unknown extra fields (400 Bad Request)
+	unknownFieldBody := fmt.Sprintf(`{"paymentId":"%s","question":"Why?","unrecognized_field":123}`, paymentID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(unknownFieldBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", "key-unk-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on unknown field, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 7. Reject oversized request (>32 KiB) (400 Bad Request)
+	oversizedQuestion := strings.Repeat("A", 33*1024)
+	oversizedBody := fmt.Sprintf(`{"paymentId":"%s","question":"%s"}`, paymentID, oversizedQuestion)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(oversizedBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", "key-oversized-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on oversized request, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 8. Reject trailing JSON (400 Bad Request)
+	trailingJSONBody := fmt.Sprintf(`{"paymentId":"%s","question":"Why stuck?"}{"extra":"trailing"}`, paymentID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(trailingJSONBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", "key-trailing-"+uuid.NewString())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on trailing JSON, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 9. Valid request by Viewer 1 proceeds normally (202 Accepted)
+	sharedIdempKey := "shared-key-" + uuid.NewString()
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(validBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", sharedIdempKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 on valid investigation, got %v (%d)", err, resp.StatusCode)
+	}
+
+	var resp1 struct {
+		Data investigator.InvestigationAccepted `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&resp1); err != nil {
+		t.Fatalf("decode resp1: %v", err)
+	}
+	job1ID := resp1.Data.InvestigationID
+
+	// Verify database record has authoritative actor and role
+	var dbActorID, dbRole string
+	err = pool.QueryRow(context.Background(), `SELECT actor_id, role FROM investigation_jobs WHERE id = $1`, job1ID).Scan(&dbActorID, &dbRole)
+	if err != nil {
+		t.Fatalf("query job 1: %v", err)
+	}
+	if dbActorID != actor1ID {
+		t.Errorf("expected db actor_id %s, got %s", actor1ID, dbActorID)
+	}
+	if dbRole != "OPS_VIEWER" {
+		t.Errorf("expected db role OPS_VIEWER, got %s", dbRole)
+	}
+
+	// 10. Same actor / same key / same request is idempotent (202 Accepted with same ID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(validBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", sharedIdempKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 on idempotent replay, got %v (%d)", err, resp.StatusCode)
+	}
+	var respReplay struct {
+		Data investigator.InvestigationAccepted `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&respReplay)
+	if respReplay.Data.InvestigationID != job1ID {
+		t.Errorf("expected replayed job ID %s, got %s", job1ID, respReplay.Data.InvestigationID)
+	}
+
+	// 11. Same actor / same key / changed request receives 409 Conflict
+	changedBody := fmt.Sprintf(`{"paymentId":"%s","question":"Altered question for conflict"}`, paymentID)
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(changedBody))
+	req.Header.Set("Authorization", "Bearer "+viewer1Token)
+	req.Header.Set("Idempotency-Key", sharedIdempKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on changed question, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 12. Foreign actor (Viewer 2) using the SAME idempotency key cannot overwrite or hijack Viewer 1's job
+	// Viewer 2 must get their own independent job
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"/api/ops/investigations", strings.NewReader(validBody))
+	req.Header.Set("Authorization", "Bearer "+viewer2Token)
+	req.Header.Set("Idempotency-Key", sharedIdempKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 for viewer 2 with same key, got %v (%d)", err, resp.StatusCode)
+	}
+	var resp2 struct {
+		Data investigator.InvestigationAccepted `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&resp2)
+	job2ID := resp2.Data.InvestigationID
+	if job2ID == job1ID {
+		t.Errorf("foreign actor re-used same job ID! Expected distinct job, got %s", job2ID)
+	}
+
+	// 13. Foreign actor (Viewer 2) cannot access Viewer 1's job via GET -> 403 Forbidden
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, job1ID), nil)
+	req.Header.Set("Authorization", "Bearer "+viewer2Token)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for foreign viewer reading job 1, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 14. Customer role cannot access investigation via GET -> 403 Forbidden
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, job1ID), nil)
+	req.Header.Set("Authorization", "Bearer "+customerToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for customer reading job 1, got %v (%d)", err, resp.StatusCode)
+	}
+
+	// 15. Admin CAN access Viewer 1's job -> 200 OK
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/investigations/%s", server.URL, job1ID), nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin reading job 1, got %v (%d)", err, resp.StatusCode)
+	}
+}
+
+

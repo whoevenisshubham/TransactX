@@ -1652,7 +1652,7 @@ func (h *CrashMatrixHarness) runEvt02_CommittedEvent_DeliveredToProjection(ctx c
 	}
 
 	// Prioritize our newly created delivery so it is at the front of due deliveries
-	_, _ = h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = NOW() - INTERVAL '1 hour' WHERE event_id = $1`, ourEventID)
+	_, _ = h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = to_timestamp(0) WHERE event_id = $1`, ourEventID)
 
 	// Outbox dispatcher claims and projects
 	dispatcher := outbox.NewDispatcher(h.pool)
@@ -1838,7 +1838,7 @@ func (h *CrashMatrixHarness) runEvt05_TwoDispatcherLeases_CASProtection(ctx cont
 	}
 
 	// Prioritize our newly created delivery so it is at the front of due deliveries
-	_, _ = h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = NOW() - INTERVAL '1 hour' WHERE event_id = $1`, ourEventID)
+	_, _ = h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = to_timestamp(0) WHERE event_id = $1`, ourEventID)
 
 	disp1 := outbox.NewDispatcher(h.pool)
 	disp2 := outbox.NewDispatcher(h.pool)

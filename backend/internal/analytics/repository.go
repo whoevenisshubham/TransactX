@@ -514,8 +514,9 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 	}
 
 	// 6. Query prior completed healthy windows for the entity.
-	// Windows are independently designated healthy when baseline_alert is NULL
-	// and sample_count >= MinimumSampleCount.
+	// Windows are independently designated healthy when attested by raw_aggregates
+	// (e.g. reviewed_healthy, healthy, or seeded), not marked ineligible or anomalous,
+	// baseline_alert IS NULL, and sample_count >= MinimumSampleCount.
 	var priorHealthy []anomaly.LiveCalibrationWindow
 	priorQuery := `
 		SELECT id::text, entity_type, entity_id, window_from, window_to, sample_count, feature_schema_version, features
@@ -525,6 +526,14 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 		  AND window_to <= $3
 		  AND baseline_alert IS NULL
 		  AND sample_count >= $4
+		  AND (
+		      (raw_aggregates->>'reviewed_healthy')::boolean = true
+		      OR (raw_aggregates->>'healthy')::boolean = true
+		      OR (raw_aggregates->>'seeded')::boolean = true
+		  )
+		  AND (raw_aggregates->>'ineligible')::boolean IS NOT TRUE
+		  AND (raw_aggregates->>'anomalous')::boolean IS NOT TRUE
+		  AND (raw_aggregates->>'unreviewed')::boolean IS NOT TRUE
 		ORDER BY window_from ASC
 		LIMIT 10000;
 	`
@@ -537,6 +546,10 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 			var wSamples int
 			var wFeatJSON []byte
 			if scanErr := rows.Scan(&wID, &wEntType, &wEntID, &wFrom, &wTo, &wSamples, &wSchema, &wFeatJSON); scanErr == nil {
+				// Verify exact 5-minute duration, UTC truncation, and strictly prior/non-overlapping
+				if wFrom.IsZero() || wTo.IsZero() || !wFrom.Before(wTo) || wTo.Sub(wFrom) != WindowDuration || !wFrom.Equal(wFrom.Truncate(WindowDuration)) || wTo.After(from.UTC()) {
+					continue
+				}
 				var featVals anomaly.LiveFeatureValues
 				if jsonErr := json.Unmarshal(wFeatJSON, &featVals); jsonErr == nil {
 					priorHealthy = append(priorHealthy, anomaly.LiveCalibrationWindow{
@@ -571,9 +584,14 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 
 	scoreFrom := from.UTC()
 	var baseline *anomaly.Baseline
+	var fitErr error
 	if (entityType == "bank" || entityType == "execution_target") && entityID != "" && !from.IsZero() && scoreFrom.Equal(scoreFrom.Truncate(WindowDuration)) {
-		baseline, _ = anomaly.FitLiveBaseline(priorHealthy, entityType, entityID, scoreFrom, 3.0)
+		baseline, fitErr = anomaly.FitLiveBaseline(priorHealthy, entityType, entityID, scoreFrom, 3.0)
 	}
+
+	var scoringOutcome string
+	var baselineStatus string
+	provenance := "unreviewed_live"
 
 	eval, evalErr := anomaly.EvaluateLiveFeatures(nil, baseline, FeatureSchemaVersionV1, sampleCount, liveVals, to.UTC())
 	if evalErr == nil {
@@ -581,48 +599,38 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 		modelInfo.Status = eval.Model.Status
 		modelInfo.Score = eval.Model.Score
 		modelInfo.Threshold = eval.Model.Threshold
+		baselineStatus = eval.Baseline.Status
+
 		if sampleCount < MinimumSampleCount {
 			modelInfo.Status = "insufficient_data"
-		}
-
-		if eval.Baseline.Status == "ready" {
+			baselineStatus = "insufficient_data"
+			scoringOutcome = "insufficient_data"
+		} else if eval.Baseline.Status == "ready" {
 			if len(eval.Baseline.Reasons) > 0 {
 				baselineAlert = &Warning{
 					Code:    "BASELINE_DEVIATION",
 					Message: fmt.Sprintf("Observed deviation exceeds baseline threshold: %s", strings.Join(eval.Baseline.Reasons, ", ")),
 				}
+				scoringOutcome = "alert"
+			} else {
+				scoringOutcome = "normal"
 			}
-		} else if sampleCount >= MinimumSampleCount {
-			// Warmup fallback: transparent statistical baseline checks when baseline is not yet ready.
-			if features.FailureRate != nil && *features.FailureRate > 0.15 {
-				baselineAlert = &Warning{
-					Code:    "HIGH_FAILURE_RATE",
-					Message: fmt.Sprintf("Observed failure rate %.2f exceeds baseline threshold of 0.15", *features.FailureRate),
-				}
-			} else if features.TimeoutRate != nil && *features.TimeoutRate > 0.10 {
-				baselineAlert = &Warning{
-					Code:    "HIGH_TIMEOUT_RATE",
-					Message: fmt.Sprintf("Observed timeout rate %.2f exceeds baseline threshold of 0.10", *features.TimeoutRate),
-				}
-			}
+		} else {
+			// Baseline is warming up / insufficient calibration samples (< 8 eligible prior healthy windows)
+			// Warmup remains explicitly non-alerting without fixed-threshold fallback.
+			baselineStatus = "warming_up"
+			scoringOutcome = "warming_up"
 		}
 	} else {
-		// If live feature evaluation failed, maintain fallback status.
+		// Live feature evaluation failed: preserve explicit error status without fixed alerts
 		if sampleCount < MinimumSampleCount {
 			modelInfo.Status = "insufficient_data"
+			baselineStatus = "insufficient_data"
+			scoringOutcome = "insufficient_data"
 		} else {
 			modelInfo.Status = "unavailable"
-			if features.FailureRate != nil && *features.FailureRate > 0.15 {
-				baselineAlert = &Warning{
-					Code:    "HIGH_FAILURE_RATE",
-					Message: fmt.Sprintf("Observed failure rate %.2f exceeds baseline threshold of 0.15", *features.FailureRate),
-				}
-			} else if features.TimeoutRate != nil && *features.TimeoutRate > 0.10 {
-				baselineAlert = &Warning{
-					Code:    "HIGH_TIMEOUT_RATE",
-					Message: fmt.Sprintf("Observed timeout rate %.2f exceeds baseline threshold of 0.10", *features.TimeoutRate),
-				}
-			}
+			baselineStatus = "error"
+			scoringOutcome = "error"
 		}
 	}
 
@@ -635,6 +643,18 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 		"attemptCount":           attemptCount,
 		"totalHealthSamples":     totalHealthSamples,
 		"availableHealthSamples": availableHealthSamples,
+		"scoring_outcome":        scoringOutcome,
+		"baseline_status":        baselineStatus,
+		"model_status":           modelInfo.Status,
+		"provenance":             provenance,
+		"calibration_samples":    len(priorHealthy),
+		"reviewed_healthy":       false,
+	}
+	if fitErr != nil {
+		rawAggregates["baseline_fit_error"] = fitErr.Error()
+	}
+	if evalErr != nil {
+		rawAggregates["evaluation_error"] = evalErr.Error()
 	}
 
 	win := &AnalyticsWindow{

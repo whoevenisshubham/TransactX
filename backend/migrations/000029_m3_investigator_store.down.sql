@@ -10,11 +10,8 @@ ALTER TABLE investigation_jobs DROP COLUMN IF EXISTS role;
 ALTER TABLE investigation_jobs DROP COLUMN IF EXISTS request_hash;
 ALTER TABLE investigation_jobs DROP COLUMN IF EXISTS deadline_at;
 ALTER TABLE investigation_jobs DROP COLUMN IF EXISTS job_payload;
-ALTER TABLE investigation_jobs DROP COLUMN IF EXISTS provider_call_pending;
 
 ALTER TABLE investigation_usage_reservations DROP COLUMN IF EXISTS reserved_input;
 ALTER TABLE investigation_usage_reservations DROP COLUMN IF EXISTS reserved_output;
-ALTER TABLE investigation_usage_reservations DROP COLUMN IF EXISTS reserved_cost_microusd;
 ALTER TABLE investigation_usage_reservations DROP COLUMN IF EXISTS actual_input;
 ALTER TABLE investigation_usage_reservations DROP COLUMN IF EXISTS actual_output;
-ALTER TABLE investigation_usage_reservations DROP COLUMN IF EXISTS actual_cost_microusd;

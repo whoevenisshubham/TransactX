@@ -109,8 +109,8 @@ func TestPostgresInvestigationStoreConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply canonical migrations: %v", err)
 	}
-	if applied < 29 {
-		t.Fatalf("expected at least 29 migrations applied, got %d", applied)
+	if applied < 30 {
+		t.Fatalf("expected at least 30 migrations applied, got %d", applied)
 	}
 
 	storetest.Run(t, func(t *testing.T, limits investigator.UsageAllowance) investigator.InvestigationStore {
@@ -162,8 +162,8 @@ func TestPostgresInvestigationStoreRejectsCorruptPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply canonical migrations: %v", err)
 	}
-	if applied < 29 {
-		t.Fatalf("expected at least 29 migrations applied, got %d", applied)
+	if applied < 30 {
+		t.Fatalf("expected at least 30 migrations applied, got %d", applied)
 	}
 
 	limits := investigator.UsageAllowance{
@@ -211,4 +211,186 @@ func TestPostgresInvestigationStoreRejectsCorruptPayload(t *testing.T) {
 	if status != investigator.StatusQueued || leaseEpoch != 0 || leaseOwner != nil {
 		t.Fatalf("corrupt claim mutated row: status=%s epoch=%d owner=%v", status, leaseEpoch, leaseOwner)
 	}
+}
+
+func TestPostgresInvestigationStoreUpgradedDatabaseConformance(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set: skipping PostgreSQL investigation store upgraded database test")
+	}
+
+	testDBURL, cleanup := setupDisposableDB(t, databaseURL)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, testDBURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	realMigrationsDir := findRepoMigrationsDir(t)
+
+	// Step 1: Create a temp dir with ONLY migrations 000001 through 000029
+	tempDir := t.TempDir()
+	entries, err := os.ReadDir(realMigrationsDir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "000030_") {
+			continue // Exclude 000030 initially to simulate existing pre-upgrade DB
+		}
+		data, err := os.ReadFile(filepath.Join(realMigrationsDir, entry.Name()))
+		if err != nil {
+			t.Fatalf("read migration %s: %v", entry.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(tempDir, entry.Name()), data, 0644); err != nil {
+			t.Fatalf("write migration %s to temp: %v", entry.Name(), err)
+		}
+	}
+
+	// Step 2: Apply migrations up to 000029
+	preMigrator, err := database.NewMigrator(pool, tempDir)
+	if err != nil {
+		t.Fatalf("new pre-migrator: %v", err)
+	}
+	applied, err := preMigrator.Up(ctx)
+	if err != nil {
+		t.Fatalf("apply pre-upgrade migrations: %v", err)
+	}
+	if applied != 29 {
+		t.Fatalf("expected 29 pre-upgrade migrations, got %d", applied)
+	}
+
+	// Step 3: Seed legacy data in pre-upgrade schema state:
+	// A) A queued legacy job with empty request_hash and empty job_payload
+	legacyQueuedJobID := uuid.NewString()
+	legacyPaymentID := uuid.NewString()
+	legacyActorID := uuid.NewString()
+	_, err = pool.Exec(ctx, `
+		INSERT INTO investigation_jobs (id, payment_id, actor_id, status, mode, question, idempotency_key, created_at, role, request_hash, job_payload)
+		VALUES ($1, $2, $3, 'queued', 'evidence_only', 'Legacy queued question', 'legacy-key-1', NOW() - INTERVAL '10 minutes', 'OPS_VIEWER', '', '{}'::jsonb)`,
+		legacyQueuedJobID, legacyPaymentID, legacyActorID)
+	if err != nil {
+		t.Fatalf("seed legacy queued job: %v", err)
+	}
+
+	// B) A completed legacy job with report, question, usage, empty request_hash and empty job_payload
+	legacyCompletedJobID := uuid.NewString()
+	legacyCompletedReport := `{"summary":"Historical completed report","findings":[],"citations":[]}`
+	legacyCompletedUsage := `{"inputTokens":250,"outputTokens":120}`
+	_, err = pool.Exec(ctx, `
+		INSERT INTO investigation_jobs (id, payment_id, actor_id, status, mode, question, idempotency_key, created_at, completed_at, role, request_hash, job_payload, report, usage)
+		VALUES ($1, $2, $3, 'completed', 'evidence_only', 'Legacy completed question', 'legacy-key-2', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '50 minutes', 'OPS_VIEWER', '', '{}'::jsonb, $4::jsonb, $5::jsonb)`,
+		legacyCompletedJobID, legacyPaymentID, legacyActorID, legacyCompletedReport, legacyCompletedUsage)
+	if err != nil {
+		t.Fatalf("seed legacy completed job: %v", err)
+	}
+
+	// C) A legacy usage reservation using single-dimension tokens
+	legacyResID := uuid.NewString()
+	_, err = pool.Exec(ctx, `
+		INSERT INTO investigation_usage_reservations (id, job_id, actor_id, provider, model, reserved_tokens, actual_tokens, status, reserved_input, reserved_output)
+		VALUES ($1, $2, $3, 'mock-provider', 'mock-model', 500, 420, 'completed', 0, 0)`,
+		legacyResID, legacyCompletedJobID, legacyActorID)
+	if err != nil {
+		t.Fatalf("seed legacy reservation: %v", err)
+	}
+
+	// Step 4: Run upgrade migration 000030 using the full canonical migrations directory
+	upgradeMigrator, err := database.NewMigrator(pool, realMigrationsDir)
+	if err != nil {
+		t.Fatalf("new upgrade migrator: %v", err)
+	}
+	// Verify that previous 29 migrations have matching checksums
+	if err := upgradeMigrator.Verify(ctx); err != nil {
+		t.Fatalf("checksum verification of applied migrations failed: %v", err)
+	}
+	status, err := upgradeMigrator.Status(ctx)
+	if err != nil {
+		t.Fatalf("check migration status: %v", err)
+	}
+	if len(status.Pending) != 1 || status.Pending[0].Version != "000030" {
+		t.Fatalf("expected pending migration 000030, got %+v", status.Pending)
+	}
+	upgraded, err := upgradeMigrator.Up(ctx)
+	if err != nil {
+		t.Fatalf("apply upgrade migration 000030: %v", err)
+	}
+	if upgraded != 1 {
+		t.Fatalf("expected 1 migration applied (000030), got %d", upgraded)
+	}
+	// Verify all 30 migrations pass checksum verification and 0 pending
+	if err := upgradeMigrator.Verify(ctx); err != nil {
+		t.Fatalf("checksum verification failed after upgrade: %v", err)
+	}
+
+	// Step 5: Assert legacy data migration invariants
+	// A) Active legacy job was cancelled and marked unreplayable
+	var qStatus, qErrCode string
+	if err := pool.QueryRow(ctx, `SELECT status, COALESCE(error_code, '') FROM investigation_jobs WHERE id = $1`, legacyQueuedJobID).Scan(&qStatus, &qErrCode); err != nil {
+		t.Fatalf("query legacy queued job: %v", err)
+	}
+	if qStatus != "cancelled" || qErrCode != "MIGRATION_LEGACY_UNREPLAYABLE" {
+		t.Fatalf("legacy queued job was not safely cancelled: status=%s, errCode=%s", qStatus, qErrCode)
+	}
+
+	// B) Historical completed job was backfilled with complete validated job_payload
+	var cReqHash string
+	var cPayload []byte
+	if err := pool.QueryRow(ctx, `SELECT request_hash, job_payload FROM investigation_jobs WHERE id = $1`, legacyCompletedJobID).Scan(&cReqHash, &cPayload); err != nil {
+		t.Fatalf("query legacy completed job: %v", err)
+	}
+	if cReqHash == "" {
+		t.Fatal("legacy completed job request_hash was not backfilled")
+	}
+	store, err := investigator.NewPostgresInvestigationStore(pool, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Verify that store.Get on the upgraded database can cleanly read the historical completed job
+	scope := investigator.TrustedScope{
+		ActorID: legacyActorID, Role: "OPS_VIEWER", SelectedPaymentID: legacyPaymentID,
+	}
+	retrievedJob, err := store.Get(ctx, scope, legacyCompletedJobID)
+	if err != nil {
+		t.Fatalf("store.Get on backfilled historical job failed: %v", err)
+	}
+	if retrievedJob.Status != investigator.StatusCompleted || retrievedJob.Report == nil {
+		t.Fatalf("historical job report lost during migration: status=%s, report=%v", retrievedJob.Status, retrievedJob.Report)
+	}
+
+	// C) Historical usage accounting was preserved into decoupled dimensions
+	var resInput, actInput int64
+	if err := pool.QueryRow(ctx, `SELECT reserved_input, actual_input FROM investigation_usage_reservations WHERE id = $1`, legacyResID).Scan(&resInput, &actInput); err != nil {
+		t.Fatalf("query upgraded reservation: %v", err)
+	}
+	if resInput != 500 || actInput != 420 {
+		t.Fatalf("historical token accounting was lost: reserved_input=%d (want 500), actual_input=%d (want 420)", resInput, actInput)
+	}
+
+	// Step 6: Run full store conformance suite on the upgraded database
+	storetest.Run(t, func(t *testing.T, limits investigator.UsageAllowance) investigator.InvestigationStore {
+		t.Helper()
+
+		subCtx, subCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer subCancel()
+
+		// Clean tables between subtests for complete test isolation against upgraded schema
+		if _, err := pool.Exec(subCtx, "TRUNCATE investigation_usage_reservations, investigation_jobs CASCADE;"); err != nil {
+			t.Fatalf("truncate investigation tables: %v", err)
+		}
+
+		s, err := investigator.NewPostgresInvestigationStore(pool, time.Now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetUsageLimits(subCtx, limits); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	})
 }

@@ -393,7 +393,7 @@ func TestAnalytics_CursorPagination(t *testing.T) {
 	}
 }
 
-func TestAnalytics_BaselineAlert_OnHighFailureRate(t *testing.T) {
+func TestAnalytics_WarmupWithoutBaseline_DoesNotEmitFixedAlerts(t *testing.T) {
 	pool := getTestPool(t)
 	defer pool.Close()
 	ctx := context.Background()
@@ -403,16 +403,16 @@ func TestAnalytics_BaselineAlert_OnHighFailureRate(t *testing.T) {
 	from := now.Add(-60 * time.Minute).Truncate(WindowDuration)
 	to := from.Add(WindowDuration)
 
-	bankCode := "BANK_ALERT_" + uuid.NewString()[:8]
+	bankCode := "BANK_WARMUP_" + uuid.NewString()[:8]
 	bankID := uuid.New()
-	_, err := pool.Exec(ctx, "INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Alert Bank', 'ACTIVE')", bankID, bankCode)
+	_, err := pool.Exec(ctx, "INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Warmup Bank', 'ACTIVE')", bankID, bankCode)
 	if err != nil {
 		t.Fatalf("insert bank: %v", err)
 	}
 
 	userID := uuid.New()
 	userPhone := "+9199" + uuid.NewString()[:8]
-	_, err = pool.Exec(ctx, "INSERT INTO users (id, phone, name, upi_id, password_hash, role) VALUES ($1, $2, 'Alert User', $3, 'hash', 'CUSTOMER')", userID, userPhone, userPhone+"@upi")
+	_, err = pool.Exec(ctx, "INSERT INTO users (id, phone, name, upi_id, password_hash, role) VALUES ($1, $2, 'Warmup User', $3, 'hash', 'CUSTOMER')", userID, userPhone, userPhone+"@upi")
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestAnalytics_BaselineAlert_OnHighFailureRate(t *testing.T) {
 		t.Fatalf("insert account: %v", err)
 	}
 
-	// Insert 25 payments: 15 COMPLETED, 10 FAILED (failureRate = 10/25 = 0.40 > 0.15)
+	// Insert 25 payments: 15 COMPLETED, 10 FAILED (failureRate = 10/25 = 0.40)
 	for i := 0; i < 25; i++ {
 		payID := uuid.New()
 		state := "COMPLETED"
@@ -447,7 +447,7 @@ func TestAnalytics_BaselineAlert_OnHighFailureRate(t *testing.T) {
 		`, uuid.New(), payID, state, pTime)
 	}
 
-	win, _, err := repo.AggregateWindow(ctx, "bank", bankCode, from, to)
+	win, raw, err := repo.AggregateWindow(ctx, "bank", bankCode, from, to)
 	if err != nil {
 		t.Fatalf("AggregateWindow failed: %v", err)
 	}
@@ -461,11 +461,146 @@ func TestAnalytics_BaselineAlert_OnHighFailureRate(t *testing.T) {
 	if *win.Features.FailureRate < 0.39 || *win.Features.FailureRate > 0.41 {
 		t.Errorf("expected failureRate ~0.40, got %.2f", *win.Features.FailureRate)
 	}
-	if win.BaselineAlert == nil {
-		t.Fatalf("expected non-nil baselineAlert for 40%% failure rate with 25 samples")
+
+	// Proves Gate 6 requirement: during warmup without calibrated baseline, NO fixed fallback alert is emitted!
+	if win.BaselineAlert != nil {
+		t.Fatalf("expected nil baselineAlert during warmup, got %v", win.BaselineAlert)
 	}
-	if win.BaselineAlert.Code != "HIGH_FAILURE_RATE" {
-		t.Errorf("expected alert code HIGH_FAILURE_RATE, got %s", win.BaselineAlert.Code)
+	if raw["scoring_outcome"] != "warming_up" {
+		t.Errorf("expected scoring_outcome 'warming_up', got %v", raw["scoring_outcome"])
+	}
+	if raw["baseline_status"] != "warming_up" {
+		t.Errorf("expected baseline_status 'warming_up', got %v", raw["baseline_status"])
+	}
+
+	// Persist window and inspect PostgreSQL row
+	if err := repo.UpsertWindow(ctx, win, raw); err != nil {
+		t.Fatalf("UpsertWindow failed: %v", err)
+	}
+
+	var persistedScoringOutcome, persistedBaselineStatus string
+	var persistedBaselineAlert []byte
+	err = pool.QueryRow(ctx, `
+		SELECT raw_aggregates->>'scoring_outcome', raw_aggregates->>'baseline_status', baseline_alert
+		FROM operational_aggregate_windows
+		WHERE id = $1::uuid
+	`, win.ID).Scan(&persistedScoringOutcome, &persistedBaselineStatus, &persistedBaselineAlert)
+	if err != nil {
+		t.Fatalf("query persisted window row: %v", err)
+	}
+	if persistedScoringOutcome != "warming_up" || persistedBaselineStatus != "warming_up" {
+		t.Errorf("persisted outcome mismatch: scoring=%s, baseline=%s", persistedScoringOutcome, persistedBaselineStatus)
+	}
+	if len(persistedBaselineAlert) > 0 {
+		t.Errorf("expected null baseline_alert in DB, got: %s", string(persistedBaselineAlert))
+	}
+}
+
+func TestAnalytics_IneligiblePriorWindows_ExcludedFromCalibration(t *testing.T) {
+	pool := getTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	repo := NewPostgresRepository(pool)
+	testBankCode := "BANK_INELIG_" + uuid.NewString()[:8]
+	baseTime := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	scoreFrom := baseTime.Add(10 * WindowDuration)
+	scoreTo := scoreFrom.Add(WindowDuration)
+
+	lowFail := 0.01
+	lowTimeout := 0.005
+	lat := 100.0
+
+	// Seed 8 ineligible windows with various reasons:
+	// 1. Unreviewed (reviewed_healthy omitted / false)
+	// 2. Anomalous (anomalous: true)
+	// 3. Ineligible (ineligible: true)
+	// 4. Has baseline_alert
+	// 5. Sample count < MinimumSampleCount (10 < 20)
+	// 6. Overlapping with scoreFrom (wTo > scoreFrom)
+	// 7. Future (wFrom >= scoreFrom)
+	// 8. Explicitly marked unreviewed: true
+	ineligibleConfigs := []struct {
+		offset       int
+		sampleCount  int
+		alert        *Warning
+		rawOverrides map[string]any
+		duration     time.Duration
+	}{
+		{0, 40, nil, map[string]any{"reviewed_healthy": false}, WindowDuration},
+		{1, 40, nil, map[string]any{"reviewed_healthy": true, "anomalous": true}, WindowDuration},
+		{2, 40, nil, map[string]any{"reviewed_healthy": true, "ineligible": true}, WindowDuration},
+		{3, 40, &Warning{Code: "BASELINE_DEVIATION", Message: "dev"}, map[string]any{"reviewed_healthy": true}, WindowDuration},
+		{4, 10, nil, map[string]any{"reviewed_healthy": true}, WindowDuration}, // < 20 samples
+		{5, 40, nil, map[string]any{"reviewed_healthy": true}, WindowDuration + 2*time.Minute}, // malformed duration
+		{10, 40, nil, map[string]any{"reviewed_healthy": true}, WindowDuration}, // future / same as scoreFrom
+		{6, 40, nil, map[string]any{"reviewed_healthy": true, "unreviewed": true}, WindowDuration},
+	}
+
+	for i, cfg := range ineligibleConfigs {
+		wFrom := baseTime.Add(time.Duration(cfg.offset) * WindowDuration)
+		wTo := wFrom.Add(cfg.duration)
+		win := &AnalyticsWindow{
+			ID:                   uuid.NewString(),
+			EntityType:           "bank",
+			EntityID:             testBankCode,
+			From:                 wFrom,
+			To:                   wTo,
+			SampleCount:          cfg.sampleCount,
+			FeatureSchemaVersion: FeatureSchemaVersionV1,
+			Features: FeatureVector{
+				FailureRate:  &lowFail,
+				TimeoutRate:  &lowTimeout,
+				P95LatencyMs: &lat,
+			},
+			BaselineAlert: cfg.alert,
+			Model:         ModelStatusInfo{Status: "unavailable"},
+			Advisory:      true,
+		}
+		if err := repo.UpsertWindow(ctx, win, cfg.rawOverrides); err != nil {
+			t.Fatalf("seed ineligible window %d failed: %v", i, err)
+		}
+	}
+
+	// Now aggregate window at scoreFrom with 25 payments
+	bankID := uuid.New()
+	_, _ = pool.Exec(ctx, "INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Inelig Bank', 'ACTIVE')", bankID, testBankCode)
+	userID := uuid.New()
+	userPhone := "+9199" + uuid.NewString()[:8]
+	_, _ = pool.Exec(ctx, "INSERT INTO users (id, phone, name, upi_id, password_hash, role) VALUES ($1, $2, 'User', $3, 'h', 'CUSTOMER')", userID, userPhone, userPhone+"@upi")
+	accID := uuid.New()
+	_, _ = pool.Exec(ctx, "INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, status) VALUES ($1, $2, $3, $4, 5000000, 'ACTIVE')", accID, userID, bankID, "ACC_"+uuid.NewString()[:8])
+
+	for p := 0; p < 25; p++ {
+		payID := uuid.New()
+		pTime := scoreFrom.Add(time.Duration(p*5) * time.Second)
+		_, _ = pool.Exec(ctx, `
+			INSERT INTO payments (
+				id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise,
+				currency, state, source_bank_id, destination_bank_id, created_at, updated_at
+			) VALUES ($1, $2, $3, $3, 1000, 'INR', 'COMPLETED', $4, $4, $5, $5);
+		`, payID, userID, accID, bankID, pTime)
+		_, _ = pool.Exec(ctx, `
+			INSERT INTO payment_state_transitions (id, payment_id, from_state, to_state, transitioned_at)
+			VALUES ($1, $2, 'CREATED', 'COMPLETED', $3);
+		`, uuid.New(), payID, pTime)
+	}
+
+	win, raw, err := repo.AggregateWindow(ctx, "bank", testBankCode, scoreFrom, scoreTo)
+	if err != nil {
+		t.Fatalf("AggregateWindow failed: %v", err)
+	}
+
+	// Verify that 0 ineligible windows entered calibration
+	calibSamples := raw["calibration_samples"].(int)
+	if calibSamples != 0 {
+		t.Errorf("expected 0 calibration samples (all ineligible), got %d", calibSamples)
+	}
+	if raw["baseline_status"] != "warming_up" {
+		t.Errorf("expected baseline_status 'warming_up', got %v", raw["baseline_status"])
+	}
+	if win.BaselineAlert != nil {
+		t.Errorf("expected nil baseline alert, got %v", win.BaselineAlert)
 	}
 }
 
@@ -682,6 +817,118 @@ func TestAnalytics_FitLiveBaseline_PriorHealthyCalibrationAndAlerts(t *testing.T
 	}
 	if !strings.Contains(win.BaselineAlert.Message, "failureRate_deviation") {
 		t.Errorf("expected failureRate_deviation in alert message, got: %s", win.BaselineAlert.Message)
+	}
+}
+
+func TestAnalytics_NullMeasurements_AndPersistedProvenance(t *testing.T) {
+	pool := getTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	repo := NewPostgresRepository(pool)
+	testBankCode := "BANK_NULLMEAS_" + uuid.NewString()[:8]
+	baseTime := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	scoreFrom := baseTime
+	scoreTo := baseTime.Add(WindowDuration)
+
+	bankID := uuid.New()
+	_, _ = pool.Exec(ctx, "INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'NullMeas Bank', 'ACTIVE')", bankID, testBankCode)
+
+	senderID := uuid.New()
+	senderPhone := "+9199" + uuid.NewString()[:8]
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO users (id, phone, name, upi_id, password_hash, role)
+		VALUES ($1, $2, 'NullMeas User', $3, 'hash', 'CUSTOMER') ON CONFLICT DO NOTHING;
+	`, senderID, senderPhone, senderPhone+"@upi")
+
+	accID := uuid.New()
+	_, _ = pool.Exec(ctx, `
+		INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, status)
+		VALUES ($1, $2, $3, $4, 5000000, 'ACTIVE') ON CONFLICT DO NOTHING;
+	`, accID, senderID, bankID, "ACC_"+uuid.NewString()[:8])
+
+	// Insert 22 completed payments with no recovery attempts and no health probes
+	for p := 0; p < 22; p++ {
+		payID := uuid.New()
+		pTime := scoreFrom.Add(time.Duration(p*10) * time.Second)
+		_, err := pool.Exec(ctx, `
+			INSERT INTO payments (
+				id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise,
+				currency, state, source_bank_id, destination_bank_id,
+				created_at, updated_at
+			) VALUES ($1, $2, $3, $3, 10000, 'INR', 'COMPLETED', $4, $4, $5, $5);
+		`, payID, senderID, accID, bankID, pTime)
+		if err != nil {
+			t.Fatalf("insert payment %d: %v", p, err)
+		}
+		_, err = pool.Exec(ctx, `
+			INSERT INTO payment_state_transitions (id, payment_id, from_state, to_state, transitioned_at)
+			VALUES ($1, $2, 'CREATED', 'COMPLETED', $3);
+		`, uuid.New(), payID, pTime)
+		if err != nil {
+			t.Fatalf("insert transition %d: %v", p, err)
+		}
+	}
+
+	win, raw, err := repo.AggregateWindow(ctx, "bank", testBankCode, scoreFrom, scoreTo)
+	if err != nil {
+		t.Fatalf("AggregateWindow failed with null measurements: %v", err)
+	}
+
+	if win.SampleCount != 22 {
+		t.Fatalf("expected sampleCount == 22, got %d", win.SampleCount)
+	}
+
+	// Verify null measurements (e.g. latency, health availability) are preserved as nil without failure
+	if win.Features.P95LatencyMs != nil {
+		t.Errorf("expected nil P95LatencyMs when no attempt latency exists, got %v", *win.Features.P95LatencyMs)
+	}
+	if win.Features.HealthAvailabilityRate != nil {
+		t.Errorf("expected nil HealthAvailabilityRate when no health samples exist, got %v", *win.Features.HealthAvailabilityRate)
+	}
+
+	// Provenance and scoring outcome checks
+	if raw["scoring_outcome"] != "warming_up" {
+		t.Errorf("expected scoring_outcome 'warming_up', got %v", raw["scoring_outcome"])
+	}
+	if raw["reviewed_healthy"] != false {
+		t.Errorf("expected live window to have reviewed_healthy = false, got %v", raw["reviewed_healthy"])
+	}
+	if raw["provenance"] != "unreviewed_live" {
+		t.Errorf("expected provenance 'unreviewed_live', got %v", raw["provenance"])
+	}
+
+	// Persist window and inspect PostgreSQL row
+	if err := repo.UpsertWindow(ctx, win, raw); err != nil {
+		t.Fatalf("UpsertWindow failed: %v", err)
+	}
+
+	var dbScoringOutcome, dbModelStatus, dbProvenance string
+	var dbReviewedHealthy bool
+	err = pool.QueryRow(ctx, `
+		SELECT
+			raw_aggregates->>'scoring_outcome',
+			model_status,
+			raw_aggregates->>'provenance',
+			COALESCE((raw_aggregates->>'reviewed_healthy')::boolean, false)
+		FROM operational_aggregate_windows
+		WHERE id = $1::uuid;
+	`, win.ID).Scan(&dbScoringOutcome, &dbModelStatus, &dbProvenance, &dbReviewedHealthy)
+	if err != nil {
+		t.Fatalf("query persisted window row: %v", err)
+	}
+
+	if dbScoringOutcome != "warming_up" {
+		t.Errorf("DB scoring outcome mismatch: %s", dbScoringOutcome)
+	}
+	if dbModelStatus != "unavailable" {
+		t.Errorf("DB model status mismatch: %s", dbModelStatus)
+	}
+	if dbProvenance != "unreviewed_live" {
+		t.Errorf("DB provenance mismatch: %s", dbProvenance)
+	}
+	if dbReviewedHealthy {
+		t.Errorf("DB reviewed_healthy should be false for unreviewed live window")
 	}
 }
 

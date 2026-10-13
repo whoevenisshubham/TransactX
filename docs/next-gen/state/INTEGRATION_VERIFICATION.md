@@ -1,15 +1,15 @@
 # TransactX — M1/M2/M3 Integration & Release Verification Checkpoint
 
 **Date:** 2026-10-13  
-**Status:** INTEGRATED & REVERIFIED (GATE 4 COMPLETE)  
+**Status:** INTEGRATED & REVERIFIED (GATE 6 COMPLETE)  
 **Integration Branch:** `v2/integration-m1-m2-m3`  
 **Base:** `origin/release/transactx-v2` (`39fc5c7`)  
 **Integrated Commits:**
 - **M1 Head (`origin/v2/m1-product-delivery`):** `42d8aef7935b63a9f80a78705f243798b62401c9` (PR #22)
 - **M2 Head (`origin/v2/m2-reliability-platform`):** `c9da5fb9035dff259c936fb79785eecbd93efde6` (PR #24)
-- **M3 Head (`origin/v2/m3-investigation-analytics`):** `4100dd713ade1e1ddd078bbaa78a5436f5825561` (PR #23)
-- **Gate 3 CI Head:** `a3f3d2969a4bbe6079d472c77761e568782f3d2b` (Green on GitHub Actions #38372702145)
-- **Gate 4 Integration Work:** Sync latest M1 changes, close native runtime acceptance failures across crash recovery, SSE flusher, trace schema, and investigation citations.
+- **M3 Head (`origin/v2/m3-investigation-analytics`):** `99f3e1425a3c96155852a4b6adccea07d4601cdf` (PR #23)
+- **Gate 5 CI Head:** `739a1757f6af6415e6c1d76cb5b3d803c20d3557` (Green on GitHub Actions #38387106936)
+- **Gate 6 Integration Work:** Synchronize final M3 head (`99f3e14`), reconcile fresh and upgraded migration history (`000029` + additive `000030`), enforce strict HTTP investigation request decoding (`DecodeCreateInvestigationRequest`), correct B10 healthy-window selection and remove fixed fallback alerts, revalidate M2 crash matrix and financial invariants, and verify browser acceptance.
 
 ---
 
@@ -226,5 +226,125 @@
 - **Live Browser Acceptance on Target Staging Host:** Staging environment deployment and live OAuth/IdP sign-in flow pending cluster provisioning.
 - **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
 - **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
+
+---
+
+## 6. Gate 6: Close Canonical Upgrade, HTTP Contract, and Analytics Acceptance Gaps
+
+### 6.1 Baseline & Safe Synchronization of Latest M3
+- **Latest Milestone Heads Verified:**
+  - M1 (`origin/v2/m1-product-delivery`): `42d8aef7935b63a9f80a78705f243798b62401c9` (PR #22, open & unmerged)
+  - M2 (`origin/v2/m2-production-readiness`): `c9da5fb9035dff259c936fb79785eecbd93efde6` (PR #24, open & unmerged)
+  - M3 (`origin/v2/m3-investigation-analytics`): `99f3e1425a3c96155852a4b6adccea07d4601cdf` (PR #23, open & unmerged)
+  - Release Base: `39fc5c7` / `6ad42bf`
+- **Incorporated Final 3 Commits from M3 Head:**
+  - `7eec9c3` Harden durable investigator integration boundaries
+  - `8aa0fe7` Checkpoint current integration audit
+  - `99f3e14` Record final integration merge validation
+- **History-Preserving Merge:**
+  - Merge commit `d4dd55e` into `v2/integration-m1-m2-m3` without rebase, force-push, or history loss.
+
+### 6.2 Canonical Migration History Reconciled (`000029` + Additive `000030`)
+- **Restored Canonical Checksum for `000029`:**
+  - `backend/migrations/000029_m3_investigator_store.up.sql` and `000029_m3_investigator_store.down.sql` restored to byte-for-byte canonical checksum state matching commit `cc97e21`.
+- **Created Additive Migration `000030_m3_investigator_store_upgrade`:**
+  - `000030_m3_investigator_store_upgrade.up.sql`:
+    - Adds `cost_limit_microusd BIGINT NOT NULL DEFAULT 0` to `investigation_usage_limits`.
+    - Adds `provider_call_pending BOOLEAN NOT NULL DEFAULT FALSE` to `investigation_jobs`.
+    - Adds `reserved_cost_microusd BIGINT NOT NULL DEFAULT 0` and `actual_cost_microusd BIGINT` to `investigation_usage_reservations`.
+    - Safely drops legacy `NOT NULL` constraints on `actor_id`, `provider`, `model`, `reserved_tokens` in `investigation_usage_reservations`.
+    - Enforces unique index `idx_investigation_usage_job_uniq` on `investigation_usage_reservations(job_id)`.
+    - Maps legacy single-token allocations (`reserved_tokens`, `actual_tokens`) to decoupled input dimensions (`reserved_input`, `actual_input`).
+    - Safely cancels unreplayable active legacy jobs (`status = 'cancelled'`, `error_code = 'MIGRATION_LEGACY_UNREPLAYABLE'`).
+    - Backfills completed terminal historical jobs with valid request hashes and structured JSON payloads for seamless audit and report reading.
+  - `000030_m3_investigator_store_upgrade.down.sql`:
+    - Drops added columns and unique index cleanly.
+- **Dual-Database Conformance Verified on PostgreSQL 18:**
+  - `TestPostgresInvestigationStoreConformance`: fresh database applying migrations 000001 through 000030 passes all 5 store contract subtests (`idempotency_scope_and_copy_isolation`, `lease_fencing_and_checkpoint_resume`, `global_provider_call_bound`, `transactional_usage_reservations`, `uncertain_usage_is_lease_fenced_and_retains_budget`).
+  - `TestPostgresInvestigationStoreUpgradedDatabaseConformance`: database seeded with historical data up to migration 000029, upgraded to 000030, passes all 5 store contract subtests plus legacy job validation assertions.
+
+### 6.3 Strict HTTP Investigation Request Contract
+- **Bounded Request Decoding (`DecodeCreateInvestigationRequest`):**
+  - Integrated `investigator.DecodeCreateInvestigationRequest(request.Body)` directly in `backend/internal/http/operations_handler.go`.
+  - Body decoding rejects payloads exceeding 32 KiB (`MaxCreateInvestigationRequestBytes`), trailing JSON tokens, and unknown fields via `decoder.DisallowUnknownFields()`.
+  - Client-injected fields (`actor`, `actorId`, `role`, `provider`, `mode`, `unrecognized_field`) are rejected with HTTP 400 Bad Request.
+  - Authenticated identity (`actor_id`, `role`, `selected_payment_id`) from trusted JWT session is strictly authoritative and bound in `investigator.TrustedScope`.
+- **Exhaustive 15-Assertion Integration Suite (`TestOperations_Investigation_StrictDecoderAndScopeContract`):**
+  - Customer role rejected with 403 Forbidden.
+  - Injected `actor` field rejected with 400 Bad Request.
+  - Injected `role` field rejected with 400 Bad Request.
+  - Injected `provider` field rejected with 400 Bad Request.
+  - Injected `mode` field rejected with 400 Bad Request.
+  - Injected extra fields rejected with 400 Bad Request.
+  - Oversized request (>32 KiB) rejected with 400 Bad Request.
+  - Trailing JSON rejected with 400 Bad Request.
+  - Valid request accepted with 202 Accepted.
+  - Database row stores authoritative JWT actor ID and role.
+  - Idempotent replay with same key and body returns 202 with identical investigation ID.
+  - Conflicting body with same key returns 409 Conflict.
+  - Foreign actor using same key receives separate distinct job (no hijacking).
+  - Foreign actor denied on GET with 403 Forbidden.
+  - Admin permitted on GET with 200 OK.
+  - Customer denied on GET with 403 Forbidden.
+
+### 6.4 Independently Reviewed B10 Calibration & Fallback Removal
+- **Reviewed Healthy-Window Calibration Query:**
+  - In `backend/internal/analytics/repository.go`, `priorQuery` updated to require independent health attestation via `raw_aggregates`:
+    - Requires `raw_aggregates` containing `"reviewed_healthy": true`, `"healthy": true`, or `"seeded": true`.
+    - Explicitly excludes unreviewed live windows (`"unreviewed": true` or `"reviewed_healthy": false`), anomalies (`"anomalous": true`), flagged windows (`"ineligible": true`), and windows with `baseline_alert IS NOT NULL`.
+  - Persists `scoring_outcome`, `baseline_status`, `model_status`, `provenance: "unreviewed_live"`, `calibration_samples`, and `reviewed_healthy: false` into `raw_aggregates` for every completed window.
+- **Fixed Fallback Alert Removal:**
+  - Removed fixed `failureRate > 0.15` and `timeoutRate > 0.10` alert fallbacks during warmup or evaluation error.
+  - Strictly preserves explicit operational states: `insufficient_data` when sample count < 20, `warming_up` when prior healthy baseline is not ready, `error` when evaluation fails, and `alert` ONLY when calibrated baseline deviates.
+- **Analytics Regression Suite:**
+  - `TestAnalytics_WarmupWithoutBaseline_DoesNotEmitFixedAlerts`: verifies high failure rate during warmup does NOT fire fixed alerts.
+  - `TestAnalytics_IneligiblePriorWindows_ExcludedFromCalibration`: verifies unreviewed, anomalous, ineligible, alert, malformed, future, and low-sample windows are excluded from calibration.
+  - `TestAnalytics_NullMeasurements_AndPersistedProvenance`: verifies null measurements are handled cleanly and provenance is persisted into PostgreSQL.
+  - All analytics tests pass 100%.
+
+### 6.5 M2 Reliability Revalidation & Crash Matrix
+- **Full 20-Scenario Crash Matrix (`TestCrashMatrix_FullRecoveryAndEventMatrix`):**
+  - Executed against live PostgreSQL 18: 20 passed, 0 failed.
+  - Financial invariant validation passed:
+    - `NonnegativeBalances=true`
+    - `DebitCreditConservation=true`
+    - `SingleLedger=true`
+    - `Violations=0`
+  - Saved artifacts: `crash_matrix.json`, `crash_matrix.csv`, digest verified.
+
+### 6.6 Live Citation & Browser Acceptance
+- **Playwright Fixture Suite (`npx playwright test`):**
+  - All 8 tests passed (deep-linked worklist, admin retry idempotency, evidence-only investigation citations, investigation retry, worklist cursor/filters, terminal evidence export, saved report stale/missing citation labels, analytics insufficient sample labels).
+- **Playwright Offline Shell (`npm run test:browser:offline-shell`):**
+  - Both 2 tests passed (offline reload, expired token cache clearing).
+- **Native Browser Acceptance in `ops.live.spec.ts`:**
+  - Updated to assert HTTP 400 Bad Request rejection on client-injected `actorId` and `role` fields, verifying strict decoder enforcement in browser end-to-end flows.
+
+### 6.7 Gate 6 Verification & Acceptance Suite Evidence Matrix
+
+| Suite | Command | Environment | Result | Evidence |
+|---|---|---|---|---|
+| **Fresh M3 Store Conformance** | `go test -v ./internal/investigator -run TestPostgresInvestigationStoreConformance` | Local PostgreSQL 18 | PASS (1.1s) | All 5 conformance subtests pass against fresh migrations 000001-000030 |
+| **Upgraded Store Conformance** | `go test -v ./internal/investigator -run TestPostgresInvestigationStoreUpgradedDatabaseConformance` | Local PostgreSQL 18 | PASS (1.2s) | All 5 conformance subtests pass against upgraded migrations (1-29 -> 30) |
+| **Corpus Integration** | `go test -v ./internal/investigator -run TestPostgresCorpusLifecycle` | Local PostgreSQL 18 | PASS (0.8s) | Staging, activation, hashing, audience filtering verified |
+| **Strict HTTP Contract** | `go test -v ./internal/http -run TestOperations_Investigation_StrictDecoderAndScopeContract` | Local PostgreSQL 18 | PASS (0.3s) | 15 distinct assertions pass (400 on unknown/injected fields, 403, 409, 202) |
+| **Analytics Calibration** | `go test -v ./internal/analytics` | Local PostgreSQL 18 | PASS (0.4s) | Warmup without fixed alerts, ineligible window exclusion, null measurements pass |
+| **Crash & Recovery Matrix** | `go test -v ./internal/experiments -run TestCrashMatrix_FullRecoveryAndEventMatrix` | Local PostgreSQL 18 | PASS (0.7s) | 20/20 scenarios pass; 0 financial invariant violations |
+| **Full Go Tests** | `go test -count=1 ./...` | Windows Go 1.24 | PASS | All backend packages pass 100% |
+| **Go Vet** | `go vet ./...` | Windows Go 1.24 | PASS | 0 issues |
+| **Go Build** | `go build ./...` | Windows Go 1.24 | PASS | All binaries compile cleanly |
+| **Frontend Unit Tests** | `npm test` | Node.js v22 | PASS (707ms) | 96/96 tests pass across 16 suites |
+| **Frontend Lint / Typecheck** | `npm run lint` | TypeScript 7 / Node v22 | PASS | 0 type or lint errors |
+| **Frontend Production Build** | `npm run build` | Vite 8.3.0 | PASS (350ms) | Built production bundle in `dist/` |
+| **Money Parser Integrity** | `npm run test:money` | Node.js v22 | PASS | Integer paise parsing passed |
+| **Playwright Fixtures** | `npx playwright test` | Chromium (headless) | PASS (18.7s) | 8/8 tests passed |
+| **Playwright Offline Shell** | `npm run test:browser:offline-shell` | Chromium (headless) | PASS (6.5s) | 2/2 tests passed |
+| **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
+
+### 6.8 Remaining Operational & Infrastructure Gates
+- **Live Browser Acceptance on Target Staging Host:** Staging environment deployment and live OAuth/IdP sign-in flow pending cluster provisioning.
+- **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
+- **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
+
 
 
