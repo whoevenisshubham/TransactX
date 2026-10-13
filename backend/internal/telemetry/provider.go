@@ -137,3 +137,11 @@ func (p *Provider) Store() *TraceStore {
 func (p *Provider) Metrics() *Metrics {
 	return p.metrics
 }
+
+// ForceFlush flushes all pending spans to PostgreSQL synchronously.
+func (p *Provider) ForceFlush(ctx context.Context) error {
+	if p.exporter != nil {
+		return p.exporter.Flush(ctx)
+	}
+	return nil
+}

@@ -303,8 +303,10 @@ func TestTraceStore_PostgresPersistenceAndRetrieval(t *testing.T) {
 	recTraceID := recSpan.SpanContext().TraceID().String()
 	recSpan.End()
 
-	// Wait for exporter to flush to PostgreSQL
-	time.Sleep(100 * time.Millisecond)
+	// Force flush all spans to PostgreSQL
+	if err := provider.ForceFlush(context.Background()); err != nil {
+		t.Fatalf("failed to flush spans to postgres: %v", err)
+	}
 
 	// Query trace from store
 	traceResp, err := store.GetTrace(context.Background(), traceID)

@@ -132,12 +132,8 @@ func TestOperations_PaymentEvidenceAndExport(t *testing.T) {
 		t.Fatalf("expected 404 for unknown payment, got %v (%d)", err, resp.StatusCode)
 	}
 
-	// 2. Fetch existing payment from database
-	var paymentID uuid.UUID
-	err = pool.QueryRow(context.Background(), "SELECT id FROM payments ORDER BY created_at DESC LIMIT 1").Scan(&paymentID)
-	if err != nil {
-		t.Skip("no payments in database to test evidence read")
-	}
+	// 2. Create test payment in database
+	paymentID := createOpsTestPayment(t, pool)
 
 	// 3. Fetch evidence for existing payment
 	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/payments/%s/evidence", server.URL, paymentID), nil)
@@ -194,11 +190,7 @@ func TestOperations_RecoveryAttempts_Pagination(t *testing.T) {
 	viewerToken, _ := jwt.Issue(uuid.NewString(), users.RoleOpsViewer, time.Now())
 	client := server.Client()
 
-	var paymentID uuid.UUID
-	err := pool.QueryRow(context.Background(), "SELECT id FROM payments ORDER BY created_at DESC LIMIT 1").Scan(&paymentID)
-	if err != nil {
-		t.Skip("no payments in database")
-	}
+	paymentID := createOpsTestPayment(t, pool)
 
 	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/ops/payments/%s/recovery-attempts?limit=10", server.URL, paymentID), nil)
 	req.Header.Set("Authorization", "Bearer "+viewerToken)
@@ -233,12 +225,7 @@ func TestOperations_RecoveryRecheck_GatedAndIdempotent(t *testing.T) {
 	adminToken, _ := jwt.Issue(adminUserID, users.RoleOpsAdmin, time.Now())
 	viewerToken, _ := jwt.Issue(uuid.NewString(), users.RoleOpsViewer, time.Now())
 
-	var paymentID uuid.UUID
-	err = pool.QueryRow(context.Background(), "SELECT id FROM payments ORDER BY created_at DESC LIMIT 1").Scan(&paymentID)
-	if err != nil {
-		pool.Close()
-		t.Skip("no payments in database")
-	}
+	paymentID := createOpsTestPayment(t, pool)
 
 	body := bytes.NewBufferString(`{"reason": "Testing manual operator recheck"}`)
 	req, _ := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/ops/payments/%s/recovery/recheck", serverDisabled.URL, paymentID), body)

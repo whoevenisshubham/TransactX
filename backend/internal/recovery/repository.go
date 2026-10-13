@@ -148,9 +148,6 @@ func (r *Repository) ClaimDueJobs(ctx context.Context, workerID string, maxJobs 
 		return nil, nil
 	}
 
-	now := time.Now().UTC()
-	leaseUntil := now.Add(leaseDuration)
-
 	for _, j := range jobs {
 		// Read current payment state for the attempt row
 		var currentState string
@@ -171,14 +168,16 @@ func (r *Repository) ClaimDueJobs(ctx context.Context, workerID string, maxJobs 
 			UPDATE recovery_jobs
 			SET status = 'running',
 			    lease_owner = $1,
-			    lease_until = $2,
+			    lease_until = NOW() + ($2 * INTERVAL '1 millisecond'),
 			    lease_epoch = $3,
 			    attempt_count = $4,
 			    last_attempt_id = $5,
 			    updated_at = NOW()
-			WHERE payment_id = $6`
+			WHERE payment_id = $6
+			RETURNING lease_until`
 
-		if _, err := tx.Exec(ctx, updateJobQuery, workerID, leaseUntil, newEpoch, newAttemptCount, attemptID, j.PaymentID); err != nil {
+		var dbLeaseUntil time.Time
+		if err := tx.QueryRow(ctx, updateJobQuery, workerID, leaseDuration.Milliseconds(), newEpoch, newAttemptCount, attemptID, j.PaymentID).Scan(&dbLeaseUntil); err != nil {
 			return nil, fmt.Errorf("update claimed job %s: %w", j.PaymentID, err)
 		}
 
@@ -193,7 +192,7 @@ func (r *Repository) ClaimDueJobs(ctx context.Context, workerID string, maxJobs 
 		// Update in-memory job fields to reflect the active claim
 		j.Status = JobStatusRunning
 		j.LeaseOwner = &workerID
-		j.LeaseUntil = &leaseUntil
+		j.LeaseUntil = &dbLeaseUntil
 		j.LeaseEpoch = newEpoch
 		j.AttemptCount = newAttemptCount
 		j.LastAttemptID = &attemptID

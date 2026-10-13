@@ -40,6 +40,7 @@ type BoundedPostgresExporter struct {
 	metrics     *Metrics
 	logger      *slog.Logger
 	queue       chan RawSpanRecord
+	flushReq    chan chan struct{}
 	stopCh      chan struct{}
 	wg          sync.WaitGroup
 	stopped     bool
@@ -65,12 +66,13 @@ func NewBoundedPostgresExporter(pool *pgxpool.Pool, cfg Config, metrics *Metrics
 	}
 
 	exp := &BoundedPostgresExporter{
-		pool:    pool,
-		cfg:     cfg,
-		metrics: metrics,
-		logger:  logger,
-		queue:   make(chan RawSpanRecord, cfg.QueueCapacity),
-		stopCh:  make(chan struct{}),
+		pool:     pool,
+		cfg:      cfg,
+		metrics:  metrics,
+		logger:   logger,
+		queue:    make(chan RawSpanRecord, cfg.QueueCapacity),
+		flushReq: make(chan chan struct{}),
+		stopCh:   make(chan struct{}),
 	}
 
 	exp.wg.Add(1)
@@ -102,6 +104,33 @@ func (e *BoundedPostgresExporter) ExportSpans(ctx context.Context, spans []sdktr
 		}
 	}
 	return nil
+}
+
+// Flush blocks until all currently queued spans are persisted to PostgreSQL.
+func (e *BoundedPostgresExporter) Flush(ctx context.Context) error {
+	e.stoppedMu.Lock()
+	if e.stopped {
+		e.stoppedMu.Unlock()
+		return nil
+	}
+	e.stoppedMu.Unlock()
+
+	done := make(chan struct{})
+	select {
+	case e.flushReq <- done:
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-e.stopCh:
+			return nil
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-e.stopCh:
+		return nil
+	}
 }
 
 // Shutdown gracefully stops the worker and drains pending queue items up to the timeout.
@@ -163,6 +192,23 @@ func (e *BoundedPostgresExporter) workerLoop() {
 				}
 			}
 
+		case done := <-e.flushReq:
+			// Drain all currently queued items and flush synchronously
+		flushLoop:
+			for {
+				select {
+				case rec := <-e.queue:
+					batch = append(batch, rec)
+					if len(batch) >= e.cfg.MaxBatchSize {
+						flush()
+					}
+				default:
+					flush()
+					close(done)
+					break flushLoop
+				}
+			}
+
 		case rec := <-e.queue:
 			batch = append(batch, rec)
 			if len(batch) >= e.cfg.MaxBatchSize {
@@ -184,23 +230,31 @@ func (e *BoundedPostgresExporter) flushBatch(records []RawSpanRecord) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		e.logger.Debug("failed to begin transaction for trace spans batch", "error", err)
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	query := `
+		INSERT INTO trace_spans (
+			span_id, trace_id, parent_span_id, service_name, span_name, span_kind,
+			start_time, end_time, duration_ms, status_code, status_message,
+			attributes, events, links, payment_id
+		) VALUES (
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10, $11,
+			$12, $13, $14, $15
+		) ON CONFLICT (trace_id, span_id) DO NOTHING
+	`
+
 	for _, rec := range records {
 		attrJSON, _ := json.Marshal(rec.Attributes)
 		eventsJSON, _ := json.Marshal(rec.Events)
 		linksJSON, _ := json.Marshal(rec.Links)
 
-		query := `
-			INSERT INTO trace_spans (
-				span_id, trace_id, parent_span_id, service_name, span_name, span_kind,
-				start_time, end_time, duration_ms, status_code, status_message,
-				attributes, events, links, payment_id
-			) VALUES (
-				$1, $2, $3, $4, $5, $6,
-				$7, $8, $9, $10, $11,
-				$12, $13, $14, $15
-			) ON CONFLICT (trace_id, span_id) DO NOTHING
-		`
-		_, err := e.pool.Exec(ctx, query,
+		_, err := tx.Exec(ctx, query,
 			rec.SpanID,
 			rec.TraceID,
 			rec.ParentSpanID,
@@ -221,6 +275,10 @@ func (e *BoundedPostgresExporter) flushBatch(records []RawSpanRecord) {
 			// Telemetry write failure must never break anything; log as debug/warn
 			e.logger.Debug("failed to persist telemetry trace span", "error", err, "trace_id", rec.TraceID, "span_id", rec.SpanID)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		e.logger.Debug("failed to commit trace spans batch", "error", err)
 	}
 }
 
