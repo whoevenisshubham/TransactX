@@ -1097,6 +1097,19 @@ func (h *CrossBankRecoveryHarness) RunCB06_PresenceBranchingAbsentPresentUnknown
 	return res
 }
 
+func findPostgresContainer() string {
+	for _, filter := range []string{"ancestor=postgres:18", "ancestor=postgres", "publish=5432", "expose=5432"} {
+		out, err := exec.Command("docker", "ps", "--filter", filter, "--format", "{{.ID}}").Output()
+		if err == nil {
+			id := strings.TrimSpace(string(out))
+			if lines := strings.Split(id, "\n"); len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
+				return strings.TrimSpace(lines[0])
+			}
+		}
+	}
+	return ""
+}
+
 // -----------------------------------------------------------------------------
 // SCENARIO 7: Restore from disposable backup while eligible payment pending
 // -----------------------------------------------------------------------------
@@ -1186,7 +1199,7 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 	cmdDump.Env = pgEnv
 	dumpOut, dumpErr := cmdDump.CombinedOutput()
 
-	usedTemplateFallback := false
+	backupSucceeded := false
 	if dumpErr == nil {
 		res.Checkpoints = append(res.Checkpoints, "pg_dump_custom_format_backup_completed")
 
@@ -1196,23 +1209,50 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 
 		cmdCreate := exec.Command("createdb", "-h", host, "-p", port, "-U", user, disposableDB)
 		cmdCreate.Env = pgEnv
-		if _, err := cmdCreate.CombinedOutput(); err != nil {
-			usedTemplateFallback = true
-		} else {
+		if _, err := cmdCreate.CombinedOutput(); err == nil {
 			cmdRestore := exec.Command("pg_restore", "-h", host, "-p", port, "-U", user, "-d", disposableDB, "--no-owner", "--no-acl", tmpDump)
 			cmdRestore.Env = pgEnv
 			_ = cmdRestore.Run()
 			res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
 			res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_completed")
+			backupSucceeded = true
 		}
-	} else {
-		// pg_dump client version mismatch or environment without pg_dump:
-		// fall back to native transactional database snapshot cloning via PostgreSQL template
-		usedTemplateFallback = true
 	}
 
-	if usedTemplateFallback {
-		// Clean up any partial database
+	// Step 2: If host pg_dump failed (e.g. server version mismatch in containerized CI environments),
+	// attempt pg_dump and pg_restore via docker exec using the container's matching PostgreSQL binaries.
+	if !backupSucceeded {
+		if containerID := findPostgresContainer(); containerID != "" {
+			dumpF, err := os.Create(tmpDump)
+			if err == nil {
+				cmdDockerDump := exec.Command("docker", "exec", containerID, "pg_dump", "-U", user, "-Fc", srcDB)
+				cmdDockerDump.Stdout = dumpF
+				if dumpErrDocker := cmdDockerDump.Run(); dumpErrDocker == nil {
+					_ = dumpF.Close()
+					res.Checkpoints = append(res.Checkpoints, "docker_pg_dump_custom_format_backup_completed")
+
+					_ = exec.Command("docker", "exec", containerID, "dropdb", "-U", user, "--if-exists", disposableDB).Run()
+					if errCreate := exec.Command("docker", "exec", containerID, "createdb", "-U", user, disposableDB).Run(); errCreate == nil {
+						res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
+						dumpReadF, errOpen := os.Open(tmpDump)
+						if errOpen == nil {
+							cmdDockerRestore := exec.Command("docker", "exec", "-i", containerID, "pg_restore", "-U", user, "-d", disposableDB, "--no-owner", "--no-acl")
+							cmdDockerRestore.Stdin = dumpReadF
+							_ = cmdDockerRestore.Run()
+							_ = dumpReadF.Close()
+							res.Checkpoints = append(res.Checkpoints, "docker_pg_restore_into_disposable_database_completed")
+							backupSucceeded = true
+						}
+					}
+				} else {
+					_ = dumpF.Close()
+				}
+			}
+		}
+	}
+
+	// Step 3: Fall back to native template database creation if neither host nor docker pg_dump succeeded.
+	if !backupSucceeded {
 		_, _ = h.pool.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", disposableDB))
 		if _, err := h.pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", disposableDB, srcDB)); err != nil {
 			res.ErrorMessage = fmt.Sprintf("backup/restore failed: pg_dump: %v (%s); template snapshot: %v", dumpErr, string(dumpOut), err)
@@ -1228,6 +1268,9 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 		cmdDropClean := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
 		cmdDropClean.Env = pgEnv
 		_ = cmdDropClean.Run()
+		if containerID := findPostgresContainer(); containerID != "" {
+			_ = exec.Command("docker", "exec", containerID, "dropdb", "-U", user, "--if-exists", disposableDB).Run()
+		}
 	}()
 
 	var userAuth string
