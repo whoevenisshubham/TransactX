@@ -1145,8 +1145,42 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 	tmpDump := filepath.Join(os.TempDir(), fmt.Sprintf("transactx_cb_backup_%d.dump", time.Now().UnixNano()))
 	defer os.Remove(tmpDump)
 
-	cmdDump := exec.Command("pg_dump", "-U", "postgres", "-Fc", "-f", tmpDump, "transactx")
-	cmdDump.Env = os.Environ()
+	host := "127.0.0.1"
+	port := "5432"
+	user := "postgres"
+	password := ""
+	srcDB := "transactx"
+
+	if cfg, err := pgxpool.ParseConfig(h.dbURL); err == nil && cfg != nil {
+		if cfg.ConnConfig.Host != "" {
+			host = cfg.ConnConfig.Host
+		}
+		if cfg.ConnConfig.Port != 0 {
+			port = fmt.Sprintf("%d", cfg.ConnConfig.Port)
+		}
+		if cfg.ConnConfig.User != "" {
+			user = cfg.ConnConfig.User
+		}
+		if cfg.ConnConfig.Password != "" {
+			password = cfg.ConnConfig.Password
+		}
+		if cfg.ConnConfig.Database != "" {
+			srcDB = cfg.ConnConfig.Database
+		}
+	}
+
+	pgEnv := os.Environ()
+	pgEnv = append(pgEnv,
+		fmt.Sprintf("PGHOST=%s", host),
+		fmt.Sprintf("PGPORT=%s", port),
+		fmt.Sprintf("PGUSER=%s", user),
+	)
+	if password != "" {
+		pgEnv = append(pgEnv, fmt.Sprintf("PGPASSWORD=%s", password))
+	}
+
+	cmdDump := exec.Command("pg_dump", "-h", host, "-p", port, "-U", user, "-Fc", "-f", tmpDump, srcDB)
+	cmdDump.Env = pgEnv
 	if out, err := cmdDump.CombinedOutput(); err != nil {
 		res.ErrorMessage = fmt.Sprintf("pg_dump failed: %v (%s)", err, string(out))
 		return res
@@ -1154,21 +1188,37 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 	res.Checkpoints = append(res.Checkpoints, "pg_dump_custom_format_backup_completed")
 
 	disposableDB := fmt.Sprintf("transactx_cb_restore_%d", time.Now().Unix()%1000000)
-	_ = exec.Command("dropdb", "-U", "postgres", "--if-exists", disposableDB).Run()
-	if out, err := exec.Command("createdb", "-U", "postgres", disposableDB).CombinedOutput(); err != nil {
+	cmdDropPrev := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
+	cmdDropPrev.Env = pgEnv
+	_ = cmdDropPrev.Run()
+
+	cmdCreate := exec.Command("createdb", "-h", host, "-p", port, "-U", user, disposableDB)
+	cmdCreate.Env = pgEnv
+	if out, err := cmdCreate.CombinedOutput(); err != nil {
 		res.ErrorMessage = fmt.Sprintf("createdb failed: %v (%s)", err, string(out))
 		return res
 	}
 	defer func() {
-		_ = exec.Command("dropdb", "-U", "postgres", "--if-exists", disposableDB).Run()
+		cmdDropClean := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
+		cmdDropClean.Env = pgEnv
+		_ = cmdDropClean.Run()
 	}()
 	res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
 
-	cmdRestore := exec.Command("pg_restore", "-U", "postgres", "-d", disposableDB, "--no-owner", "--no-acl", tmpDump)
+	cmdRestore := exec.Command("pg_restore", "-h", host, "-p", port, "-U", user, "-d", disposableDB, "--no-owner", "--no-acl", tmpDump)
+	cmdRestore.Env = pgEnv
 	_ = cmdRestore.Run()
 	res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_completed")
 
-	restoredURL := fmt.Sprintf("postgres://postgres@localhost:5432/%s?sslmode=disable", disposableDB)
+	var userAuth string
+	if user != "" {
+		if password != "" {
+			userAuth = fmt.Sprintf("%s:%s@", user, password)
+		} else {
+			userAuth = fmt.Sprintf("%s@", user)
+		}
+	}
+	restoredURL := fmt.Sprintf("postgres://%s%s:%s/%s?sslmode=disable", userAuth, host, port, disposableDB)
 	restoredPool, err := database.NewPool(ctx, restoredURL)
 	if err != nil {
 		res.ErrorMessage = fmt.Sprintf("connect to restored DB: %v", err)
