@@ -21,7 +21,7 @@ func TestPostgresActivityFeedAggregatesDurableSourcesInStableOrder(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	when := time.Date(2026, 9, 29, 3, 0, 0, 0, time.UTC)
+	when := time.Now().UTC().Truncate(time.Microsecond)
 	participant := "ACTIVITY-" + uuid.NewString()
 	reconID, integrityID := uuid.New(), uuid.New()
 	var circuitID, chaosID int64

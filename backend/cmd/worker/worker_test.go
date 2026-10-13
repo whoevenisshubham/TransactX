@@ -392,13 +392,42 @@ func TestWorker_BankOutageAndRestoration_Convergence(t *testing.T) {
 
 	ctx := context.Background()
 
+	lockConn, err := pool.Acquire(ctx)
+	if err == nil {
+		_, _ = lockConn.Exec(ctx, `SELECT pg_advisory_lock(88880001)`)
+		defer func() {
+			_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
+			lockConn.Release()
+		}()
+	}
+
 	// Seed test participants and accounts
 	userID := uuid.New()
 	bankID := uuid.New()
 	sourceAccID := uuid.New()
 	destAccID := uuid.New()
+	paymentID := uuid.New()
 
-	_, err := pool.Exec(ctx, `
+	defer func() {
+		tx, err := pool.Begin(context.Background())
+		if err == nil {
+			defer tx.Rollback(context.Background())
+			_, _ = tx.Exec(context.Background(), `SET LOCAL session_replication_role = 'replica'`)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM recovery_attempts WHERE payment_id = $1`, paymentID)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM recovery_jobs WHERE payment_id = $1`, paymentID)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM payment_state_transitions WHERE payment_id = $1`, paymentID)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id = $1)`, paymentID.String())
+			_, _ = tx.Exec(context.Background(), `DELETE FROM outbox_events WHERE aggregate_id = $1`, paymentID.String())
+			_, _ = tx.Exec(context.Background(), `DELETE FROM ops_payment_worklist WHERE payment_id = $1`, paymentID)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM payments WHERE id = $1`, paymentID)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM accounts WHERE user_id = $1`, userID)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM banks WHERE id = $1`, bankID)
+			_, _ = tx.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+			_ = tx.Commit(context.Background())
+		}
+	}()
+
+	_, err = pool.Exec(ctx, `
 		INSERT INTO users (id, name, phone, upi_id, password_hash, role)
 		VALUES ($1, 'Worker Outage Test User', $2, $3, 'hash', 'CUSTOMER')`,
 		userID, userID.String()[:20], "outage-"+userID.String()[:12])
@@ -435,7 +464,6 @@ func TestWorker_BankOutageAndRestoration_Convergence(t *testing.T) {
 	paymentsSvc := payments.NewServiceWithAdapters(accountsRepo, recipientsRepo, paymentsRepo, adaptersMap)
 
 	// Create payment in VALIDATING state
-	paymentID := uuid.New()
 	_, err = pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, state, origin, source_bank_id, destination_bank_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, 1000, 'INR', 'VALIDATING', 'ONLINE', $5, $6, NOW() - interval '40 seconds', NOW() - interval '40 seconds')`,

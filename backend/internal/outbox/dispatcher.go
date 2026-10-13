@@ -139,8 +139,15 @@ func (d *Dispatcher) CompleteDelivery(ctx context.Context, consumerName string, 
 
 // FailDelivery records a failure, backing off next_attempt_at or quarantining if attempts >= MaxDeliveryAttempts.
 func (d *Dispatcher) FailDelivery(ctx context.Context, consumerName string, eventID uuid.UUID, workerID string, leaseEpoch int64, currentAttempts int, errCode string, nextAttemptAt time.Time) (bool, error) {
+	if len(errCode) > 64 {
+		errCode = errCode[:64]
+	}
 	if currentAttempts >= MaxDeliveryAttempts {
-		return d.QuarantineDelivery(ctx, consumerName, eventID, workerID, leaseEpoch, fmt.Sprintf("EXHAUSTED_%s", errCode))
+		reason := fmt.Sprintf("EXHAUSTED_%s", errCode)
+		if len(reason) > 64 {
+			reason = reason[:64]
+		}
+		return d.QuarantineDelivery(ctx, consumerName, eventID, workerID, leaseEpoch, reason)
 	}
 
 	query := `
@@ -164,6 +171,9 @@ func (d *Dispatcher) FailDelivery(ctx context.Context, consumerName string, even
 
 // QuarantineDelivery isolates an invalid or poisoned event delivery so it does not block others.
 func (d *Dispatcher) QuarantineDelivery(ctx context.Context, consumerName string, eventID uuid.UUID, workerID string, leaseEpoch int64, reason string) (bool, error) {
+	if len(reason) > 64 {
+		reason = reason[:64]
+	}
 	query := `
 		UPDATE outbox_deliveries
 		SET status = 'quarantined',

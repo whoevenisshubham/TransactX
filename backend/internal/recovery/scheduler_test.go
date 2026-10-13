@@ -36,6 +36,17 @@ func setupTestDB(t *testing.T) *testData {
 	}
 
 	ctx := context.Background()
+	lockConn, err := pool.Acquire(ctx)
+	if err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_lock(88880001)`); err != nil {
+		lockConn.Release()
+		pool.Close()
+		t.Fatal(err)
+	}
+
 	_, _ = pool.Exec(ctx, `DELETE FROM recovery_attempts`)
 	_, _ = pool.Exec(ctx, `DELETE FROM recovery_jobs`)
 
@@ -50,6 +61,8 @@ func setupTestDB(t *testing.T) *testData {
 		VALUES ($1, 'Recov User', $2, $3, 'hash', 'CUSTOMER')`,
 		userID, userID.String()[:20], "recov-"+userID.String()[:12])
 	if err != nil {
+		_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
+		lockConn.Release()
 		pool.Close()
 		t.Fatal(err)
 	}
@@ -59,6 +72,8 @@ func setupTestDB(t *testing.T) *testData {
 		VALUES ($1, $2, 'Recov Bank', 'ACTIVE')`,
 		bankID, "BANK-"+bankID.String()[:12])
 	if err != nil {
+		_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
+		lockConn.Release()
 		pool.Close()
 		t.Fatal(err)
 	}
@@ -69,6 +84,8 @@ func setupTestDB(t *testing.T) *testData {
 		acc1ID, userID, bankID, "acc1-"+acc1ID.String()[:12],
 		acc2ID, userID, bankID, "acc2-"+acc2ID.String()[:12])
 	if err != nil {
+		_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
+		lockConn.Release()
 		pool.Close()
 		t.Fatal(err)
 	}
@@ -81,12 +98,22 @@ func setupTestDB(t *testing.T) *testData {
 		acc1ID: acc1ID,
 		acc2ID: acc2ID,
 		cleanFn: func() {
-			_, _ = pool.Exec(ctx, `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, userID)
-			_, _ = pool.Exec(ctx, `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, userID)
-			_, _ = pool.Exec(ctx, `DELETE FROM payments WHERE initiated_by_user_id = $1`, userID)
-			_, _ = pool.Exec(ctx, `DELETE FROM accounts WHERE user_id = $1`, userID)
-			_, _ = pool.Exec(ctx, `DELETE FROM banks WHERE id = $1`, bankID)
-			_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+			bgCtx := context.Background()
+			tx, err := pool.Begin(bgCtx)
+			if err == nil {
+				defer tx.Rollback(bgCtx)
+				_, _ = tx.Exec(bgCtx, `SET LOCAL session_replication_role = 'replica'`)
+				_, _ = tx.Exec(bgCtx, `DELETE FROM payment_state_transitions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, userID)
+				_, _ = tx.Exec(bgCtx, `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, userID)
+				_, _ = tx.Exec(bgCtx, `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, userID)
+				_, _ = tx.Exec(bgCtx, `DELETE FROM payments WHERE initiated_by_user_id = $1`, userID)
+				_, _ = tx.Exec(bgCtx, `DELETE FROM accounts WHERE user_id = $1`, userID)
+				_, _ = tx.Exec(bgCtx, `DELETE FROM banks WHERE id = $1`, bankID)
+				_, _ = tx.Exec(bgCtx, `DELETE FROM users WHERE id = $1`, userID)
+				_ = tx.Commit(bgCtx)
+			}
+			_, _ = lockConn.Exec(bgCtx, `SELECT pg_advisory_unlock(88880001)`)
+			lockConn.Release()
 			pool.Close()
 		},
 	}
@@ -193,33 +220,66 @@ func TestRecovery_LeaseExpiryAndEpoch_AllowsSecondWorkerClaim(t *testing.T) {
 	}
 
 	// Worker 1 claims with very short lease (100ms)
-	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 1, 100*time.Millisecond)
-	if err != nil || len(w1Jobs) != 1 {
-		t.Fatalf("worker-1 claim failed: jobs=%d, err=%v", len(w1Jobs), err)
+	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 10, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("worker-1 claim failed: %v", err)
 	}
-	if w1Jobs[0].LeaseEpoch != 1 {
-		t.Fatalf("expected epoch 1, got %d", w1Jobs[0].LeaseEpoch)
+	var w1Job *Job
+	for _, j := range w1Jobs {
+		if j.PaymentID == pID {
+			w1Job = j
+			break
+		}
+	}
+	if w1Job == nil {
+		t.Fatalf("worker-1 claim failed: job for payment %s not found (claimed %d jobs)", pID, len(w1Jobs))
+	}
+	if w1Job.LeaseEpoch != 1 {
+		t.Fatalf("expected epoch 1, got %d", w1Job.LeaseEpoch)
 	}
 
 	// Immediately, Worker 2 cannot claim it (lease active)
-	w2JobsEarly, err := td.repo.ClaimDueJobs(ctx, "worker-2", 1, 30*time.Second)
-	if err != nil || len(w2JobsEarly) != 0 {
-		t.Fatalf("worker-2 should not claim active lease: jobs=%d, err=%v", len(w2JobsEarly), err)
+	w2JobsEarly, err := td.repo.ClaimDueJobs(ctx, "worker-2", 10, 30*time.Second)
+	if err != nil {
+		t.Fatalf("worker-2 early claim failed: %v", err)
+	}
+	for _, j := range w2JobsEarly {
+		if j.PaymentID == pID {
+			t.Fatalf("worker-2 should not claim active lease for payment %s", pID)
+		}
 	}
 
-	// Wait for lease to expire
-	time.Sleep(150 * time.Millisecond)
+	// Wait authoritatively for lease to expire in PostgreSQL
+	if w1Job.LeaseUntil != nil {
+		if remain := time.Until(*w1Job.LeaseUntil); remain > 0 {
+			time.Sleep(remain + 50*time.Millisecond)
+		} else {
+			time.Sleep(50 * time.Millisecond)
+		}
+	} else {
+		time.Sleep(200 * time.Millisecond)
+	}
 
 	// Worker 2 claims it now
-	w2Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-2", 1, 30*time.Second)
-	if err != nil || len(w2Jobs) != 1 {
-		t.Fatalf("worker-2 claim after expiry failed: jobs=%d, err=%v", len(w2Jobs), err)
+	w2Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-2", 10, 30*time.Second)
+	if err != nil {
+		t.Fatalf("worker-2 claim after expiry failed: %v", err)
 	}
-	if w2Jobs[0].LeaseEpoch != 2 {
-		t.Fatalf("expected epoch 2 on second claim, got %d", w2Jobs[0].LeaseEpoch)
+	var w2Job *Job
+	for _, j := range w2Jobs {
+		if j.PaymentID == pID {
+			w2Job = j
+			break
+		}
 	}
-	if *w2Jobs[0].LeaseOwner != "worker-2" {
-		t.Fatalf("expected owner worker-2, got %v", w2Jobs[0].LeaseOwner)
+	if w2Job == nil {
+		t.Fatalf("worker-2 claim after expiry failed: job for payment %s not claimed (claimed %d jobs)", pID, len(w2Jobs))
+	}
+	if w2Job.LeaseEpoch != 2 {
+		t.Fatalf("expected epoch 2 on second claim, got %d", w2Job.LeaseEpoch)
+	}
+	if w2Job.LeaseOwner == nil || *w2Job.LeaseOwner != "worker-2" {
+		t.Fatalf("expected owner worker-2, got %v", w2Job.LeaseOwner)
 	}
 }
 
@@ -235,17 +295,45 @@ func TestRecovery_LateResultRejected_WhenLeaseLost(t *testing.T) {
 	}
 
 	// Worker 1 claims with short lease (100ms)
-	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 1, 100*time.Millisecond)
-	if err != nil || len(w1Jobs) != 1 {
-		t.Fatal(err)
+	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 10, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("worker-1 claim failed: %v", err)
 	}
-	w1Job := w1Jobs[0]
+	var w1Job *Job
+	for _, j := range w1Jobs {
+		if j.PaymentID == pID {
+			w1Job = j
+			break
+		}
+	}
+	if w1Job == nil {
+		t.Fatalf("worker-1 claim failed: job for payment %s not found (claimed %d jobs)", pID, len(w1Jobs))
+	}
 
-	// Wait for lease to expire, Worker 2 claims it
-	time.Sleep(150 * time.Millisecond)
-	w2Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-2", 1, 30*time.Second)
-	if err != nil || len(w2Jobs) != 1 {
-		t.Fatal(err)
+	// Wait authoritatively for lease to expire in PostgreSQL, Worker 2 claims it
+	if w1Job.LeaseUntil != nil {
+		if remain := time.Until(*w1Job.LeaseUntil); remain > 0 {
+			time.Sleep(remain + 50*time.Millisecond)
+		} else {
+			time.Sleep(50 * time.Millisecond)
+		}
+	} else {
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	w2Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-2", 10, 30*time.Second)
+	if err != nil {
+		t.Fatalf("worker-2 claim after expiry failed: %v", err)
+	}
+	var w2Job *Job
+	for _, j := range w2Jobs {
+		if j.PaymentID == pID {
+			w2Job = j
+			break
+		}
+	}
+	if w2Job == nil {
+		t.Fatalf("worker-2 claim after expiry failed: job for payment %s not claimed (claimed %d jobs)", pID, len(w2Jobs))
 	}
 
 	// Worker 1 now attempts to complete its attempt with epoch 1

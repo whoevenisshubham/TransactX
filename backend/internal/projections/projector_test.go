@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,7 @@ import (
 
 type testEntities struct {
 	pool        *pgxpool.Pool
+	lockConn    *pgxpool.Conn
 	userID      uuid.UUID
 	bankID      uuid.UUID
 	sourceAccID uuid.UUID
@@ -32,6 +34,17 @@ func setupTestEntities(t *testing.T) *testEntities {
 	}
 
 	ctx := context.Background()
+	lockConn, err := pool.Acquire(ctx)
+	if err != nil {
+		pool.Close()
+		t.Fatalf("acquire lock connection: %v", err)
+	}
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_lock(88880001)`); err != nil {
+		lockConn.Release()
+		pool.Close()
+		t.Fatalf("acquire test lock: %v", err)
+	}
+
 	userID := uuid.New()
 	bankID := uuid.New()
 	sourceAccID := uuid.New()
@@ -44,6 +57,8 @@ func setupTestEntities(t *testing.T) *testEntities {
 		VALUES ($1, 'Projection Test User', $2, $3, 'hash', 'CUSTOMER')`,
 		userID, phone, upiID)
 	if err != nil {
+		_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
+		lockConn.Release()
 		pool.Close()
 		t.Fatalf("setup user: %v", err)
 	}
@@ -54,6 +69,8 @@ func setupTestEntities(t *testing.T) *testEntities {
 		VALUES ($1, $2, 'Projection Bank', 'ACTIVE')`,
 		bankID, bankCode)
 	if err != nil {
+		_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
+		lockConn.Release()
 		pool.Close()
 		t.Fatalf("setup bank: %v", err)
 	}
@@ -65,12 +82,15 @@ func setupTestEntities(t *testing.T) *testEntities {
 		VALUES ($1, $3, $4, $5, 'ACTIVE'), ($2, $3, $4, $6, 'ACTIVE')`,
 		sourceAccID, destAccID, userID, bankID, accNum1, accNum2)
 	if err != nil {
+		_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
+		lockConn.Release()
 		pool.Close()
 		t.Fatalf("setup accounts: %v", err)
 	}
 
 	return &testEntities{
 		pool:        pool,
+		lockConn:    lockConn,
 		userID:      userID,
 		bankID:      bankID,
 		sourceAccID: sourceAccID,
@@ -80,10 +100,25 @@ func setupTestEntities(t *testing.T) *testEntities {
 
 func (te *testEntities) close() {
 	ctx := context.Background()
-	_, _ = te.pool.Exec(ctx, `DELETE FROM payments WHERE initiated_by_user_id = $1`, te.userID)
-	_, _ = te.pool.Exec(ctx, `DELETE FROM accounts WHERE id IN ($1, $2)`, te.sourceAccID, te.destAccID)
-	_, _ = te.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, te.userID)
-	_, _ = te.pool.Exec(ctx, `DELETE FROM banks WHERE id = $1`, te.bankID)
+	tx, err := te.pool.Begin(ctx)
+	if err == nil {
+		defer tx.Rollback(ctx)
+		_, _ = tx.Exec(ctx, `SET LOCAL session_replication_role = 'replica'`)
+		_, _ = tx.Exec(ctx, `DELETE FROM payment_state_transitions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, te.userID)
+		_, _ = tx.Exec(ctx, `DELETE FROM consumer_inbox WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1))`)
+		_, _ = tx.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1))`)
+		_, _ = tx.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`)
+		_, _ = tx.Exec(ctx, `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`)
+		_, _ = tx.Exec(ctx, `DELETE FROM payments WHERE initiated_by_user_id = $1`, te.userID)
+		_, _ = tx.Exec(ctx, `DELETE FROM accounts WHERE id IN ($1, $2)`, te.sourceAccID, te.destAccID)
+		_, _ = tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, te.userID)
+		_, _ = tx.Exec(ctx, `DELETE FROM banks WHERE id = $1`, te.bankID)
+		_ = tx.Commit(ctx)
+	}
+	if te.lockConn != nil {
+		_, _ = te.lockConn.Exec(ctx, `SELECT pg_advisory_unlock(88880001)`)
+		te.lockConn.Release()
+	}
 	te.pool.Close()
 }
 
@@ -295,8 +330,8 @@ func TestService_ProcessBatch_ClaimsAndAcknowledges(t *testing.T) {
 
 	// Process batches until our payment's delivery is processed
 	var delivery *outbox.Delivery
-	for i := 0; i < 10; i++ {
-		_, err := svc.ProcessBatch(ctx, "worker-test-1", 50)
+	for i := 0; i < 20; i++ {
+		_, err := svc.ProcessBatch(ctx, "worker-test-1", 100)
 		if err != nil {
 			t.Fatalf("ProcessBatch failed: %v", err)
 		}
@@ -304,11 +339,15 @@ func TestService_ProcessBatch_ClaimsAndAcknowledges(t *testing.T) {
 		if err == nil && delivery != nil && delivery.Status == outbox.DeliveryStatusDelivered {
 			break
 		}
+		time.Sleep(25 * time.Millisecond)
 	}
 
 	// Verify delivery acknowledged
-	if delivery == nil || delivery.Status != outbox.DeliveryStatusDelivered || delivery.DeliveredAt == nil {
-		t.Fatalf("expected delivery delivered, got %+v", delivery)
+	if delivery == nil {
+		t.Fatalf("expected delivery for event %s, got nil (events count: %d)", events[0].ID, len(events))
+	}
+	if delivery.Status != outbox.DeliveryStatusDelivered || delivery.DeliveredAt == nil {
+		t.Fatalf("expected delivery delivered, got status=%s, deliveredAt=%v, lastError=%v", delivery.Status, delivery.DeliveredAt, delivery.LastErrorCode)
 	}
 
 	// Verify item exists in worklist
