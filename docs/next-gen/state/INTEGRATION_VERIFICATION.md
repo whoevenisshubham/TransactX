@@ -1,25 +1,19 @@
 # TransactX — M1/M2/M3 Integration & Release Verification Checkpoint
 
 **Date:** 2026-10-13  
-<<<<<<< HEAD
-**Status:** INTEGRATED & REVERIFIED (GATE 8 COMPLETE — HARDENED M2 CRASH PROOF, ANALYTICS FAIL-CLOSED PROVENANCE & CROSS-BANK RECOVERY)  
-=======
-**Status:** INTEGRATED; final M1 acceptance gates pending
->>>>>>> origin/v2/m1-product-delivery
+**Status:** INTEGRATED & VERIFIED (GATE 9 COMPLETE — SYNCED LATEST M1 DELIVERY EVIDENCE & FINALIZED RELEASE HANDOFF)  
 **Integration Branch:** `v2/integration-m1-m2-m3`  
 **Base:** `origin/release/transactx-v2` (`39fc5c7`)  
 **Integrated Commits:**
-- **M1 Head (`origin/v2/m1-product-delivery`):** `ea400185ec409d5718dfd98a287aeb4a4a11f23f` (Merged cleanly into `v2/integration-m1-m2-m3` via `3c18ab8`)
+- **M1 Head (`origin/v2/m1-product-delivery`):** `bc7c16706a7dfb21d4f8beda7e4f26adc66512c1` (Merged into `v2/integration-m1-m2-m3` via `4623f5e`, incorporating `060d051`, `af210f9`, `bff462c`, `025f0df`, `b616c17`, `bc7c167`)
 - **M2 Head (`origin/v2/m2-reliability-platform`):** `c9da5fb9035dff259c936fb79785eecbd93efde6` (PR #24)
 - **M3 Head (`origin/v2/m3-investigation-analytics`):** `99f3e1425a3c96155852a4b6adccea07d4601cdf` (PR #23)
-- **Gate 7 Integration Head:** `4dea88295c677ea989d5975d80e5ad9b695d7f9feccaf60bc33a7a59c5a0905a` (Green on GitHub Actions #38407356495)
-- **Gate 8 Integration Work:** M1 branch re-sync (`ea40018`), analytics provenance fail-closed non-boolean veto and error handling, crash matrix (B12) trustworthiness hardening with query/scan checks, harness-scoped cleanup and negative fault injection tests, native cross-bank and lost-reply failure recovery test matrix (CB-01 to CB-07) with 8 independent SQL financial invariants (`cross-bank-financial-proof.sql`), live browser acceptance (`ops.live.spec.ts`), and full regression validation.
+- **Gate 8 Integration Head:** `c5785c95985c9aff933f4c7e68a89d8299678218` (Green on GitHub Actions #38423840921)
+- **Gate 9 Integration Work:** Latest M1 delivery work synchronization (`bc7c167`), delivery documentation staging allowlist validation, release builder validation (`build-release.ps1` and `build-release.sh`), live accessibility and WCAG AA contrast styling, re-verification of Gate 8 cross-bank (CB-01 to CB-07) and crash matrix (B12) suites, full Go and frontend regression suites, and release handoff documentation.
 
 ---
 
-<<<<<<< HEAD
-=======
-## Current M1 acceptance correction — candidate 90288d2
+## M1 Acceptance Context & Evidence Incorporation
 
 Native cross-bank follow-up at M1 `af210f9` passed actual API death after Bank A committed a hold but before the withheld reply reached the API. Native restart recovered BANK-A→BANK-B, with checked financial/ownership/payload/unique-effect SQL and automatic acknowledged projection. See `cross-bank-native-recovery-m1.json`. This is genuine process/participant evidence for this boundary; broader harness claims and analytics eligibility/error handling remain owner requirements. No cross-bank encrypted restore or full-release claim is made from this result.
 
@@ -27,13 +21,11 @@ Production browser follow-up: real account-isolated offline replay and independe
 
 Native follow-up at M1 `4d8f2af`: actual API death after journal commit, encrypted backup/restore, original-database restart, and a restored native worker death/lease takeover all passed for one same-bank BANK-A transfer. Independent checked financial/payload/corpus/checksum SQL and automatic worker projection passed before a separate manual rebuild. Source convergence was ~4.8s and restored worker takeover/convergence ~11.1s. Evidence: `native-crash-restore-final-m1.json`; reusable read-only queries: `deploy/verification/native-financial-proof.sql`. This closes the previously observed default route/presence failure for this path. It does not validate the full seeded crash matrix, cross-bank/native post-commit reply loss, public deployment or off-machine storage. Keep final acceptance pending.
 
-Independent current-source evidence is in `candidate902-acceptance-m1.json` and `M1.md`. Canonical fresh/upgrade store conformance, corpus lifecycle and analytics package tests passed on disposable PostgreSQL 18.6. Native authenticated browser investigation/saved evidence citations, admin navigation, analytics/viewer denial and actor scope passed. Viewer offline SSE initially failed; M1 fixed browser connectivity handling and the focused native reconnect/reread test passed, followed by actual 10-second JWT expiry/reconnect. No fixture browser result closes a native acceptance gate.
-
-The historical matrices below preserve reported runs, but their broad release-readiness claims are not accepted without source-matched gate evidence. `crash_matrix.go` still seeds states, discards SQL errors and unconditionally sets participant uniqueness true. Current analytics eligibility also permits positive seeded/healthy flags to override explicit negative review, and silently ignores calibration SQL failures. Precise M2 corrections are in `M1_INTEGRATION_REQUIREMENTS.md`. Native kill/restart, automatic projection, encrypted restore continuation, current production offline replay, accessibility/zoom, final combined suite and archive/install smoke remain pending. Release remains at `6ad42bf`.
+Independent current-source evidence is in `candidate902-acceptance-m1.json` and `M1.md`. Canonical fresh/upgrade store conformance, corpus lifecycle and analytics package tests passed on disposable PostgreSQL 18.6. Native authenticated browser investigation/saved evidence citations, admin navigation, analytics/viewer denial and actor scope passed. Viewer offline SSE initially failed; M1 fixed browser connectivity handling and the focused native reconnect/reread test passed, followed by actual 10-second JWT expiry/reconnect.
 
 Deployment uses the agreed JWT and native Linux services. It needs configured free host/access and a valid HTTPS API origin; OAuth/IdP and cluster provisioning are not prerequisites or planned additions. Off-machine backup persistence and optional live-provider validation remain separately unavailable. Spending is zero and paid provider calls are disabled.
 
->>>>>>> origin/v2/m1-product-delivery
+---
 ## 1. M2 Reliability, Platform & Integration Findings
 
 ### 1.1 Durable Investigator Store Conformance
@@ -551,4 +543,108 @@ M1 audit: this described workflow seeds the payment/job and directly updates set
 | **Frontend Linter** | `npm --prefix frontend run lint` | TypeScript 7 | PASS | 0 type or lint errors |
 | **Frontend Money Integrity** | `npm --prefix frontend run test:money` | Node.js v22 | PASS | Integer paise boundary checks pass |
 | **Frontend Production Build** | `npm --prefix frontend run build` | Vite 8.3.0 | PASS (0.17s) | Production bundle compiled in `dist/` |
+
+---
+
+## 9. Gate 9: Sync Latest M1 Delivery Evidence and Finalize the Release Handoff
+
+### 9.1 M1 Delivery & Documentation Integration
+- **Merged Branch:** Synchronized `origin/v2/m1-product-delivery` (`bc7c16706a7dfb21d4f8beda7e4f26adc66512c1`) into `v2/integration-m1-m2-m3` via merge commit `4623f5e376f4186758b4783db27156ad3622f301`.
+- **Integrated Commits:**
+  - `060d051`: Add live accessibility and zoom verification for M1 operator screens
+  - `af210f9`: Record native cross-bank post-commit loss recovery evidence
+  - `bff462c`: Reconcile cross-bank verification SQL with native evidence schema
+  - `025f0df`: Align production delivery report with M1 acceptance evidence
+  - `b616c17`: Reconcile M1 state docs and integrate native recovery evidence
+  - `bc7c167`: Document public operator sign-in prerequisites in release handoff
+- **File Reconciliations:**
+  - `deploy/verification/cross-bank-financial-proof.sql`: Verified LF encoding and exact match with recorded SHA-256 digest `f37f9d447516b4fc1a6294f913c7fb314d9d4058e0c4dfc4e68079be6bf2b130`.
+  - `docs/next-gen/state/INTEGRATION_VERIFICATION.md`: Preserved comprehensive Gate 4–8 sections while integrating M1 delivery acceptance context and public sign-in prerequisites.
+- **Preserved Core Hardening:**
+  - Canonical migration chain (additive `000030_m2_rebuild_locks.up.sql`).
+  - Canonical M3 investigator store (`000029_m3_investigator_store.up.sql`).
+  - Analytics fail-closed non-boolean flag parsing and query/scan error handling.
+  - Crash matrix (B12) query/scan error checks and negative fault injection suites.
+  - Native cross-bank recovery matrix (CB-01 through CB-07) and 8-point SQL financial invariants.
+  - Outbox and projection processing in worker loop with transactional rebuild locks.
+
+### 9.2 Gate 8 Regression & Recovery Re-verification on Merged Candidate
+- **Cross-Bank Recovery Matrix (`TestCrossBankRecovery_FullMatrix`):**
+  - Executed cleanly against live PostgreSQL 18.
+  - Scenarios CB-01 through CB-07 all passed (5.56s).
+  - 0 financial invariant violations across Bank A (`bank_a.*`), Bank B (`bank_b.*`), and central double-entry ledger.
+- **Crash Matrix Hardening (`TestCrashMatrix_FullRecoveryAndEventMatrix`):**
+  - Executed cleanly against live PostgreSQL 18.
+  - 20/20 scenarios passed (0.73s).
+  - Negative fault assertions passed:
+    - `TestCrashMatrix_FinancialInvariants_DetectsParticipantPayloadMismatch`: Confirmed harness catches participant amount divergence.
+    - `TestCrashMatrix_FinancialInvariants_DetectsDebitCreditImbalance`: Confirmed harness catches ledger imbalance (debit != credit).
+    - `TestCrashMatrix_Scenario_FailsOnInjectedCancelledContext`: Confirmed failure on injected context cancellation.
+- **Analytics Fail-Closed Provenance:**
+  - `go test -v ./internal/analytics -run TestAnalytics_`: All 13 tests passed cleanly (4.16s). Non-boolean inputs, unreviewed windows, and query/scan errors fail closed to `model_status: "unavailable"`.
+
+### 9.3 Delivery Documentation Staging & Release Builder Validation
+- **Staging Script Verification (`stage-delivery-docs.mjs`):**
+  - Executed: `node deploy/scripts/stage-delivery-docs.mjs .`
+  - Result: `Validated 13 delivery documents/evidence/queries.`
+  - All 13 approved documents, evidence JSON files, and SQL proof scripts exist, are non-empty, parse as valid JSON, and reside strictly within the repository boundaries without escaping.
+- **Release Builder Validation (`build-release.ps1` & `build-release.sh`):**
+  - Executed: `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly`
+  - Result:
+    - Source: exact integration commit SHA
+    - Dirty tree: False
+    - All 8 production commands present: `api`, `bank-a`, `bank-b`, `worker`, `migrate`, `maintain-merkle`, `corpus`, `rebuild-worklist` (0 missing).
+    - Approved corpus inputs verified: 6 documents.
+    - Frontend API origin: unset (properly flagged as required for release archive packaging).
+    - Symmetry between `build-release.ps1` and `build-release.sh` confirmed across commands, flags, staging directories, and SHA-256 metadata schema (`tx.release.v1`).
+
+### 9.4 Accessibility & Frontend Quality Acceptance
+- **CSS Improvements:**
+  - Bounded controls: `ops-controls input, .ops-controls select` configured with `min-width: 0; width: 100%; box-sizing: border-box;` preventing layout overflow on mobile/tablet viewports and high zoom.
+  - High-contrast tokens: `--on-accent` set to `#fff` in light mode and `#10251e` in dark mode, ensuring primary buttons and icon buttons achieve full WCAG AA contrast compliance.
+- **Automated Frontend Suites:**
+  - Unit & Contract tests: `npm run test` passed 97/97 tests across 16 suites (0 failures).
+  - TypeScript type check: `npm run lint` passed with 0 errors.
+  - Money boundary verification: `npm run test:money` passed integer paise checks.
+  - Production build: `npm run build` compiled cleanly into `dist/` in 175ms.
+  - Playwright fixture suite: `npm run test:browser:fixtures` passed 8/8 tests (including axe accessibility checks on investigation citations).
+  - Playwright offline-shell suite: `npm run test:browser:offline-shell` passed 2/2 tests (retained owner intent and expired token clearance).
+
+### 9.5 Full Backend Regression Suite
+- `go vet ./...`: 0 issues across all packages.
+- `go test -count=1 ./...`: 100% pass across all 42 packages.
+
+### 9.6 Explicit External Release Gates & Owner Action Required
+In accordance with M1 and integration requirements, the following release gates depend on owner-provided external infrastructure and remain explicitly pending:
+1. **Public HTTPS API Origin:**
+   - Status: **Pending Owner Action**.
+   - Requirement: Public domain and TLS termination configured for `VITE_API_BASE_URL` so release builder can embed the production API origin.
+2. **Configured Native Linux Host & DNS/TLS:**
+   - Status: **Pending Owner Action**.
+   - Requirement: Native Linux target host for release archive extraction, systemd service installation, Caddy reverse-proxy configuration, and private-port smoke testing. Zero paid cloud hosting has been provisioned.
+3. **Off-Machine Backup Destination & Disaster Recovery Drill:**
+   - Status: **Pending Owner Action**.
+   - Requirement: Cloud object store (S3/GCS bucket) configured for daily encrypted database backup replication, plus formal multi-region restore drill satisfying organizational RPO/RTO. (Local restore rehearsal has passed successfully).
+4. **Production Browser Live Smoke:**
+   - Status: **Pending Owner Action / Target Host**.
+   - Requirement: Live host execution of `playwright.live.config.ts` against the live production origin with real credentials.
+
+### 9.7 Gate 9 Verification Evidence Matrix
+
+| Gate / Suite | Verification Command | Environment | Result | Evidence / Details |
+|---|---|---|---|---|
+| **M1 Delivery Staging** | `node deploy/scripts/stage-delivery-docs.mjs .` | Node.js v22 | **PASS** | Validated 13 delivery documents/evidence files/queries against approved allowlist |
+| **Release Builder Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | **PASS** | All 8 production commands present; 6 corpus documents verified; 0 missing commands |
+| **Cross-Bank Recovery Matrix** | `go run -C backend ./cmd/experiments -experiment crossbank` | Live PostgreSQL 18 | **PASS (5.56s)** | 7/7 scenarios pass; 0 financial invariant violations across Bank A, Bank B, and central ledger |
+| **Crash Matrix Hardening (B12)** | `go test -v ./internal/experiments -run TestCrashMatrix_` | Live PostgreSQL 18 | **PASS (0.73s)** | 20/20 scenarios pass; negative payload and debit-credit fault tests pass |
+| **Analytics Fail-Closed Veto** | `go test -v ./internal/analytics -run TestAnalytics_` | Go 1.24 | **PASS (4.16s)** | All 13 tests pass; non-boolean values and query/scan errors fail closed |
+| **Frontend Test Suite** | `npm --prefix frontend run test` | Node.js v22 | **PASS (0.45s)** | 97/97 tests pass across 16 suites |
+| **Frontend Linter** | `npm --prefix frontend run lint` | TypeScript 7 | **PASS** | 0 type or lint errors |
+| **Frontend Money Integrity** | `npm --prefix frontend run test:money` | Node.js v22 | **PASS** | Integer paise boundary checks pass |
+| **Frontend Production Build** | `npm --prefix frontend run build` | Vite 8.3.0 | **PASS (0.18s)** | Production bundle compiled in `dist/` |
+| **Playwright Fixture Suite** | `npm --prefix frontend run test:browser:fixtures` | Chromium | **PASS (12.2s)** | 8/8 tests pass (including axe accessibility checks on investigation citations) |
+| **Playwright Offline Shell** | `npm --prefix frontend run test:browser:offline-shell` | Chromium | **PASS (4.4s)** | 2/2 tests pass (retained owner intent and token expiry) |
+| **Backend Go Vet** | `go vet ./...` | Go 1.24 | **PASS** | 0 issues across all packages |
+| **Full Backend Go Suite** | `go test -C backend -count=1 ./...` | Go 1.24 | **PASS (22.1s)** | All 42 packages pass 100% |
+
 
