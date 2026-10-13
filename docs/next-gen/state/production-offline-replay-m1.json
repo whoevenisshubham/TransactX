@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "frontendSourceSha": "82f4ad6ea783459c48dadac5ff05cb3b922c8046",
+  "command": "npx playwright test --config playwright.live.config.ts --grep 'a retained intent survives a full offline reload'",
+  "result": "1 passed",
+  "testDurationSeconds": 3.8,
+  "environment": "Production Vite build/preview, Edge, temporary trusted loopback HTTPS proxy to native API, native banks/worker and canonical PostgreSQL 18.6",
+  "inputs": "Three locally registered generated customer accounts, private generated password and TLS key; sender central opening balance and Bank A balance seeded to 10000 paise in the isolated test cluster",
+  "browserChecks": ["API write outage retains intent without a backend payment", "Full network-offline reload uses cached shell and retains original owner's intent", "Other user cannot replay or view sender payment", "Original user reconnect produces one completed payment", "Repeated online event and reload do not duplicate payment", "Idempotency and request identities remain stable"],
+  "independentSql": {
+    "paymentId": "90564f4c-822d-4e5b-b2ad-859abb31f09d",
+    "logicalPayments": 1,
+    "state": "COMPLETED",
+    "amountPaise": 100,
+    "idempotencyMappings": 1,
+    "ledgerTransactions": 1,
+    "ledgerEntries": 2,
+    "ledgerNetPaise": 0,
+    "ledgerAmountAccountMismatches": 0,
+    "participantOperations": 4,
+    "distinctParticipantOperationIds": 4,
+    "participantPayloadMismatches": 0,
+    "senderCentralAndParticipantPaise": 9900,
+    "receiverCentralAndParticipantPaise": 100
+  },
+  "participantMapping": "Source routed.go maps central CONFIRM_SOURCE_HOLD and FINALIZE_CREDIT to participant ConfirmHold. SQL used that documented mapping after an initial direct-label comparison failed.",
+  "limitations": ["Temporary local HTTPS certificate; no public hostname/host deployment proof", "No native crash or recovery scheduler proof; scheduler disabled", "Outbox projection and release acceptance still pending"],
+  "allProbeProcessesStopped": true,
+  "temporaryTlsTrustRemovedAndAbsenceVerified": true,
+  "spending": 0
+}
