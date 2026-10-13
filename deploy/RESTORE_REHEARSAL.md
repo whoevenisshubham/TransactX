@@ -92,3 +92,22 @@ came from the in-process HTTP test. Native worker continuation, projection
 rebuild, crash recovery, off-VM persistence and global-role restoration remain
 required. The private rehearsal files are outside the repository; the isolated
 cluster is stopped.
+
+## Current native rehearsal
+
+`docs/next-gen/state/native-crash-restore-final-m1.json` supersedes the earlier
+absence of native continuation for its tested same-bank boundary. A real API
+was killed after its journal committed. Actual age-encrypted backup/isolated
+restore preserved that pending state, canonical migration checksums and the
+active 35-chunk corpus. A restored native worker was killed during its running
+lease; replacement advanced epoch 1→2 and settled the original payment with
+checked central/participant financial invariants and automatic outbox projection.
+Manual rebuild was checked only after automatic delivery passed.
+
+Restore checker phase: 3 seconds. Separate restored startup/takeover/convergence
+phase: about 11.1 seconds. These are local measurements, not a hosted RTO
+guarantee or operational RPO. The quiesced snapshot retained the checked facts;
+off-machine durability, production global-role restoration and scheduling RPO
+remain pending. Keys/dumps remain private and all probe processes were stopped.
+The separate cross-bank reply-loss proof did not repeat encrypted restore;
+do not widen this rehearsal's scope to that snapshot or every crash boundary.

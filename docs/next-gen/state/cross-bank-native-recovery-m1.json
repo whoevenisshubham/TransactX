@@ -1,0 +1,86 @@
+{
+  "testedHead": "af210f96938400267ba09308fb3a5925af55f055",
+  "nativeBinarySource": "4d8f2af862cfa2f7e32e6a9a0d3b8f8b50218a84",
+  "backendDifference": "none: git diff 4d8f2af..af210f9 -- backend empty",
+  "startedAt": "2026-10-13T14:27:12.9669464Z",
+  "fault": "Bank A commits hold and returns success to barrier; barrier withholds reply from real API, API killed after checked SQL checkpoint",
+  "providerCalls": 0,
+  "spend": 0,
+  "openingFixture": {
+    "senderBank": "BANK-A",
+    "receiverBank": "BANK-B",
+    "bankAOpening": 10000,
+    "bankBOpening": 0
+  },
+  "apiKill": {
+    "clientResult": {
+      "error": "fetch failed",
+      "at": "2026-10-13T14:27:25.082Z"
+    },
+    "bankReplyHttpStatus": 200,
+    "processId": 37892,
+    "at": "2026-10-13T14:27:25.0757406Z",
+    "checkpoint": {
+      "paymentId": "13a8e3cb-3be5-4ed2-92c3-9480b48e114a",
+      "operationId": "8b1c491d-26fd-5c6c-a039-062f1e5fff92",
+      "centralState": "PROCESSING",
+      "centralJournalStatus": "PROCESSING",
+      "participantHoldCount": 1,
+      "participantStatus": "ACTIVE",
+      "holdLedgerRows": 1,
+      "bankASender": 9900,
+      "centralSender": 10000,
+      "bankBOperations": 0,
+      "centralLedgerTransactions": 0
+    }
+  },
+  "recovery": {
+    "elapsedSeconds": 1.9713629,
+    "apiProcessId": 27288,
+    "convergedAt": "2026-10-13T14:27:27.111696Z",
+    "workerProcessId": 38648,
+    "startedAt": "2026-10-13T14:27:25.140346Z"
+  },
+  "status": "PASS_NATIVE_CROSS_BANK_COMMITTED_HOLD_REPLY_LOSS_API_RESTART",
+  "finishedAt": "2026-10-13T14:27:29.1116938Z",
+  "financialAndProjectionChecks": {
+    "state": "COMPLETED",
+    "logicalPayments": 1,
+    "idempotencyRows": 1,
+    "centralTransactions": 1,
+    "centralEntries": 2,
+    "correctCentralEntries": 2,
+    "centralTotal": 10000,
+    "centralReconstructionErrors": 0,
+    "centralSender": 9900,
+    "centralReceiver": 100,
+    "bankASender": 9900,
+    "bankBReceiver": 100,
+    "participantTotal": 10000,
+    "bankAOperations": 2,
+    "bankBOperations": 2,
+    "uniqueOperations": 4,
+    "originalHoldRows": 1,
+    "bankAHoldEntries": 1,
+    "participantEntries": 3,
+    "correctParticipantEntries": 3,
+    "duplicateEffects": 0,
+    "invalidPayloads": 0,
+    "journalRows": 4,
+    "journalMismatches": 0,
+    "projectionRows": 1,
+    "pendingDeliveries": 0,
+    "outboxEvents": 8,
+    "inboxEvents": 8,
+    "recoveryStatus": "resolved"
+  },
+  "allNativeProbeProcessesStopped": true,
+  "querySha256": "f37f9d447516b4fc1a6294f913c7fb314d9d4058e0c4dfc4e68079be6bf2b130",
+  "harnessSha256": "7b0515ca4765bec84eff46ea1c834f378a67ed4ad0f4e92dc7c5a7d3f800f913",
+  "barrierSha256": "1fecd0f7bbd6fc331ba34ba4025d41e69bbb2b7c18680782adc629663ce75986",
+  "limitations": [
+    "Native API death after Bank A hold commit/reply loss and same-database native recovery; not every fault boundary",
+    "No crash/restore repetition for this cross-bank snapshot; prior encrypted restore proof has a narrower same-bank boundary",
+    "No public deployment, off-machine backup or paid-provider use"
+  ]
+}

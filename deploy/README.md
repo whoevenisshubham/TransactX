@@ -2,11 +2,20 @@
 
 This directory packages the simulated system for a Linux host with PostgreSQL
 18 and Caddy. It does not provision a cloud account or enable paid services.
-The M2 worker and migration commands now exist, but M2/M3 investigator,
-analytics and projector composition still needs integration. The build scripts
+The combined candidate mounts the M3 investigator, durable analytics and native
+worker projector. Current acceptance and remaining owner/release gates are in
+`docs/next-gen/DELIVERY_REPORT.md`; integration does not imply release readiness.
+The build scripts
 reject a missing binary command unless `--allow-incomplete` /
 `-AllowIncomplete` is used for inspection. Their `complete` metadata describes
 the file set only; it does not certify release tests or deployment readiness.
+
+Both builders validate and stage the current architecture, delivery report,
+safe acceptance artifacts, owner requirements, restore guide and read-only
+financial queries. Missing/empty documentation, malformed evidence JSON or
+repository-escaping inputs fail validation. This staging is not an install or
+runtime test. The final archive still needs all release gates and the configured
+public HTTPS API origin.
 
 ## Build
 
@@ -54,6 +63,26 @@ and never grant roles themselves. For the expiry case, run a separate API with
 `JWT_LIFETIME` at most 10 seconds and set `TX_LIVE_EXPECT_EXPIRY=1`; otherwise
 that case is skipped and no expiry acceptance is claimed. SSE reconnect and
 retained-citation cases remain required even when a candidate fails them.
+
+Run `npm run test:browser:live -- accessibility.live.spec.ts` with the real
+viewer/payment/state inputs to check worklist, evidence, completed/saved
+investigation citations and analytics at 360, 768 and 1440 pixels. Controls
+are reached with Tab and activated with Enter; axe checks critical/serious
+WCAG findings and document overflow. The separate 200% case uses a temporary
+browser extension to set native tab zoom, verifies doubled device pixel ratio
+and halved content width, and saves `actual-zoom.json`. It never substitutes CSS
+scale for browser zoom. Persistent test profiles are closed and removed.
+
+For a generated self-signed loopback certificate, set `NODE_EXTRA_CA_CERTS` to
+its public PEM certificate for the API test client. When system trust is
+unavailable, `TX_LIVE_TLS_SPKI` may contain the base64 SHA-256 of that certificate's
+DER SubjectPublicKeyInfo. The browser accepts only that exact key; the live
+configuration rejects this option unless both origins are loopback and
+`TX_LIVE_DISPOSABLE_DB=1`. Non-disposable and external origins were verified
+to reject it. Do not use general `ignoreHTTPSErrors`/certificate-error flags.
+Keep keys/credentials private. This setup proves encrypted local simulation
+transport; public-host CA/certificate acceptance remains a separate smoke gate.
+
 The same live suite includes an offline intent case. It requires three distinct
 disposable customer IDs (`TX_LIVE_SENDER_ID`, `TX_LIVE_RECEIVER_ID`,
 `TX_LIVE_OTHER_ID`), their `TX_LIVE_CUSTOMER_PASSWORD`, `TX_LIVE_API_URL`, and
@@ -140,6 +169,16 @@ all outbox events acknowledged/inboxed, and a resolved recovery job. Nonzero SQL
 exit or a differing count is a failed gate. These values describe this fixture;
 they are not universal production balance expectations. Git Bash callers should
 pass paths with forward slashes so sha256sum does not escape Windows backslashes.
+
+The separate `cross-bank-financial-proof.sql` covers the recorded 100-paise
+BANK-A→BANK-B native hold-commit/reply-loss interruption. Supply psql variables
+`payment_id`, `operation_id`, `sender_id`, `receiver_id`, `key`, and `note`.
+Require the same central conservation checks, two unique operations in each
+bank, one original source hold effect, three correctly owned participant entries,
+zero payload/journal mismatches or duplicate effects, and automatic acknowledged
+projection. Exact observed checkpoint/process/source evidence is in
+`docs/next-gen/state/cross-bank-native-recovery-m1.json`. This query is read-only;
+it does not create or advance recovery state.
 
 The release includes `bin/linux-*/transactx-corpus`, the approved corpus manifest
 at `docs/runbooks/corpus-manifest.json`, and its six document inputs at their

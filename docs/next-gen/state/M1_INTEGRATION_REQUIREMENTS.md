@@ -2,9 +2,13 @@
 
 ## Current candidate recheck — 90288d2, 13 October
 
+M1 production browser follow-up is recorded in `production-browser-final-m1.json`: account-isolated real offline replay and financial/projection SQL passed, as did real viewer keyboard/accessibility at 360/768/1440 and native 200% zoom after M1 contrast/input-width fixes. These supersede the prior absence of A5 evidence within that scoped source/environment. Broader native fault cases and final source-matched release/archive gates remain pending; the M2 corrections below remain owner dependencies.
+
 Historical findings below remain preserved; do not reapply already integrated reconciliation. This candidate contains all current lane heads. Canonical fresh/upgrade store conformance and corpus lifecycle passed independently. Real saved evidence citations, investigator/worker, strict actor-scope/idempotency, analytics rendering and viewer-denial passed. M1 fixed browser offline SSE status/reconnection and verified the affected native flow plus actual JWT expiry. See `candidate902-acceptance-m1.json` and current M1 checkpoint.
 
 Remaining M2-owned requirements:
+
+Latest fetched candidate `72383d0` does not change backend source. Its Gate 7.5 report describes seeded payment/job data and direct payment/ledger updates through `backend/cmd/verify_process_recovery`, which is absent from the Git tree. Its participant assertion counts the central journal, not bank_a/bank_b operations/ledgers. Retain this as reported lease-fencing fixture evidence; require tracked source and genuine native PID/kill/durable-checkpoint/participant proofs for the broader gate. M1 normally merged the report and overlapping SSE change in isolation, retaining the single tested M1 subscription and both histories.
 
 M1 native follow-up at `4d8f2af` now proves the same-bank default adaptive API-crash/worker-restart path, restored worker kill/lease epoch takeover, encrypted restore and automatic projection with checked financial/participant SQL. Evidence: `native-crash-restore-final-m1.json`. Do not redo integrated default route/presence/projector fixes; remaining native cross-bank/post-commit response-loss boundaries and the checked crash-matrix requirements below are broader gates.
 

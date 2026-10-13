@@ -1,7 +1,11 @@
 # TransactX — M1/M2/M3 Integration & Release Verification Checkpoint
 
 **Date:** 2026-10-13  
+<<<<<<< HEAD
 **Status:** INTEGRATED & REVERIFIED (GATE 8 COMPLETE — HARDENED M2 CRASH PROOF, ANALYTICS FAIL-CLOSED PROVENANCE & CROSS-BANK RECOVERY)  
+=======
+**Status:** INTEGRATED; final M1 acceptance gates pending
+>>>>>>> origin/v2/m1-product-delivery
 **Integration Branch:** `v2/integration-m1-m2-m3`  
 **Base:** `origin/release/transactx-v2` (`39fc5c7`)  
 **Integrated Commits:**
@@ -13,6 +17,23 @@
 
 ---
 
+<<<<<<< HEAD
+=======
+## Current M1 acceptance correction — candidate 90288d2
+
+Native cross-bank follow-up at M1 `af210f9` passed actual API death after Bank A committed a hold but before the withheld reply reached the API. Native restart recovered BANK-A→BANK-B, with checked financial/ownership/payload/unique-effect SQL and automatic acknowledged projection. See `cross-bank-native-recovery-m1.json`. This is genuine process/participant evidence for this boundary; broader harness claims and analytics eligibility/error handling remain owner requirements. No cross-bank encrypted restore or full-release claim is made from this result.
+
+Production browser follow-up: real account-isolated offline replay and independent financial/projection SQL passed. New real viewer accessibility/keyboard checks passed at 360/768/1440 and actual 200% zoom, after M1 contrast and tablet input-width fixes. Exact browser/source hashes, measured zoom and limits: `production-browser-final-m1.json`. Local TLS used the generated certificate's exact key pin plus Node CA; it is not public-host certificate proof. Source-matched final combined release checks, wider native crash boundaries, M2 provenance/crash-harness corrections and archive/install smoke remain required.
+
+Native follow-up at M1 `4d8f2af`: actual API death after journal commit, encrypted backup/restore, original-database restart, and a restored native worker death/lease takeover all passed for one same-bank BANK-A transfer. Independent checked financial/payload/corpus/checksum SQL and automatic worker projection passed before a separate manual rebuild. Source convergence was ~4.8s and restored worker takeover/convergence ~11.1s. Evidence: `native-crash-restore-final-m1.json`; reusable read-only queries: `deploy/verification/native-financial-proof.sql`. This closes the previously observed default route/presence failure for this path. It does not validate the full seeded crash matrix, cross-bank/native post-commit reply loss, public deployment or off-machine storage. Keep final acceptance pending.
+
+Independent current-source evidence is in `candidate902-acceptance-m1.json` and `M1.md`. Canonical fresh/upgrade store conformance, corpus lifecycle and analytics package tests passed on disposable PostgreSQL 18.6. Native authenticated browser investigation/saved evidence citations, admin navigation, analytics/viewer denial and actor scope passed. Viewer offline SSE initially failed; M1 fixed browser connectivity handling and the focused native reconnect/reread test passed, followed by actual 10-second JWT expiry/reconnect. No fixture browser result closes a native acceptance gate.
+
+The historical matrices below preserve reported runs, but their broad release-readiness claims are not accepted without source-matched gate evidence. `crash_matrix.go` still seeds states, discards SQL errors and unconditionally sets participant uniqueness true. Current analytics eligibility also permits positive seeded/healthy flags to override explicit negative review, and silently ignores calibration SQL failures. Precise M2 corrections are in `M1_INTEGRATION_REQUIREMENTS.md`. Native kill/restart, automatic projection, encrypted restore continuation, current production offline replay, accessibility/zoom, final combined suite and archive/install smoke remain pending. Release remains at `6ad42bf`.
+
+Deployment uses the agreed JWT and native Linux services. It needs configured free host/access and a valid HTTPS API origin; OAuth/IdP and cluster provisioning are not prerequisites or planned additions. Off-machine backup persistence and optional live-provider validation remain separately unavailable. Spending is zero and paid provider calls are disabled.
+
+>>>>>>> origin/v2/m1-product-delivery
 ## 1. M2 Reliability, Platform & Integration Findings
 
 ### 1.1 Durable Investigator Store Conformance
@@ -400,7 +421,9 @@ The purpose of Gate 7 is to:
   - Native offline live testing with service worker cache and loopback API requires local TLS CA certificates (e.g. mkcert) installed on the runner host.
   - In local development and non-TLS container environments, this test cleanly reports the expected environment requirement.
 
-### 7.5 Dedicated M2 Native Process-Interruption Verification
+### 7.5 Reported M2 seeded lease-fencing verification — native crash not proven
+
+M1 audit: this described workflow seeds the payment/job and directly updates settlement/ledger state. `backend/cmd/verify_process_recovery` is absent from the fetched tree. No retained child process/PID/kill checkpoint proves native interruption here; counting `payment_bank_operations` is not a check of bank_a/bank_b participant effects. Preserve the reported fixture results below, but do not use them to close native crash acceptance. M1's independently recorded native API/worker kill evidence is `native-crash-restore-final-m1.json`, with its narrower same-bank/before-dispatch scope.
 - **Test Workflow:** Executed `backend/cmd/verify_process_recovery` against live PostgreSQL 18 to simulate process failure during financial settlement:
   1. Seeded active customer accounts and routed payment in `PROCESSING` state with `DEBIT_HOLD` bank operation.
   2. Scheduled recovery job with earliest `due_at`.
@@ -451,10 +474,10 @@ The purpose of Gate 7 is to:
 
 ### 7.8 Honest Release-Owner Handoff & Remaining Pre-Production Gates
 1. **Candidate Verification Status:**
-   - The integration branch `v2/integration-m1-m2-m3` has successfully integrated and passed all code, schema, crash matrix, financial invariant, process recovery, and native browser acceptance gates.
+   - The integration author reports these runs below. M1 acceptance remains scoped to its source-matched evidence; broader native crash, provenance and final release gates remain pending.
    - All financial invariants hold with zero violations under process crashes, partition simulations, and concurrent worker takeovers.
 2. **Explicit Remaining Operational & Cloud Infrastructure Gates:**
-   - **Staging OAuth/IdP End-to-End Sign-In:** Requires deployment to the target staging Kubernetes/VM cluster with configured DNS, TLS certificates, and OAuth provider credentials.
+   - **Public JWT/native sign-in:** Requires configured free host/access, DNS and TLS. OAuth/IdP and Kubernetes are outside the agreed plan.
    - **Production Loopback HTTPS for Offline Live Suite:** Requires TLS certificates (e.g., Let's Encrypt or enterprise CA) configured on the web application ingress.
    - **Off-VM Disaster Recovery & Automated Snapshot Drill:** Automated backup push to cloud object storage (e.g. S3/GCS) and secondary-region recovery rehearsal require cloud infrastructure provisioning.
 3. **PR & Release Branch Invariants:**
@@ -528,3 +551,4 @@ The purpose of Gate 7 is to:
 | **Frontend Linter** | `npm --prefix frontend run lint` | TypeScript 7 | PASS | 0 type or lint errors |
 | **Frontend Money Integrity** | `npm --prefix frontend run test:money` | Node.js v22 | PASS | Integer paise boundary checks pass |
 | **Frontend Production Build** | `npm --prefix frontend run build` | Vite 8.3.0 | PASS (0.17s) | Production bundle compiled in `dist/` |
+

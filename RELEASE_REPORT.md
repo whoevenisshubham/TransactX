@@ -1,5 +1,10 @@
 # TransactX Milestone 2 (M2) Platform & Reliability Release Report
 
+Current combined delivery status is **pending release gates**, recorded in
+[M1's delivery report](docs/next-gen/DELIVERY_REPORT.md). This historical M2
+lane report preserves its reported runs; its completion statements do not
+certify native crash coverage, current calibration provenance, an archive or deployment.
+
 ## 1. Executive Summary
 - **Milestone**: Milestone 2 (M2 Reliability & Platform)
 - **Repository Branch**: `v2/m2-reliability-platform`
