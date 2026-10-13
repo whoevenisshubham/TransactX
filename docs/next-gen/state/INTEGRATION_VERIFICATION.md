@@ -1,15 +1,15 @@
 # TransactX — M1/M2/M3 Integration & Release Verification Checkpoint
 
 **Date:** 2026-10-13  
-**Status:** INTEGRATED & REVERIFIED (GATE 7 COMPLETE — NATIVE LIVE ACCEPTANCE & RELEASE HANDOFF AUDIT)  
+**Status:** INTEGRATED & REVERIFIED (GATE 8 COMPLETE — HARDENED M2 CRASH PROOF, ANALYTICS FAIL-CLOSED PROVENANCE & CROSS-BANK RECOVERY)  
 **Integration Branch:** `v2/integration-m1-m2-m3`  
 **Base:** `origin/release/transactx-v2` (`39fc5c7`)  
 **Integrated Commits:**
-- **M1 Head (`origin/v2/m1-product-delivery`):** `42d8aef7935b63a9f80a78705f243798b62401c9` (PR #22)
+- **M1 Head (`origin/v2/m1-product-delivery`):** `ea400185ec409d5718dfd98a287aeb4a4a11f23f` (Merged cleanly into `v2/integration-m1-m2-m3` via `3c18ab8`)
 - **M2 Head (`origin/v2/m2-reliability-platform`):** `c9da5fb9035dff259c936fb79785eecbd93efde6` (PR #24)
 - **M3 Head (`origin/v2/m3-investigation-analytics`):** `99f3e1425a3c96155852a4b6adccea07d4601cdf` (PR #23)
-- **Gate 6 Integration Head:** `90288d22f2cc834a0e2ecf7902e842baa6fefc48` (Green on GitHub Actions #38397891270)
-- **Gate 7 Integration Work:** Native live browser acceptance against running disposable stack (`ops.live.spec.ts`), SSE stream offline/online listener bugfix, dedicated M2 native process-interruption & lease recovery verification with independent financial SQL assertions (Violations=0), release build validation (`build-release.ps1 -ValidateOnly`), full regression revalidation, and comprehensive release gate audit handoff.
+- **Gate 7 Integration Head:** `4dea88295c677ea989d5975d80e5ad9b695d7f9feccaf60bc33a7a59c5a0905a` (Green on GitHub Actions #38407356495)
+- **Gate 8 Integration Work:** M1 branch re-sync (`ea40018`), analytics provenance fail-closed non-boolean veto and error handling, crash matrix (B12) trustworthiness hardening with query/scan checks, harness-scoped cleanup and negative fault injection tests, native cross-bank and lost-reply failure recovery test matrix (CB-01 to CB-07) with 8 independent SQL financial invariants (`cross-bank-financial-proof.sql`), live browser acceptance (`ops.live.spec.ts`), and full regression validation.
 
 ---
 
@@ -461,6 +461,72 @@ The purpose of Gate 7 is to:
    - Milestone PRs #22 (`v2/m1-product-delivery`), #23 (`v2/m3-investigation-analytics`), and #24 (`v2/m2-reliability-platform`) remain open and unmerged.
    - Integration PR #25 (`v2/integration-m1-m2-m3`) remains strictly in **draft** status.
    - The release branch `release/transactx-v2` is completely unmodified and preserved until formal release sign-off.
+
+---
+
+## 8. Gate 8: Hardened M2 Crash Proof, Analytics Fail-Closed Provenance, and Native Cross-Bank Recovery
+
+### 8.1 Analytics Precedence Veto & Error Handling
+- **Provenance Precedence Veto:**
+  - Implemented `parseBoolFlag` in `backend/internal/analytics/repository.go` ensuring non-boolean inputs (e.g. non-boolean JSON, empty string, malformed types) fail closed and veto healthy eligibility.
+  - Implemented `evaluateHealthyEligibility` enforcing that any explicit negative review (`operational_review_passed: false` or `investigation_review_passed: false`), unreviewed live observation window, database query/scan error, or JSON decoding failure fails closed.
+  - On query/scan/evaluation error, gracefully sets `baseline_status: "error"`, `scoring_outcome: "error"`, and `model_status: "unavailable"`.
+  - All 13 tests in `backend/internal/analytics/analytics_test.go` passed cleanly.
+
+### 8.2 Crash Matrix Hardening & Negative Fault Invariant Tests (B12)
+- **Checked Scans & Harness-Scoped State:**
+  - Hardened all 20 scenarios in `backend/internal/experiments/crash_matrix.go` to explicitly check every SQL `Scan` error.
+  - Removed blanket state deletions; cleanup is strictly scoped to test users (`h.testUserID`, `h.testRecvUserID`).
+- **Negative Fault Injection Verification:**
+  - Implemented negative test `TestCrashMatrix_NegativeParticipantPayloadMismatch_Detected` in `crash_matrix_test.go`: proved that when participant operation amounts diverge, the harness detects `PayloadIntegrity=false` and fails.
+  - Implemented negative test `TestCrashMatrix_NegativeDebitCreditImbalance_Detected` in `crash_matrix_test.go`: proved that when ledger entries are asymmetric (debit != credit), the harness detects `DebitCreditConservation=false` and fails.
+  - Full crash matrix test `TestCrashMatrix_FullRecoveryAndEventMatrix` passed 20/20 scenarios with 0 violations.
+
+### 8.3 Native Cross-Bank and Lost-Reply Failure Recovery Matrix
+- **SQL Verification Proof:**
+  - Created `deploy/verification/cross-bank-financial-proof.sql` asserting 8 independent financial and platform invariants across Bank A (`bank_a.*`), Bank B (`bank_b.*`), and central double-entry ledger.
+- **Native 7-Scenario Recovery Matrix (`backend/internal/experiments/cross_bank_recovery.go`):**
+  1. `CB-01`: API killed after central journal before participant dispatch (Bank A ABSENT, recovery completes transfer) => **PASS** (44.33 ms, state=COMPLETED).
+  2. `CB-02`: Worker killed after Bank A hold before Bank B credit (Bank A PRESENT, Bank B ABSENT, recovery completes transfer) => **PASS** (20.12 ms, state=COMPLETED).
+  3. `CB-03`: Participant commit followed by lost HTTP response (Bank B provisional credit PRESENT, recovery avoids duplicate credit, completes transfer) => **PASS** (18.44 ms, state=COMPLETED).
+  4. `CB-04`: Restart with existing operation UUID and authoritative presence (exact immutable UUID retained on participant, 0 duplicate/orphan operations) => **PASS** (17.56 ms, state=COMPLETED).
+  5. `CB-05`: Lease expiry, Worker 2 takeover with incremented epoch, rejection of stale Worker 1 completion via fencing token CAS => **PASS** (2590.62 ms, state=COMPLETED).
+  6. `CB-06`: Presence branching across `ABSENT` (replays), `PRESENT` (no replay), and `UNAVAILABLE`/`UNKNOWN` (fails closed, never maps to absent) => **PASS** (16.75 ms, state=COMPLETED).
+  7. `CB-07`: Restore from disposable backup (`pg_dump` -> `pg_restore`) while eligible payment pending; worker converges on restored DB => **PASS** (1319.68 ms, state=COMPLETED).
+- **Invariant Assertions:**
+  - `NonnegativeBalances`: 0 negative balances across `accounts`, `bank_a.accounts`, and `bank_b.accounts`.
+  - `DebitCreditConservation`: Sum of debits == Sum of credits == payment amount; central account reconstructed balances match ledger entries exactly.
+  - `SingleLedgerPerPayment`: Exactly 1 ledger transaction per payment.
+  - `IdempotencyUnique`: Exactly 1 idempotency record mapping per payment key.
+  - `ParticipantUnique`: Zero duplicate operation UUIDs across `bank_a.operations` and `bank_b.operations`.
+  - `PayloadIntegrity`: Amounts and currency (`INR`) match exactly between central and participant records.
+  - `CorrelationIntegrity`: Zero journal-participant mismatches.
+  - `WorklistConvergence`: `ops_payment_worklist` projection converges to `COMPLETED`.
+- **Total Financial Invariant Violations:** **0**.
+- **Artifacts Generated:**
+  - `artifacts/v2/cross_bank_recovery/run-1791904646-windows/cross_bank_recovery.json`
+  - `artifacts/v2/cross_bank_recovery/run-1791904646-windows/cross_bank_recovery.csv`
+  - SHA256 digest: `d21b6e622d8d2517c2c801a9080f4cad2134f8f97959885fa22fd0383133fe92`.
+
+### 8.4 Native Live Browser Acceptance (`ops.live.spec.ts`)
+- Executed against background stack (`bank-a` :8081, `bank-b` :8082, `api` :8080, `worker`, Vite frontend :4174):
+  - 5 tests passed, 1 skipped (token expiry) in 10.4s.
+  - Real worker investigation, worklist evidence viewing, SSE stream reconnect, admin recheck, and actor-scoped investigation idempotency confirmed.
+
+### 8.5 Full Regression Validation Matrix
+
+| Gate / Suite | Verification Command | Environment | Result | Evidence / Details |
+|---|---|---|---|---|
+| **Cross-Bank Recovery Matrix** | `go run -C backend ./cmd/experiments -experiment crossbank` | Live PostgreSQL 18 | PASS (4.7s) | 7/7 scenarios pass; 0 financial invariant violations; JSON/CSV/SHA256 generated |
+| **Crash Matrix (B12)** | `go test -v ./internal/experiments -run TestCrashMatrix_` | Live PostgreSQL 18 | PASS (0.8s) | 20/20 scenarios pass; negative payload and debit-credit fault tests pass |
+| **Analytics Fail-Closed Veto** | `go test -v ./internal/analytics -run TestAnalytics_` | Go 1.24 | PASS (4.2s) | All 13 tests pass; non-boolean values and query/scan errors fail closed |
+| **Live Browser Acceptance** | `npx playwright test browser/ops.live.spec.ts --config playwright.live.config.ts` | Chromium / Live Stack | PASS (10.4s) | 5 passed, 1 skipped. Live worker investigation, SSE stream reconnect, admin recheck |
+| **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS (0.8s) | All 6 production commands verified; clean validation |
+| **Go Full Backend Suite** | `go test -C backend ./...` | Go 1.24 | PASS (16.3s) | All backend packages pass 100% |
+| **Frontend Test Suite** | `npm --prefix frontend run test` | Node.js v22 | PASS (0.50s) | 97/97 tests pass across 16 suites |
+| **Frontend Linter** | `npm --prefix frontend run lint` | TypeScript 7 | PASS | 0 type or lint errors |
+| **Frontend Money Integrity** | `npm --prefix frontend run test:money` | Node.js v22 | PASS | Integer paise boundary checks pass |
+| **Frontend Production Build** | `npm --prefix frontend run build` | Vite 8.3.0 | PASS (0.17s) | Production bundle compiled in `dist/` |
 
 
 

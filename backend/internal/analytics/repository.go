@@ -517,52 +517,87 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 	// Windows are independently designated healthy when attested by raw_aggregates
 	// (e.g. reviewed_healthy, healthy, or seeded), not marked ineligible or anomalous,
 	// baseline_alert IS NULL, and sample_count >= MinimumSampleCount.
+	//
+	// Precedence rule: explicit negative review (reviewed_healthy=false), anomalous state,
+	// ineligible flag, or unreviewed flag strictly vetoes eligibility even if healthy or seeded is true.
 	var priorHealthy []anomaly.LiveCalibrationWindow
+	var calibrationErr error
+
 	priorQuery := `
-		SELECT id::text, entity_type, entity_id, window_from, window_to, sample_count, feature_schema_version, features
+		SELECT id::text, entity_type, entity_id, window_from, window_to, sample_count, feature_schema_version, features, raw_aggregates
 		FROM operational_aggregate_windows
 		WHERE entity_type = $1
 		  AND entity_id = $2
 		  AND window_to <= $3
 		  AND baseline_alert IS NULL
 		  AND sample_count >= $4
-		  AND (
-		      (raw_aggregates->>'reviewed_healthy')::boolean = true
-		      OR (raw_aggregates->>'healthy')::boolean = true
-		      OR (raw_aggregates->>'seeded')::boolean = true
-		  )
-		  AND (raw_aggregates->>'ineligible')::boolean IS NOT TRUE
-		  AND (raw_aggregates->>'anomalous')::boolean IS NOT TRUE
-		  AND (raw_aggregates->>'unreviewed')::boolean IS NOT TRUE
 		ORDER BY window_from ASC
 		LIMIT 10000;
 	`
 	rows, qErr := r.pool.Query(ctx, priorQuery, entityType, entityID, from.UTC(), MinimumSampleCount)
-	if qErr == nil {
+	if qErr != nil {
+		calibrationErr = fmt.Errorf("query prior aggregate windows: %w", qErr)
+	} else {
 		defer rows.Close()
+		var lastTo time.Time
 		for rows.Next() {
 			var wID, wEntType, wEntID, wSchema string
 			var wFrom, wTo time.Time
 			var wSamples int
-			var wFeatJSON []byte
-			if scanErr := rows.Scan(&wID, &wEntType, &wEntID, &wFrom, &wTo, &wSamples, &wSchema, &wFeatJSON); scanErr == nil {
-				// Verify exact 5-minute duration, UTC truncation, and strictly prior/non-overlapping
-				if wFrom.IsZero() || wTo.IsZero() || !wFrom.Before(wTo) || wTo.Sub(wFrom) != WindowDuration || !wFrom.Equal(wFrom.Truncate(WindowDuration)) || wTo.After(from.UTC()) {
-					continue
+			var wFeatJSON, wRawJSON []byte
+			if scanErr := rows.Scan(&wID, &wEntType, &wEntID, &wFrom, &wTo, &wSamples, &wSchema, &wFeatJSON, &wRawJSON); scanErr != nil {
+				calibrationErr = fmt.Errorf("scan prior aggregate window row: %w", scanErr)
+				break
+			}
+			// Verify exact 5-minute duration, UTC truncation, and strictly prior
+			if wFrom.IsZero() || wTo.IsZero() || !wFrom.Before(wTo) || wTo.Sub(wFrom) != WindowDuration || !wFrom.Equal(wFrom.Truncate(WindowDuration)) || wTo.After(from.UTC()) {
+				continue
+			}
+			// Exclude overlapping windows
+			if !lastTo.IsZero() && wFrom.Before(lastTo) {
+				continue
+			}
+
+			// Parse raw_aggregates
+			var rawMap map[string]any
+			if len(wRawJSON) > 0 {
+				if err := json.Unmarshal(wRawJSON, &rawMap); err != nil {
+					calibrationErr = fmt.Errorf("decode raw_aggregates JSON for window %s: %w", wID, err)
+					break
 				}
-				var featVals anomaly.LiveFeatureValues
-				if jsonErr := json.Unmarshal(wFeatJSON, &featVals); jsonErr == nil {
-					priorHealthy = append(priorHealthy, anomaly.LiveCalibrationWindow{
-						ID:            wID,
-						EntityType:    wEntType,
-						EntityID:      wEntID,
-						From:          wFrom.UTC(),
-						To:            wTo.UTC(),
-						SchemaVersion: wSchema,
-						SampleCount:   wSamples,
-						Values:        featVals,
-					})
-				}
+			}
+
+			// Evaluate precedence and health attestation
+			isEligible, err := evaluateHealthyEligibility(rawMap)
+			if err != nil {
+				calibrationErr = fmt.Errorf("evaluate health provenance for window %s: %w", wID, err)
+				break
+			}
+			if !isEligible {
+				continue
+			}
+
+			var featVals anomaly.LiveFeatureValues
+			if err := json.Unmarshal(wFeatJSON, &featVals); err != nil {
+				calibrationErr = fmt.Errorf("decode features JSON for window %s: %w", wID, err)
+				break
+			}
+
+			lastTo = wTo
+			priorHealthy = append(priorHealthy, anomaly.LiveCalibrationWindow{
+				ID:            wID,
+				EntityType:    wEntType,
+				EntityID:      wEntID,
+				From:          wFrom.UTC(),
+				To:            wTo.UTC(),
+				SchemaVersion: wSchema,
+				SampleCount:   wSamples,
+				Values:        featVals,
+			})
+		}
+		if calibrationErr == nil {
+			if err := rows.Err(); err != nil {
+				calibrationErr = fmt.Errorf("iterate prior aggregate windows: %w", err)
 			}
 		}
 	}
@@ -585,52 +620,63 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 	scoreFrom := from.UTC()
 	var baseline *anomaly.Baseline
 	var fitErr error
-	if (entityType == "bank" || entityType == "execution_target") && entityID != "" && !from.IsZero() && scoreFrom.Equal(scoreFrom.Truncate(WindowDuration)) {
-		baseline, fitErr = anomaly.FitLiveBaseline(priorHealthy, entityType, entityID, scoreFrom, 3.0)
+	if calibrationErr == nil {
+		if (entityType == "bank" || entityType == "execution_target") && entityID != "" && !from.IsZero() && scoreFrom.Equal(scoreFrom.Truncate(WindowDuration)) {
+			baseline, fitErr = anomaly.FitLiveBaseline(priorHealthy, entityType, entityID, scoreFrom, 3.0)
+		}
 	}
 
 	var scoringOutcome string
 	var baselineStatus string
 	provenance := "unreviewed_live"
+	var evalErr error
 
-	eval, evalErr := anomaly.EvaluateLiveFeatures(nil, baseline, FeatureSchemaVersionV1, sampleCount, liveVals, to.UTC())
-	if evalErr == nil {
-		modelInfo.Version = eval.Model.Version
-		modelInfo.Status = eval.Model.Status
-		modelInfo.Score = eval.Model.Score
-		modelInfo.Threshold = eval.Model.Threshold
-		baselineStatus = eval.Baseline.Status
+	if calibrationErr != nil {
+		// Provenance or query error: fail closed to explicit error without fixed alerts
+		modelInfo.Status = "unavailable"
+		baselineStatus = "error"
+		scoringOutcome = "error"
+	} else {
+		var eval anomaly.Evaluation
+		eval, evalErr = anomaly.EvaluateLiveFeatures(nil, baseline, FeatureSchemaVersionV1, sampleCount, liveVals, to.UTC())
+		if evalErr == nil {
+			modelInfo.Version = eval.Model.Version
+			modelInfo.Status = eval.Model.Status
+			modelInfo.Score = eval.Model.Score
+			modelInfo.Threshold = eval.Model.Threshold
+			baselineStatus = eval.Baseline.Status
 
-		if sampleCount < MinimumSampleCount {
-			modelInfo.Status = "insufficient_data"
-			baselineStatus = "insufficient_data"
-			scoringOutcome = "insufficient_data"
-		} else if eval.Baseline.Status == "ready" {
-			if len(eval.Baseline.Reasons) > 0 {
-				baselineAlert = &Warning{
-					Code:    "BASELINE_DEVIATION",
-					Message: fmt.Sprintf("Observed deviation exceeds baseline threshold: %s", strings.Join(eval.Baseline.Reasons, ", ")),
+			if sampleCount < MinimumSampleCount {
+				modelInfo.Status = "insufficient_data"
+				baselineStatus = "insufficient_data"
+				scoringOutcome = "insufficient_data"
+			} else if eval.Baseline.Status == "ready" {
+				if len(eval.Baseline.Reasons) > 0 {
+					baselineAlert = &Warning{
+						Code:    "BASELINE_DEVIATION",
+						Message: fmt.Sprintf("Observed deviation exceeds baseline threshold: %s", strings.Join(eval.Baseline.Reasons, ", ")),
+					}
+					scoringOutcome = "alert"
+				} else {
+					scoringOutcome = "normal"
 				}
-				scoringOutcome = "alert"
 			} else {
-				scoringOutcome = "normal"
+				// Baseline is warming up / insufficient calibration samples (< 8 eligible prior healthy windows)
+				// Warmup remains explicitly non-alerting without fixed-threshold fallback.
+				baselineStatus = "warming_up"
+				scoringOutcome = "warming_up"
 			}
 		} else {
-			// Baseline is warming up / insufficient calibration samples (< 8 eligible prior healthy windows)
-			// Warmup remains explicitly non-alerting without fixed-threshold fallback.
-			baselineStatus = "warming_up"
-			scoringOutcome = "warming_up"
-		}
-	} else {
-		// Live feature evaluation failed: preserve explicit error status without fixed alerts
-		if sampleCount < MinimumSampleCount {
-			modelInfo.Status = "insufficient_data"
-			baselineStatus = "insufficient_data"
-			scoringOutcome = "insufficient_data"
-		} else {
-			modelInfo.Status = "unavailable"
-			baselineStatus = "error"
-			scoringOutcome = "error"
+			// Live feature evaluation failed: preserve explicit error status without fixed alerts
+			if sampleCount < MinimumSampleCount {
+				modelInfo.Status = "insufficient_data"
+				baselineStatus = "insufficient_data"
+				scoringOutcome = "insufficient_data"
+			} else {
+				modelInfo.Status = "unavailable"
+				baselineStatus = "error"
+				scoringOutcome = "error"
+			}
 		}
 	}
 
@@ -649,6 +695,9 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 		"provenance":             provenance,
 		"calibration_samples":    len(priorHealthy),
 		"reviewed_healthy":       false,
+	}
+	if calibrationErr != nil {
+		rawAggregates["calibration_error"] = calibrationErr.Error()
 	}
 	if fitErr != nil {
 		rawAggregates["baseline_fit_error"] = fitErr.Error()
@@ -849,3 +898,82 @@ func (r *PostgresRepository) ComputeMetricsSummary(ctx context.Context, asOf tim
 		Sources:    sources,
 	}, nil
 }
+
+func parseBoolFlag(key string, v any) (*bool, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch b := v.(type) {
+	case bool:
+		return &b, nil
+	case string:
+		lower := strings.ToLower(strings.TrimSpace(b))
+		if lower == "true" || lower == "t" || lower == "1" {
+			val := true
+			return &val, nil
+		}
+		if lower == "false" || lower == "f" || lower == "0" {
+			val := false
+			return &val, nil
+		}
+		return nil, fmt.Errorf("invalid boolean string for %s: %q", key, b)
+	default:
+		return nil, fmt.Errorf("invalid boolean type for %s: %T", key, v)
+	}
+}
+
+func evaluateHealthyEligibility(rawMap map[string]any) (bool, error) {
+	if rawMap == nil {
+		return false, nil
+	}
+
+	reviewedHealthy, err := parseBoolFlag("reviewed_healthy", rawMap["reviewed_healthy"])
+	if err != nil {
+		return false, err
+	}
+	healthy, err := parseBoolFlag("healthy", rawMap["healthy"])
+	if err != nil {
+		return false, err
+	}
+	seeded, err := parseBoolFlag("seeded", rawMap["seeded"])
+	if err != nil {
+		return false, err
+	}
+	ineligible, err := parseBoolFlag("ineligible", rawMap["ineligible"])
+	if err != nil {
+		return false, err
+	}
+	anomalous, err := parseBoolFlag("anomalous", rawMap["anomalous"])
+	if err != nil {
+		return false, err
+	}
+	unreviewed, err := parseBoolFlag("unreviewed", rawMap["unreviewed"])
+	if err != nil {
+		return false, err
+	}
+
+	prov, _ := rawMap["provenance"].(string)
+
+	// Precedence rule: explicit negative review or disqualifying flag ALWAYS vetoes eligibility,
+	// regardless of whether seeded or healthy is true.
+	if (reviewedHealthy != nil && !*reviewedHealthy) ||
+		(healthy != nil && !*healthy) ||
+		(ineligible != nil && *ineligible) ||
+		(anomalous != nil && *anomalous) ||
+		(unreviewed != nil && *unreviewed) ||
+		prov == "unreviewed_live" ||
+		prov == "anomalous" ||
+		prov == "ineligible" {
+		return false, nil
+	}
+
+	// Positive attestation check: must have explicit positive review or trusted seeded baseline.
+	isAttested := (reviewedHealthy != nil && *reviewedHealthy) ||
+		(healthy != nil && *healthy) ||
+		(seeded != nil && *seeded) ||
+		prov == "reviewed_healthy" ||
+		prov == "seeded_healthy"
+
+	return isAttested, nil
+}
+

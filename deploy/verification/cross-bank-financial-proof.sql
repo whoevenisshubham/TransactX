@@ -1,0 +1,38 @@
+-- Read-only native cross-bank recovery proof.
+-- Validates core financial and platform invariants across Bank A and Bank B.
+\set ON_ERROR_STOP on
+SELECT json_build_object(
+  'paymentState', (select state from payments where id=:'payment_id'),
+  'paymentAmount', (select amount_paise from payments where id=:'payment_id'),
+  'logicalPayments', (select count(*) from payments where initiated_by_user_id=:'sender_user_id' and note=:'payment_note'),
+  'idempotencyRows', (select count(*) from idempotency_records where user_id=:'sender_user_id' and key=:'idempotency_key' and payment_id=:'payment_id'),
+  'ledgerTransactions', (select count(*) from ledger_transactions where payment_id=:'payment_id'),
+  'ledgerEntries', (select count(*) from ledger_entries le join ledger_transactions lt on lt.id=le.ledger_transaction_id where lt.payment_id=:'payment_id'),
+  'correctLedgerEntries', (select count(*) from ledger_entries le join ledger_transactions lt on lt.id=le.ledger_transaction_id join accounts a on a.id=le.account_id where lt.payment_id=:'payment_id' and le.amount_paise=:'amount' and ((le.entry_type='DEBIT' and a.user_id=:'sender_user_id') or (le.entry_type='CREDIT' and a.user_id=:'receiver_user_id'))),
+  'centralTotal', (select sum(balance_paise) from accounts),
+  'centralReconstructionErrors', (select count(*) from accounts a where a.id in (:'sender_account_id', :'receiver_account_id') and a.balance_paise <> a.opening_balance_paise + coalesce((select sum(case when le.entry_type='CREDIT' then le.amount_paise else -le.amount_paise end) from ledger_entries le where le.account_id=a.id),0)),
+  'centralSender', (select balance_paise from accounts where user_id=:'sender_user_id'),
+  'centralReceiver', (select balance_paise from accounts where user_id=:'receiver_user_id'),
+  'participantSenderTotal', (select sum(balance_paise) from bank_a.accounts),
+  'participantReceiverTotal', (select sum(balance_paise) from bank_b.accounts),
+  'participantSender', (select b.balance_paise from bank_a.accounts b join accounts a on a.bank_account_id=b.id where a.user_id=:'sender_user_id'),
+  'participantReceiver', (select b.balance_paise from bank_b.accounts b join accounts a on a.bank_account_id=b.id where a.user_id=:'receiver_user_id'),
+  'bankAOperations', (select count(*) from bank_a.operations where payment_id=:'payment_id'),
+  'bankBOperations', (select count(*) from bank_b.operations where payment_id=:'payment_id'),
+  'bankAUniqueOperations', (select count(distinct operation_id) from bank_a.operations where payment_id=:'payment_id'),
+  'bankBUniqueOperations', (select count(distinct operation_id) from bank_b.operations where payment_id=:'payment_id'),
+  'participantPayloadErrors', (select (select count(*) from bank_a.operations where payment_id=:'payment_id' and (amount_paise<>:'amount' or currency<>'INR')) + (select count(*) from bank_b.operations where payment_id=:'payment_id' and (amount_paise<>:'amount' or currency<>'INR'))),
+  'bankAHoldRows', (select count(*) from bank_a.operations where payment_id=:'payment_id' and operation_id=:'hold_operation_id' and operation_type='HOLD' and amount_paise=:'amount' and currency='INR'),
+  'bankBCreditRows', (select count(*) from bank_b.operations where payment_id=:'payment_id' and operation_type='PROVISIONAL_CREDIT' and amount_paise=:'amount' and currency='INR'),
+  'bankALedgerRows', (select count(*) from bank_a.ledger_entries where payment_id=:'payment_id'),
+  'bankBLedgerRows', (select count(*) from bank_b.ledger_entries where payment_id=:'payment_id'),
+  'bankALedgerDuplicates', (select count(*) from (select operation_id,entry_type,account_id from bank_a.ledger_entries where payment_id=:'payment_id' group by operation_id,entry_type,account_id having count(*)<>1) d),
+  'bankBLedgerDuplicates', (select count(*) from (select operation_id,entry_type,account_id from bank_b.ledger_entries where payment_id=:'payment_id' group by operation_id,entry_type,account_id having count(*)<>1) d),
+  'journalRows', (select count(*) from payment_bank_operations where payment_id=:'payment_id'),
+  'journalParticipantMismatch', (select count(*) from payment_bank_operations j left join (select operation_id, payment_id, amount_paise, currency from bank_a.operations union all select operation_id, payment_id, amount_paise, currency from bank_b.operations) b on b.operation_id=j.operation_id where j.payment_id=:'payment_id' and (b.operation_id is null or b.payment_id<>j.payment_id or b.amount_paise<>j.amount_paise or b.currency<>j.currency)),
+  'projectionRows', (select count(*) from ops_payment_worklist w join payments p on p.id=w.payment_id where w.payment_id=:'payment_id' and w.current_state=p.state),
+  'pendingDeliveries', (select count(*) from outbox_deliveries d join outbox_events e on e.id=d.event_id where e.aggregate_id=:'payment_id' and d.status<>'delivered'),
+  'outboxEvents', (select count(*) from outbox_events where aggregate_id=:'payment_id'),
+  'inboxEvents', (select count(*) from consumer_inbox i join outbox_events e on e.id=i.event_id where e.aggregate_id=:'payment_id'),
+  'recoveryJob', (select row_to_json(j) from (select status,lease_epoch,attempt_count,last_reason_code from recovery_jobs where payment_id=:'payment_id') j)
+);

@@ -498,6 +498,58 @@ func (h *CrashMatrixHarness) RunAllScenarios(ctx context.Context) (*CrashMatrixR
 	return h.RunAll(ctx)
 }
 
+// RunScenario executes a single scenario by ID.
+func (h *CrashMatrixHarness) RunScenario(ctx context.Context, id string) CrashScenarioResult {
+	switch id {
+	case "REC-01":
+		return h.runRec01_IntentCommitted_KilledBeforeFirstStage(ctx)
+	case "REC-02":
+		return h.runRec02_CentralOperationJournalCommitted_PresenceReplay(ctx)
+	case "REC-03":
+		return h.runRec03_BankEffectCommitted_ReplyDropped(ctx)
+	case "REC-04":
+		return h.runRec04_CentralOperationResultPersistenceFails(ctx)
+	case "REC-05":
+		return h.runRec05_SourceConfirmed_DestinationFinalizationUnknown(ctx)
+	case "REC-06":
+		return h.runRec06_BanksComplete_CentralTransactionFails(ctx)
+	case "REC-07":
+		return h.runRec07_TwoWorkersPlusDuplicateRequest(ctx)
+	case "REC-08":
+		return h.runRec08_WorkerLeaseExpires_DelayedWorkerCASProtection(ctx)
+	case "REC-09":
+		return h.runRec09_LockConnectionDiesDuringExternalCall(ctx)
+	case "REC-10":
+		return h.runRec10_PoolConstrainedAndBankSlow(ctx)
+	case "REC-11":
+		return h.runRec11_OriginalExecutionTargetRemoved(ctx)
+	case "REC-12":
+		return h.runRec12_ParticipantReturnsMismatchedIdentity(ctx)
+	case "REC-13":
+		return h.runRec13_PermanentBusinessRejectionBeforeIrreversibleStage(ctx)
+	case "REC-14":
+		return h.runRec14_ExhaustedAutomaticRetries(ctx)
+	case "EVT-01":
+		return h.runEvt01_SourceRollback_EmitsZeroOutboxEvents(ctx)
+	case "EVT-02":
+		return h.runEvt02_CommittedEvent_DeliveredToProjection(ctx)
+	case "EVT-03":
+		return h.runEvt03_ConsumerDuplicateDelivery_InboxDeduplication(ctx)
+	case "EVT-04":
+		return h.runEvt04_VersionRegressionGuard_PreventsStaleRegression(ctx)
+	case "EVT-05":
+		return h.runEvt05_TwoDispatcherLeases_CASProtection(ctx)
+	case "EVT-06":
+		return h.runEvt06_ConcurrentProjectionRebuild_AdvisoryLock(ctx)
+	default:
+		return CrashScenarioResult{
+			ID:           id,
+			Passed:       false,
+			ErrorMessage: fmt.Sprintf("unknown scenario ID: %s", id),
+		}
+	}
+}
+
 // RunAll executes the complete 20-scenario Recovery and Event Matrix against live PostgreSQL.
 func (h *CrashMatrixHarness) RunAll(ctx context.Context) (*CrashMatrixReport, error) {
 	lockConn, err := h.pool.Acquire(ctx)
@@ -616,21 +668,35 @@ func (h *CrashMatrixHarness) runRec01_IntentCommitted_KilledBeforeFirstStage(ctx
 
 	// Verification
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
 	var ledgerTxCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerTxCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerTxCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger transactions: %v", err)
+		return res
+	}
+
+	var opCount int
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM payment_bank_operations WHERE payment_id = $1`, paymentID).Scan(&opCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query bank operations: %v", err)
+		return res
+	}
 
 	p1 := state == payments.StateCompleted && resumeRes.Status == payments.ResumeStatusCompleted
 	p2 := ledgerTxCount == 1
+	p3 := opCount >= 1
 
 	res.Invariants = []InvariantResult{
 		{InvariantName: "Payment completed on pinned route", Passed: p1, Details: fmt.Sprintf("state=%s, resumeStatus=%s", state, resumeRes.Status)},
 		{InvariantName: "Exactly 1 ledger transaction created", Passed: p2, Details: fmt.Sprintf("ledgerTxCount=%d", ledgerTxCount)},
+		{InvariantName: "Participant bank operations recorded", Passed: p3, Details: fmt.Sprintf("opCount=%d", opCount)},
 	}
 
-	res.Passed = p1 && p2
+	res.Passed = p1 && p2 && p3
 	res.DurationMs = float64(time.Since(start).Microseconds()) / 1000.0
 	return res
 }
@@ -675,18 +741,32 @@ func (h *CrashMatrixHarness) runRec02_CentralOperationJournalCommitted_PresenceR
 	res.Checkpoints = append(res.Checkpoints, "presence_checked_absent_replayed_succeeded")
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
+
+	var dupOps int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT operation_type FROM payment_bank_operations WHERE payment_id = $1 GROUP BY operation_type HAVING COUNT(*) > 1
+		) d`, paymentID).Scan(&dupOps); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query dup ops: %v", err)
+		return res
+	}
 
 	snap := svc.RecoveryMetrics().Snapshot()
 	p1 := state == payments.StateCompleted && resumeRes.Status == payments.ResumeStatusCompleted
 	p2 := snap["presence_replayed"] >= 1
+	p3 := dupOps == 0
 
 	res.Invariants = []InvariantResult{
 		{InvariantName: "Payment completed after safe presence replay", Passed: p1, Details: fmt.Sprintf("state=%s", state)},
 		{InvariantName: "Presence checked absent and replayed", Passed: p2, Details: fmt.Sprintf("presence_replayed=%d", snap["presence_replayed"])},
+		{InvariantName: "Zero duplicate participant operations in journal", Passed: p3, Details: fmt.Sprintf("dupOps=%d", dupOps)},
 	}
-	res.Passed = p1 && p2
+	res.Passed = p1 && p2 && p3
 	res.DurationMs = float64(time.Since(start).Microseconds()) / 1000.0
 	return res
 }
@@ -737,17 +817,28 @@ func (h *CrashMatrixHarness) runRec03_BankEffectCommitted_ReplyDropped(ctx conte
 	res.Checkpoints = append(res.Checkpoints, "resumer_detected_present_did_not_double_hold")
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query state: %v", err)
+		return res
+	}
 	res.ObservedState = state
+
+	var opStatus string
+	if err := h.pool.QueryRow(ctx, `SELECT status FROM payment_bank_operations WHERE payment_id = $1 AND operation_id = $2`, paymentID, opID).Scan(&opStatus); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query op status: %v", err)
+		return res
+	}
 
 	p1 := state == payments.StateCompleted && resumeRes.Status == payments.ResumeStatusCompleted
 	p2 := holdsAfter == holdsBefore // ZERO duplicate holds!
+	p3 := opStatus == "SUCCEEDED"
 
 	res.Invariants = []InvariantResult{
 		{InvariantName: "Payment completed using original bank effect", Passed: p1, Details: fmt.Sprintf("state=%s", state)},
 		{InvariantName: "Zero duplicate hold operations on bank", Passed: p2, Details: fmt.Sprintf("holdsBefore=%d, holdsAfter=%d", holdsBefore, holdsAfter)},
+		{InvariantName: "Original operation updated to SUCCEEDED", Passed: p3, Details: fmt.Sprintf("opStatus=%s", opStatus)},
 	}
-	res.Passed = p1 && p2
+	res.Passed = p1 && p2 && p3
 	res.DurationMs = float64(time.Since(start).Microseconds()) / 1000.0
 	return res
 }
@@ -788,15 +879,26 @@ func (h *CrashMatrixHarness) runRec04_CentralOperationResultPersistenceFails(ctx
 	}
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
+	var ledgerCount int
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger transactions: %v", err)
+		return res
+	}
+
 	p1 := state == payments.StateCompleted && resumeRes.Status == payments.ResumeStatusCompleted
+	p2 := ledgerCount == 1
 
 	res.Invariants = []InvariantResult{
 		{InvariantName: "Status lookup recovered outcome and completed payment", Passed: p1, Details: fmt.Sprintf("state=%s", state)},
+		{InvariantName: "Exactly 1 ledger transaction created", Passed: p2, Details: fmt.Sprintf("ledgerCount=%d", ledgerCount)},
 	}
-	res.Passed = p1
+	res.Passed = p1 && p2
 	res.DurationMs = float64(time.Since(start).Microseconds()) / 1000.0
 	return res
 }
@@ -844,11 +946,17 @@ func (h *CrashMatrixHarness) runRec05_SourceConfirmed_DestinationFinalizationUnk
 	}
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
 	var ledgerCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger transactions: %v", err)
+		return res
+	}
 
 	// Invariant: MUST NOT prematurely complete, MUST NOT reverse blindly; remains pending
 	p1 := state == payments.StateProcessing || state == payments.StatePendingReconciliation
@@ -898,18 +1006,27 @@ func (h *CrashMatrixHarness) runRec06_BanksComplete_CentralTransactionFails(ctx 
 	creditsAfter := h.adapterB.creditsCalled
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
 	var ledgerCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger transactions: %v", err)
+		return res
+	}
 
 	var debitCount, creditCount int
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FILTER (WHERE entry_type = 'DEBIT'), COUNT(*) FILTER (WHERE entry_type = 'CREDIT')
 		FROM ledger_entries le
 		JOIN ledger_transactions lt ON lt.id = le.ledger_transaction_id
-		WHERE lt.payment_id = $1`, paymentID).Scan(&debitCount, &creditCount)
+		WHERE lt.payment_id = $1`, paymentID).Scan(&debitCount, &creditCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger entries: %v", err)
+		return res
+	}
 
 	p1 := state == payments.StateCompleted && resumeRes.Status == payments.ResumeStatusCompleted
 	p2 := ledgerCount == 1 && debitCount == 1 && creditCount == 1
@@ -1019,10 +1136,16 @@ func (h *CrashMatrixHarness) runRec07_TwoWorkersPlusDuplicateRequest(ctx context
 	}
 
 	var ledgerCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, payment.ID).Scan(&ledgerCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, payment.ID).Scan(&ledgerCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger transactions: %v", err)
+		return res
+	}
 
 	var idempCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(DISTINCT payment_id) FROM idempotency_records WHERE user_id = $1 AND key = $2`, h.testUserID, key).Scan(&idempCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(DISTINCT payment_id) FROM idempotency_records WHERE user_id = $1 AND key = $2`, h.testUserID, key).Scan(&idempCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query idempotency records: %v", err)
+		return res
+	}
 
 	res.ObservedState = payment.State
 	p1 := len(runErrors) == 0
@@ -1048,25 +1171,34 @@ func (h *CrashMatrixHarness) runRec08_WorkerLeaseExpires_DelayedWorkerCASProtect
 		FaultBoundary: "Worker 1 lease expires while delayed; Worker 2 claims job; CAS rejects Worker 1",
 	}
 
-	// Clean prior recovery jobs and attempts to ensure deterministic claim
-	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_attempts`)
-	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_jobs`)
-
 	paymentID := uuid.New()
 	amount := int64(300)
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, source_bank_id, destination_bank_id)
 		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', 'VALIDATING', $6, $7)`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
+
+	// Clean prior recovery jobs and attempts strictly for this harness test user
+	if _, err := h.pool.Exec(ctx, `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean recovery attempts: %v", err)
+		return res
+	}
+	if _, err := h.pool.Exec(ctx, `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean recovery jobs: %v", err)
+		return res
+	}
 
 	repo := recovery.NewRepository(h.pool)
-	if err := repo.UpsertJob(ctx, paymentID, time.Now().Add(-10*time.Second)); err != nil {
+	if err := repo.UpsertJob(ctx, paymentID, time.Now().Add(-1000*time.Hour)); err != nil {
 		res.ErrorMessage = err.Error()
 		return res
 	}
 
 	// Worker 1 claims with short lease (100ms)
-	w1Jobs, err := repo.ClaimDueJobs(ctx, "worker-1", 10, 100*time.Millisecond)
+	w1Jobs, err := repo.ClaimDueJobs(ctx, "worker-1", 100, 100*time.Millisecond)
 	if err != nil {
 		res.ErrorMessage = fmt.Sprintf("worker 1 claim: %v", err)
 		return res
@@ -1096,7 +1228,7 @@ func (h *CrashMatrixHarness) runRec08_WorkerLeaseExpires_DelayedWorkerCASProtect
 	}
 
 	// Worker 2 claims job (lease has expired!)
-	w2Jobs, err := repo.ClaimDueJobs(ctx, "worker-2", 10, 30*time.Second)
+	w2Jobs, err := repo.ClaimDueJobs(ctx, "worker-2", 100, 30*time.Second)
 	if err != nil {
 		res.ErrorMessage = fmt.Sprintf("worker 2 claim: %v", err)
 		return res
@@ -1144,7 +1276,11 @@ func (h *CrashMatrixHarness) runRec08_WorkerLeaseExpires_DelayedWorkerCASProtect
 	ok2, compErr2 := repo.CompleteAttempt(ctx, validReq)
 	res.Checkpoints = append(res.Checkpoints, fmt.Sprintf("worker_2_cas_accepted_%t", ok2))
 
-	finalJob, _ := repo.GetJob(ctx, paymentID)
+	finalJob, err := repo.GetJob(ctx, paymentID)
+	if err != nil || finalJob == nil {
+		res.ErrorMessage = fmt.Sprintf("get final job: %v", err)
+		return res
+	}
 	res.ObservedState = string(finalJob.Status)
 
 	// Invariant: Worker 1 MUST fail CAS (ok1 = false); Worker 2 MUST succeed (ok2 = true); final epoch = 2
@@ -1173,10 +1309,13 @@ func (h *CrashMatrixHarness) runRec09_LockConnectionDiesDuringExternalCall(ctx c
 
 	paymentID := uuid.New()
 	amount := int64(600)
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, source_bank_id, destination_bank_id)
 		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', 'VALIDATING', $6, $7)`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
 
 	// Connect outside of the pool to isolate backend termination
 	conn1, err := pgx.Connect(ctx, h.pool.Config().ConnString())
@@ -1188,7 +1327,11 @@ func (h *CrashMatrixHarness) runRec09_LockConnectionDiesDuringExternalCall(ctx c
 
 	lockKey := int64(uuidToLockKey(paymentID))
 	var locked bool
-	_ = conn1.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, lockKey).Scan(&locked)
+	if err := conn1.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, lockKey).Scan(&locked); err != nil {
+		_ = conn1.Close(ctx)
+		res.ErrorMessage = fmt.Sprintf("advisory lock query: %v", err)
+		return res
+	}
 	if !locked {
 		_ = conn1.Close(ctx)
 		res.ErrorMessage = "failed acquiring manual advisory lock"
@@ -1198,8 +1341,15 @@ func (h *CrashMatrixHarness) runRec09_LockConnectionDiesDuringExternalCall(ctx c
 
 	// Sever connection 1 abruptly by terminating backend PID from pool!
 	var pid int
-	_ = conn1.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid)
-	_, _ = h.pool.Exec(ctx, `SELECT pg_terminate_backend($1)`, pid)
+	if err := conn1.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+		_ = conn1.Close(ctx)
+		res.ErrorMessage = fmt.Sprintf("get backend pid: %v", err)
+		return res
+	}
+	if _, err := h.pool.Exec(ctx, `SELECT pg_terminate_backend($1)`, pid); err != nil {
+		res.ErrorMessage = fmt.Sprintf("terminate backend: %v", err)
+		return res
+	}
 	_ = conn1.Close(context.Background())
 	res.Checkpoints = append(res.Checkpoints, "conn1_abruptly_terminated_by_server")
 
@@ -1216,7 +1366,10 @@ func (h *CrashMatrixHarness) runRec09_LockConnectionDiesDuringExternalCall(ctx c
 	res.Checkpoints = append(res.Checkpoints, "resumer_acquired_lock_on_fresh_conn_and_completed")
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
 	p1 := state == payments.StateCompleted && resumeRes.Status == payments.ResumeStatusCompleted
@@ -1362,7 +1515,10 @@ func (h *CrashMatrixHarness) runRec11_OriginalExecutionTargetRemoved(ctx context
 	}
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
 	p1 := resumeRes.Status == payments.ResumeStatusAttention
@@ -1390,10 +1546,13 @@ func (h *CrashMatrixHarness) runRec12_ParticipantReturnsMismatchedIdentity(ctx c
 
 	paymentID := uuid.New()
 	amount := int64(350)
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, source_bank_id, destination_bank_id)
 		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', 'PROCESSING', $6, $7)`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
 
 	opID := deterministicOpID(paymentID, "hold")
 	if err := h.insertBankOp(ctx, paymentID, h.testBankAID, opID, "HOLD", "PENDING", amount); err != nil {
@@ -1417,11 +1576,17 @@ func (h *CrashMatrixHarness) runRec12_ParticipantReturnsMismatchedIdentity(ctx c
 	}
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
 	var ledgerCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger count: %v", err)
+		return res
+	}
 
 	p1 := state != payments.StateCompleted // MUST NOT complete!
 	p2 := resumeRes.Status != payments.ResumeStatusCompleted
@@ -1447,10 +1612,13 @@ func (h *CrashMatrixHarness) runRec13_PermanentBusinessRejectionBeforeIrreversib
 
 	paymentID := uuid.New()
 	amount := int64(1000000) // Huge amount exceeding balance
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, source_bank_id, destination_bank_id)
 		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', 'VALIDATING', $6, $7)`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
 
 	h.adapterA.SetHoldError(&bank.AdapterError{Code: bank.ErrCodeInsufficientFunds, Message: "insufficient account balance"})
 	defer h.adapterA.SetHoldError(nil)
@@ -1459,11 +1627,17 @@ func (h *CrashMatrixHarness) runRec13_PermanentBusinessRejectionBeforeIrreversib
 	resumeRes, _ := svc.Resume(ctx, paymentID)
 
 	var state string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 	res.ObservedState = state
 
 	var ledgerCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, paymentID).Scan(&ledgerCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query ledger count: %v", err)
+		return res
+	}
 
 	p1 := state == payments.StateFailed
 	p2 := resumeRes.Terminal == true
@@ -1507,21 +1681,30 @@ func (h *CrashMatrixHarness) runRec14_ExhaustedAutomaticRetries(ctx context.Cont
 		FaultBoundary: "Recovery attempts exhausted maximum retry limit (20 attempts)",
 	}
 
-	// Clean prior recovery jobs and attempts for deterministic single-job claim
-	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_attempts`)
-	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_jobs`)
+	// Clean prior recovery jobs and attempts strictly for harness test users to avoid deleting concurrent jobs
+	if _, err := h.pool.Exec(ctx, `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean recovery attempts: %v", err)
+		return res
+	}
+	if _, err := h.pool.Exec(ctx, `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean recovery jobs: %v", err)
+		return res
+	}
 
 	paymentID := uuid.New()
 	amount := int64(250)
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, source_bank_id, destination_bank_id)
 		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', 'PROCESSING', $6, $7)`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount, h.testBankAID, h.testBankBID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
 
-	// Set job with 19 attempts and prioritized due_at
+	// Set job with 19 attempts and prioritized due_at (-1000 hours so claimed first)
 	_, err := h.pool.Exec(ctx, `
 		INSERT INTO recovery_jobs (payment_id, status, due_at, lease_epoch, attempt_count)
-		VALUES ($1, 'scheduled', NOW() - INTERVAL '1 hour', 0, 19)`, paymentID)
+		VALUES ($1, 'scheduled', NOW() - INTERVAL '1000 hours', 0, 19)`, paymentID)
 	if err != nil {
 		res.ErrorMessage = err.Error()
 		return res
@@ -1539,6 +1722,7 @@ func (h *CrashMatrixHarness) runRec14_ExhaustedAutomaticRetries(ctx context.Cont
 	repo := recovery.NewRepository(h.pool)
 	sched, err := recovery.NewScheduler(repo, mockResumer, recovery.Config{
 		WorkerID:    "worker-exhaust",
+		Concurrency: 1,
 		MaxAttempts: 20,
 	})
 	if err != nil {
@@ -1547,7 +1731,7 @@ func (h *CrashMatrixHarness) runRec14_ExhaustedAutomaticRetries(ctx context.Cont
 	}
 
 	claimed, sErr := sched.ClaimAndProcessBatch(ctx)
-	if sErr != nil || claimed != 1 {
+	if sErr != nil || claimed < 1 {
 		res.ErrorMessage = fmt.Sprintf("claimed=%d, err=%v", claimed, sErr)
 		return res
 	}
@@ -1560,7 +1744,10 @@ func (h *CrashMatrixHarness) runRec14_ExhaustedAutomaticRetries(ctx context.Cont
 	res.ObservedState = string(finalJob.Status)
 
 	var pState string
-	_ = h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&pState)
+	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&pState); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query payment state: %v", err)
+		return res
+	}
 
 	p1 := finalJob.Status == recovery.JobStatusNeedsAttention
 	p2 := finalJob.LastReasonCode != nil && *finalJob.LastReasonCode == recovery.ReasonAttemptsExhausted
@@ -1596,17 +1783,27 @@ func (h *CrashMatrixHarness) runEvt01_SourceRollback_EmitsZeroOutboxEvents(ctx c
 		return res
 	}
 
-	_, _ = tx.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state)
 		VALUES ($1, $2, $3, $4, 100, 'INR', 'ONLINE', 'VALIDATING')`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID); err != nil {
+		_ = tx.Rollback(ctx)
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
 
 	// Explicit Rollback!
 	_ = tx.Rollback(ctx)
 
 	var eventCount, deliveryCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_events WHERE aggregate_id = $1`, paymentID.String()).Scan(&eventCount)
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id = $1)`, paymentID.String()).Scan(&deliveryCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_events WHERE aggregate_id = $1`, paymentID.String()).Scan(&eventCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("count outbox events: %v", err)
+		return res
+	}
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id = $1)`, paymentID.String()).Scan(&deliveryCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("count outbox deliveries: %v", err)
+		return res
+	}
 
 	p1 := eventCount == 0 && deliveryCount == 0
 	res.ObservedState = fmt.Sprintf("events=%d, deliveries=%d", eventCount, deliveryCount)
@@ -1629,30 +1826,40 @@ func (h *CrashMatrixHarness) runEvt02_CommittedEvent_DeliveredToProjection(ctx c
 	}
 
 	// Clean out prior outbox deliveries and events for this harness to isolate scenario
-	_, _ = h.pool.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, h.testUserID, h.testRecvUserID)
-	_, _ = h.pool.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	_, _ = h.pool.Exec(ctx, `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	if _, err := h.pool.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean outbox deliveries: %v", err)
+		return res
+	}
+	if _, err := h.pool.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean outbox events: %v", err)
+		return res
+	}
+	if _, err := h.pool.Exec(ctx, `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean ops payment worklist: %v", err)
+		return res
+	}
 
 	paymentID := uuid.New()
 	amount := int64(200)
-	_, err := h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state)
 		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', 'VALIDATING')`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount)
-	if err != nil {
-		res.ErrorMessage = err.Error()
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID, amount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
 		return res
 	}
 
 	var ourEventID uuid.UUID
-	err = h.pool.QueryRow(ctx, `SELECT id FROM outbox_events WHERE aggregate_id = $1`, paymentID).Scan(&ourEventID)
-	if err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT id FROM outbox_events WHERE aggregate_id = $1`, paymentID).Scan(&ourEventID); err != nil {
 		res.ErrorMessage = fmt.Sprintf("find payment event: %v", err)
 		return res
 	}
 
 	// Prioritize our newly created delivery so it is at the front of due deliveries
-	_, _ = h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = to_timestamp(0) WHERE event_id = $1`, ourEventID)
+	if _, err := h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = to_timestamp(0) WHERE event_id = $1`, ourEventID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("prioritize delivery: %v", err)
+		return res
+	}
 
 	// Outbox dispatcher claims and projects
 	dispatcher := outbox.NewDispatcher(h.pool)
@@ -1685,7 +1892,10 @@ func (h *CrashMatrixHarness) runEvt02_CommittedEvent_DeliveredToProjection(ctx c
 
 	var worklistCount int
 	var worklistState string
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*), COALESCE(MAX(current_state), '') FROM ops_payment_worklist WHERE payment_id = $1`, paymentID).Scan(&worklistCount, &worklistState)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*), COALESCE(MAX(current_state), '') FROM ops_payment_worklist WHERE payment_id = $1`, paymentID).Scan(&worklistCount, &worklistState); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query worklist: %v", err)
+		return res
+	}
 	res.ObservedState = worklistState
 
 	p1 := dispatched >= 1
@@ -1710,10 +1920,13 @@ func (h *CrashMatrixHarness) runEvt03_ConsumerDuplicateDelivery_InboxDeduplicati
 	}
 
 	paymentID := uuid.New()
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state)
 		VALUES ($1, $2, $3, $4, 150, 'INR', 'ONLINE', 'VALIDATING')`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
 
 	store := outbox.NewPostgresStore(h.pool)
 	projector := projections.NewProjector(h.pool, outbox.ConsumerOpsWorklist)
@@ -1732,7 +1945,10 @@ func (h *CrashMatrixHarness) runEvt03_ConsumerDuplicateDelivery_InboxDeduplicati
 	dup2, err2 := projector.ProjectEvent(ctx, targetEvent)
 
 	var inboxCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM consumer_inbox WHERE consumer_name = $1 AND event_id = $2`, outbox.ConsumerOpsWorklist, targetEvent.ID).Scan(&inboxCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM consumer_inbox WHERE consumer_name = $1 AND event_id = $2`, outbox.ConsumerOpsWorklist, targetEvent.ID).Scan(&inboxCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query consumer inbox: %v", err)
+		return res
+	}
 
 	p1 := err1 == nil && !dup1 && err2 == nil && dup2
 	p2 := inboxCount == 1
@@ -1758,13 +1974,19 @@ func (h *CrashMatrixHarness) runEvt04_VersionRegressionGuard_PreventsStaleRegres
 
 	paymentID := uuid.New()
 	// Insert payment in CREATED (ver 1)
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, 25000, 'INR', 'ONLINE', 'CREATED', NOW(), NOW())`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID)
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
+		return res
+	}
 
 	// Update to COMPLETED (ver 2)
-	_, _ = h.pool.Exec(ctx, `UPDATE payments SET state = 'COMPLETED', updated_at = NOW() WHERE id = $1`, paymentID)
+	if _, err := h.pool.Exec(ctx, `UPDATE payments SET state = 'COMPLETED', updated_at = NOW() WHERE id = $1`, paymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("update payment: %v", err)
+		return res
+	}
 
 	store := outbox.NewPostgresStore(h.pool)
 	projector := projections.NewProjector(h.pool, outbox.ConsumerOpsWorklist)
@@ -1784,7 +2006,10 @@ func (h *CrashMatrixHarness) runEvt04_VersionRegressionGuard_PreventsStaleRegres
 	}
 
 	// Now deliver older event (ver 1 CREATED) late
-	_, _ = h.pool.Exec(ctx, `DELETE FROM consumer_inbox WHERE event_id = $1`, events[0].ID)
+	if _, err := h.pool.Exec(ctx, `DELETE FROM consumer_inbox WHERE event_id = $1`, events[0].ID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("delete consumer inbox: %v", err)
+		return res
+	}
 	dup, err := projector.ProjectEvent(ctx, events[0])
 
 	// Check worklist: state MUST REMAIN COMPLETED with version 2!
@@ -1817,28 +2042,35 @@ func (h *CrashMatrixHarness) runEvt05_TwoDispatcherLeases_CASProtection(ctx cont
 	}
 
 	// Clean prior outbox deliveries and events for this harness
-	_, _ = h.pool.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, h.testUserID, h.testRecvUserID)
-	_, _ = h.pool.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	if _, err := h.pool.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean outbox deliveries: %v", err)
+		return res
+	}
+	if _, err := h.pool.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("clean outbox events: %v", err)
+		return res
+	}
 
 	paymentID := uuid.New()
-	_, err := h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state)
 		VALUES ($1, $2, $3, $4, 180, 'INR', 'ONLINE', 'VALIDATING')`,
-		paymentID, h.testUserID, h.accSenderID, h.accRecvID)
-	if err != nil {
+		paymentID, h.testUserID, h.accSenderID, h.accRecvID); err != nil {
 		res.ErrorMessage = fmt.Sprintf("insert payment: %v", err)
 		return res
 	}
 
 	var ourEventID uuid.UUID
-	err = h.pool.QueryRow(ctx, `SELECT id FROM outbox_events WHERE aggregate_id = $1`, paymentID).Scan(&ourEventID)
-	if err != nil {
+	if err := h.pool.QueryRow(ctx, `SELECT id FROM outbox_events WHERE aggregate_id = $1`, paymentID).Scan(&ourEventID); err != nil {
 		res.ErrorMessage = fmt.Sprintf("find payment event: %v", err)
 		return res
 	}
 
 	// Prioritize our newly created delivery so it is at the front of due deliveries
-	_, _ = h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = to_timestamp(0) WHERE event_id = $1`, ourEventID)
+	if _, err := h.pool.Exec(ctx, `UPDATE outbox_deliveries SET next_attempt_at = to_timestamp(0) WHERE event_id = $1`, ourEventID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("prioritize delivery: %v", err)
+		return res
+	}
 
 	disp1 := outbox.NewDispatcher(h.pool)
 	disp2 := outbox.NewDispatcher(h.pool)
@@ -1915,7 +2147,11 @@ func (h *CrashMatrixHarness) runEvt06_ConcurrentProjectionRebuild_AdvisoryLock(c
 			res.ErrorMessage = err.Error()
 			return res
 		}
-		_ = tx1.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, projections.WorklistMaintenanceLockKey).Scan(&locked1)
+		if err := tx1.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, projections.WorklistMaintenanceLockKey).Scan(&locked1); err != nil {
+			_ = tx1.Rollback(ctx)
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
 		if locked1 {
 			break
 		}
@@ -1944,7 +2180,10 @@ func (h *CrashMatrixHarness) runEvt06_ConcurrentProjectionRebuild_AdvisoryLock(c
 	defer tx2.Rollback(ctx)
 
 	var locked2 bool
-	_ = tx2.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, projections.WorklistMaintenanceLockKey).Scan(&locked2)
+	if err := tx2.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, projections.WorklistMaintenanceLockKey).Scan(&locked2); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query advisory lock 2: %v", err)
+		return res
+	}
 	res.Checkpoints = append(res.Checkpoints, fmt.Sprintf("tx2_acquired_lock_%t", locked2))
 
 	p1 := locked1 == true
@@ -1963,6 +2202,11 @@ func (h *CrashMatrixHarness) runEvt06_ConcurrentProjectionRebuild_AdvisoryLock(c
 // FINANCIAL INVARIANTS VERIFICATION
 // -----------------------------------------------------------------------------
 
+// VerifyFinancialInvariants runs independent financial and participant consistency assertions against PostgreSQL.
+func (h *CrashMatrixHarness) VerifyFinancialInvariants(ctx context.Context) FinancialInvariantsSummary {
+	return h.verifyOverallFinancialInvariants(ctx)
+}
+
 func (h *CrashMatrixHarness) verifyOverallFinancialInvariants(ctx context.Context) FinancialInvariantsSummary {
 	var summary FinancialInvariantsSummary
 	summary.NonnegativeBalances = true
@@ -1973,43 +2217,160 @@ func (h *CrashMatrixHarness) verifyOverallFinancialInvariants(ctx context.Contex
 
 	// 1. Nonnegative account balances
 	var negativeCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE balance_paise < 0`).Scan(&negativeCount)
-	if negativeCount > 0 {
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE balance_paise < 0`).Scan(&negativeCount); err != nil {
+		summary.NonnegativeBalances = false
+		summary.TotalViolations++
+	} else if negativeCount > 0 {
 		summary.NonnegativeBalances = false
 		summary.TotalViolations += negativeCount
 	}
 
 	// 2. Debit and credit conservation
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(amount_paise) FILTER (WHERE entry_type = 'DEBIT'), 0),
 			COALESCE(SUM(amount_paise) FILTER (WHERE entry_type = 'CREDIT'), 0)
-		FROM ledger_entries`).Scan(&summary.TotalLedgerDebitsPaise, &summary.TotalLedgerCreditsPaise)
-	if summary.TotalLedgerDebitsPaise != summary.TotalLedgerCreditsPaise {
+		FROM ledger_entries`).Scan(&summary.TotalLedgerDebitsPaise, &summary.TotalLedgerCreditsPaise); err != nil {
+		summary.DebitCreditConservation = false
+		summary.TotalViolations++
+	} else if summary.TotalLedgerDebitsPaise != summary.TotalLedgerCreditsPaise {
 		summary.DebitCreditConservation = false
 		summary.TotalViolations++
 	}
 
 	// 3. Exactly 1 ledger transaction per completed payment
 	var duplicateLedgerPayments int
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM (
 			SELECT payment_id FROM ledger_transactions GROUP BY payment_id HAVING COUNT(*) > 1
-		) duplicates`).Scan(&duplicateLedgerPayments)
-	if duplicateLedgerPayments > 0 {
+		) duplicates`).Scan(&duplicateLedgerPayments); err != nil {
+		summary.SingleLedgerPerPayment = false
+		summary.TotalViolations++
+	} else if duplicateLedgerPayments > 0 {
 		summary.SingleLedgerPerPayment = false
 		summary.TotalViolations += duplicateLedgerPayments
 	}
 
 	// 4. Idempotency unique mapping
 	var multiMappedKeys int
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM (
 			SELECT user_id, key FROM idempotency_records GROUP BY user_id, key HAVING COUNT(DISTINCT payment_id) > 1
-		) dup_keys`).Scan(&multiMappedKeys)
-	if multiMappedKeys > 0 {
+		) dup_keys`).Scan(&multiMappedKeys); err != nil {
+		summary.IdempotencyUnique = false
+		summary.TotalViolations++
+	} else if multiMappedKeys > 0 {
 		summary.IdempotencyUnique = false
 		summary.TotalViolations += multiMappedKeys
+	}
+
+	// 5. Independent assertion of participant operation identity, uniqueness and payload correlation
+	// 5a. Unique bank operations per bank and operation_id in central journal
+	var dupBankOps int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT bank_id, operation_id FROM payment_bank_operations GROUP BY bank_id, operation_id HAVING COUNT(*) > 1
+		) dup_ops`).Scan(&dupBankOps); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	} else if dupBankOps > 0 {
+		summary.ParticipantUnique = false
+		summary.TotalViolations += dupBankOps
+	}
+
+	// 5b. Unique operation type per payment in central journal
+	var dupPaymentOpTypes int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT payment_id, operation_type FROM payment_bank_operations GROUP BY payment_id, operation_type HAVING COUNT(*) > 1
+		) dup_types`).Scan(&dupPaymentOpTypes); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	} else if dupPaymentOpTypes > 0 {
+		summary.ParticipantUnique = false
+		summary.TotalViolations += dupPaymentOpTypes
+	}
+
+	// 5c. Unique operation IDs in bank_a.operations
+	var bankADupOps int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT operation_id FROM bank_a.operations GROUP BY operation_id HAVING COUNT(*) > 1
+		) dup_a`).Scan(&bankADupOps); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	} else if bankADupOps > 0 {
+		summary.ParticipantUnique = false
+		summary.TotalViolations += bankADupOps
+	}
+
+	// 5d. Unique operation IDs in bank_b.operations
+	var bankBDupOps int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT operation_id FROM bank_b.operations GROUP BY operation_id HAVING COUNT(*) > 1
+		) dup_b`).Scan(&bankBDupOps); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	} else if bankBDupOps > 0 {
+		summary.ParticipantUnique = false
+		summary.TotalViolations += bankBDupOps
+	}
+
+	// 5e. Central journal payload integrity (positive amount, INR currency)
+	var invalidJournalPayloads int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM payment_bank_operations
+		WHERE amount_paise <= 0 OR currency != 'INR'`).Scan(&invalidJournalPayloads); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	} else if invalidJournalPayloads > 0 {
+		summary.ParticipantUnique = false
+		summary.TotalViolations += invalidJournalPayloads
+	}
+
+	// 5f. Payload correlation between central journal and Bank A participant operations
+	var journalMismatchA int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM payment_bank_operations j
+		JOIN bank_a.operations b ON b.operation_id = j.operation_id
+		WHERE b.payment_id != j.payment_id OR b.amount_paise != j.amount_paise OR b.currency != j.currency`).Scan(&journalMismatchA); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	} else if journalMismatchA > 0 {
+		summary.ParticipantUnique = false
+		summary.TotalViolations += journalMismatchA
+	}
+
+	// 5g. Payload correlation between central journal and Bank B participant operations
+	var journalMismatchB int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM payment_bank_operations j
+		JOIN bank_b.operations b ON b.operation_id = j.operation_id
+		WHERE b.payment_id != j.payment_id OR b.amount_paise != j.amount_paise OR b.currency != j.currency`).Scan(&journalMismatchB); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	} else if journalMismatchB > 0 {
+		summary.ParticipantUnique = false
+		summary.TotalViolations += journalMismatchB
+	}
+
+	// 6. Central balance reconstruction consistency for harness accounts (when seeded)
+	if h.accSenderID != uuid.Nil && h.accRecvID != uuid.Nil {
+		var reconErrors int
+		if err := h.pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM accounts a
+			WHERE a.id IN ($1, $2)
+			AND a.balance_paise != a.opening_balance_paise + COALESCE((
+				SELECT SUM(CASE WHEN le.entry_type = 'CREDIT' THEN le.amount_paise ELSE -le.amount_paise END)
+				FROM ledger_entries le WHERE le.account_id = a.id
+			), 0)`, h.accSenderID, h.accRecvID).Scan(&reconErrors); err != nil {
+			summary.DebitCreditConservation = false
+			summary.TotalViolations++
+		} else if reconErrors > 0 {
+			summary.DebitCreditConservation = false
+			summary.TotalViolations += reconErrors
+		}
 	}
 
 	return summary

@@ -119,6 +119,55 @@ func main() {
 		return
 	}
 
+	// Cross-Bank Recovery Matrix: Native cross-bank failure and lost-reply scenarios
+	if selected == "crossbank" || selected == "cb" {
+		fmt.Println("\n[CROSS-BANK RECOVERY] Native Cross-Bank and Lost-Reply Recovery Matrix")
+		dbURL := os.Getenv("DATABASE_URL")
+		if dbURL == "" {
+			dbURL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
+		}
+		pool, err := database.NewPool(ctx, dbURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error connecting to database: %v\n", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+
+		harness, err := experiments.NewCrossBankRecoveryHarness(pool, dbURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing cross-bank recovery harness: %v\n", err)
+			os.Exit(1)
+		}
+		defer harness.Close()
+
+		report, err := harness.RunAll(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error running cross-bank recovery scenarios: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("\nCross-Bank Recovery Results: %d Total | %d Passed | %d Failed | All Invariants: %t\n",
+			report.TotalScenarios, report.PassedCount, report.FailedCount, report.AllInvariantsSatisfied)
+		for _, s := range report.Scenarios {
+			status := "PASS"
+			if !s.Passed {
+				status = "FAIL"
+			}
+			fmt.Printf("  [%s] %-8s %-55s (%.2f ms, state=%s)\n", status, s.ID, s.Name, s.DurationMs, s.ObservedState)
+		}
+
+		jsonPath, csvPath, err := report.SaveArtifacts(outputDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving cross-bank recovery artifacts: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\nSaved Artifacts:\n  JSON: %s\n  CSV:  %s\n  SHA256: %s\n", jsonPath, csvPath, report.ReportSHA256)
+		if report.FailedCount > 0 {
+			os.Exit(1)
+		}
+		return
+	}
+
 	var results []*experiments.ExperimentResult
 
 	// Experiment 1: Routing
