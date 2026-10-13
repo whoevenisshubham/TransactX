@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "frontendBaseSha": "93a5b28",
+  "command": "npx playwright test --config playwright.live.config.ts --grep 'viewer renders durable analytics'",
+  "result": "1 passed",
+  "testDurationSeconds": 1.6,
+  "environment": "Edge, current M1 development frontend, native API/banks, canonical disposable PostgreSQL with previously aggregated durable windows; real viewer login",
+  "checks": ["Nonempty real analytics response and matching table rows", "Nullable latency renders Unavailable", "Missing model score retains explicit non-ready status", "Advisory-only policy text", "360px no-horizontal-overflow", "Viewer recheck POST denied 403", "Viewer chaos-reset POST denied 403 with control routes enabled"],
+  "limitations": ["Rendering and JWT role boundaries only, not baseline calibration/model evaluation", "M2 still uses fixed cutoffs and does not persist M3 scoring", "Does not close SSE, citations, recovery, reservations or worker projection gates"],
+  "allProbeProcessesStopped": true,
+  "spending": 0
+}

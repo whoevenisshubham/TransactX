@@ -43,6 +43,17 @@ reload and a 360px view. Missing inputs cause a failure. Use only disposable
 credentials and data; a passing result is scoped to the exact candidate stack
 under test. The full release gate also requires worker-driven projection and
 M3 investigation/analytics responses.
+The investigation/analytics gates require `TX_LIVE_API_URL` and
+`TX_LIVE_DISPOSABLE_DB=1`, an active reviewed corpus, durable analytics windows
+including null measurements, and a native investigator worker. Enable the
+simulation's control routes in the disposable configuration to verify viewer
+denials. The actor-scope case also requires `TX_LIVE_FOREIGN_VIEWER_ID`, a second
+generated viewer using the operator test password, plus the generated customer
+inputs below. Provision these fixtures privately; the tests perform real login
+and never grant roles themselves. For the expiry case, run a separate API with
+`JWT_LIFETIME` at most 10 seconds and set `TX_LIVE_EXPECT_EXPIRY=1`; otherwise
+that case is skipped and no expiry acceptance is claimed. SSE reconnect and
+retained-citation cases remain required even when a candidate fails them.
 The same live suite includes an offline intent case. It requires three distinct
 disposable customer IDs (`TX_LIVE_SENDER_ID`, `TX_LIVE_RECEIVER_ID`,
 `TX_LIVE_OTHER_ID`), their `TX_LIVE_CUSTOMER_PASSWORD`, `TX_LIVE_API_URL`, and
@@ -109,6 +120,21 @@ rehearsal ran a separate worker on the restored database and rebuilt the
 projection with the CLI. Its continuation input was manually seeded, and the
 native worker still does not deliver outbox events. A7 therefore remains open.
 The private age identity is never included in the archive.
+
+The release includes `bin/linux-*/transactx-corpus`, the approved corpus manifest
+at `docs/runbooks/corpus-manifest.json`, and its six document inputs at their
+original relative paths. Both builders reject an input hash mismatch and stage
+the reviewed documents with LF encoding. After canonical migrations and the
+corpus integration gates pass, use the matching architecture's corpus command
+with `-root <bundle-root> -manifest <bundle-root>/docs/runbooks/corpus-manifest.json`
+and the configured local database connection to stage it; `-activate` explicitly
+activates the version. `-dry-run` validates the packaged inputs without database
+writes. The corpus command does not call a model provider.
+It also includes `transactx-rebuild-worklist` for the reviewed maintenance
+rehearsal. Installation links both tools under `run/`; complete-bundle
+validation requires all eight commands for both architectures and the corpus
+manifest. Rebuild acceptance still requires the canonical backend lock and
+worker integration gates; shipping the command does not prove those gates.
 
 See [RESTORE_REHEARSAL.md](RESTORE_REHEARSAL.md) for the isolated local procedure,
 measured fixture result, refusal checks and remaining recovery gates.

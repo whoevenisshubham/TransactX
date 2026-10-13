@@ -41,6 +41,7 @@ export function parseOperationalEventStream(input: string): ParsedStream {
 }
 
 type SubscribeOptions = {
+  onUnauthorized?: () => void;
   fetchImpl?: typeof fetch;
   reconnectDelayMs?: number;
   staleAfterMs?: number;
@@ -83,6 +84,12 @@ export function subscribeOperationalEvents(
         cache: "no-store",
         signal: controller.signal,
       });
+      if (response.status === 401) {
+        stopped = true;
+        onStatus("disconnected");
+        options.onUnauthorized?.();
+        return;
+      }
       if (!response.ok || !response.body) throw new Error(`stream status ${response.status}`);
       onStatus("connected");
       armWatchdog();

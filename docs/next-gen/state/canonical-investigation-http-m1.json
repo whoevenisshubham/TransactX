@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-13",
+  "sourceCommit": "09f6d31a0609d20c81d93a23146e481b470e1dc9",
+  "command": "go test -v -count=1 ./internal/http -run '^TestOperations_Investigation_CreateAndFetch$'",
+  "exitCode": 0,
+  "testDurationSeconds": 0.20,
+  "setup": "Fresh isolated PostgreSQL 18.6 database, canonical migrations 000001-000029, approved 35-chunk corpus staged and active",
+  "observed": ["JWT role and unauthenticated gates", "request validation", "viewer queue creation", "idempotent replay and conflicting question", "admin queued fetch", "M3 service run", "viewer completed evidence-only report fetch"],
+  "limitations": ["httptest HTTP server with locally issued JWTs; not login/browser acceptance", "Service.Run called in process; not native worker claim/restart", "Does not prove foreign actor/payment denial or usage reservation compatibility", "Does not prove projection delivery or crash safety"],
+  "disposableDatabaseDropped": true,
+  "isolatedClusterStopped": true,
+  "paidProviderCalls": 0,
+  "spending": 0
+}

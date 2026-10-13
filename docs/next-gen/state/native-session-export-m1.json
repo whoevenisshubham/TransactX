@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "frontendBaseSha": "52657045a7ab591a1d79d290285310e9e9712593",
+  "scope": "M1 SSE unauthorized handling, real export/investigation and expired session reconnect",
+  "commands": [
+    "node --import tsx --test src/operationalEvents.test.ts",
+    "npm run lint",
+    "npx playwright test --config playwright.live.config.ts --workers=1 --grep \"viewer creates a real|an expired real session\""
+  ],
+  "results": {
+    "sseUnitTests": 3,
+    "investigationExportSeconds": 6.3,
+    "expiredReconnectSeconds": 11.1,
+    "realBrowserTests": 2,
+    "lint": "pass"
+  },
+  "environment": "Edge, development Vite, native API/banks/worker, canonical disposable PostgreSQL, loopback HTTP, JWT_LIFETIME=10s",
+  "limitations": [
+    "Hash format and identity checks do not prove export authenticity",
+    "Development HTTP does not repeat the production HTTPS gate",
+    "Crash recovery, reservation, analytics and projection gates remain pending"
+  ],
+  "allProbeProcessesStopped": true,
+  "spending": 0,
+  "frontendFileSha256": {
+    "src/operationalEvents.ts": "f2cd21e245cfa568e25b751846e506b940438b16b165e1e6f685e04989a2bba2",
+    "src/console.tsx": "7168dc2f32c6aaa9597e026abddcb38d4759531c7009c44787ad017a0c9fe2c2",
+    "src/operationalEvents.test.ts": "5c69fc946561b6f0fc179d250886c2292e0c78fc35551dcdbf17ea083fe07c03",
+    "browser/ops.live.spec.ts": "4dea88295c677ea989d5975d80e5ad9b695d7f9feccaf60bc33a7a59c5a0905a"
+  }
+}

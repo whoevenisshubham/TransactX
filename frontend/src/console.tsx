@@ -142,7 +142,8 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
     token,
     () => setLiveRevision((revision) => revision + 1),
     setStreamStatus,
-  ), [token]);
+    { onUnauthorized: onLogout },
+  ), [token, onLogout]);
 
   useEffect(() => {
     let active = true;

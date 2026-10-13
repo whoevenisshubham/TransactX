@@ -76,3 +76,19 @@ records hashes, counts and limits. The seeded payment does not prove a native
 process crash, and the M2 worker did not itself run the outbox projector. The
 backup was local only; M3 integration, off-VM copy, RPO and online restart
 remain unverified.
+
+## Combined canonical-schema repeat on 13 October 2026
+
+Clean isolated review `e3b1abc` ran both scripts on a fresh PostgreSQL 18.6
+cluster with generated local credentials and an age identity. All 29 canonical
+migrations, the active 35-chunk corpus and a completed evidence-only job were
+backed up and restored. Restored migration checksums verified; corpus and job
+payload fingerprints matched the source. One outbox event and delivery were
+preserved; the inbox and worklist were empty. Safe evidence and encrypted
+artifact hashes are in `docs/next-gen/state/restore-rehearsal-combined-m1.json`.
+
+This dataset had no settled ledger or participant operations. The completed job
+came from the in-process HTTP test. Native worker continuation, projection
+rebuild, crash recovery, off-VM persistence and global-role restoration remain
+required. The private rehearsal files are outside the repository; the isolated
+cluster is stopped.

@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-13",
+  "sourceCommit": "09f6d31a0609d20c81d93a23146e481b470e1dc9",
+  "scope": "Canonical PostgreSQL corpus staging, activation, idempotent restaging and SQL persistence checks; HTTP/worker/provider acceptance not exercised",
+  "database": "Fresh disposable PostgreSQL 18.6 database on isolated loopback cluster with locally generated credentials",
+  "canonicalMigrationsAppliedAndVerified": 29,
+  "corpusCommand": "go run ./internal/investigator/cmd/corpus -root .. -manifest ../docs/runbooks/corpus-manifest.json -database-url <local-generated-connection> -activate",
+  "activationRuns": 2,
+  "exitCodes": [0, 0],
+  "version": "tx.corpus.c1.v1",
+  "manifestSha256": "b882f8d6127910afe9685e66d96e82ba2d6e001c4c8d48f51ff66cffc6fbdbce",
+  "sqlChecks": {
+    "activeVersions": 1,
+    "chunks": 35,
+    "distinctChunkIds": 35,
+    "badContentHashes": 0,
+    "viewerRecoveryFullTextMatches": 15,
+    "customerVisibleChunks": 0
+  },
+  "disposableDatabaseDropped": true,
+  "isolatedClusterStopped": true,
+  "spending": 0
+}

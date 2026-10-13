@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "scope": "Native API termination before Bank A hold dispatch, encrypted snapshot/restore and bounded native worker continuation check",
+  "fault": "Local network barrier held /v1/holds without forwarding. SQL confirmed the committed checkpoint while the client request remained pending, then Stop-Process terminated the native API. Client recorded fetch failed.",
+  "checkpoint": {
+    "paymentId": "9a753550-233d-4ead-a4f9-312af26a0dcb",
+    "state": "PROCESSING",
+    "operationId": "b2f68c2f-e94c-508b-b849-e0015f0bef1e",
+    "operationStatus": "PROCESSING",
+    "journalRows": 1,
+    "participantRows": 0,
+    "recoveryJobsBeforeCrash": 0
+  },
+  "encryptedBackupSha256": "896d89409086c58d5e3bc88c29bd06ed563ac15b9fd576f1cca4bcc1c7958d85",
+  "encryptedBackupBytes": 179017,
+  "restoreCheckerReportSha256": "088557bebae3e6062f5b0afb61035d7df705e6ca5216c6cf3769e054805c0f82",
+  "restoreStartedAt": "2026-10-13T08:20:29Z",
+  "restoreFinishedAt": "2026-10-13T08:20:31Z",
+  "restoreChecks": "Actual backup.sh and restore-check.sh passed schema/balance/ledger/idempotency checks on a new disposable database",
+  "nativeRestoredWorker": {
+    "result": "FAILED ACCEPTANCE: payment did not complete",
+    "discoveredStalePayment": true,
+    "paymentState": "PROCESSING",
+    "jobStatus": "needs_attention",
+    "attemptCount": 1,
+    "leaseEpoch": 1,
+    "reasonCode": "NEEDS_ATTENTION",
+    "originalHoldIdentityPreserved": true,
+    "participantOperations": 0
+  },
+  "configuration": "Default adaptive bank URL composition; no explicit ROUTING_TARGETS. Real native banks restarted on restored DB; no network barrier during continuation.",
+  "attempts": "Initial barrier intercepted account resolution; stopped and preserved that attempt, then narrowed to hold dispatch. No manually seeded payment or journal state was used for the tested interruption.",
+  "projectionRebuild": "not_run: continuation gate failed first",
+  "allProbeProcessesStopped": true,
+  "privateInterruptedAndRestoredDatabasesRetained": true,
+  "spending": 0
+}
