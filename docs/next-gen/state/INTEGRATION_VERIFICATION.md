@@ -1,15 +1,15 @@
 # TransactX — M1/M2/M3 Integration & Release Verification Checkpoint
 
 **Date:** 2026-10-13  
-**Status:** INTEGRATED & REVERIFIED (GATE 3 COMPLETE)  
+**Status:** INTEGRATED & REVERIFIED (GATE 4 COMPLETE)  
 **Integration Branch:** `v2/integration-m1-m2-m3`  
 **Base:** `origin/release/transactx-v2` (`39fc5c7`)  
 **Integrated Commits:**
-- **M1 Head (`origin/v2/m1-product-delivery`):** `f73c05af7621319fa0de93496e7c61f3813b39d5` (PR #22)
+- **M1 Head (`origin/v2/m1-product-delivery`):** `42d8aef7935b63a9f80a78705f243798b62401c9` (PR #22)
 - **M2 Head (`origin/v2/m2-reliability-platform`):** `c9da5fb9035dff259c936fb79785eecbd93efde6` (PR #24)
 - **M3 Head (`origin/v2/m3-investigation-analytics`):** `4100dd713ade1e1ddd078bbaa78a5436f5825561` (PR #23)
-- **Gate 2 CI Head:** `09f6d31a0609d20c81d93a23146e481b470e1dc9` (Green on GitHub Actions #38357167992)
-- **Gate 3 Integration Work:** Focus on M2 Reliability & Platform, runtime composition, recovery, and live release paths.
+- **Gate 3 CI Head:** `a3f3d2969a4bbe6079d472c77761e568782f3d2b` (Green on GitHub Actions #38372702145)
+- **Gate 4 Integration Work:** Sync latest M1 changes, close native runtime acceptance failures across crash recovery, SSE flusher, trace schema, and investigation citations.
 
 ---
 
@@ -108,3 +108,47 @@
 5. **Milestone PR Status:**
    - Milestone PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged per instructions.
    - Candidate PR #25 is updated on branch `v2/integration-m1-m2-m3` and kept in draft mode for final release-owner review.
+
+---
+
+## 4. Gate 4 Integration & Native Runtime Acceptance Verification
+
+### 4.1 Safe Synchronization of M1 (`origin/v2/m1-product-delivery` @ `42d8aef`)
+- History-preserving merge from `origin/v2/m1-product-delivery` into `v2/integration-m1-m2-m3` completed with zero conflicts.
+- Preserved existing M2/M3 composition, canonical migration 000029, live analytics calibration, worker projection processing, advisory transaction rebuild locks, and established CI fixes.
+
+### 4.2 Crash Recovery & Operation Presence (B12 & Adaptive Execution)
+- **Root Cause & Fix (Adaptive Route Execution):** In `backend/internal/payments/service.go`, `RoutedAdaptersForPayment` was updated to check configured `routeTargets` (used by default adaptive routing) and ensure `paymentRepository.SetAdapterResolver` is wired across all service constructors. Background recovery jobs now resolve routed adapters deterministically without losing target mappings.
+- **Root Cause & Fix (ChaosAdapter Presence Delegation):** In `backend/internal/chaos/adapter.go`, `ChaosAdapter` now implements `bank.OperationPresenceReader` via checked delegation to `underlying.(bank.OperationPresenceReader)`, preventing lost presence inspection capability when chaos wrappers are composed.
+- **Accurate Needs Attention Reasons:** In `backend/internal/recovery/scheduler.go`, `JobStatusNeedsAttention` now preserves `resumeResult.Reason` in `reasonCode` rather than collapsing all attention cases into generic `ReasonAttention`.
+- **Presence vs. Unknown Outcomes:** Verified recovery distinguishes confirmed absent participant operations from unknown/unavailable results, preventing blind retries without authoritative evidence.
+- **Verified on PostgreSQL 18:** Adaptive and explicit-target interruption recovery tested with SQL assertions on hold UUID, participant effects, final payment states, and ledger balance conservation.
+
+### 4.3 SSE Response Compatibility (Telemetry Wrapper)
+- **Root Cause & Fix:** In `backend/internal/telemetry/middleware.go`, the telemetry response writer wrapper previously dropped `http.Flusher`, causing `/api/ops/worklist/stream` to return HTTP 500 "streaming is unavailable". Added `statusCapturingFlusherResponseWriter` wrapping `http.Flusher` when the underlying writer implements it.
+- **Regression Testing:** Added `TestHTTPMiddleware_FlusherSupport` in `telemetry_test.go` and verified SSE flusher retention under `HTTPMiddleware`.
+- **Delivery State:** Authenticated SSE test covers subscription, reconnect, and event emission without bypassing telemetry or security middleware.
+
+### 4.4 Persisted Trace Schema Contract Alignment
+- **Root Cause & Fix:** Resolved the `startTime`/`endTime` versus `startedAt`/`finishedAt` field mismatch in `backend/internal/telemetry/store.go`. Added `startedAt` and `finishedAt` string RFC3339Nano fields to `SpanDTO` alongside the existing `startTime` and `endTime` fields to maintain backwards compatibility while satisfying the shared frontend contract.
+- **Regression Testing:** Added `TestSpanDTO_JSONSerialization_Gate4Contracts` in `telemetry_test.go` verifying both sets of timestamp keys serialize correctly.
+
+### 4.5 Retained Investigation Evidence & Citations
+- **Root Cause & Fix:** In `backend/internal/investigator/api.go`, exposed `job.Snapshot` in `InvestigationResponse` (`PublicInvestigation`). In `frontend/src/ops/contracts.ts`, added `snapshot` decoding to `Investigation`. In `frontend/src/ops/InvestigationPanel.tsx`, updated citation lookup to check `retainedEvidenceIds` from `job.data.snapshot`, ensuring citations resolve to exact retained evidence across report reloads without inventing citations or weakening missing-evidence guards.
+- **Deterministic Evidence ID Hashing:** In `backend/internal/operations/service.go`, extracted `ComputeEvidenceSnapshotID` to hash bundles excluding unstable observation timestamps, ensuring stable snapshot identities.
+
+### 4.6 Verification & Acceptance Suite Evidence Matrix
+
+| Suite | Command | Environment | Result | Evidence |
+|---|---|---|---|---|
+| **Full Go Tests** | `go test ./...` | Windows Go 1.24 | PASS | All packages passed |
+| **Go Vet** | `go vet ./...` | Windows Go 1.24 | PASS | 0 issues |
+| **Go Build** | `go build ./...` | Windows Go 1.24 | PASS | All binaries compile cleanly |
+| **Frontend Unit Tests** | `npm test` | Node.js v22 | PASS (443ms) | 96/96 tests pass across 16 suites |
+| **Frontend Lint / Typecheck** | `npm run lint` | TypeScript 7 / Node v22 | PASS | 0 type or lint errors |
+| **Frontend Production Build** | `npm run build` | Vite 8.3.0 | PASS (173ms) | Built production bundle in `dist/` |
+| **Money Parser Integrity** | `npm run test:money` | Node.js v22 | PASS | Integer paise parsing passed |
+| **Playwright Fixtures** | `npx playwright test` | Chromium (headless) | PASS (8.8s) | 8/8 tests passed |
+| **Playwright Offline Shell** | `npm run test:browser:offline-shell` | Chromium (headless) | PASS (4.1s) | 2/2 tests passed |
+| **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
+
