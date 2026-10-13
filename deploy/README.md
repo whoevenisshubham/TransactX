@@ -115,11 +115,31 @@ configures the backup identity and destination.
 `transactx_restore_*` database, decrypts directly into `pg_restore`, checks
 central and participant schemas, balances, central ledger conservation and
 idempotency references, and writes a safe report. It never applies global roles
-to the shared cluster or drops an existing database. A later M1+M2 disposable
-rehearsal ran a separate worker on the restored database and rebuilt the
-projection with the CLI. Its continuation input was manually seeded, and the
-native worker still does not deliver outbox events. A7 therefore remains open.
+to the shared cluster or drops an existing database. The current native M1
+rehearsal at `4d8f2af` killed the real API after its operation journal committed,
+encrypted/restored that pending snapshot, and verified worker continuation.
+A native restored worker was also killed during a running lease; its replacement
+took over at a higher epoch. Automatic worker projection and acknowledged outbox
+delivery were proven before running the independent rebuild CLI. See
+`docs/next-gen/state/native-crash-restore-final-m1.json` for exact scope/hashes.
+This was a local same-bank transfer, not every crash boundary or off-machine
+disaster recovery. The historical manually seeded rehearsal remains narrower.
 The private age identity is never included in the archive.
+
+For independent read-only SQL proof, run `deploy/verification/native-financial-proof.sql`
+against the disposable database with psql `ON_ERROR_STOP=1` and variables
+`payment_id`, `operation_id` (original hold UUID), `sender_user_id`,
+`receiver_user_id`, `idempotency_key`, and `payment_note`. Keep database credentials
+in the private passfile. The script uses quoted psql variables and returns the
+checked counts, balances, payload correlation, corpus and projection state.
+For the recorded 100-paise transfer from 10,000/0 opening balances, require one
+payment/key/transaction, two correctly owned central entries, 9,900/100 balances
+in both authorities, four unique participant operations, three correctly owned
+participant entries, zero mismatch/duplicate/error counts, one matching projection,
+all outbox events acknowledged/inboxed, and a resolved recovery job. Nonzero SQL
+exit or a differing count is a failed gate. These values describe this fixture;
+they are not universal production balance expectations. Git Bash callers should
+pass paths with forward slashes so sha256sum does not escape Windows backslashes.
 
 The release includes `bin/linux-*/transactx-corpus`, the approved corpus manifest
 at `docs/runbooks/corpus-manifest.json`, and its six document inputs at their
