@@ -34,9 +34,10 @@ func TestRoleMatrix_OperationalEndpoints(t *testing.T) {
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		pool, _ = database.NewPool(context.Background(), dbURL)
 	}
-	if pool != nil {
-		defer pool.Close()
+	if pool == nil {
+		t.Skip("DATABASE_URL not set or database unavailable")
 	}
+	defer pool.Close()
 
 	ctrl := chaos.NewController(nil)
 	cb, _ := circuit.NewBreaker(circuit.DefaultConfig())
