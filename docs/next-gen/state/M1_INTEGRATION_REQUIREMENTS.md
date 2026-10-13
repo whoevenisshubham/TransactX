@@ -27,6 +27,8 @@ These are requirements for the M2 owner, not changes made in M1's branch. Preser
 
 ### Combined candidate review: 09f6d31 (13 October)
 
+Live canonical SQL probe now confirms the reservation mismatch: all 29 migrations apply and verify on a fresh disposable PostgreSQL 18.6 database, then M3's ReserveUsage insert fails with SQLSTATE `23502` on `actor_id`. See `canonical-store-probe-m1.json`. Migration success and the schema-isolated EnsureSchema harness do not prove runtime reservation compatibility.
+
 `origin/v2/integration-m1-m2-m3` contains M2 `c9da5fb`, M3 `4100dd7` and M1 implementation `f73c05a`. M1 verified it in the separate `TransactX_v2_combined_verify` checkout on `codex/m1-combined-verification`. M3's service is mounted through composition adapters and forward migration 000029 exists; these supersede the earlier absence of combined composition, but do not close release gates.
 
 - M2 migration owner: 000027 requires reservation `actor_id`, `provider`, `model`, and `reserved_tokens`; 000029 retains those NOT NULL columns without defaults. M3 `postgres_store.go` ReserveUsage inserts none of them. Reconcile with a reviewed forward migration or owned adapter and prove `storetest.Run` against the canonical 000001–000029 schema, not `EnsureSchema`'s separate DDL. Prove existing jobs/reservations survive upgrade and document the lossy down migration, which leaves converted types and drops checkpoint payloads.

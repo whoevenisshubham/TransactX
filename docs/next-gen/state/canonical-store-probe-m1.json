@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-13",
+  "sourceCommit": "09f6d31a0609d20c81d93a23146e481b470e1dc9",
+  "scope": "Isolated PostgreSQL canonical migration and reservation SQL compatibility probe; not full store, HTTP, worker or release acceptance",
+  "database": "Fresh disposable database on the existing isolated PostgreSQL 18.6 cluster, loopback only, locally generated credentials",
+  "migrationUp": { "command": "go run ./cmd/migrate -target-db <disposable-name> up", "exitCode": 0, "appliedCount": 29 },
+  "migrationVerify": { "command": "go run ./cmd/migrate -target-db <disposable-name> verify", "exitCode": 0 },
+  "reservationProbe": {
+    "transaction": "BEGIN; insert a minimal investigation job; execute the exact column list used by PostgresInvestigationStore.ReserveUsage",
+    "sql": "INSERT INTO investigation_usage_reservations (id, job_id, reserved_input, reserved_output, actual_input, actual_output, status) VALUES ('m1-reservation', 'm1-probe', 1, 1, NULL, NULL, 'reserved')",
+    "psqlExitCode": 3,
+    "sqlState": "23502",
+    "table": "investigation_usage_reservations",
+    "column": "actor_id",
+    "message": "null value violates not-null constraint",
+    "result": "Canonical schema is incompatible with the M3 reservation insert"
+  },
+  "cleanup": { "transactionAbortedOnConnectionClose": true, "disposableDatabaseDropped": true, "isolatedClusterStopped": true },
+  "spending": 0
+}
