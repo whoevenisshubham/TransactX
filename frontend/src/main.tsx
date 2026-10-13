@@ -9,6 +9,7 @@ import { encodeQRSvg } from "./qr";
 import type { Account, MerchantReceiveInfo, MerchantView, Payment, Recipient, User, View } from "./types";
 import { ConsoleShell } from "./console";
 import "./styles.css";
+import "./design/ops.css";
 
 export { parsePaise } from "./money";
 
@@ -38,7 +39,7 @@ function App() {
   if (!token) return <AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} />;
   if (roleLoading || !user) return <LoadingShell />;
 
-  if (user.role === "OPS_ADMIN") return <ConsoleShell token={token} user={user} onLogout={logout} />;
+  if (user.role === "OPS_ADMIN" || user.role === "OPS_VIEWER") return <ConsoleShell token={token} user={user} onLogout={logout} />;
   if (user.role === "MERCHANT") return <MerchantShell token={token} user={user} onLogout={logout} />;
   if (user.role === "CUSTOMER") return <CustomerShell token={token} onLogout={logout} />;
   // Unknown roles — access denied screen

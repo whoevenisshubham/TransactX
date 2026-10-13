@@ -1,4 +1,4 @@
-const apiBaseUrl = (typeof import.meta !== "undefined" && (import.meta as any)?.env?.VITE_API_BASE_URL) || "http://localhost:8080";
+import { apiBaseUrl } from "./config";
 
 export type OperationalHint = {
   event: "ready" | "invalidate" | "stale" | "gap";

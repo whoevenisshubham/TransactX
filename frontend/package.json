@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
-    "test": "node --import tsx --test src/console.test.ts src/merchant.test.ts src/offlineQueue.test.ts src/offlineReplay.test.ts src/operationalEvents.test.ts src/qr.test.ts",
+    "test": "node --import tsx --test src/config.test.ts src/console.test.ts src/merchant.test.ts src/offlineQueue.test.ts src/offlineReplay.test.ts src/operationalEvents.test.ts src/ops/contracts.test.ts src/ops/worklistFilters.test.ts src/qr.test.ts",
     "test:money": "node scripts/verify-money.mjs",
+    "test:browser:fixtures": "playwright test",
     "test:offline-queue": "node --import tsx --test src/offlineQueue.test.ts",
     "test:offline-replay": "node --import tsx --test src/offlineReplay.test.ts",
     "experiment:offline": "node --import tsx scripts/run-offline-experiment.ts"
@@ -22,6 +23,8 @@
     "vite": "8.3.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.0",
     "@types/node": "26.6.2",
     "@types/qrcode": "1.5.6",
     "@types/react": "19.3.0",

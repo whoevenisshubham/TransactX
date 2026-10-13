@@ -67,6 +67,13 @@ describe("Network Console: Role-based shell routing and isolation", () => {
 });
 
 describe("Network Console: View path resolution (readConsoleView)", () => {
+  it("opens the URL-backed recovery worklist", () => {
+    assert.equal(readConsoleView("/console/worklist"), "c-worklist");
+    assert.equal(consoleViewPath("c-worklist"), "/console/worklist");
+    assert.equal(readConsoleView("/console/payments/11111111-1111-4111-8111-111111111111"), "c-payment-evidence");
+    assert.equal(readConsoleView("/console/investigations/44444444-4444-4444-8444-444444444444"), "c-investigation");
+    assert.equal(readConsoleView("/console/analytics"), "c-analytics");
+  });
   it("root console path resolves to c-overview", () => {
     assert.equal(readConsoleView("/console"), "c-overview");
     assert.equal(readConsoleView("/console/"), "c-overview");

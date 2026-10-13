@@ -11,3 +11,6 @@ frontend/dist/
 *.log
 .DS_Store
 .cache/
+deploy/out/
+frontend/test-results/
+frontend/playwright-report/

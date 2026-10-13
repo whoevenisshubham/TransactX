@@ -1,0 +1,8 @@
+# Replace this reserved example name only after DNS points to your VM.
+api.example.invalid {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080 {
+        # Flush SSE frames as they arrive; do not expose bank services.
+        flush_interval -1
+    }
+}
