@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-13",
+  "sourceBase": "bff462caebd92782577806a654d80e0f22151c0e",
+  "scope": "Both builder documentation preflight and dedicated staging helper",
+  "results": {
+    "stagedFiles": 12,
+    "contentAndLFVerified": true,
+    "missingDocumentRejected": 1,
+    "malformedEvidenceRejected": 1,
+    "repositoryOverwriteRejected": 1,
+    "repositoryEscapeRejected": 1,
+    "stageOnlyNotArchiveOrInstall": true
+  },
+  "builders": "PowerShell and Git Bash validation-only passed: eight commands present, six approved corpus inputs matched, public API origin unset, no archive created",
+  "bashSyntax": "passed",
+  "corpus": "Existing architecture input kept byte-canonical; new v2 diagram is separate M1 delivery documentation, with no corpus hash/manifest changes",
+  "spend": 0,
+  "limitations": [
+    "Staging fixtures and validation-only are not runtime/install/release acceptance",
+    "M2 owner corrections, final combined suite and configured public HTTPS API origin remain required"
+  ]
+}

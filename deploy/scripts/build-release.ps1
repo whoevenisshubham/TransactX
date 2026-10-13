@@ -27,6 +27,8 @@ if ($ValidateOnly) { $originOptions += '--allow-missing' }
 $frontendApiOrigin = @(& node (Join-Path $PSScriptRoot 'verify-api-origin.mjs') @originOptions) -join ''
 if ($LASTEXITCODE -ne 0) { throw 'Frontend API origin validation failed.' }
 $frontendApiOrigin = $frontendApiOrigin.Trim()
+& node (Join-Path $PSScriptRoot 'stage-delivery-docs.mjs') $repo
+if ($LASTEXITCODE -ne 0) { throw 'Delivery documentation validation failed.' }
 if ($missing -notcontains 'corpus') {
   & node (Join-Path $PSScriptRoot 'stage-corpus.mjs') $repo
   if ($LASTEXITCODE -ne 0) { throw 'Approved corpus input validation failed.' }
@@ -95,6 +97,8 @@ if ($missing -notcontains 'corpus') {
   if ($LASTEXITCODE -ne 0) { throw 'Approved corpus staging failed.' }
 }
 Copy-Item -LiteralPath (Join-Path $repo 'docs\next-gen\execution-pack\docs\next-gen\DEPLOYMENT_AND_BACKUP.md') -Destination (Join-Path $stage 'docs\DEPLOYMENT_AND_BACKUP.md')
+& node (Join-Path $PSScriptRoot 'stage-delivery-docs.mjs') $repo $stage
+if ($LASTEXITCODE -ne 0) { throw 'Delivery documentation staging failed.' }
 
 # Windows checkouts can have CRLF in shell scripts and service files. Normalize
 # the staged Linux text before hashing and archiving it.

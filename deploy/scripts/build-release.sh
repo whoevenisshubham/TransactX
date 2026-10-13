@@ -35,6 +35,7 @@ fi
 origin_args=()
 if $validate_only; then origin_args+=(--allow-missing); fi
 frontend_api_origin="$(node "$repo/deploy/scripts/verify-api-origin.mjs" "${origin_args[@]}")"
+node "$repo/deploy/scripts/stage-delivery-docs.mjs" "$repo"
 if [[ -d "$repo/backend/internal/investigator/cmd/corpus" ]]; then
   node "$repo/deploy/scripts/stage-corpus.mjs" "$repo"
 fi
@@ -69,6 +70,7 @@ if [[ -d "$repo/backend/internal/investigator/cmd/corpus" ]]; then
   node "$repo/deploy/scripts/stage-corpus.mjs" "$repo" "$stage"
 fi
 cp "$repo/docs/next-gen/execution-pack/docs/next-gen/DEPLOYMENT_AND_BACKUP.md" "$stage/docs/DEPLOYMENT_AND_BACKUP.md"
+node "$repo/deploy/scripts/stage-delivery-docs.mjs" "$repo" "$stage"
 (cd "$repo/backend" && go list -m all) > "$stage/go-dependencies.txt"
 cp "$repo/frontend/package-lock.json" "$stage/frontend-package-lock.json"
 

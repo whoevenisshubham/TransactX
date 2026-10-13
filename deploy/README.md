@@ -2,11 +2,20 @@
 
 This directory packages the simulated system for a Linux host with PostgreSQL
 18 and Caddy. It does not provision a cloud account or enable paid services.
-The M2 worker and migration commands now exist, but M2/M3 investigator,
-analytics and projector composition still needs integration. The build scripts
+The combined candidate mounts the M3 investigator, durable analytics and native
+worker projector. Current acceptance and remaining owner/release gates are in
+`docs/next-gen/DELIVERY_REPORT.md`; integration does not imply release readiness.
+The build scripts
 reject a missing binary command unless `--allow-incomplete` /
 `-AllowIncomplete` is used for inspection. Their `complete` metadata describes
 the file set only; it does not certify release tests or deployment readiness.
+
+Both builders validate and stage the current architecture, delivery report,
+safe acceptance artifacts, owner requirements, restore guide and read-only
+financial queries. Missing/empty documentation, malformed evidence JSON or
+repository-escaping inputs fail validation. This staging is not an install or
+runtime test. The final archive still needs all release gates and the configured
+public HTTPS API origin.
 
 ## Build
 
