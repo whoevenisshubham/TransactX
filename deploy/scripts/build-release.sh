@@ -29,8 +29,11 @@ done
 if ((${#missing[@]})) && ! $allow_incomplete; then
   echo "Required v2 commands missing: ${missing[*]}" >&2; exit 1
 fi
+origin_args=()
+if $validate_only; then origin_args+=(--allow-missing); fi
+frontend_api_origin="$(node "$repo/deploy/scripts/verify-api-origin.mjs" "${origin_args[@]}")"
 if $validate_only; then
-  printf 'Source: %s\nDirty tree: %s\nMissing planned commands: %s\nValidation only: no archive was written.\n' "$sha" "$dirty" "${missing[*]:-none}"
+  printf 'Source: %s\nDirty tree: %s\nMissing planned commands: %s\nFrontend API origin: %s\nValidation only: no archive was written.\n' "$sha" "$dirty" "${missing[*]:-none}" "${frontend_api_origin:-unset; required for an archive}"
   exit 0
 fi
 if $dirty && ! $allow_dirty; then echo 'Git tree is dirty; commit and rerun.' >&2; exit 1; fi
@@ -41,7 +44,7 @@ stage="$output/$name"
 [[ ! -e "$stage" ]] || { echo "Output already exists: $stage" >&2; exit 1; }
 mkdir -p "$stage/bin" "$stage/migrations" "$stage/frontend" "$stage/deploy" "$stage/docs"
 
-(cd "$repo/frontend" && npm ci && npm test && npm run lint && npm run build)
+(cd "$repo/frontend" && export VITE_API_BASE_URL="$frontend_api_origin" && npm ci && npm test && npm run lint && npm run build)
 for arch in amd64 arm64; do
   mkdir -p "$stage/bin/linux-$arch"
   for command in "${commands[@]}"; do
@@ -59,9 +62,9 @@ cp "$repo/docs/next-gen/execution-pack/docs/next-gen/DEPLOYMENT_AND_BACKUP.md" "
 (cd "$repo/backend" && go list -m all) > "$stage/go-dependencies.txt"
 cp "$repo/frontend/package-lock.json" "$stage/frontend-package-lock.json"
 
-export TX_RELEASE_SHA="$sha" TX_RELEASE_DIRTY="$dirty" TX_RELEASE_MISSING="${missing[*]:-}"
+export TX_RELEASE_SHA="$sha" TX_RELEASE_DIRTY="$dirty" TX_RELEASE_MISSING="${missing[*]:-}" TX_RELEASE_FRONTEND_API_ORIGIN="$frontend_api_origin"
 export TX_RELEASE_GO_VERSION="$(go version)" TX_RELEASE_NODE_VERSION="$(node --version)"
-node -e 'const fs=require("fs"); const p=process.env; fs.writeFileSync(process.argv[1], JSON.stringify({schemaVersion:"tx.release.v1",sourceSha:p.TX_RELEASE_SHA,createdAt:new Date().toISOString(),dirtyTree:p.TX_RELEASE_DIRTY==="true",complete:!p.TX_RELEASE_MISSING,missingCommands:p.TX_RELEASE_MISSING?p.TX_RELEASE_MISSING.split(" "):[],goVersion:p.TX_RELEASE_GO_VERSION,nodeVersion:p.TX_RELEASE_NODE_VERSION,targetArchitectures:["linux-amd64","linux-arm64"]},null,2)+"\n")' "$stage/metadata.json"
+node -e 'const fs=require("fs"); const p=process.env; fs.writeFileSync(process.argv[1], JSON.stringify({schemaVersion:"tx.release.v1",sourceSha:p.TX_RELEASE_SHA,createdAt:new Date().toISOString(),dirtyTree:p.TX_RELEASE_DIRTY==="true",complete:!p.TX_RELEASE_MISSING,missingCommands:p.TX_RELEASE_MISSING?p.TX_RELEASE_MISSING.split(" "):[],frontendApiOrigin:p.TX_RELEASE_FRONTEND_API_ORIGIN,goVersion:p.TX_RELEASE_GO_VERSION,nodeVersion:p.TX_RELEASE_NODE_VERSION,targetArchitectures:["linux-amd64","linux-arm64"]},null,2)+"\n")' "$stage/metadata.json"
 (cd "$stage" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 archive="$output/$name.tar.gz"
 tar -C "$stage" -czf "$archive" .

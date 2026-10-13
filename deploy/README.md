@@ -13,6 +13,11 @@ the file set only; it does not certify release tests or deployment readiness.
 On Windows, run `pwsh deploy/scripts/build-release.ps1 -ValidateOnly
 -AllowIncomplete` to inspect prerequisites. On Linux, run
 `deploy/scripts/build-release.sh --validate-only --allow-incomplete`.
+Set `VITE_API_BASE_URL` to the owner-controlled public HTTPS API origin before
+building an archive. Both scripts reject a missing, loopback, reserved example
+or malformed origin, and record the normalized origin in `metadata.json`.
+Validation-only reports an unset origin without writing an archive; it does
+not verify DNS, TLS or ownership. The later HTTPS smoke/browser gate does.
 After the combined release gates pass, run the script without the incomplete
 flag. It runs frontend checks, builds Linux amd64 and arm64 Go
 binaries, and writes a timestamped archive and SHA-256 inventory under
