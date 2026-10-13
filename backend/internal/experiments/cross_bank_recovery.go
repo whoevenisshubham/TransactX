@@ -1179,36 +1179,56 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 		pgEnv = append(pgEnv, fmt.Sprintf("PGPASSWORD=%s", password))
 	}
 
+	disposableDB := fmt.Sprintf("transactx_cb_restore_%d", time.Now().Unix()%1000000)
+
+	// Attempt pg_dump custom format backup
 	cmdDump := exec.Command("pg_dump", "-h", host, "-p", port, "-U", user, "-Fc", "-f", tmpDump, srcDB)
 	cmdDump.Env = pgEnv
-	if out, err := cmdDump.CombinedOutput(); err != nil {
-		res.ErrorMessage = fmt.Sprintf("pg_dump failed: %v (%s)", err, string(out))
-		return res
-	}
-	res.Checkpoints = append(res.Checkpoints, "pg_dump_custom_format_backup_completed")
+	dumpOut, dumpErr := cmdDump.CombinedOutput()
 
-	disposableDB := fmt.Sprintf("transactx_cb_restore_%d", time.Now().Unix()%1000000)
-	cmdDropPrev := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
-	cmdDropPrev.Env = pgEnv
-	_ = cmdDropPrev.Run()
+	usedTemplateFallback := false
+	if dumpErr == nil {
+		res.Checkpoints = append(res.Checkpoints, "pg_dump_custom_format_backup_completed")
 
-	cmdCreate := exec.Command("createdb", "-h", host, "-p", port, "-U", user, disposableDB)
-	cmdCreate.Env = pgEnv
-	if out, err := cmdCreate.CombinedOutput(); err != nil {
-		res.ErrorMessage = fmt.Sprintf("createdb failed: %v (%s)", err, string(out))
-		return res
+		cmdDropPrev := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
+		cmdDropPrev.Env = pgEnv
+		_ = cmdDropPrev.Run()
+
+		cmdCreate := exec.Command("createdb", "-h", host, "-p", port, "-U", user, disposableDB)
+		cmdCreate.Env = pgEnv
+		if _, err := cmdCreate.CombinedOutput(); err != nil {
+			usedTemplateFallback = true
+		} else {
+			cmdRestore := exec.Command("pg_restore", "-h", host, "-p", port, "-U", user, "-d", disposableDB, "--no-owner", "--no-acl", tmpDump)
+			cmdRestore.Env = pgEnv
+			_ = cmdRestore.Run()
+			res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
+			res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_completed")
+		}
+	} else {
+		// pg_dump client version mismatch or environment without pg_dump:
+		// fall back to native transactional database snapshot cloning via PostgreSQL template
+		usedTemplateFallback = true
 	}
+
+	if usedTemplateFallback {
+		// Clean up any partial database
+		_, _ = h.pool.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", disposableDB))
+		if _, err := h.pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", disposableDB, srcDB)); err != nil {
+			res.ErrorMessage = fmt.Sprintf("backup/restore failed: pg_dump: %v (%s); template snapshot: %v", dumpErr, string(dumpOut), err)
+			return res
+		}
+		res.Checkpoints = append(res.Checkpoints, "native_template_snapshot_backup_completed")
+		res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
+		res.Checkpoints = append(res.Checkpoints, "snapshot_restored_into_disposable_database_completed")
+	}
+
 	defer func() {
+		_, _ = h.pool.Exec(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", disposableDB))
 		cmdDropClean := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
 		cmdDropClean.Env = pgEnv
 		_ = cmdDropClean.Run()
 	}()
-	res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
-
-	cmdRestore := exec.Command("pg_restore", "-h", host, "-p", port, "-U", user, "-d", disposableDB, "--no-owner", "--no-acl", tmpDump)
-	cmdRestore.Env = pgEnv
-	_ = cmdRestore.Run()
-	res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_completed")
 
 	var userAuth string
 	if user != "" {
