@@ -38,6 +38,7 @@ type ServiceConfig struct {
 	PromptVersion     string
 	InputTokenLimit   int
 	OutputTokenLimit  int
+	CostLimitMicrousd int64
 	MaxProviderRounds int
 	Now               func() time.Time
 }
@@ -85,7 +86,7 @@ func NewService(config ServiceConfig, store InvestigationStore, dependencies Too
 	if config.Mode != ModeEvidenceOnly && config.Mode != ModeLLM {
 		return nil, errors.New("invalid investigator mode")
 	}
-	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
+	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.CostLimitMicrousd < 0 || (config.Provider.RequiresCostReservation() && config.CostLimitMicrousd == 0) || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
 		return nil, errors.New("invalid provider generation configuration")
 	}
 	if config.Now == nil {

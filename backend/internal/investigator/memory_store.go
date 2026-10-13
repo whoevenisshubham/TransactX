@@ -18,12 +18,13 @@ var (
 	ErrUsageBudget         = errors.New("investigation usage budget unavailable")
 	ErrActorLimitExceeded  = errors.New("actor active investigation limit exceeded")
 	ErrGlobalLimitExceeded = errors.New("global active investigation limit exceeded")
+	ErrProviderCallLimit   = errors.New("another provider call is already active")
 )
 
 type memoryUsageReservation struct {
-	jobID                         string
-	reservedInput, reservedOutput int64
-	status                        string
+	jobID                                               string
+	reservedInput, reservedOutput, reservedCostMicrousd int64
+	status                                              string
 }
 
 const (
@@ -36,18 +37,21 @@ const (
 // must supply the durable production implementation; runtime composition must
 // never silently fall back to this store.
 type MemoryInvestigationStore struct {
-	mu              sync.Mutex
-	now             func() time.Time
-	jobs            map[string]Job
-	idempotency     map[string]string
-	reservations    map[string]memoryUsageReservation
-	jobReservations map[string]string
-	inputLimit      int64
-	outputLimit     int64
-	reservedIn      int64
-	reservedOut     int64
-	usedIn          int64
-	usedOut         int64
+	mu                   sync.Mutex
+	now                  func() time.Time
+	jobs                 map[string]Job
+	idempotency          map[string]string
+	reservations         map[string]memoryUsageReservation
+	jobReservations      map[string]string
+	inputLimit           int64
+	outputLimit          int64
+	costLimitMicrousd    int64
+	reservedIn           int64
+	reservedOut          int64
+	reservedCostMicrousd int64
+	usedIn               int64
+	usedOut              int64
+	usedCostMicrousd     int64
 }
 
 func NewMemoryInvestigationStore(now func() time.Time) *MemoryInvestigationStore {
@@ -65,10 +69,10 @@ func NewMemoryInvestigationStore(now func() time.Time) *MemoryInvestigationStore
 
 // SetUsageLimits is intended for deterministic C3 tests. Zero is the safe
 // default and prevents provider reservations.
-func (store *MemoryInvestigationStore) SetUsageLimits(input, output int64) {
+func (store *MemoryInvestigationStore) SetUsageLimits(input, output, costMicrousd int64) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.inputLimit, store.outputLimit = input, output
+	store.inputLimit, store.outputLimit, store.costLimitMicrousd = input, output, costMicrousd
 }
 
 func (store *MemoryInvestigationStore) Create(ctx context.Context, request NewJob) (Job, bool, error) {
@@ -168,6 +172,13 @@ func (store *MemoryInvestigationStore) SaveCheckpoint(ctx context.Context, job J
 			return ErrScopeViolation
 		}
 	}
+	if job.ProviderCallPending && !current.ProviderCallPending {
+		for id, existing := range store.jobs {
+			if id != job.ID && existing.ProviderCallPending {
+				return ErrProviderCallLimit
+			}
+		}
+	}
 	if job.Status != "running" && job.Status != "completed" && job.Status != "failed" && job.Status != "cancelled" {
 		return errors.New("invalid investigation job status")
 	}
@@ -194,11 +205,11 @@ func (store *MemoryInvestigationStore) Get(ctx context.Context, scope TrustedSco
 	return cloneJob(job), nil
 }
 
-func (store *MemoryInvestigationStore) ReserveUsage(ctx context.Context, job Job, input, output int64) (string, error) {
+func (store *MemoryInvestigationStore) ReserveUsage(ctx context.Context, job Job, allowance UsageAllowance) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if input < 0 || output < 0 || (input == 0 && output == 0) {
+	if allowance.InputTokens <= 0 || allowance.OutputTokens <= 0 || allowance.CostMicrousd < 0 {
 		return "", ErrUsageBudget
 	}
 	store.mu.Lock()
@@ -212,19 +223,20 @@ func (store *MemoryInvestigationStore) ReserveUsage(ctx context.Context, job Job
 	}
 	if existingID := store.jobReservations[job.ID]; existingID != "" {
 		existing := store.reservations[existingID]
-		if existing.reservedInput == input && existing.reservedOutput == output && existing.status == usageReserved {
+		if existing.reservedInput == allowance.InputTokens && existing.reservedOutput == allowance.OutputTokens && existing.reservedCostMicrousd == allowance.CostMicrousd && existing.status == usageReserved {
 			return existingID, nil
 		}
 		return "", ErrUsageBudget
 	}
-	if store.inputLimit == 0 || store.outputLimit == 0 || store.usedIn+store.reservedIn+input > store.inputLimit || store.usedOut+store.reservedOut+output > store.outputLimit {
+	if store.inputLimit == 0 || store.outputLimit == 0 || store.usedIn+store.reservedIn+allowance.InputTokens > store.inputLimit || store.usedOut+store.reservedOut+allowance.OutputTokens > store.outputLimit || (allowance.CostMicrousd > 0 && (store.costLimitMicrousd == 0 || store.usedCostMicrousd+store.reservedCostMicrousd+allowance.CostMicrousd > store.costLimitMicrousd)) {
 		return "", ErrUsageBudget
 	}
 	id := uuid.NewString()
-	store.reservations[id] = memoryUsageReservation{jobID: job.ID, reservedInput: input, reservedOutput: output, status: usageReserved}
+	store.reservations[id] = memoryUsageReservation{jobID: job.ID, reservedInput: allowance.InputTokens, reservedOutput: allowance.OutputTokens, reservedCostMicrousd: allowance.CostMicrousd, status: usageReserved}
 	store.jobReservations[job.ID] = id
-	store.reservedIn += input
-	store.reservedOut += output
+	store.reservedIn += allowance.InputTokens
+	store.reservedOut += allowance.OutputTokens
+	store.reservedCostMicrousd += allowance.CostMicrousd
 	return id, nil
 }
 
@@ -251,20 +263,25 @@ func (store *MemoryInvestigationStore) CompleteUsage(ctx context.Context, job Jo
 	if !exists || reservation.jobID != job.ID || reservation.status != usageReserved || job.Status != StatusCompleted || job.Report == nil {
 		return ErrUsageBudget
 	}
-	actualInput, actualOutput := reservation.reservedInput, reservation.reservedOutput
+	actualInput, actualOutput, actualCostMicrousd := reservation.reservedInput, reservation.reservedOutput, reservation.reservedCostMicrousd
 	if job.Usage.InputTokens != nil {
 		actualInput = *job.Usage.InputTokens
 	}
 	if job.Usage.OutputTokens != nil {
 		actualOutput = *job.Usage.OutputTokens
 	}
-	if actualInput < 0 || actualOutput < 0 || actualInput > reservation.reservedInput || actualOutput > reservation.reservedOutput {
+	if job.Usage.CostMicrousd != nil {
+		actualCostMicrousd = *job.Usage.CostMicrousd
+	}
+	if actualInput < 0 || actualOutput < 0 || actualCostMicrousd < 0 || actualInput > reservation.reservedInput || actualOutput > reservation.reservedOutput || actualCostMicrousd > reservation.reservedCostMicrousd {
 		return ErrUsageBudget
 	}
 	store.reservedIn -= reservation.reservedInput
 	store.reservedOut -= reservation.reservedOutput
+	store.reservedCostMicrousd -= reservation.reservedCostMicrousd
 	store.usedIn += actualInput
 	store.usedOut += actualOutput
+	store.usedCostMicrousd += actualCostMicrousd
 	reservation.status = usageCompleted
 	store.reservations[job.UsageReservationID] = reservation
 	store.jobs[job.ID] = cloneJob(job)

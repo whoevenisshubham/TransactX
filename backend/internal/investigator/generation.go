@@ -17,9 +17,11 @@ func (service *Service) runGenerated(ctx context.Context, job Job) (Job, error) 
 		return service.failWithEvidenceFallback(job, "provider_disabled", errors.New("provider is disabled"))
 	}
 	if job.UsageReservationID == "" {
-		reservationID, err := service.store.ReserveUsage(ctx, job,
-			int64(service.config.InputTokenLimit*service.config.MaxProviderRounds),
-			int64(service.config.OutputTokenLimit*service.config.MaxProviderRounds))
+		reservationID, err := service.store.ReserveUsage(ctx, job, UsageAllowance{
+			InputTokens:  int64(service.config.InputTokenLimit * service.config.MaxProviderRounds),
+			OutputTokens: int64(service.config.OutputTokenLimit * service.config.MaxProviderRounds),
+			CostMicrousd: service.config.CostLimitMicrousd,
+		})
 		if err != nil {
 			return service.failWithEvidenceFallback(job, "budget_exhausted", err)
 		}
@@ -281,7 +283,7 @@ func accumulateUsage(job *Job, usage Usage) {
 	}
 	if job.ProviderRounds == 1 {
 		input, output := *usage.InputTokens, *usage.OutputTokens
-		job.Usage = Usage{InputTokens: &input, OutputTokens: &output}
+		job.Usage = Usage{InputTokens: &input, OutputTokens: &output, CostMicrousd: cloneInt64Pointer(usage.CostMicrousd)}
 		job.UsageKnown = true
 		return
 	}
@@ -290,5 +292,18 @@ func accumulateUsage(job *Job, usage Usage) {
 	}
 	input := *job.Usage.InputTokens + *usage.InputTokens
 	output := *job.Usage.OutputTokens + *usage.OutputTokens
-	job.Usage = Usage{InputTokens: &input, OutputTokens: &output}
+	var cost *int64
+	if job.Usage.CostMicrousd != nil && usage.CostMicrousd != nil {
+		total := *job.Usage.CostMicrousd + *usage.CostMicrousd
+		cost = &total
+	}
+	job.Usage = Usage{InputTokens: &input, OutputTokens: &output, CostMicrousd: cost}
+}
+
+func cloneInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

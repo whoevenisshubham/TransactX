@@ -9,10 +9,10 @@ import (
 )
 
 func TestMemoryInvestigationStoreConformanceHarness(t *testing.T) {
-	storetest.Run(t, func(t *testing.T, inputLimit, outputLimit int64) investigator.InvestigationStore {
+	storetest.Run(t, func(t *testing.T, limits investigator.UsageAllowance) investigator.InvestigationStore {
 		t.Helper()
 		store := investigator.NewMemoryInvestigationStore(time.Now)
-		store.SetUsageLimits(inputLimit, outputLimit)
+		store.SetUsageLimits(limits.InputTokens, limits.OutputTokens, limits.CostMicrousd)
 		return store
 	})
 }
