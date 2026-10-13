@@ -3,6 +3,25 @@ import assert from "node:assert/strict";
 import { parseOperationalEventStream, subscribeOperationalEvents, type OperationalHint } from "./operationalEvents";
 
 describe("operational SSE recovery", () => {
+  it("clears a rejected session without retrying or issuing stale-data hints", async () => {
+    let calls = 0;
+    let rejected = 0;
+    const hints: OperationalHint[] = [];
+    let stop = () => {};
+    await new Promise<void>((resolve) => {
+      stop = subscribeOperationalEvents("expired-token", (hint) => hints.push(hint), () => {}, {
+        fetchImpl: async () => { calls += 1; return new Response(null, { status: 401 }); },
+        reconnectDelayMs: 0,
+        onUnauthorized: () => { rejected += 1; resolve(); },
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stop();
+    assert.equal(calls, 1);
+    assert.equal(rejected, 1);
+    assert.deepEqual(hints, []);
+  });
+
   it("parses ready, invalidation, heartbeat, and partial frames", () => {
     const parsed = parseOperationalEventStream(
       ': heartbeat\n\nevent: ready\ndata: {"topics":["all"],"reason":"connected"}\n\n' +

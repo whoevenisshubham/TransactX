@@ -26,6 +26,22 @@ test("viewer creates a real evidence-only investigation completed by the native 
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Payment journey" })).toBeVisible();
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download server export" }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe(`transactx-evidence-${paymentId}.json`);
+  const stream = await download.createReadStream();
+  expect(stream).not.toBeNull();
+  let contents = "";
+  for await (const chunk of stream!) contents += chunk.toString();
+  const exported = JSON.parse(contents);
+  expect(exported.bundle.schemaVersion).toBe("tx.evidence.v1");
+  expect(exported.manifest.paymentId).toBe(paymentId);
+  expect(exported.manifest.snapshotId).toBe(exported.bundle.snapshotId);
+  expect(exported.manifest.algorithm).toBe("SHA-256");
+  expect(exported.manifest.bundleSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(contents).not.toContain(password);
+  expect(contents).not.toMatch(/password_hash|JWT_SECRET|BANK_A_SERVICE_TOKEN|authorization/i);
   await page.getByLabel("Question", { exact: true }).fill("What collected evidence explains this payment's current state?");
   const accepted = page.waitForResponse((response) => response.url() === `${api.origin}/api/ops/investigations` && response.request().method() === "POST");
   await page.getByRole("button", { name: "Start investigation", exact: true }).click();
@@ -64,3 +80,25 @@ for (const [role, identity] of Object.entries(identities)) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   });
 }
+
+test("an expired real session is cleared after reconnect", async ({ page, context }) => {
+  test.skip(process.env.TX_LIVE_EXPECT_EXPIRY !== "1", "Requires a disposable API with JWT_LIFETIME of at most 10 seconds.");
+  await page.goto(`/console/payments/${paymentId}`);
+  await page.getByLabel("Phone or payment ID").fill(identities.viewer!);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Payment journey" })).toBeVisible();
+  const expiration = await page.evaluate(() => {
+    const token = sessionStorage.getItem("transactx.token")!;
+    const payload = token.split(".")[1].replaceAll("-", "+").replaceAll("_", "/");
+    return JSON.parse(atob(payload)).exp as number;
+  });
+  expect(expiration * 1000 - Date.now()).toBeLessThanOrEqual(10000);
+  await context.setOffline(true);
+  await expect.poll(() => Math.floor(Date.now() / 1000) > expiration, { timeout: 12000 }).toBe(true);
+  await context.setOffline(false);
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Payment journey" })).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("transactx.token"))).toBeNull();
+  expect(await page.evaluate(() => sessionStorage.getItem("transactx.profile"))).toBeNull();
+});
