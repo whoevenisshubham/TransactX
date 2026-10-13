@@ -161,6 +161,16 @@ exit or a differing count is a failed gate. These values describe this fixture;
 they are not universal production balance expectations. Git Bash callers should
 pass paths with forward slashes so sha256sum does not escape Windows backslashes.
 
+The separate `cross-bank-financial-proof.sql` covers the recorded 100-paise
+BANK-A→BANK-B native hold-commit/reply-loss interruption. Supply psql variables
+`payment_id`, `operation_id`, `sender_id`, `receiver_id`, `key`, and `note`.
+Require the same central conservation checks, two unique operations in each
+bank, one original source hold effect, three correctly owned participant entries,
+zero payload/journal mismatches or duplicate effects, and automatic acknowledged
+projection. Exact observed checkpoint/process/source evidence is in
+`docs/next-gen/state/cross-bank-native-recovery-m1.json`. This query is read-only;
+it does not create or advance recovery state.
+
 The release includes `bin/linux-*/transactx-corpus`, the approved corpus manifest
 at `docs/runbooks/corpus-manifest.json`, and its six document inputs at their
 original relative paths. Both builders reject an input hash mismatch and stage
