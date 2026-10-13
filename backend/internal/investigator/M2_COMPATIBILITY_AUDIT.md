@@ -1,6 +1,12 @@
 # M2 B10/B11 compatibility audit
 
-Original audit target: origin/v2/m2-reliability-platform at c64a9e62870e4ed802910b9ee84e0dee73ffc9bb (13 October 2026). Current re-audit targets are origin/v2/m2-reliability-platform at c9da5fb9035dff259c936fb79785eecbd93efde6 and origin/v2/integration-m1-m2-m3 at 679c98230b5bfdc12d98253c1aa81112dc515191. Source branches were inspected with Git object reads; a disposable detached integration checkout was used for merge and PostgreSQL proof. Nothing was merged or committed to an owner branch from M3.
+Original audit target: origin/v2/m2-reliability-platform at c64a9e62870e4ed802910b9ee84e0dee73ffc9bb (13 October 2026). Final re-audit targets are origin/v2/m2-reliability-platform at c9da5fb9035dff259c936fb79785eecbd93efde6 and origin/v2/integration-m1-m2-m3 at 318496b. Source branches were inspected with Git object reads; disposable detached integration checkouts were used for merge and PostgreSQL proof. Nothing was merged or committed to an owner branch from M3.
+
+## Resolution on the final integrated candidate
+
+The integration owner incorporated M3 through `99f3e14` and closed the audited B10/B11 gaps with additive migration 000030, the strict create-request decoder, independently attested analytics calibration and native browser coverage. Current M3 checkpoint `0285f0e` merges into integration `318496b` without conflicts. On that combined tree, the DDL-free canonical acceptance gate passes all five store cases in normal (1.04s) and race (1.27s) modes; the owner's fresh migration, legacy-upgrade, corrupt-payload and canonical corpus tests also pass. Migration 000030 preserves the checksum of already applied 000029, maps legacy token accounting, cancels unreplayable active jobs and backfills readable terminal history before the current adapter is mounted.
+
+The authenticated HTTP contract passes its 15 assertions: unknown/injected fields and trailing/oversized bodies return 400, actor/payment/role scope comes from JWT state, idempotency remains actor-scoped, foreign GET is denied and admin GET succeeds. The live B10 path has no fixed warmup/error alerts and persists explicit non-alerting provenance; 13 PostgreSQL analytics tests pass. Source-matched native M1 evidence covers a real evidence-only job completed by the worker, reload of the saved investigation, every retained evidence link resolving to its payment target, foreign actor/customer denial, and durable analytics/model-off rendering. These results close the M2/M1 handoff gates for the zero-budget evidence-only M3 release. Live provider evaluation remains separately pending and is not claimed.
 
 ## Decision
 
@@ -8,7 +14,7 @@ The M2 branch makes B10/B11 source available, but it is not a drop-in live integ
 
 M1/M2 integration must retain M3's investigator service, public DTO validation, corpus lifecycle, grounding and evaluation implementation. M2's operations and analytics work should be consumed through adapters, and its storage/migration must be reconciled to the M3 interfaces before mounting. Do not run both investigator services and do not delete or reauthor either branch's history.
 
-## Current integrated-candidate re-audit
+## Historical integrated-candidate re-audit at `679c982`
 
 The integration branch now mounts one M3 service, the approved corpus, the real operations evidence bridge, native worker execution, retained evidence in the public response, and M1 live browser flows. Those are material C6 advances. Its recorded M3 parent is nevertheless `4100dd7`, while the current M3 head added the global provider admission gate, integer micro-USD accounting and corrupt-payload defenses. A no-commit merge of M3 `0947b19` into integration `679c982` completed without source conflicts, so the remaining gap is an owner-owned schema/handler/analytics correction rather than an unmergeable package conflict.
 
