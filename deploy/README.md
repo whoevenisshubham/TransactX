@@ -2,18 +2,19 @@
 
 This directory packages the simulated system for a Linux host with PostgreSQL
 18 and Caddy. It does not provision a cloud account or enable paid services.
-The current v2 plan requires the M2 worker and migration commands before a
-complete v2 archive can be built. The build scripts reject an incomplete
-archive unless `--allow-incomplete` / `-AllowIncomplete` is used for inspection.
-Such an archive is labelled incomplete and is not a v2 deployment candidate.
+The M2 worker and migration commands now exist, but M2/M3 investigator,
+analytics and projector composition still needs integration. The build scripts
+reject a missing binary command unless `--allow-incomplete` /
+`-AllowIncomplete` is used for inspection. Their `complete` metadata describes
+the file set only; it does not certify release tests or deployment readiness.
 
 ## Build
 
 On Windows, run `pwsh deploy/scripts/build-release.ps1 -ValidateOnly
 -AllowIncomplete` to inspect prerequisites. On Linux, run
 `deploy/scripts/build-release.sh --validate-only --allow-incomplete`.
-After M2 commands and the combined release gates exist, run the script without
-the incomplete flag. It runs frontend checks, builds Linux amd64 and arm64 Go
+After the combined release gates pass, run the script without the incomplete
+flag. It runs frontend checks, builds Linux amd64 and arm64 Go
 binaries, and writes a timestamped archive and SHA-256 inventory under
 `deploy/out/`. The archive contains only explicit files: binaries, migrations,
 static assets, configuration examples and public runbooks. It does not contain
@@ -22,6 +23,21 @@ environment secrets, database dumps or `node_modules`.
 Use the source SHA in the archive metadata and `go version -m` on binaries to
 verify build provenance. The bundle's metadata records whether its Git tree
 was dirty and which planned commands were absent.
+
+## Local real-browser gate
+
+Start the candidate API, banks, worker, disposable PostgreSQL database and
+frontend separately. Provision one payment that the operator roles can read.
+Set `VITE_API_BASE_URL` to the loopback API origin when starting the frontend.
+From `frontend/`, run `npm run test:browser:live` with
+`TX_LIVE_FRONTEND_URL`, `TX_LIVE_PAYMENT_ID`, `TX_LIVE_PAYMENT_STATE`,
+`TX_LIVE_VIEWER_ID`, `TX_LIVE_ADMIN_ID` and `TX_LIVE_PASSWORD` set in the
+private test shell. The live suite does not intercept HTTP responses or
+provision users. It checks login, worklist/evidence navigation, role controls,
+reload and a 360px view. Missing inputs cause a failure. Use only disposable
+credentials and data; a passing result is scoped to the exact candidate stack
+under test. The full release gate also requires worker-driven projection and
+M3 investigation/analytics responses.
 
 ## Install and operate
 
