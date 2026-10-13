@@ -4,509 +4,316 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
-
-	"github.com/google/uuid"
-	"github.com/transactx/backend/internal/operations"
+	"unicode"
+	"unicode/utf8"
 )
 
-type rateLimiter struct {
-	mu       sync.Mutex
-	requests map[string][]time.Time
-	limit    int
-	window   time.Duration
+var ErrInvalidInvestigationRequest = errors.New("invalid investigation request")
+
+type ServiceConfig struct {
+	JobTimeout        time.Duration
+	EvidenceTimeout   time.Duration
+	LeaseDuration     time.Duration
+	RetrievalTopK     int
+	MaxCoreAttempts   int
+	Mode              string
+	Provider          Provider
+	PromptVersion     string
+	InputTokenLimit   int
+	OutputTokenLimit  int
+	MaxProviderRounds int
+	Now               func() time.Time
 }
 
-func newRateLimiter(limit int, window time.Duration) *rateLimiter {
-	return &rateLimiter{
-		requests: make(map[string][]time.Time),
-		limit:    limit,
-		window:   window,
+func DefaultServiceConfig() ServiceConfig {
+	return ServiceConfig{
+		JobTimeout:        30 * time.Second,
+		EvidenceTimeout:   3 * time.Second,
+		LeaseDuration:     15 * time.Second,
+		RetrievalTopK:     5,
+		MaxCoreAttempts:   2,
+		Mode:              ModeEvidenceOnly,
+		PromptVersion:     InvestigatorPromptVersion,
+		InputTokenLimit:   8000,
+		OutputTokenLimit:  1200,
+		MaxProviderRounds: 2,
+		Now:               time.Now,
 	}
 }
 
-func (rl *rateLimiter) Allow(actorID string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	cutoff := now.Add(-rl.window)
-
-	times := rl.requests[actorID]
-	var valid []time.Time
-	for _, t := range times {
-		if t.After(cutoff) {
-			valid = append(valid, t)
-		}
-	}
-
-	if len(valid) >= rl.limit {
-		rl.requests[actorID] = valid
-		return false
-	}
-
-	valid = append(valid, now)
-	rl.requests[actorID] = valid
-	return true
+type serviceCounters struct {
+	created, duplicates, completed, failed, deadlines atomic.Uint64
+	toolCalls, toolErrors                             atomic.Uint64
 }
 
-// Service coordinates investigator job creation, retrieval, and deterministic evidence-only execution.
+type ServiceMetrics struct {
+	Created, Duplicates, Completed, Failed, Deadlines uint64
+	ToolCalls, ToolErrors                             uint64
+}
+
 type Service struct {
-	repo           Repository
-	evidenceReader operations.EvidenceReader
-	limiter        *rateLimiter
-	logger         *slog.Logger
+	config   ServiceConfig
+	store    InvestigationStore
+	registry *ToolRegistry
+	counters serviceCounters
 }
 
-// NewService constructs a new investigator Service.
-func NewService(repo Repository, evidenceReader operations.EvidenceReader, logger *slog.Logger) *Service {
-	if logger == nil {
-		logger = slog.Default()
+func NewService(config ServiceConfig, store InvestigationStore, dependencies ToolDependencies) (*Service, error) {
+	if store == nil {
+		return nil, errors.New("investigation store is required")
 	}
-	return &Service{
-		repo:           repo,
-		evidenceReader: evidenceReader,
-		limiter:        newRateLimiter(3, 1*time.Minute),
-		logger:         logger,
+	if config.JobTimeout <= 0 || config.EvidenceTimeout <= 0 || config.LeaseDuration <= 0 || config.RetrievalTopK < 1 || config.RetrievalTopK > 5 || config.MaxCoreAttempts < 1 || config.MaxCoreAttempts > 3 {
+		return nil, errors.New("invalid investigation service configuration")
 	}
-}
-
-// CreateInvestigation handles client submission of an investigation job.
-func (s *Service) CreateInvestigation(ctx context.Context, actorID string, idempotencyKey string, req CreateJobRequest) (*InvestigationAccepted, error) {
-	if actorID == "" {
-		actorID = "anonymous"
+	if config.Mode != ModeEvidenceOnly && config.Mode != ModeLLM {
+		return nil, errors.New("invalid investigator mode")
 	}
-	if idempotencyKey == "" {
-		return nil, fmt.Errorf("idempotency key required")
+	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
+		return nil, errors.New("invalid provider generation configuration")
 	}
-
-	paymentUUID, err := uuid.Parse(strings.TrimSpace(req.PaymentID))
-	if err != nil {
-		return nil, ErrInvalidPaymentID
+	if config.Now == nil {
+		config.Now = time.Now
 	}
-
-	q := strings.TrimSpace(req.Question)
-	if len(q) < 1 || len(q) > 1000 {
-		return nil, ErrInvalidQuestion
-	}
-
-	if !s.limiter.Allow(actorID) {
-		return nil, ErrRateLimitExceeded
-	}
-
-	job, _, err := s.repo.CreateJob(ctx, paymentUUID, actorID, idempotencyKey, q, ModeEvidenceOnly)
+	registry, err := NewToolRegistry(dependencies)
 	if err != nil {
 		return nil, err
 	}
-
-	return &InvestigationAccepted{
-		InvestigationID: job.ID,
-		Status:          job.Status,
-		Mode:            job.Mode,
-	}, nil
+	return &Service{config: config, store: store, registry: registry}, nil
 }
 
-// GetInvestigation retrieves an investigation by UUID.
-func (s *Service) GetInvestigation(ctx context.Context, jobID uuid.UUID) (*Investigation, error) {
-	job, err := s.repo.GetJob(ctx, jobID)
+func (service *Service) Start(ctx context.Context, scope TrustedScope, paymentID, question, idempotencyKey string) (Job, bool, error) {
+	if err := validateInvestigationRequest(scope, paymentID, question, idempotencyKey); err != nil {
+		return Job{}, false, err
+	}
+	now := service.config.Now().UTC()
+	requestHash := investigationRequestHash(paymentID, question, service.config.Mode)
+	job, created, err := service.store.Create(ctx, NewJob{
+		Scope: scope, PaymentID: paymentID, Question: question, IdempotencyKey: idempotencyKey,
+		RequestHash: requestHash, Mode: service.config.Mode, DeadlineAt: now.Add(service.config.JobTimeout), CreatedAt: now,
+	})
 	if err != nil {
-		return nil, err
+		return Job{}, false, err
 	}
-
-	timeline := job.ToolTimeline
-	if timeline == nil {
-		timeline = []ToolStep{}
+	if created {
+		service.counters.created.Add(1)
+	} else {
+		service.counters.duplicates.Add(1)
 	}
-
-	var warning *Warning
-	if job.ErrorCode != nil && *job.ErrorCode != "" {
-		msg := ""
-		if job.ErrorMessage != nil {
-			msg = *job.ErrorMessage
-		}
-		warning = &Warning{
-			Code:    *job.ErrorCode,
-			Message: msg,
-		}
-	}
-
-	usage := UsageInfo{
-		PromptVersion: "evidence_only.v1",
-	}
-	if job.Usage != nil {
-		usage = *job.Usage
-	}
-
-	return &Investigation{
-		ID:           job.ID,
-		Status:       job.Status,
-		Mode:         job.Mode,
-		Report:       job.Report,
-		ToolTimeline: timeline,
-		Error:        warning,
-		CreatedAt:    job.CreatedAt,
-		CompletedAt:  job.CompletedAt,
-		Usage:        usage,
-	}, nil
+	return job, created, nil
 }
 
-// ExecuteJob performs deterministic evidence-only investigation.
-func (s *Service) ExecuteJob(ctx context.Context, job *JobRecord) error {
-	s.logger.Info("executing investigation job",
-		"job_id", job.ID,
-		"payment_id", job.PaymentID,
-		"actor_id", job.ActorID,
-	)
+func (service *Service) Get(ctx context.Context, scope TrustedScope, jobID string) (Job, error) {
+	return service.store.Get(ctx, scope, jobID)
+}
 
-	var timeline []ToolStep
-
-	// Step 1: read_payment_evidence
-	start1 := time.Now().UTC()
-	evidence, err := s.evidenceReader.ReadPaymentEvidence(ctx, "OPS_INVESTIGATOR", job.PaymentID)
-	finish1 := time.Now().UTC()
-
+func (service *Service) Run(ctx context.Context, jobID, workerID string) (Job, error) {
+	job, err := service.store.Claim(ctx, jobID, workerID, service.config.LeaseDuration)
 	if err != nil {
-		step1 := ToolStep{
-			ToolName:    "read_payment_evidence",
-			Arguments:   map[string]any{"paymentId": job.PaymentID.String()},
-			StartedAt:   start1,
-			FinishedAt:  &finish1,
-			Status:      ToolStepStatusFailed,
-			EvidenceIDs: []string{},
+		return Job{}, err
+	}
+	if !job.DeadlineAt.After(service.config.Now().UTC()) {
+		return service.fail(job, "deadline_exceeded", context.DeadlineExceeded)
+	}
+	jobContext, cancel := context.WithDeadline(ctx, job.DeadlineAt)
+	defer cancel()
+
+	if job.Snapshot == nil {
+		if job.EvidenceAttempts >= service.config.MaxCoreAttempts {
+			return service.fail(job, "tool_attempts_exhausted", errors.New("evidence attempts exhausted"))
 		}
-		timeline = append(timeline, step1)
-		_ = s.repo.FailJob(ctx, job.ID, job.LeaseEpoch, "EVIDENCE_FETCH_FAILED", err.Error(), timeline)
-		return fmt.Errorf("read payment evidence: %w", err)
-	}
-
-	var evidenceIDs []string
-	if evidence.Payment.EvidenceID != "" {
-		evidenceIDs = append(evidenceIDs, evidence.Payment.EvidenceID)
-	}
-	for _, op := range evidence.Operations {
-		if op.EvidenceID != "" {
-			evidenceIDs = append(evidenceIDs, op.EvidenceID)
+		job.EvidenceAttempts++
+		if err := service.store.SaveCheckpoint(jobContext, job); err != nil {
+			return job, err
+		}
+		arguments := mustJSON(struct {
+			PaymentId string `json:"paymentId"`
+		}{job.PaymentID})
+		result, timeline, callErr := service.executeCoreTool(jobContext, job, ToolCall{Name: ToolReadPaymentEvidence, Arguments: arguments}, service.config.EvidenceTimeout)
+		job.ToolTimeline = append(job.ToolTimeline, timeline)
+		if callErr != nil {
+			return service.handleCoreError(job, callErr)
+		}
+		var evidence EvidenceBundle
+		if err := json.Unmarshal(result.Payload, &evidence); err != nil {
+			return service.fail(job, "invalid_evidence", err)
+		}
+		job.Snapshot = &evidence
+		job.SnapshotHash = result.SourceHash
+		job.SourceHashes = append(job.SourceHashes, SourceHash{ToolName: ToolReadPaymentEvidence, SHA256: result.SourceHash})
+		if err := service.store.SaveCheckpoint(jobContext, job); err != nil {
+			return job, err
 		}
 	}
 
-	step1 := ToolStep{
-		ToolName:    "read_payment_evidence",
-		Arguments:   map[string]any{"paymentId": job.PaymentID.String()},
-		StartedAt:   start1,
-		FinishedAt:  &finish1,
-		Status:      ToolStepStatusCompleted,
-		EvidenceIDs: evidenceIDs,
+	if !job.RetrievalComplete {
+		if job.RetrievalAttempts >= service.config.MaxCoreAttempts {
+			return service.fail(job, "tool_attempts_exhausted", errors.New("retrieval attempts exhausted"))
+		}
+		job.RetrievalAttempts++
+		if err := service.store.SaveCheckpoint(jobContext, job); err != nil {
+			return job, err
+		}
+		arguments := mustJSON(struct {
+			Query string   `json:"query"`
+			Tags  []string `json:"tags"`
+			TopK  int      `json:"topK"`
+		}{retrievalQuery(job.Question, *job.Snapshot), retrievalTags(*job.Snapshot), service.config.RetrievalTopK})
+		result, timeline, callErr := service.executeCoreTool(jobContext, job, ToolCall{Name: ToolRetrieveRunbook, Arguments: arguments}, 0)
+		job.ToolTimeline = append(job.ToolTimeline, timeline)
+		if callErr != nil {
+			return service.handleCoreError(job, callErr)
+		}
+		if err := json.Unmarshal(result.Payload, &job.Chunks); err != nil {
+			return service.fail(job, "invalid_retrieval", err)
+		}
+		job.RetrievalComplete = true
+		job.SourceHashes = append(job.SourceHashes, SourceHash{ToolName: ToolRetrieveRunbook, SHA256: result.SourceHash})
+		if err := service.store.SaveCheckpoint(jobContext, job); err != nil {
+			return job, err
+		}
 	}
-	timeline = append(timeline, step1)
 
-	// Step 2: retrieve_runbook
-	start2 := time.Now().UTC()
-	var tags []string
+	if job.Mode == ModeLLM {
+		return service.runGenerated(jobContext, job)
+	}
+	report, err := BuildEvidenceOnlyReport(*job.Snapshot, job.Chunks, job.Question)
+	if err != nil {
+		return service.fail(job, "report_validation_failed", err)
+	}
+	job.Report = &report
+	job.Status = StatusCompleted
+	job.CompletedAt = service.config.Now().UTC()
+	job.ErrorCode = ""
+	if err := service.store.SaveCheckpoint(jobContext, job); err != nil {
+		return job, err
+	}
+	service.counters.completed.Add(1)
+	return job, nil
+}
+
+func (service *Service) Metrics() ServiceMetrics {
+	return ServiceMetrics{
+		Created: service.counters.created.Load(), Duplicates: service.counters.duplicates.Load(),
+		Completed: service.counters.completed.Load(), Failed: service.counters.failed.Load(),
+		Deadlines: service.counters.deadlines.Load(), ToolCalls: service.counters.toolCalls.Load(),
+		ToolErrors: service.counters.toolErrors.Load(),
+	}
+}
+
+func (service *Service) executeCoreTool(ctx context.Context, job Job, call ToolCall, timeout time.Duration) (ToolResult, ToolTimelineEntry, error) {
+	started := service.config.Now().UTC()
+	entry := ToolTimelineEntry{ToolName: call.Name, Arguments: append(json.RawMessage(nil), call.Arguments...), StartedAt: started.Format(time.RFC3339Nano)}
+	toolContext := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		toolContext, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+	service.counters.toolCalls.Add(1)
+	result, err := service.registry.Execute(toolContext, TrustedScope{ActorID: job.ActorID, Role: job.Role, SelectedPaymentID: job.PaymentID}, job.Snapshot, call)
+	entry.FinishedAt = service.config.Now().UTC().Format(time.RFC3339Nano)
+	if err != nil {
+		service.counters.toolErrors.Add(1)
+		entry.Status = timelineStatus(err)
+		return ToolResult{}, entry, err
+	}
+	entry.Status = "completed"
+	entry.EvidenceIds = append([]string(nil), result.EvidenceIds...)
+	return result, entry, nil
+}
+
+func (service *Service) handleCoreError(job Job, err error) (Job, error) {
+	if errors.Is(err, context.Canceled) {
+		if saveErr := service.saveDetached(job); saveErr != nil {
+			return job, saveErr
+		}
+		return job, err
+	}
+	if errors.Is(err, context.DeadlineExceeded) || !job.DeadlineAt.After(service.config.Now().UTC()) {
+		return service.fail(job, "deadline_exceeded", err)
+	}
+	return service.fail(job, "source_unavailable", err)
+}
+
+func (service *Service) fail(job Job, code string, cause error) (Job, error) {
+	job.Status = StatusFailed
+	job.ErrorCode = code
+	job.CompletedAt = service.config.Now().UTC()
+	if code == "deadline_exceeded" {
+		service.counters.deadlines.Add(1)
+	}
+	service.counters.failed.Add(1)
+	if err := service.saveDetached(job); err != nil {
+		return job, err
+	}
+	return job, cause
+}
+
+func (service *Service) saveDetached(job Job) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return service.store.SaveCheckpoint(ctx, job)
+}
+
+func timelineStatus(err error) string {
+	if errors.Is(err, ErrUnknownTool) || errors.Is(err, ErrInvalidToolArguments) || errors.Is(err, ErrToolBudgetExceeded) || errors.Is(err, ErrDuplicateToolCall) || errors.Is(err, ErrScopeViolation) {
+		return "rejected"
+	}
+	return "failed"
+}
+
+func validateInvestigationRequest(scope TrustedScope, paymentID, question, idempotencyKey string) error {
+	if err := validateTrustedScope(scope); err != nil || paymentID != scope.SelectedPaymentID {
+		return ErrScopeViolation
+	}
+	if strings.TrimSpace(question) == "" || utf8.RuneCountInString(question) > 1000 {
+		return ErrInvalidInvestigationRequest
+	}
+	if idempotencyKey == "" || utf8.RuneCountInString(idempotencyKey) > 200 || strings.IndexFunc(idempotencyKey, unicode.IsControl) >= 0 {
+		return ErrInvalidInvestigationRequest
+	}
+	return nil
+}
+
+func investigationRequestHash(paymentID, question, mode string) string {
+	digest := sha256.Sum256([]byte("tx.investigation.request.v1\x00" + paymentID + "\x00" + question + "\x00" + mode))
+	return hex.EncodeToString(digest[:])
+}
+
+func retrievalQuery(question string, evidence EvidenceBundle) string {
+	query := strings.TrimSpace(question) + " payment state " + string(evidence.Payment.State)
+	if evidence.Recovery.ReasonCode != nil {
+		query += " recovery reason " + *evidence.Recovery.ReasonCode
+	}
+	if utf8.RuneCountInString(query) <= maxRetrievalQuery {
+		return query
+	}
+	runes := []rune(query)
+	return string(runes[:maxRetrievalQuery])
+}
+
+func retrievalTags(evidence EvidenceBundle) []string {
+	tags := []string{"payment"}
 	switch evidence.Payment.State {
-	case "PENDING_RECONCILIATION":
-		tags = append(tags, "pending_reconciliation", "reconciliation")
-	case "BANK_SETTLED_CENTRAL_PENDING":
-		tags = append(tags, "central_pending", "continuation")
+	case "PROCESSING", "PENDING_RECONCILIATION", "BANK_SETTLED_CENTRAL_PENDING":
+		tags = append(tags, "recovery")
 	}
-	if evidence.Recovery.Status == "needs_attention" || evidence.Recovery.AttemptCount > 0 {
-		tags = append(tags, "recovery", "bank_outage")
+	if evidence.Route.Status != "available" {
+		tags = append(tags, "missing_target")
 	}
-	for _, op := range evidence.Operations {
-		if op.Presence != "" {
-			tags = append(tags, "operation_presence", "presence")
-			break
-		}
-	}
+	return tags
+}
 
-	chunks, err := s.repo.SearchCorpus(ctx, job.Question, tags, 5)
-	finish2 := time.Now().UTC()
+func mustJSON(value any) json.RawMessage {
+	raw, err := json.Marshal(value)
 	if err != nil {
-		s.logger.Warn("search corpus failed, continuing with empty chunks", "error", err)
-		chunks = []CorpusChunk{}
+		panic(fmt.Sprintf("encode internal tool arguments: %v", err))
 	}
-
-	step2 := ToolStep{
-		ToolName:    "retrieve_runbook",
-		Arguments:   map[string]any{"query": job.Question, "topK": 5},
-		StartedAt:   start2,
-		FinishedAt:  &finish2,
-		Status:      ToolStepStatusCompleted,
-		EvidenceIDs: []string{},
-	}
-	timeline = append(timeline, step2)
-
-	// Step 3: Construct grounded report
-	report := s.buildEvidenceOnlyReport(evidence, chunks)
-	usage := &UsageInfo{
-		InputTokens:   nil,
-		OutputTokens:  nil,
-		Model:         nil,
-		PromptVersion: "evidence_only.v1",
-	}
-
-	if err := s.repo.CompleteJob(ctx, job.ID, job.LeaseEpoch, report, timeline, usage); err != nil {
-		s.logger.Error("complete investigation job failed", "job_id", job.ID, "error", err)
-		return err
-	}
-
-	s.logger.Info("completed investigation job", "job_id", job.ID)
-	return nil
-}
-
-func (s *Service) buildEvidenceOnlyReport(evidence *operations.EvidenceBundle, chunks []CorpusChunk) *InvestigationReport {
-	paymentIDStr := evidence.Payment.EvidenceID
-
-	var facts []Fact
-
-	// Fact 1: Central State
-	stateAssertions := []Assertion{
-		{
-			Field:      "central_state",
-			Value:      evidence.Payment.State,
-			EntityID:   &paymentIDStr,
-			EvidenceID: evidence.Payment.EvidenceID,
-		},
-	}
-	facts = append(facts, Fact{
-		Text:          fmt.Sprintf("The central payment is %s.", evidence.Payment.State),
-		EvidenceIDs:   []string{evidence.Payment.EvidenceID},
-		Assertions:    stateAssertions,
-		Contradiction: false,
-	})
-
-	// Fact 2: Amount
-	amountAssertions := []Assertion{
-		{
-			Field:      "amount_paise",
-			Value:      evidence.Payment.AmountPaise,
-			EntityID:   &paymentIDStr,
-			EvidenceID: evidence.Payment.EvidenceID,
-		},
-	}
-	facts = append(facts, Fact{
-		Text:          fmt.Sprintf("The central payment amount is %s paise in currency %s.", evidence.Payment.AmountPaise, evidence.Payment.Currency),
-		EvidenceIDs:   []string{evidence.Payment.EvidenceID},
-		Assertions:    amountAssertions,
-		Contradiction: false,
-	})
-
-	// Fact 3: Route Target
-	var routeTarget string
-	if evidence.Route.DestinationBankCode != nil && *evidence.Route.DestinationBankCode != "" {
-		routeTarget = *evidence.Route.DestinationBankCode
-	} else if evidence.Route.ExecutionTargetID != nil && *evidence.Route.ExecutionTargetID != "" {
-		routeTarget = *evidence.Route.ExecutionTargetID
-	}
-	if routeTarget != "" {
-		routeAssertions := []Assertion{
-			{
-				Field:      "route_target",
-				Value:      routeTarget,
-				EntityID:   &paymentIDStr,
-				EvidenceID: evidence.Payment.EvidenceID,
-			},
-		}
-		facts = append(facts, Fact{
-			Text:          fmt.Sprintf("The payment route target is %s with status %s.", routeTarget, evidence.Route.Status),
-			EvidenceIDs:   []string{evidence.Payment.EvidenceID},
-			Assertions:    routeAssertions,
-			Contradiction: false,
-		})
-	}
-
-	// Fact 4: Recovery Status
-	if evidence.Recovery.Status != "" {
-		recAssertions := []Assertion{
-			{
-				Field:      "recovery_status",
-				Value:      evidence.Recovery.Status,
-				EntityID:   &paymentIDStr,
-				EvidenceID: evidence.Payment.EvidenceID,
-			},
-		}
-		facts = append(facts, Fact{
-			Text:          fmt.Sprintf("The recovery status is %s with %d attempt(s).", evidence.Recovery.Status, evidence.Recovery.AttemptCount),
-			EvidenceIDs:   []string{evidence.Payment.EvidenceID},
-			Assertions:    recAssertions,
-			Contradiction: false,
-		})
-	}
-
-	// Fact 5..N: Operations
-	for _, op := range evidence.Operations {
-		opIDStr := op.OperationID.String()
-		bankCode := op.BankCode
-		opAssertions := []Assertion{
-			{
-				Field:      "operation_id",
-				Value:      op.OperationID.String(),
-				EntityID:   &bankCode,
-				EvidenceID: op.EvidenceID,
-			},
-			{
-				Field:      "bank_code",
-				Value:      op.BankCode,
-				EntityID:   &opIDStr,
-				EvidenceID: op.EvidenceID,
-			},
-			{
-				Field:      "participant_status",
-				Value:      op.Presence,
-				EntityID:   &opIDStr,
-				EvidenceID: op.EvidenceID,
-			},
-		}
-		facts = append(facts, Fact{
-			Text:          fmt.Sprintf("Operation %s on bank %s has central status %s and participant presence %s.", op.OperationID, op.BankCode, op.CentralStatus, op.Presence),
-			EvidenceIDs:   []string{op.EvidenceID},
-			Assertions:    opAssertions,
-			Contradiction: false,
-		})
-	}
-
-	// Inferences: empty in evidence-only mode
-	inferences := []Inference{}
-
-	// Recommendations: from retrieved runbook chunks
-	var recommendations []Recommendation
-	for _, chunk := range chunks {
-		recommendations = append(recommendations, Recommendation{
-			Text:            fmt.Sprintf("Refer to %s: %s", chunk.Heading, summarizeChunk(chunk.Content)),
-			RunbookChunkIDs: []string{fmt.Sprintf("runbook:%s", chunk.ID.String())},
-		})
-	}
-	if recommendations == nil {
-		recommendations = []Recommendation{}
-	}
-
-	// Missing evidence
-	var missingEvidence []string
-	for _, src := range evidence.Sources {
-		if src.Status != "available" {
-			missingEvidence = append(missingEvidence, fmt.Sprintf("%s_%s", src.Name, src.Status))
-		}
-	}
-	if missingEvidence == nil {
-		missingEvidence = []string{}
-	}
-
-	// Coverage
-	coverage := CoverageCompleteForQuestion
-	if evidence.Payment.State == "PENDING_RECONCILIATION" || len(missingEvidence) > 0 {
-		coverage = CoverageLimited
-	}
-
-	// Summary
-	summary := fmt.Sprintf("The central payment is %s.", evidence.Payment.State)
-	if evidence.Payment.State == "PENDING_RECONCILIATION" {
-		summary = "The central payment remains PENDING_RECONCILIATION. Participant operation evidence and recovery state have been analyzed."
-	} else if evidence.Payment.State == "COMPLETED" {
-		summary = "The payment has completed successfully with all settlement ledger entries recorded."
-	} else if evidence.Payment.State == "FAILED" {
-		summary = "The payment is FAILED; participant failure or terminal recovery was observed."
-	}
-
-	return &InvestigationReport{
-		SchemaVersion:    SchemaVersionV1,
-		Mode:             ModeEvidenceOnly,
-		Summary:          summary,
-		Facts:            facts,
-		Inferences:       inferences,
-		Recommendations:  recommendations,
-		MissingEvidence:  missingEvidence,
-		EvidenceCoverage: coverage,
-		SnapshotID:       evidence.SnapshotID,
-		CollectedAt:      evidence.CollectedAt,
-	}
-}
-
-func summarizeChunk(content string) string {
-	lines := strings.Split(content, "\n")
-	for _, l := range lines {
-		l = strings.TrimSpace(l)
-		if l != "" && !strings.HasPrefix(l, "#") {
-			if len(l) > 120 {
-				return l[:117] + "..."
-			}
-			return l
-		}
-	}
-	if len(content) > 120 {
-		return content[:117] + "..."
-	}
-	return content
-}
-
-// SeedRunbooks seeds default technical runbooks if the corpus is empty.
-func (s *Service) SeedRunbooks(ctx context.Context) error {
-	count, err := s.repo.CountCorpusChunks(ctx)
-	if err != nil {
-		return fmt.Errorf("check corpus count: %w", err)
-	}
-	if count > 0 {
-		return nil // Already seeded
-	}
-
-	type defaultChunk struct {
-		heading string
-		path    string
-		tags    []string
-		content string
-	}
-
-	defaults := []defaultChunk{
-		{
-			heading: "Pending Reconciliation and Missing Destination Operation",
-			path:    "docs/runbooks/pending-reconciliation.md",
-			tags:    []string{"pending_reconciliation", "destination_unavailable", "reconciliation"},
-			content: "When a payment is in PENDING_RECONCILIATION, the central engine dispatched a debit or credit operation to the participant bank but has not yet received definitive settlement confirmation. Operators should verify participant presence using the operation presence reader. If participant presence is absent_confirmed, safe replay or continuation may proceed. If presence is present, the operation was executed by the participant and central reconciliation should mark the payment completed without duplicate dispatch.",
-		},
-		{
-			heading: "Bank Outage and Scheduled Recovery",
-			path:    "docs/runbooks/bank-outage-recovery.md",
-			tags:    []string{"recovery", "bank_outage", "needs_attention"},
-			content: "When participant banks experience transient downtime, payments enter scheduled recovery with exponential backoff and jitter. If bank outages exceed 20 attempts, the recovery job transitions to needs_attention with reason ATTEMPTS_EXHAUSTED. Operators can trigger manual recovery rechecks via the POST /api/ops/payments/{paymentID}/recovery/recheck endpoint to expedite recovery once bank connectivity is restored.",
-		},
-		{
-			heading: "Bank Settled Central Pending Continuation",
-			path:    "docs/runbooks/central-pending-continuation.md",
-			tags:    []string{"central_pending", "continuation", "ledger"},
-			content: "Payments in BANK_SETTLED_CENTRAL_PENDING indicate that the participant bank settled the transaction successfully, but central ledger recording was interrupted before finalization. Continuation will verify existing ledger entries and complete central settlement without issuing redundant bank operations.",
-		},
-		{
-			heading: "Participant Operation Presence Verification",
-			path:    "docs/runbooks/operation-presence.md",
-			tags:    []string{"operation_presence", "presence", "dispatch"},
-			content: "The participant presence query checks the participant bank's durable operations log using the unique operation ID and payment ID. Absence confirms that the dispatch never reached the participant ledger, allowing safe dispatch replay. Ambiguous or present presence mandates reconciliation verification.",
-		},
-	}
-
-	for i, d := range defaults {
-		h := sha256.Sum256([]byte(d.content))
-		shaStr := hex.EncodeToString(h[:])
-
-		chunk := CorpusChunk{
-			ID:            uuid.New(),
-			CorpusVersion: "v1",
-			DocumentPath:  d.path,
-			Heading:       d.heading,
-			StartLine:     1,
-			EndLine:       25,
-			Content:       d.content,
-			SHA256:        shaStr,
-			ApprovedTags:  d.tags,
-			AllowedRoles:  []string{"OPS_ADMIN", "OPS_VIEWER"},
-			Active:        true,
-		}
-		if err := s.repo.InsertCorpusChunk(ctx, chunk); err != nil {
-			return fmt.Errorf("insert seed chunk %d: %w", i, err)
-		}
-	}
-
-	s.logger.Info("seeded default runbook corpus chunks", "count", len(defaults))
-	return nil
+	return raw
 }
