@@ -54,6 +54,26 @@ and never grant roles themselves. For the expiry case, run a separate API with
 `JWT_LIFETIME` at most 10 seconds and set `TX_LIVE_EXPECT_EXPIRY=1`; otherwise
 that case is skipped and no expiry acceptance is claimed. SSE reconnect and
 retained-citation cases remain required even when a candidate fails them.
+
+Run `npm run test:browser:live -- accessibility.live.spec.ts` with the real
+viewer/payment/state inputs to check worklist, evidence, completed/saved
+investigation citations and analytics at 360, 768 and 1440 pixels. Controls
+are reached with Tab and activated with Enter; axe checks critical/serious
+WCAG findings and document overflow. The separate 200% case uses a temporary
+browser extension to set native tab zoom, verifies doubled device pixel ratio
+and halved content width, and saves `actual-zoom.json`. It never substitutes CSS
+scale for browser zoom. Persistent test profiles are closed and removed.
+
+For a generated self-signed loopback certificate, set `NODE_EXTRA_CA_CERTS` to
+its public PEM certificate for the API test client. When system trust is
+unavailable, `TX_LIVE_TLS_SPKI` may contain the base64 SHA-256 of that certificate's
+DER SubjectPublicKeyInfo. The browser accepts only that exact key; the live
+configuration rejects this option unless both origins are loopback and
+`TX_LIVE_DISPOSABLE_DB=1`. Non-disposable and external origins were verified
+to reject it. Do not use general `ignoreHTTPSErrors`/certificate-error flags.
+Keep keys/credentials private. This setup proves encrypted local simulation
+transport; public-host CA/certificate acceptance remains a separate smoke gate.
+
 The same live suite includes an offline intent case. It requires three distinct
 disposable customer IDs (`TX_LIVE_SENDER_ID`, `TX_LIVE_RECEIVER_ID`,
 `TX_LIVE_OTHER_ID`), their `TX_LIVE_CUSTOMER_PASSWORD`, `TX_LIVE_API_URL`, and

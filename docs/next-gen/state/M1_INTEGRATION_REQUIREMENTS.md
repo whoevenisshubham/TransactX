@@ -2,6 +2,8 @@
 
 ## Current candidate recheck — 90288d2, 13 October
 
+M1 production browser follow-up is recorded in `production-browser-final-m1.json`: account-isolated real offline replay and financial/projection SQL passed, as did real viewer keyboard/accessibility at 360/768/1440 and native 200% zoom after M1 contrast/input-width fixes. These supersede the prior absence of A5 evidence within that scoped source/environment. Broader native fault cases and final source-matched release/archive gates remain pending; the M2 corrections below remain owner dependencies.
+
 Historical findings below remain preserved; do not reapply already integrated reconciliation. This candidate contains all current lane heads. Canonical fresh/upgrade store conformance and corpus lifecycle passed independently. Real saved evidence citations, investigator/worker, strict actor-scope/idempotency, analytics rendering and viewer-denial passed. M1 fixed browser offline SSE status/reconnection and verified the affected native flow plus actual JWT expiry. See `candidate902-acceptance-m1.json` and current M1 checkpoint.
 
 Remaining M2-owned requirements:
