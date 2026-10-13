@@ -86,3 +86,10 @@ review migration compatibility. Never reset financial data or downgrade a durabl
 payload schema to force rollback. Restore only into a new isolated database first.
 
 No public URL, completed release, full archive or off-machine backup is claimed.
+
+Current handoff: independent M1 work is complete at the recorded scopes. The
+last real HTTPS CLI smoke passed its health/SPA/CORS prefix but stopped at the
+owner-only auth-header guard on Git Bash's NTFS `noacl` mount; no guard was
+relaxed. See `state/https-smoke-platform-m1.json`. Full authenticated Linux smoke,
+the M2 corrections, actual public API origin and final combined/archive/install
+gates above remain required. Work stops at these inputs without repeated polling.

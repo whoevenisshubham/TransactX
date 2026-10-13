@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-13",
+  "sourceSha": "025f0df977f417cc5f227ccc0207d46b849d5068",
+  "nativeBinarySource": "4d8f2af862cfa2f7e32e6a9a0d3b8f8b50218a84",
+  "backendSourceDifference": "none",
+  "scope": "Real production frontend/native API/canonical PostgreSQL through localhost TLS proxies",
+  "productionBuild": "passed",
+  "basicChecks": "passed before auth guard: TLS-verified API health/database health, SPA worklist deep link, allowed CORS and blocked-origin rejection",
+  "authenticatedSmoke": {
+    "platformEvidence": "Git Bash NTFS noacl mount reports 644 despite chmod 600; native Windows ACL was protected with one current-user rule",
+    "result": "not_run: owner-only auth-header guard rejected MSYS mode",
+    "noGuardBypass": true,
+    "message": "Auth header file must be owner-only.",
+    "exitCode": 2
+  },
+  "tls": "Private curl cacert configuration with generated localhost certificate; no insecure flags or system trust changes",
+  "scriptHash": "d7b7f37f11e11a103d4882c3e0866ac7c3a6692a854a625b51114071e30aeb7a",
+  "privateLogHash": "610fb3b509393cf3bce72f2b2bb161817c8f653071fca1bcb2bba68319996b3e",
+  "limitations": [
+    "Full authenticated CLI smoke remains pending on native Linux/ACL-capable environment",
+    "Current native authenticated SSE already has separate real-browser evidence; not claimed as this CLI run",
+    "No public host, external bank/database port denial or public CA/DNS verification"
+  ],
+  "allProbeProcessesStopped": true,
+  "spend": 0,
+  "providerCalls": 0
+}
