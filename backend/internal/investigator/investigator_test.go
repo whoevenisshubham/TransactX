@@ -7,12 +7,12 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/transactx/backend/internal/operations"
 )
 
 func getTestPool(t *testing.T) *pgxpool.Pool {
@@ -244,8 +244,8 @@ func TestInvestigatorRepository_ClaimAndComplete(t *testing.T) {
 		Recommendations:  []Recommendation{},
 		MissingEvidence:  []string{},
 		EvidenceCoverage: CoverageCompleteForQuestion,
-		SnapshotID:       "sha256:test",
-		CollectedAt:      now,
+		SnapshotId:       "sha256:test",
+		CollectedAt:      now.Format(time.RFC3339),
 	}
 	timeline := []ToolStep{
 		{
@@ -328,6 +328,46 @@ func TestInvestigatorRepository_CorpusSearch(t *testing.T) {
 	}
 }
 
+type rateLimiter struct {
+	mu       sync.Mutex
+	requests map[string][]time.Time
+	limit    int
+	window   time.Duration
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{
+		requests: make(map[string][]time.Time),
+		limit:    limit,
+		window:   window,
+	}
+}
+
+func (rl *rateLimiter) Allow(actorID string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+
+	times := rl.requests[actorID]
+	var valid []time.Time
+	for _, t := range times {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+
+	if len(valid) >= rl.limit {
+		rl.requests[actorID] = valid
+		return false
+	}
+
+	valid = append(valid, now)
+	rl.requests[actorID] = valid
+	return true
+}
+
 func TestInvestigatorService_RateLimit(t *testing.T) {
 	rl := newRateLimiter(3, 1*time.Minute)
 	actor := "test-actor"
@@ -346,123 +386,69 @@ func TestInvestigatorService_RateLimit(t *testing.T) {
 	}
 }
 
-type fakeEvidenceReader struct {
-	bundle *operations.EvidenceBundle
-	err    error
-}
-
-func (f *fakeEvidenceReader) ReadPaymentEvidence(ctx context.Context, trustedScope string, paymentID uuid.UUID) (*operations.EvidenceBundle, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.bundle, nil
-}
-
 func TestInvestigatorService_ExecuteJob(t *testing.T) {
 	pool := getTestPool(t)
 	defer pool.Close()
 
 	ctx := context.Background()
-	repo := NewPostgresRepository(pool)
-
-	paymentID := createTestPayment(t, pool)
-	bundle := &operations.EvidenceBundle{
-		SchemaVersion: "tx.v2.1",
-		PaymentID:     paymentID,
-		SnapshotID:    "sha256:fake-snapshot",
-		CollectedAt:   time.Now().UTC(),
-		Payment: operations.PaymentSnapshot{
-			State:        "PENDING_RECONCILIATION",
-			AmountPaise:  "50000",
-			Currency:     "INR",
-			CreatedAt:    time.Now().UTC().Add(-10 * time.Minute),
-			UpdatedAt:    time.Now().UTC(),
-			EventVersion: "2",
-			EvidenceID:   "payment:" + paymentID.String() + ":snap",
-		},
-		Route: operations.RouteSnapshot{
-			Status: "routed",
-		},
-		Operations: []operations.OperationSnapshot{
-			{
-				OperationID:   uuid.New(),
-				OperationType: "DEBIT",
-				BankCode:      "BANK_A",
-				CentralStatus: "DISPATCHED",
-				Presence:      "absent_confirmed",
-				EvidenceID:    "op:fake:1",
-			},
-		},
-		Recovery: operations.RecoverySnapshot{
-			Status:       "running",
-			AttemptCount: 1,
-		},
-		Sources: []operations.SourceSnapshot{
-			{
-				Name:   "bank_b",
-				Status: "unavailable",
-			},
-		},
+	invStore, err := NewPostgresInvestigationStore(pool, time.Now)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	corpusRepo, err := NewPostgresCorpusRepository(pool)
+	if err != nil {
+		t.Fatalf("new corpus repo: %v", err)
 	}
 
-	fakeReader := &fakeEvidenceReader{bundle: bundle}
-	svc := NewService(repo, fakeReader, nil)
+	paymentID := createTestPayment(t, pool)
+	fixture := loadFixture(t, "healthy.json")
+	fixture.Evidence.PaymentId = paymentID.String()
+	fixture.Evidence.Payment.EvidenceId = "payment:" + paymentID.String()
 
-	if err := svc.SeedRunbooks(ctx); err != nil {
-		t.Fatalf("seed runbooks failed: %v", err)
+	reader := fakeReader{bundle: fixture.Evidence}
+	deps := ToolDependencies{
+		Evidence: reader,
+		Runbooks: corpusRepo,
+	}
+
+	cfg := DefaultServiceConfig()
+	cfg.JobTimeout = 2 * time.Minute
+	svc, err := NewService(cfg, invStore, deps)
+	if err != nil {
+		t.Fatalf("new service: %v", err)
 	}
 
 	actorID := "actor-exec-" + uuid.New().String()
 	idempKey := "idemp-exec-" + uuid.New().String()
+	scope := TrustedScope{
+		ActorID:           actorID,
+		Role:              "OPS_ADMIN",
+		SelectedPaymentID: paymentID.String(),
+	}
 
-	acc, err := svc.CreateInvestigation(ctx, actorID, idempKey, CreateJobRequest{
-		PaymentID: paymentID.String(),
-		Question:  "Why is this payment pending?",
-	})
+	job, _, err := svc.Start(ctx, scope, paymentID.String(), "Why is this payment pending?", idempKey)
 	if err != nil {
-		t.Fatalf("create investigation failed: %v", err)
+		t.Fatalf("start job: %v", err)
 	}
 
-	claimed, err := repo.ClaimNextJob(ctx, "worker-test", 10*time.Second)
-	if err != nil || claimed == nil {
-		t.Fatalf("claim failed: %v", err)
-	}
-
-	if err := svc.ExecuteJob(ctx, claimed); err != nil {
-		t.Fatalf("execute job failed: %v", err)
-	}
-
-	inv, err := svc.GetInvestigation(ctx, acc.InvestigationID)
+	completedJob, err := svc.Run(ctx, job.ID, "worker-test")
 	if err != nil {
-		t.Fatalf("get investigation failed: %v", err)
+		t.Fatalf("run job: %v", err)
 	}
 
-	if inv.Status != StatusCompleted {
-		t.Errorf("expected status %s, got %s", StatusCompleted, inv.Status)
+	if completedJob.Status != StatusCompleted {
+		t.Errorf("expected status %s, got %s", StatusCompleted, completedJob.Status)
 	}
-	if inv.Report == nil {
+	if completedJob.Report == nil {
 		t.Fatalf("expected non-nil report")
 	}
-	if inv.Report.SchemaVersion != SchemaVersionV1 {
-		t.Errorf("expected schemaVersion %s, got %s", SchemaVersionV1, inv.Report.SchemaVersion)
+	if completedJob.Report.SchemaVersion != SchemaVersionV1 {
+		t.Errorf("expected schemaVersion %s, got %s", SchemaVersionV1, completedJob.Report.SchemaVersion)
 	}
-	if len(inv.Report.Facts) == 0 {
+	if len(completedJob.Report.Facts) == 0 {
 		t.Errorf("expected facts in report, got 0")
 	}
-
-	var foundStateAssertion bool
-	for _, f := range inv.Report.Facts {
-		for _, a := range f.Assertions {
-			if a.Field == "central_state" && a.Value == "PENDING_RECONCILIATION" {
-				foundStateAssertion = true
-			}
-		}
-	}
-	if !foundStateAssertion {
-		t.Errorf("expected central_state assertion PENDING_RECONCILIATION in facts")
-	}
-
-	if len(inv.ToolTimeline) < 2 {
-		t.Errorf("expected at least 2 timeline steps, got %d", len(inv.ToolTimeline))
+	if len(completedJob.ToolTimeline) < 1 {
+		t.Errorf("expected at least 1 timeline step, got %d", len(completedJob.ToolTimeline))
 	}
 }

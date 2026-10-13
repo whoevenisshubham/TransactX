@@ -24,6 +24,7 @@
 .ops-citation { border: 0; background: var(--accent-pale); color: var(--accent-strong); border-radius: var(--radius-sm); padding: var(--space-xs) var(--space-sm); font: inherit; font-size: var(--font-size-label); cursor: pointer; overflow-wrap: anywhere; }
 .ops-citation:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ops-investigation { border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-md); margin-top: var(--space-md); }
+.ops-investigation .ops-muted { overflow-wrap: anywhere; }
 @media (max-width: 700px) {
   .ops-evidence-grid { grid-template-columns: 1fr; }
   .ops-table thead { display: none; }

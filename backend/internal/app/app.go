@@ -56,7 +56,8 @@ type Environment struct {
 	TelemetryShutdown    func(context.Context) error
 	AnalyticsRepo        analytics.Repository
 	AnalyticsService     *analytics.Service
-	InvestigatorRepo     investigator.Repository
+	InvestigatorStore    investigator.InvestigationStore
+	CorpusRepo           *investigator.PostgresCorpusRepository
 	InvestigatorService  *investigator.Service
 	ownsDB               bool
 }
@@ -308,10 +309,36 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 
 	operationsRepo := operations.NewRepository(db)
 	operationsSvc := operations.NewService(operationsRepo, adapters, logger)
-	investigatorRepo := investigator.NewPostgresRepository(db)
-	investigatorSvc := investigator.NewService(investigatorRepo, operationsSvc, logger)
-	if err := investigatorSvc.SeedRunbooks(ctx); err != nil {
-		logger.Warn("seed runbooks failed", "error", err)
+
+	corpusRepo, err := investigator.NewPostgresCorpusRepository(db)
+	if err != nil {
+		return nil, fmt.Errorf("initialize corpus repository: %w", err)
+	}
+	investigatorStore, err := investigator.NewPostgresInvestigationStore(db, time.Now)
+	if err != nil {
+		return nil, fmt.Errorf("initialize investigator store: %w", err)
+	}
+
+	bridgedEvidence := investigator.BridgedEvidenceReader{
+		Source: &opsEvidenceSource{ops: operationsSvc},
+	}
+	investigatorDeps := investigator.ToolDependencies{
+		Evidence:  bridgedEvidence,
+		Runbooks:  corpusRepo,
+		Recovery:  &opsRecoveryReader{ops: operationsSvc},
+		Trace:     &opsTraceReader{traceStore: telemetry.NewTraceStore(db, logger)},
+		Analytics: &opsAnalyticsReader{repo: analyticsRepo},
+	}
+	invCfg := investigator.DefaultServiceConfig()
+	investigatorSvc, err := investigator.NewService(invCfg, investigatorStore, investigatorDeps)
+	if err != nil {
+		return nil, fmt.Errorf("initialize investigator service: %w", err)
+	}
+
+	if build, err := investigator.BuildCorpus(".", "docs/runbooks/corpus-manifest.json"); err == nil {
+		if err := corpusRepo.Stage(ctx, build); err == nil {
+			_ = corpusRepo.Activate(ctx, build.Version, build.ManifestSHA256)
+		}
 	}
 
 	return &Environment{
@@ -338,7 +365,8 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		TelemetryShutdown:    telShutdown,
 		AnalyticsRepo:        analyticsRepo,
 		AnalyticsService:     analyticsSvc,
-		InvestigatorRepo:     investigatorRepo,
+		InvestigatorStore:    investigatorStore,
+		CorpusRepo:           corpusRepo,
 		InvestigatorService:  investigatorSvc,
 	}, nil
 }

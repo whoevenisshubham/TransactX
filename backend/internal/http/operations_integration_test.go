@@ -719,21 +719,34 @@ func TestOperations_Investigation_CreateAndFetch(t *testing.T) {
 		t.Fatalf("expected status queued, got %s", queuedInvResp.Data.Status)
 	}
 
-	// 8. Execute the job via Investigator Repo & Service
-	invRepo := investigator.NewPostgresRepository(pool)
+	// 8. Execute the job via Investigator Store & Service
+	invStore, err := investigator.NewPostgresInvestigationStore(pool, time.Now)
+	if err != nil {
+		t.Fatalf("failed to create investigation store: %v", err)
+	}
+	corpusRepo, err := investigator.NewPostgresCorpusRepository(pool)
+	if err != nil {
+		t.Fatalf("failed to create corpus repo: %v", err)
+	}
 	opsRepo := operations.NewRepository(pool)
 	opsSvc := operations.NewService(opsRepo, nil, nil)
-	invSvc := investigator.NewService(invRepo, opsSvc, nil)
-	_ = invSvc.SeedRunbooks(ctx)
+	bridgedEvidence := investigator.BridgedEvidenceReader{
+		Source: &httpOpsEvidenceSource{ops: opsSvc},
+	}
+	deps := investigator.ToolDependencies{
+		Evidence: bridgedEvidence,
+		Runbooks: corpusRepo,
+		Recovery: &httpOpsRecoveryReader{ops: opsSvc},
+	}
+	cfg := investigator.DefaultServiceConfig()
+	cfg.JobTimeout = 2 * time.Minute
+	invSvc, err := investigator.NewService(cfg, invStore, deps)
+	if err != nil {
+		t.Fatalf("failed to create investigator service: %v", err)
+	}
 
-	claimed, err := invRepo.ClaimNextJob(ctx, "worker-integration-test", 1*time.Minute)
-	if err != nil || claimed == nil {
-		t.Fatalf("expected to claim queued job, got %v", err)
-	}
-	if claimed.ID != invID {
-		t.Fatalf("claimed job ID mismatch: %s vs %s", invID, claimed.ID)
-	}
-	if err := invSvc.ExecuteJob(ctx, claimed); err != nil {
+	_, err = invSvc.Run(ctx, invID.String(), "worker-integration-test")
+	if err != nil {
 		t.Fatalf("execute job failed: %v", err)
 	}
 

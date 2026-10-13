@@ -218,8 +218,19 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		handler.traceStore = telemetry.NewTraceStore(db, logger)
 		handler.telemetryMetrics = telemetry.NewMetrics()
 		handler.analyticsRepo = analytics.NewPostgresRepository(db)
-		investigatorRepo := investigator.NewPostgresRepository(db)
-		handler.investigatorSvc = investigator.NewService(investigatorRepo, handler.operationsSvc, logger)
+		corpusRepo, _ := investigator.NewPostgresCorpusRepository(db)
+		investigatorStore, _ := investigator.NewPostgresInvestigationStore(db, time.Now)
+		bridgedEvidence := investigator.BridgedEvidenceReader{
+			Source: &httpOpsEvidenceSource{ops: handler.operationsSvc},
+		}
+		deps := investigator.ToolDependencies{
+			Evidence:  bridgedEvidence,
+			Runbooks:  corpusRepo,
+			Recovery:  &httpOpsRecoveryReader{ops: handler.operationsSvc},
+			Trace:     &httpOpsTraceReader{traceStore: handler.traceStore},
+			Analytics: &httpOpsAnalyticsReader{repo: handler.analyticsRepo},
+		}
+		handler.investigatorSvc, _ = investigator.NewService(investigator.DefaultServiceConfig(), investigatorStore, deps)
 	}
 	if adapters != nil {
 		if executionTargets != nil {

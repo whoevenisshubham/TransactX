@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/transactx/backend/internal/analytics"
 	"github.com/transactx/backend/internal/auth"
@@ -392,25 +393,39 @@ func (h *Handler) opsCreateInvestigation(writer http.ResponseWriter, request *ht
 		return
 	}
 
-	var req investigator.CreateJobRequest
+	var req investigator.CreateInvestigationRequest
 	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
 		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "malformed request body", http.StatusBadRequest))
 		return
 	}
 
-	actorID := "anonymous"
-	if identity, ok := auth.IdentityFromRequest(request); ok {
-		actorID = identity.UserID
+	paymentUUID, err := uuid.Parse(strings.TrimSpace(req.PaymentId))
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_PAYMENT_ID", "paymentId must be a valid UUID", http.StatusBadRequest))
+		return
 	}
 
-	accepted, err := h.investigatorSvc.CreateInvestigation(request.Context(), actorID, idempotencyKey, req)
+	actorID := "anonymous"
+	role := "OPS_VIEWER"
+	if identity, ok := auth.IdentityFromRequest(request); ok {
+		actorID = identity.UserID
+		role = identity.Role
+	}
+
+	scope := investigator.TrustedScope{
+		ActorID:            actorID,
+		Role:               role,
+		SelectedPaymentID: paymentUUID.String(),
+	}
+
+	job, _, err := h.investigatorSvc.Start(request.Context(), scope, paymentUUID.String(), strings.TrimSpace(req.Question), idempotencyKey)
 	if err != nil {
-		if errors.Is(err, investigator.ErrInvalidPaymentID) {
-			writeAPIError(writer, request, common.NewAPIError("INVALID_PAYMENT_ID", err.Error(), http.StatusBadRequest))
+		if errors.Is(err, investigator.ErrInvalidInvestigationRequest) {
+			writeAPIError(writer, request, common.NewAPIError("INVALID_QUESTION", err.Error(), http.StatusBadRequest))
 			return
 		}
-		if errors.Is(err, investigator.ErrInvalidQuestion) {
-			writeAPIError(writer, request, common.NewAPIError("INVALID_QUESTION", err.Error(), http.StatusBadRequest))
+		if errors.Is(err, investigator.ErrScopeViolation) {
+			writeAPIError(writer, request, common.NewAPIError("FORBIDDEN", err.Error(), http.StatusForbidden))
 			return
 		}
 		if errors.Is(err, investigator.ErrIdempotencyConflict) {
@@ -425,16 +440,12 @@ func (h *Handler) opsCreateInvestigation(writer http.ResponseWriter, request *ht
 			writeAPIError(writer, request, common.NewAPIError("GLOBAL_LIMIT_EXCEEDED", err.Error(), http.StatusTooManyRequests))
 			return
 		}
-		if errors.Is(err, investigator.ErrRateLimitExceeded) {
-			writeAPIError(writer, request, common.NewAPIError("RATE_LIMIT_EXCEEDED", err.Error(), http.StatusTooManyRequests))
-			return
-		}
 		h.logger.Error("failed to create investigation", "error", err)
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to create investigation", http.StatusInternalServerError))
 		return
 	}
 
-	writeData(writer, http.StatusAccepted, request, accepted)
+	writeData(writer, http.StatusAccepted, request, investigator.CreateResponse(job))
 }
 
 func (h *Handler) opsGetInvestigation(writer http.ResponseWriter, request *http.Request) {
@@ -444,22 +455,52 @@ func (h *Handler) opsGetInvestigation(writer http.ResponseWriter, request *http.
 	}
 
 	investigationIDStr := request.PathValue("investigationID")
-	investigationID, err := uuid.Parse(investigationIDStr)
+	investigationUUID, err := uuid.Parse(investigationIDStr)
 	if err != nil {
 		writeAPIError(writer, request, common.NewAPIError("INVALID_INVESTIGATION_ID", "investigationID must be a valid UUID", http.StatusBadRequest))
 		return
 	}
 
-	inv, err := h.investigatorSvc.GetInvestigation(request.Context(), investigationID)
+	actorID := "anonymous"
+	role := "OPS_VIEWER"
+	if identity, ok := auth.IdentityFromRequest(request); ok {
+		actorID = identity.UserID
+		role = identity.Role
+	}
+
+	var paymentID, jobActorID string
+	err = h.db.QueryRow(request.Context(), `SELECT payment_id, actor_id FROM investigation_jobs WHERE id = $1`, investigationUUID).Scan(&paymentID, &jobActorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeAPIError(writer, request, common.NewAPIError("INVESTIGATION_NOT_FOUND", "investigation job not found", http.StatusNotFound))
+		return
+	} else if err != nil {
+		h.logger.Error("failed to lookup investigation job", "error", err, "investigation_id", investigationIDStr)
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to lookup investigation job", http.StatusInternalServerError))
+		return
+	}
+
+	if jobActorID != actorID && role != "OPS_ADMIN" {
+		writeAPIError(writer, request, common.NewAPIError("FORBIDDEN", "access denied to investigation", http.StatusForbidden))
+		return
+	}
+
+	scope := investigator.TrustedScope{
+		ActorID:            jobActorID,
+		Role:               role,
+		SelectedPaymentID: paymentID,
+	}
+
+	job, err := h.investigatorSvc.Get(request.Context(), scope, investigationIDStr)
 	if err != nil {
 		if errors.Is(err, investigator.ErrJobNotFound) {
 			writeAPIError(writer, request, common.NewAPIError("INVESTIGATION_NOT_FOUND", err.Error(), http.StatusNotFound))
 			return
 		}
-		h.logger.Error("failed to get investigation", "error", err, "investigation_id", investigationID)
+		h.logger.Error("failed to get investigation", "error", err, "investigation_id", investigationIDStr)
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "failed to get investigation", http.StatusInternalServerError))
 		return
 	}
 
-	writeData(writer, http.StatusOK, request, inv)
+	writeData(writer, http.StatusOK, request, investigator.PublicInvestigation(job))
 }
+

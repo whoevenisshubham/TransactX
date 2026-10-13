@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/transactx/backend/internal/config"
 	"github.com/transactx/backend/internal/recovery"
 )
@@ -214,7 +215,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 
 	// 7. Investigator Claim and Execution Loop
-	if w.env.InvestigatorService != nil && w.env.InvestigatorRepo != nil {
+	if w.env.InvestigatorService != nil && w.env.InvestigatorStore != nil && w.env.DB != nil {
 		hasJobs = true
 		w.wg.Add(1)
 		go func() {
@@ -224,14 +225,20 @@ func (w *Worker) Run(ctx context.Context) error {
 			for {
 				select {
 				case <-ticker.C:
-					job, err := w.env.InvestigatorRepo.ClaimNextJob(runCtx, w.config.WorkerLabel, 2*time.Minute)
-					if err != nil && !errors.Is(err, context.Canceled) {
-						w.logger.Warn("investigator claim job failed", "error", err)
-					} else if job != nil {
-						w.logger.Info("worker claimed investigator job", "job_id", job.ID, "payment_id", job.PaymentID)
-						if err := w.env.InvestigatorService.ExecuteJob(runCtx, job); err != nil && !errors.Is(err, context.Canceled) {
-							w.logger.Warn("worker execute investigator job failed", "job_id", job.ID, "error", err)
+					var jobID string
+					err := w.env.DB.QueryRow(runCtx, `
+						SELECT id FROM investigation_jobs
+						WHERE status = 'queued' OR (status = 'running' AND lease_expires_at < NOW())
+						ORDER BY created_at ASC
+						LIMIT 1 FOR UPDATE SKIP LOCKED
+					`).Scan(&jobID)
+					if err == nil {
+						w.logger.Info("worker executing investigator job", "job_id", jobID)
+						if _, err := w.env.InvestigatorService.Run(runCtx, jobID, w.config.WorkerLabel); err != nil && !errors.Is(err, context.Canceled) {
+							w.logger.Warn("worker run investigator job failed", "job_id", jobID, "error", err)
 						}
+					} else if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, context.Canceled) {
+						w.logger.Warn("investigator find candidate job failed", "error", err)
 					}
 				case <-runCtx.Done():
 					return

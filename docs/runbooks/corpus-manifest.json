@@ -19,7 +19,7 @@
     },
     {
       "path": "docs/decisions.md",
-      "sha256": "c66771ab4edf7f2d02c009d9295a6ff2d0f19aafecbea73120713db18f7a687e",
+      "sha256": "6cbb79a262cb303ed0c416852a79f40a3cfe9bbceb30c3d07d4cd1fae1beb847",
       "implementationStatus": "existing",
       "allowedRoles": ["OPS_ADMIN", "OPS_VIEWER"],
       "tags": ["decisions", "payment", "recovery", "routing", "reconciliation", "integrity"],
