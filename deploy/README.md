@@ -38,6 +38,10 @@ reload and a 360px view. Missing inputs cause a failure. Use only disposable
 credentials and data; a passing result is scoped to the exact candidate stack
 under test. The full release gate also requires worker-driven projection and
 M3 investigation/analytics responses.
+The environment examples list only options parsed by the current M2
+configuration. Earlier `TX_OUTBOX_*`, `TX_AI_*`, `TX_ANALYTICS_ENABLED` and
+`TX_TRACE_*` placeholders had no parser and must not be treated as enabling
+those services. M2 owns any future runtime configuration for them.
 
 ## Install and operate
 
@@ -77,9 +81,11 @@ configures the backup identity and destination.
 `transactx_restore_*` database, decrypts directly into `pg_restore`, checks
 central and participant schemas, balances, central ledger conservation and
 idempotency references, and writes a safe report. It never applies global roles
-to the shared cluster or drops an existing database. Worker continuation and
-projection rebuild must be run after M2 delivers those commands before A7 is
-verified. The private age identity is never included in the archive.
+to the shared cluster or drops an existing database. A later M1+M2 disposable
+rehearsal ran a separate worker on the restored database and rebuilt the
+projection with the CLI. Its continuation input was manually seeded, and the
+native worker still does not deliver outbox events. A7 therefore remains open.
+The private age identity is never included in the archive.
 
 See [RESTORE_REHEARSAL.md](RESTORE_REHEARSAL.md) for the isolated local procedure,
 measured fixture result, refusal checks and remaining recovery gates.
