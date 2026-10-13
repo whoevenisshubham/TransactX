@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/bank"
+	"github.com/transactx/backend/internal/chaos"
 	"github.com/transactx/backend/internal/recipients"
 )
 
@@ -412,3 +413,96 @@ func TestPresence_AdapterWithoutCapabilityRemainsPending(t *testing.T) {
 		t.Fatalf("expected presence_replayed == 0 when adapter lacks capability, got %d", metrics["presence_replayed"])
 	}
 }
+
+// TestPresence_ChaosAdapterPreservesCapabilityAndReplays verifies that ChaosAdapter
+// implementing bank.OperationPresenceReader forwards presence checks to the underlying adapter
+// and enables authoritative replay recovery.
+func TestPresence_ChaosAdapterPreservesCapabilityAndReplays(t *testing.T) {
+	data := newRepositoryTestData(t)
+	defer data.close(t)
+
+	ctx := context.Background()
+	setBalances(t, data, 10000, 0)
+
+	secondBankID := uuid.New()
+	if _, err := data.pool.Exec(ctx, `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Bank B', 'ACTIVE')`, secondBankID, "BANK-B-"+secondBankID.String()[:12]); err != nil {
+		t.Fatal(err)
+	}
+
+	sourceSpy := &presenceSpyAdapter{
+		presenceFn: func(ctx context.Context, pID, opID uuid.UUID) (bank.OperationPresenceResult, error) {
+			return bank.OperationPresenceResult{
+				PaymentID:   pID,
+				OperationID: opID,
+				Presence:    bank.PresenceAbsent,
+				ObservedAt:  time.Now().UTC(),
+			}, nil
+		},
+		holdFn: func(ctx context.Context, req bank.HoldFundsRequest) (bank.HoldResult, error) {
+			return bank.HoldResult{}, &bank.AdapterError{
+				Code:    bank.ErrCodeTransientFailure,
+				Message: "initial hold simulated crash",
+			}
+		},
+	}
+
+	ctrl := chaos.NewController(nil)
+	chaosSource := chaos.NewChaosAdapter("BANK-A", sourceSpy, ctrl)
+
+	// Verify type assertion succeeds
+	if _, ok := any(chaosSource).(bank.OperationPresenceReader); !ok {
+		t.Fatal("expected ChaosAdapter to implement bank.OperationPresenceReader")
+	}
+
+	adapters := map[uuid.UUID]bank.BankAdapter{
+		data.bankID:  chaosSource,
+		secondBankID: successfulBankAdapter{},
+	}
+
+	service := NewServiceWithAdapters(
+		accounts.NewRepository(data.pool),
+		recipients.NewRepository(data.pool),
+		data.repository,
+		adapters,
+	)
+
+	payment, _, err := data.repository.CreateRoutedIdempotent(
+		ctx,
+		settlementPayment(data, 1500),
+		"pres-chaos-key",
+		"pres-chaos-hash",
+		data.bankID,
+		secondBankID,
+		chaosSource,
+		successfulBankAdapter{},
+	)
+	if err != nil {
+		t.Fatalf("CreateRoutedIdempotent failed: %v", err)
+	}
+
+	if payment.State != StatePendingReconciliation {
+		t.Fatalf("expected StatePendingReconciliation, got %s", payment.State)
+	}
+
+	// Now fix holdFn to succeed on replay
+	sourceSpy.holdFn = nil
+	sourceSpy.holdsCalled = 0
+
+	resumeRes, err := service.Resume(ctx, payment.ID)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+
+	if resumeRes.Status != ResumeStatusCompleted {
+		t.Fatalf("expected ResumeStatusCompleted via chaos presence replay, got %s (reason: %s)", resumeRes.Status, resumeRes.Reason)
+	}
+	if sourceSpy.holdsCalled != 1 {
+		t.Fatalf("expected exactly 1 replay hold call, got %d", sourceSpy.holdsCalled)
+	}
+
+	metrics := service.RecoveryMetrics().Snapshot()
+	if metrics["presence_replayed"] < 1 {
+		t.Fatalf("expected presence_replayed >= 1, got %d", metrics["presence_replayed"])
+	}
+}
+

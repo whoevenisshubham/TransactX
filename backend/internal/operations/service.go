@@ -289,23 +289,46 @@ func (s *Service) ReadPaymentEvidence(ctx context.Context, trustedScope string, 
 		Warnings:             warnings,
 	}
 
-	// Compute snapshot hash excluding snapshotId
-	bundleBytes, err := json.Marshal(bundle)
+	if err := ComputeEvidenceSnapshotID(bundle); err != nil {
+		return nil, fmt.Errorf("compute snapshot identity: %w", err)
+	}
+
+	return bundle, nil
+}
+
+// ComputeEvidenceSnapshotID hashes the bundle excluding snapshotId and unstable observation timestamps,
+// and sets bundle.SnapshotID, bundle.Payment.EvidenceID, and bundle.Operations[].EvidenceID deterministically.
+func ComputeEvidenceSnapshotID(bundle *EvidenceBundle) error {
+	hashBundle := *bundle
+	hashBundle.SnapshotID = ""
+	hashBundle.CollectedAt = time.Time{}
+	hashSources := make([]SourceSnapshot, len(bundle.Sources))
+	for i, s := range bundle.Sources {
+		s.ObservedAt = nil
+		hashSources[i] = s
+	}
+	hashBundle.Sources = hashSources
+	hashOps := make([]OperationSnapshot, len(bundle.Operations))
+	for i, op := range bundle.Operations {
+		op.LastObservedAt = nil
+		hashOps[i] = op
+	}
+	hashBundle.Operations = hashOps
+
+	bundleBytes, err := json.Marshal(hashBundle)
 	if err != nil {
-		return nil, fmt.Errorf("marshal evidence for hash: %w", err)
+		return fmt.Errorf("marshal evidence for hash: %w", err)
 	}
 	sum := sha256.Sum256(bundleBytes)
 	hashHex := hex.EncodeToString(sum[:])
 	snapshotID := "sha256:" + hashHex
 
-	// Bind snapshot identity into stable evidence IDs
 	bundle.SnapshotID = snapshotID
-	bundle.Payment.EvidenceID = fmt.Sprintf("payment:%s:%s", paymentID, hashHex)
+	bundle.Payment.EvidenceID = fmt.Sprintf("payment:%s:%s", bundle.PaymentID, hashHex)
 	for i := range bundle.Operations {
 		bundle.Operations[i].EvidenceID = fmt.Sprintf("operation:%s:%s", bundle.Operations[i].OperationID, hashHex)
 	}
-
-	return bundle, nil
+	return nil
 }
 
 // ExportPaymentEvidence produces a redacted evidence bundle paired with a cryptographic manifest.

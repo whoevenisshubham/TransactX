@@ -386,6 +386,15 @@ func TestOperations_TraceDetails(t *testing.T) {
 	if collectedResp.Data.Spans[0].SpanID != spanID {
 		t.Errorf("expected span ID %s, got %s", spanID, collectedResp.Data.Spans[0].SpanID)
 	}
+	if collectedResp.Data.Spans[0].StartedAt == "" {
+		t.Errorf("expected non-empty startedAt in persisted trace span")
+	}
+	if collectedResp.Data.Spans[0].FinishedAt == nil || *collectedResp.Data.Spans[0].FinishedAt == "" {
+		t.Errorf("expected non-empty finishedAt in persisted trace span")
+	}
+	if collectedResp.Data.Spans[0].StartTime.IsZero() {
+		t.Errorf("expected non-zero startTime in persisted trace span for backward compatibility")
+	}
 }
 
 func TestOperations_Analytics_WindowsAndMetricsSummary(t *testing.T) {

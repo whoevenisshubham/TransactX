@@ -49,6 +49,7 @@ export type RecoveryAttempt = {
 export type Investigation = {
   id: string; status: "queued" | "running" | "completed" | "failed" | "cancelled";
   mode: "evidence_only" | "llm"; report: InvestigationReport | null;
+  snapshot?: EvidenceBundle;
   toolTimeline: Array<{ toolName: string; arguments: Record<string, unknown>; startedAt: string; finishedAt: string | null; status: string; evidenceIds: string[] }>;
   error: { code: string; message: string } | null; createdAt: string;
   completedAt: string | null; usage: { inputTokens: number | null; outputTokens: number | null; model: string | null; promptVersion: string };
@@ -263,9 +264,10 @@ export function decodeInvestigation(value: unknown): Investigation {
     const warning = object(root.error, "error");
     return { code: string(warning.code, "error.code"), message: string(warning.message, "error.message") };
   })();
+  const snapshot = root.snapshot !== undefined && root.snapshot !== null ? decodeEvidence(root.snapshot) : undefined;
   return {
     id: string(root.id, "id"), status: oneOf(root.status, ["queued", "running", "completed", "failed", "cancelled"], "status"),
-    mode: oneOf(root.mode, ["evidence_only", "llm"], "mode"), report,
+    mode: oneOf(root.mode, ["evidence_only", "llm"], "mode"), report, snapshot,
     toolTimeline: array(root.toolTimeline, "toolTimeline", (value, path) => {
       const step = object(value, path);
       return { toolName: string(step.toolName, `${path}.toolName`), arguments: object(step.arguments, `${path}.arguments`), startedAt: string(step.startedAt, `${path}.startedAt`), finishedAt: nullableString(step.finishedAt, `${path}.finishedAt`), status: string(step.status, `${path}.status`), evidenceIds: array(step.evidenceIds, `${path}.evidenceIds`, string) };

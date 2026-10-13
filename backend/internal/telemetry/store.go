@@ -34,6 +34,8 @@ type SpanDTO struct {
 	Service      string         `json:"service"`
 	Name         string         `json:"name"`
 	Kind         string         `json:"kind"`
+	StartedAt    string         `json:"startedAt"`
+	FinishedAt   *string        `json:"finishedAt"`
 	StartTime    time.Time      `json:"startTime"`
 	EndTime      time.Time      `json:"endTime"`
 	DurationMs   int64          `json:"durationMs"`
@@ -145,12 +147,20 @@ func (s *TraceStore) GetTrace(ctx context.Context, traceID string) (*TraceRespon
 			}
 		}
 
+		var finishedAtStr *string
+		if !endTime.IsZero() {
+			s := endTime.UTC().Format(time.RFC3339Nano)
+			finishedAtStr = &s
+		}
+
 		spans = append(spans, SpanDTO{
 			SpanID:       spanID,
 			ParentSpanID: parentSpanID,
 			Service:      serviceName,
 			Name:         spanName,
 			Kind:         spanKind,
+			StartedAt:    startTime.UTC().Format(time.RFC3339Nano),
+			FinishedAt:   finishedAtStr,
 			StartTime:    startTime.UTC(),
 			EndTime:      endTime.UTC(),
 			DurationMs:   durationMs,

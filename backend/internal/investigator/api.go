@@ -21,6 +21,7 @@ type InvestigationResponse struct {
 	Status       string               `json:"status"`
 	Mode         string               `json:"mode"`
 	Report       *InvestigationReport `json:"report"`
+	Snapshot     *EvidenceBundle      `json:"snapshot,omitempty"`
 	ToolTimeline []ToolTimelineEntry  `json:"toolTimeline"`
 	Error        *InvestigationError  `json:"error"`
 	CreatedAt    string               `json:"createdAt"`
@@ -61,6 +62,7 @@ func PublicInvestigation(job Job) InvestigationResponse {
 	}
 	response := InvestigationResponse{
 		Id: job.ID, Status: job.Status, Mode: job.Mode, Report: job.Report,
+		Snapshot:     job.Snapshot,
 		ToolTimeline: timeline,
 		CreatedAt:    job.CreatedAt.UTC().Format(time.RFC3339Nano), Usage: usage,
 	}

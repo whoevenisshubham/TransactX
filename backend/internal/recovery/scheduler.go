@@ -304,7 +304,11 @@ func (s *Scheduler) ProcessJob(ctx context.Context, job *Job) error {
 
 		case payments.ResumeStatusAttention:
 			resultOutcome = "NEEDS_ATTENTION"
-			reasonCode = ReasonAttention
+			if resumeResult.Reason != "" {
+				reasonCode = resumeResult.Reason
+			} else {
+				reasonCode = ReasonAttention
+			}
 			newJobStatus = JobStatusNeedsAttention
 			dueAt = now
 			atomic.AddInt64(&s.metrics.AttentionCount, 1)

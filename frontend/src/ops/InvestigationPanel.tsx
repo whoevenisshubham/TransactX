@@ -67,7 +67,15 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
     return () => window.clearInterval(timer);
   }, [status, job.refresh]);
 
-  const available = new Set(evidenceIds);
+  const retainedEvidenceIds = job.data?.snapshot
+    ? [
+        job.data.snapshot.payment.evidenceId,
+        ...job.data.snapshot.operations.map((op) => op.evidenceId),
+        ...job.data.snapshot.transitions.map((tr) => tr.evidenceId),
+      ]
+    : [];
+  const available = new Set([...evidenceIds, ...retainedEvidenceIds]);
+  const effectiveSnapshotId = snapshotId ?? job.data?.snapshot?.snapshotId;
   const report = job.data?.report;
   return <div className="ops-investigation">
     <p className="ops-mono">Investigation {id}</p>
@@ -82,7 +90,7 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
       <p>Input tokens: {job.data.usage.inputTokens ?? "Not reported"} · Output tokens: {job.data.usage.outputTokens ?? "Not reported"}</p>
     </details>}
     {report && <>
-      {snapshotId && report.snapshotId !== snapshotId && <p className="ops-banner ops-banner-warning" role="status">This report uses an older evidence snapshot. Refresh or start a new investigation for the current payment view.</p>}
+      {effectiveSnapshotId && report.snapshotId !== effectiveSnapshotId && <p className="ops-banner ops-banner-warning" role="status">This report uses an older evidence snapshot. Refresh or start a new investigation for the current payment view.</p>}
       <p>Coverage: {report.evidenceCoverage.replaceAll("_", " ")} · Collected {new Date(report.collectedAt).toLocaleString()}</p>
       <p><strong>{report.summary}</strong></p>
       <h3>Facts</h3>

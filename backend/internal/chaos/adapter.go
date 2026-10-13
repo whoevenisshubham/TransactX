@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/transactx/backend/internal/bank"
 )
 
@@ -19,6 +20,7 @@ type ChaosAdapter struct {
 }
 
 var _ bank.BankAdapter = (*ChaosAdapter)(nil)
+var _ bank.OperationPresenceReader = (*ChaosAdapter)(nil)
 
 func NewChaosAdapter(targetID string, underlying bank.BankAdapter, controller *Controller) *ChaosAdapter {
 	return &ChaosAdapter{
@@ -202,3 +204,18 @@ func (a *ChaosAdapter) GetLedgerSnapshot(ctx context.Context, scope bank.LedgerS
 	}
 	return a.underlying.GetLedgerSnapshot(ctx, scope)
 }
+
+func (a *ChaosAdapter) GetOperationPresence(ctx context.Context, paymentID, operationID uuid.UUID) (bank.OperationPresenceResult, error) {
+	if err := a.injectFault(ctx, false); err != nil {
+		return bank.OperationPresenceResult{}, err
+	}
+	presenceReader, ok := a.underlying.(bank.OperationPresenceReader)
+	if !ok {
+		return bank.OperationPresenceResult{}, &bank.AdapterError{
+			Code:    bank.ErrCodePermanentFailure,
+			Message: fmt.Sprintf("underlying adapter for target %q does not support operation presence reading", a.targetID),
+		}
+	}
+	return presenceReader.GetOperationPresence(ctx, paymentID, operationID)
+}
+

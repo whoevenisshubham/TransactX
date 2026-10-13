@@ -65,11 +65,33 @@ func NewService(accountsRepository *accounts.Repository, recipientsRepository *r
 }
 
 func NewServiceWithAdapters(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter) *Service {
-	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters}
+	var ledgerRepo *ledger.Repository
+	if paymentRepository != nil && paymentRepository.db != nil {
+		ledgerRepo = ledger.NewRepository(paymentRepository.db)
+	}
+	svc := &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledgerRepo, adapters: adapters}
+	if paymentRepository != nil {
+		paymentRepository.SetAdapterResolver(func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool) {
+			src, dst, ok, _ := svc.RoutedAdaptersForPayment(ctx, payment)
+			return src, dst, ok
+		})
+	}
+	return svc
 }
 
 func NewServiceWithAdaptiveRouting(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter, routeTargets map[uuid.UUID]string, healthService HealthSnapshotProvider) *Service {
-	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters, routeTargets: routeTargets, health: healthService, selectionMode: SelectionModeAdaptive}
+	var ledgerRepo *ledger.Repository
+	if paymentRepository != nil && paymentRepository.db != nil {
+		ledgerRepo = ledger.NewRepository(paymentRepository.db)
+	}
+	svc := &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledgerRepo, adapters: adapters, routeTargets: routeTargets, health: healthService, selectionMode: SelectionModeAdaptive}
+	if paymentRepository != nil {
+		paymentRepository.SetAdapterResolver(func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool) {
+			src, dst, ok, _ := svc.RoutedAdaptersForPayment(ctx, payment)
+			return src, dst, ok
+		})
+	}
+	return svc
 }
 
 func NewServiceWithExecutionTargets(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter, executionTargets map[RouteKey][]ExecutionTarget, healthService HealthSnapshotProvider, mode SelectionMode, staticBaseline string) *Service {
@@ -356,6 +378,31 @@ func (service *Service) RoutedAdaptersForPayment(ctx context.Context, payment Pa
 				}
 			}
 		}
+
+		// Also check configured routeTargets (used by default adaptive routing)
+		if service.routeTargets != nil {
+			configuredTarget := service.routeTargets[sourceBankID]
+			if configuredTarget == "" {
+				configuredTarget = sourceBankID.String()
+			}
+			if configuredTarget == targetID {
+				var src, dst bank.BankAdapter
+				if service.adapters != nil {
+					src = service.adapters[sourceBankID]
+					dst = service.adapters[destBankID]
+				}
+				if src == nil {
+					src = service.adapter
+				}
+				if dst == nil {
+					dst = service.adapter
+				}
+				if src != nil && dst != nil {
+					return src, dst, true, nil
+				}
+			}
+		}
+
 		// If a pending payment has route history but the selected execution target
 		// is no longer configured, fail closed / leave it pending.
 		// Do not silently substitute another execution target.

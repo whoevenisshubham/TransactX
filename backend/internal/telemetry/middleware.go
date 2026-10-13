@@ -34,6 +34,15 @@ func (w *statusCapturingResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+type statusCapturingFlusherResponseWriter struct {
+	*statusCapturingResponseWriter
+	flusher http.Flusher
+}
+
+func (w *statusCapturingFlusherResponseWriter) Flush() {
+	w.flusher.Flush()
+}
+
 // HTTPMiddleware instruments incoming HTTP server requests with W3C propagation,
 // span tracking, response header correlation, and route metrics.
 func HTTPMiddleware(tracer trace.Tracer, metrics *Metrics) func(http.Handler) http.Handler {
@@ -66,7 +75,14 @@ func HTTPMiddleware(tracer trace.Tracer, metrics *Metrics) func(http.Handler) ht
 			}
 
 			sw := &statusCapturingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-			next.ServeHTTP(sw, r.WithContext(ctx))
+			var swWriter http.ResponseWriter = sw
+			if flusher, ok := w.(http.Flusher); ok {
+				swWriter = &statusCapturingFlusherResponseWriter{
+					statusCapturingResponseWriter: sw,
+					flusher:                       flusher,
+				}
+			}
+			next.ServeHTTP(swWriter, r.WithContext(ctx))
 
 			duration := time.Since(start)
 

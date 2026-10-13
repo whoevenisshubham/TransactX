@@ -225,3 +225,64 @@ func TestEvidenceBundleJsonSerialization_MatchesContract(t *testing.T) {
 		}
 	}
 }
+
+func TestComputeEvidenceSnapshotID_DeterministicAcrossTime(t *testing.T) {
+	pid := uuid.New()
+	t1 := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
+	obsTime1 := time.Date(2026, 10, 11, 10, 1, 0, 0, time.UTC)
+	obsTime2 := time.Date(2026, 10, 11, 10, 5, 0, 0, time.UTC)
+
+	b1 := &EvidenceBundle{
+		SchemaVersion: "tx.evidence.v1",
+		PaymentID:     pid,
+		CollectedAt:   time.Now().UTC(),
+		Payment: PaymentSnapshot{
+			State:        "COMMITTED",
+			AmountPaise:  "5000",
+			Currency:     "INR",
+			CreatedAt:    t1,
+			UpdatedAt:    t1,
+			EventVersion: "1",
+		},
+		Sources: []SourceSnapshot{
+			{Name: "payments", Status: "available", ObservedAt: &obsTime1},
+		},
+		Operations: []OperationSnapshot{},
+	}
+
+	b2 := &EvidenceBundle{
+		SchemaVersion: "tx.evidence.v1",
+		PaymentID:     pid,
+		CollectedAt:   time.Now().UTC().Add(10 * time.Minute),
+		Payment: PaymentSnapshot{
+			State:        "COMMITTED",
+			AmountPaise:  "5000",
+			Currency:     "INR",
+			CreatedAt:    t1,
+			UpdatedAt:    t1,
+			EventVersion: "1",
+		},
+		Sources: []SourceSnapshot{
+			{Name: "payments", Status: "available", ObservedAt: &obsTime2},
+		},
+		Operations: []OperationSnapshot{},
+	}
+
+	if err := ComputeEvidenceSnapshotID(b1); err != nil {
+		t.Fatalf("ComputeEvidenceSnapshotID(b1) failed: %v", err)
+	}
+	if err := ComputeEvidenceSnapshotID(b2); err != nil {
+		t.Fatalf("ComputeEvidenceSnapshotID(b2) failed: %v", err)
+	}
+
+	if b1.SnapshotID == "" {
+		t.Fatal("expected non-empty snapshot ID")
+	}
+	if b1.SnapshotID != b2.SnapshotID {
+		t.Fatalf("expected identical snapshot IDs across collection times, got %s vs %s", b1.SnapshotID, b2.SnapshotID)
+	}
+	if b1.Payment.EvidenceID != b2.Payment.EvidenceID {
+		t.Fatalf("expected identical payment evidence IDs, got %s vs %s", b1.Payment.EvidenceID, b2.Payment.EvidenceID)
+	}
+}
+
