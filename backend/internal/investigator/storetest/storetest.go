@@ -5,11 +5,14 @@ package storetest
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/transactx/backend/internal/investigator"
 )
 
@@ -40,7 +43,7 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatalf("replay = %+v, created=%t, err=%v", replay, replayCreated, err)
 		}
 		conflict := request
-		conflict.RequestHash = "hash-b"
+		conflict.RequestHash = testHash("hash-b")
 		if _, _, err := store.Create(context.Background(), conflict); !errors.Is(err, investigator.ErrIdempotencyConflict) {
 			t.Fatalf("idempotency conflict = %v", err)
 		}
@@ -64,7 +67,7 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatalf("store retained caller-owned job state: %+v, err=%v", persisted, err)
 		}
 		foreignActor := scope
-		foreignActor.ActorID = "actor-foreign"
+		foreignActor.ActorID = testScope("actor-foreign").ActorID
 		if _, err := store.Get(context.Background(), foreignActor, replay.ID); !errors.Is(err, investigator.ErrJobNotFound) {
 			t.Fatalf("foreign actor read = %v", err)
 		}
@@ -160,7 +163,7 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatalf("zero reservation = %v", err)
 		}
 		missing := first
-		missing.ID = "missing-job"
+		missing.ID = "00000000-0000-4000-8000-000000000099"
 		if _, err := store.ReserveUsage(context.Background(), missing, investigator.UsageAllowance{InputTokens: 1, OutputTokens: 1, CostMicrousd: 1}); !errors.Is(err, investigator.ErrJobNotFound) {
 			t.Fatalf("missing job reservation = %v", err)
 		}
@@ -273,7 +276,7 @@ func Run(t *testing.T, factory Factory) {
 
 func testScope(actorID string) investigator.TrustedScope {
 	return investigator.TrustedScope{
-		ActorID:           actorID,
+		ActorID:           uuid.NewSHA1(uuid.NameSpaceOID, []byte(actorID)).String(),
 		Role:              "OPS_VIEWER",
 		SelectedPaymentID: "11111111-1111-4111-8111-111111111111",
 	}
@@ -286,11 +289,15 @@ func testRequest(scope investigator.TrustedScope, idempotencyKey, requestHash st
 		PaymentID:      scope.SelectedPaymentID,
 		Question:       "What evidence explains the current state?",
 		IdempotencyKey: idempotencyKey,
-		RequestHash:    requestHash,
+		RequestHash:    testHash(requestHash),
 		Mode:           investigator.ModeEvidenceOnly,
 		DeadlineAt:     now.Add(30 * time.Second),
 		CreatedAt:      now,
 	}
+}
+
+func testHash(value string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
 
 func mustCreate(t *testing.T, store investigator.InvestigationStore, request investigator.NewJob) investigator.Job {
