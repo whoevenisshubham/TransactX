@@ -24,62 +24,110 @@ func TestMemoryInvestigationStoreConformanceHarness(t *testing.T) {
 }
 
 func TestPostgresInvestigationStoreConformance(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set: skipping PostgreSQL investigation store conformance test")
-	}
-
-	adminCtx, adminCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer adminCancel()
-
-	admin, err := pgxpool.New(adminCtx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
+	databaseURL, admin := postgresInvestigationTestAdmin(t)
 
 	storetest.Run(t, func(t *testing.T, limits investigator.UsageAllowance) investigator.InvestigationStore {
 		t.Helper()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		schema := "tx_store_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-		identifier := pgx.Identifier{schema}.Sanitize()
-		if _, err := admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cleanupCancel()
-			if _, err := admin.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
-				t.Errorf("drop disposable store schema: %v", err)
-			}
-		})
-
-		config, err := pgxpool.ParseConfig(databaseURL)
-		if err != nil {
-			t.Fatal(err)
-		}
-		config.ConnConfig.RuntimeParams["search_path"] = schema
-		pool, err := pgxpool.NewWithConfig(ctx, config)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(pool.Close)
-
-		if _, err := pool.Exec(ctx, postgresInvestigationStoreTestDDL); err != nil {
-			t.Fatal(err)
-		}
-		store, err := investigator.NewPostgresInvestigationStore(pool, time.Now)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := store.SetUsageLimits(ctx, limits); err != nil {
-			t.Fatal(err)
-		}
+		store, _ := newPostgresInvestigationTestStore(t, databaseURL, admin, limits)
 		return store
 	})
+}
+
+func TestPostgresInvestigationStoreRejectsCorruptPayload(t *testing.T) {
+	databaseURL, admin := postgresInvestigationTestAdmin(t)
+	store, pool := newPostgresInvestigationTestStore(t, databaseURL, admin, investigator.UsageAllowance{
+		InputTokens: 100, OutputTokens: 100, CostMicrousd: 1_000,
+	})
+	ctx := context.Background()
+	now := time.Now().UTC()
+	scope := investigator.TrustedScope{
+		ActorID: uuid.NewString(), Role: "OPS_VIEWER", SelectedPaymentID: uuid.NewString(),
+	}
+	request := investigator.NewJob{
+		Scope: scope, PaymentID: scope.SelectedPaymentID, Question: "What happened?",
+		IdempotencyKey: "corrupt-payload", RequestHash: strings.Repeat("a", 64),
+		Mode: investigator.ModeEvidenceOnly, CreatedAt: now, DeadlineAt: now.Add(time.Minute),
+	}
+	job, created, err := store.Create(ctx, request)
+	if err != nil || !created {
+		t.Fatalf("create job: created=%t err=%v", created, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE investigation_jobs SET job_payload = '{}'::jsonb WHERE id = $1`, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Create(ctx, request); err == nil {
+		t.Fatal("idempotent replay accepted corrupt stored payload")
+	}
+	if _, err := store.Get(ctx, scope, job.ID); err == nil {
+		t.Fatal("get accepted corrupt stored payload")
+	}
+	if _, err := store.Claim(ctx, job.ID, "worker-corrupt", time.Minute); err == nil {
+		t.Fatal("claim accepted corrupt stored payload")
+	}
+	var status string
+	var leaseEpoch int64
+	var leaseOwner *string
+	if err := pool.QueryRow(ctx, `SELECT status, lease_epoch, lease_owner FROM investigation_jobs WHERE id = $1`, job.ID).Scan(&status, &leaseEpoch, &leaseOwner); err != nil {
+		t.Fatal(err)
+	}
+	if status != investigator.StatusQueued || leaseEpoch != 0 || leaseOwner != nil {
+		t.Fatalf("corrupt claim mutated row: status=%s epoch=%d owner=%v", status, leaseEpoch, leaseOwner)
+	}
+}
+
+func postgresInvestigationTestAdmin(t *testing.T) (string, *pgxpool.Pool) {
+	t.Helper()
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set: skipping PostgreSQL investigation store test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(admin.Close)
+	return databaseURL, admin
+}
+
+func newPostgresInvestigationTestStore(t *testing.T, databaseURL string, admin *pgxpool.Pool, limits investigator.UsageAllowance) (*investigator.PostgresInvestigationStore, *pgxpool.Pool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	schema := "tx_store_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	identifier := pgx.Identifier{schema}.Sanitize()
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := admin.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
+			t.Errorf("drop disposable store schema: %v", err)
+		}
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(ctx, postgresInvestigationStoreTestDDL); err != nil {
+		t.Fatal(err)
+	}
+	store, err := investigator.NewPostgresInvestigationStore(pool, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUsageLimits(ctx, limits); err != nil {
+		t.Fatal(err)
+	}
+	return store, pool
 }
 
 // Test-only DDL exercises the adapter contract. M2 owns canonical migration

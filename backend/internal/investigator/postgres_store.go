@@ -85,9 +85,12 @@ func (s *PostgresInvestigationStore) Create(ctx context.Context, request NewJob)
 		if existingReqHash != request.RequestHash {
 			return Job{}, false, ErrIdempotencyConflict
 		}
-		var existingJob Job
-		if err := json.Unmarshal(existingPayload, &existingJob); err != nil {
-			return Job{}, false, fmt.Errorf("unmarshal existing job: %w", err)
+		existingJob, err := decodeStoredJob(existingPayload)
+		if err != nil {
+			return Job{}, false, err
+		}
+		if existingJob.ActorID != request.Scope.ActorID || existingJob.PaymentID != request.PaymentID || existingJob.IdempotencyKey != request.IdempotencyKey || existingJob.RequestHash != existingReqHash {
+			return Job{}, false, errStoredJobPayload
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return Job{}, false, err
@@ -168,14 +171,17 @@ func (s *PostgresInvestigationStore) Claim(ctx context.Context, jobID, workerID 
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
-	var status string
+	var status, leaseOwner string
+	var leaseEpoch int64
+	var providerCallPending bool
 	var leaseExpiresAt sql.NullTime
 	var payload []byte
 	err = tx.QueryRow(ctx, `
-		SELECT status, lease_expires_at, job_payload
+		SELECT status, COALESCE(lease_owner, ''), lease_epoch, lease_expires_at,
+			provider_call_pending, job_payload
 		FROM investigation_jobs
 		WHERE id = $1
-		FOR UPDATE`, jobID).Scan(&status, &leaseExpiresAt, &payload)
+		FOR UPDATE`, jobID).Scan(&status, &leaseOwner, &leaseEpoch, &leaseExpiresAt, &providerCallPending, &payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, ErrJobNotFound
 	} else if err != nil {
@@ -189,15 +195,18 @@ func (s *PostgresInvestigationStore) Claim(ctx context.Context, jobID, workerID 
 		return Job{}, ErrJobNotClaimable
 	}
 
-	var job Job
-	if err := json.Unmarshal(payload, &job); err != nil {
-		return Job{}, fmt.Errorf("unmarshal job: %w", err)
+	job, err := decodeStoredJob(payload)
+	if err != nil {
+		return Job{}, err
+	}
+	if err := validateStoredJobState(job, jobID, status, leaseOwner, leaseEpoch, leaseExpiresAt, providerCallPending); err != nil {
+		return Job{}, err
 	}
 
 	job.Status = StatusRunning
 	job.LeaseOwner = workerID
 	job.LeaseEpoch++
-	job.LeaseExpiresAt = now.Add(leaseDuration)
+	job.LeaseExpiresAt = now.Add(leaseDuration).Truncate(time.Microsecond)
 
 	updatedPayload, err := json.Marshal(job)
 	if err != nil {
@@ -284,6 +293,9 @@ func (s *PostgresInvestigationStore) SaveCheckpoint(ctx context.Context, job Job
 	if job.Status == StatusCompleted && job.Report == nil {
 		return errors.New("completed investigation has no report")
 	}
+	if !job.LeaseExpiresAt.IsZero() {
+		job.LeaseExpiresAt = job.LeaseExpiresAt.UTC().Truncate(time.Microsecond)
+	}
 
 	payload, err := json.Marshal(job)
 	if err != nil {
@@ -315,21 +327,33 @@ func (s *PostgresInvestigationStore) Get(ctx context.Context, scope TrustedScope
 		return Job{}, ErrJobNotFound
 	}
 
+	var status, leaseOwner string
+	var leaseEpoch int64
+	var providerCallPending bool
+	var leaseExpiresAt sql.NullTime
 	var payload []byte
 	err := s.pool.QueryRow(ctx, `
-		SELECT job_payload
+		SELECT status, COALESCE(lease_owner, ''), lease_epoch, lease_expires_at,
+			provider_call_pending, job_payload
 		FROM investigation_jobs
 		WHERE id = $1 AND actor_id = $2 AND payment_id = $3`,
-		jobID, scope.ActorID, scope.SelectedPaymentID).Scan(&payload)
+		jobID, scope.ActorID, scope.SelectedPaymentID).Scan(
+		&status, &leaseOwner, &leaseEpoch, &leaseExpiresAt, &providerCallPending, &payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, ErrJobNotFound
 	} else if err != nil {
 		return Job{}, fmt.Errorf("query get job: %w", err)
 	}
 
-	var job Job
-	if err := json.Unmarshal(payload, &job); err != nil {
-		return Job{}, fmt.Errorf("unmarshal get job: %w", err)
+	job, err := decodeStoredJob(payload)
+	if err != nil {
+		return Job{}, err
+	}
+	if job.ActorID != scope.ActorID || job.PaymentID != scope.SelectedPaymentID {
+		return Job{}, errStoredJobPayload
+	}
+	if err := validateStoredJobState(job, jobID, status, leaseOwner, leaseEpoch, leaseExpiresAt, providerCallPending); err != nil {
+		return Job{}, err
 	}
 	return job, nil
 }
@@ -612,6 +636,58 @@ func (s *PostgresInvestigationStore) MarkUsageUncertain(ctx context.Context, job
 	}
 
 	return tx.Commit(ctx)
+}
+
+var errStoredJobPayload = errors.New("stored investigation job payload is invalid")
+
+func decodeStoredJob(payload []byte) (Job, error) {
+	var job Job
+	if len(payload) == 0 {
+		return Job{}, errStoredJobPayload
+	}
+	if err := json.Unmarshal(payload, &job); err != nil {
+		return Job{}, fmt.Errorf("%w: decode JSON: %v", errStoredJobPayload, err)
+	}
+	if job.ID == "" || job.IdempotencyKey == "" || job.RequestHash == "" || job.CreatedAt.IsZero() || job.DeadlineAt.IsZero() {
+		return Job{}, errStoredJobPayload
+	}
+	if err := validateTrustedScope(TrustedScope{ActorID: job.ActorID, Role: job.Role, SelectedPaymentID: job.PaymentID}); err != nil {
+		return Job{}, errStoredJobPayload
+	}
+	if job.Mode != ModeEvidenceOnly && job.Mode != ModeLLM {
+		return Job{}, errStoredJobPayload
+	}
+	switch job.Status {
+	case StatusQueued, StatusRunning, StatusCompleted, StatusFailed, StatusCancelled:
+	default:
+		return Job{}, errStoredJobPayload
+	}
+	return job, nil
+}
+
+func validateStoredJobState(job Job, id, status, leaseOwner string, leaseEpoch int64, leaseExpiresAt sql.NullTime, providerCallPending bool) error {
+	if job.ID != id {
+		return fmt.Errorf("%w: id differs from indexed row", errStoredJobPayload)
+	}
+	if job.Status != status {
+		return fmt.Errorf("%w: status differs from indexed row", errStoredJobPayload)
+	}
+	if job.LeaseOwner != leaseOwner {
+		return fmt.Errorf("%w: lease owner differs from indexed row", errStoredJobPayload)
+	}
+	if job.LeaseEpoch != leaseEpoch {
+		return fmt.Errorf("%w: lease epoch differs from indexed row", errStoredJobPayload)
+	}
+	if job.ProviderCallPending != providerCallPending {
+		return fmt.Errorf("%w: provider-call marker differs from indexed row", errStoredJobPayload)
+	}
+	if leaseExpiresAt.Valid != !job.LeaseExpiresAt.IsZero() {
+		return fmt.Errorf("%w: lease expiry presence differs from indexed row", errStoredJobPayload)
+	}
+	if leaseExpiresAt.Valid && leaseExpiresAt.Time.Sub(job.LeaseExpiresAt).Abs() >= time.Microsecond {
+		return fmt.Errorf("%w: lease expiry differs from indexed row", errStoredJobPayload)
+	}
+	return nil
 }
 
 var _ InvestigationStore = (*PostgresInvestigationStore)(nil)

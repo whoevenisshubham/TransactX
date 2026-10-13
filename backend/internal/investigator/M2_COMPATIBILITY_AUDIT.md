@@ -1,12 +1,26 @@
 # M2 B10/B11 compatibility audit
 
-Audit target: origin/v2/m2-reliability-platform at c64a9e62870e4ed802910b9ee84e0dee73ffc9bb (13 October 2026). The branch was inspected with Git object reads only; it was not merged, rebased or cherry-picked into M3.
+Original audit target: origin/v2/m2-reliability-platform at c64a9e62870e4ed802910b9ee84e0dee73ffc9bb (13 October 2026). Current re-audit targets are origin/v2/m2-reliability-platform at c9da5fb9035dff259c936fb79785eecbd93efde6 and origin/v2/integration-m1-m2-m3 at 679c98230b5bfdc12d98253c1aa81112dc515191. Source branches were inspected with Git object reads; a disposable detached integration checkout was used for merge and PostgreSQL proof. Nothing was merged or committed to an owner branch from M3.
 
 ## Decision
 
 The M2 branch makes B10/B11 source available, but it is not a drop-in live integration for the completed M3 implementation. It independently defines another backend/internal/investigator model, service and repository. Combining both file sets unchanged would create duplicate package declarations and, more importantly, would mount the less complete workflow instead of M3's evaluated C1-C4 state machine.
 
 M1/M2 integration must retain M3's investigator service, public DTO validation, corpus lifecycle, grounding and evaluation implementation. M2's operations and analytics work should be consumed through adapters, and its storage/migration must be reconciled to the M3 interfaces before mounting. Do not run both investigator services and do not delete or reauthor either branch's history.
+
+## Current integrated-candidate re-audit
+
+The integration branch now mounts one M3 service, the approved corpus, the real operations evidence bridge, native worker execution, retained evidence in the public response, and M1 live browser flows. Those are material C6 advances. Its recorded M3 parent is nevertheless `4100dd7`, while the current M3 head added the global provider admission gate, integer micro-USD accounting and corrupt-payload defenses. A no-commit merge of M3 `0947b19` into integration `679c982` completed without source conflicts, so the remaining gap is an owner-owned schema/handler/analytics correction rather than an unmergeable package conflict.
+
+Unmodified migration 000029 applied all 29 files and passed checksum verification on fresh PostgreSQL 18, but it is not compatible with the current store. Direct probes failed because `investigation_usage_limits.cost_limit_microusd` and `investigation_jobs.provider_call_pending` do not exist. The reservation table also retains legacy `actor_id`, `provider`, `model` and `reserved_tokens` as `NOT NULL`, although the M3 adapter deliberately writes only dimensioned input/output/cost fields. The integration conformance result used M3's test-only DDL, so it did not test the canonical migrated schema.
+
+A disposable owner patch proved the exact fresh-schema delta: add nonnegative `cost_limit_microusd`; add `provider_call_pending BOOLEAN NOT NULL DEFAULT FALSE`; add nonnegative `reserved_cost_microusd` and nullable `actual_cost_microusd`; make the four obsolete legacy reservation columns nullable (or remove them with a reviewed data migration); and add a unique reservation index on `job_id`. All 29 patched migrations then applied and verified, and the current five-case `storetest.Run` passed against the actual migrated public schema in normal (0.93s) and race (1.04s) modes. This patch is evidence for the M2/integration owner, not a migration committed by M3.
+
+Upgrade safety remains open. Migration 000029 currently assigns `{}` to legacy `job_payload` and an empty request hash, while leaving old token usage outside the new dimensioned columns. That strands queued jobs and makes prior usage invisible to the new ledger. M2 must either backfill a complete validated M3 job/reservation representation or explicitly archive incompatible legacy rows without treating them as runnable/current budget state. The M3 adapter now fails closed on empty, malformed or identity/state-divergent payloads before idempotent replay, GET or claim, and a live PostgreSQL regression proves a corrupt claim leaves status/lease fields unchanged.
+
+The mounted POST handler also uses permissive `json.Decoder.Decode`: the live actor-scope test sends `actorId` and `role` and expects 202. Ignoring those fields prevents scope replacement but violates the exact-body contract. Use `DecodeCreateInvestigationRequest`; injected actor/role/mode/provider fields, oversized input and trailing JSON must return 400, followed by clean-body idempotency/actor-scope assertions.
+
+The saved M1 native-browser artifact proves a real investigation and analytics render, but its own notes leave the full citation/foreign-actor gates open. A later integration change retains the evidence snapshot and citation resolver, yet the Gate 4 matrix records only fixture Playwright coverage for that correction; the earlier raw trace-citation probe is a pre-fix failure. Re-run the native browser against the final merged M3 head and retain raw evidence that a saved runbook citation resolves after corpus retirement while a foreign actor/payment receives the expected denial. Do not convert the source-level fix or fixture render into a live citation claim.
 
 ## Observed contract differences
 
