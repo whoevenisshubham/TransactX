@@ -11,6 +11,7 @@ const sources = [
   'docs/next-gen/state/production-browser-final-m1.json',
   'docs/next-gen/state/native-crash-restore-final-m1.json',
   'docs/next-gen/state/cross-bank-native-recovery-m1.json',
+  'docs/next-gen/state/https-smoke-platform-m1.json',
   'deploy/README.md', 'deploy/RESTORE_REHEARSAL.md',
   'deploy/verification/native-financial-proof.sql',
   'deploy/verification/cross-bank-financial-proof.sql',
