@@ -38,6 +38,16 @@ reload and a 360px view. Missing inputs cause a failure. Use only disposable
 credentials and data; a passing result is scoped to the exact candidate stack
 under test. The full release gate also requires worker-driven projection and
 M3 investigation/analytics responses.
+The same live suite includes an offline intent case. It requires three distinct
+disposable customer IDs (`TX_LIVE_SENDER_ID`, `TX_LIVE_RECEIVER_ID`,
+`TX_LIVE_OTHER_ID`), their `TX_LIVE_CUSTOMER_PASSWORD`, `TX_LIVE_API_URL`, and
+`TX_LIVE_DISPOSABLE_DB=1`. The sender needs at least ₹1 in its disposable
+account. Both URLs must be loopback HTTP. The test creates one ₹1 simulated
+payment, aborts only its API writes in Edge, reloads the browser, switches
+users, then reconnects and checks the actual API payment and ownership. Run it
+only against a disposable database and simulated banks. Its static frontend
+remains served during the API write outage, so a fully disconnected static
+shell still needs its separate release check.
 The environment examples list only options parsed by the current M2
 configuration. Earlier `TX_OUTBOX_*`, `TX_AI_*`, `TX_ANALYTICS_ENABLED` and
 `TX_TRACE_*` placeholders had no parser and must not be treated as enabling
