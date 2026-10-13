@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "preview": "vite preview",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
     "test": "node --import tsx --test src/config.test.ts src/console.test.ts src/merchant.test.ts src/offlineQueue.test.ts src/offlineReplay.test.ts src/operationalEvents.test.ts src/ops/contracts.test.ts src/ops/worklistFilters.test.ts src/qr.test.ts",
     "test:money": "node scripts/verify-money.mjs",
     "test:browser:fixtures": "playwright test",
     "test:browser:live": "playwright test --config playwright.live.config.ts",
+    "test:browser:offline-shell": "playwright test --config playwright.offline-shell.config.ts",
     "test:offline-queue": "node --import tsx --test src/offlineQueue.test.ts",
     "test:offline-replay": "node --import tsx --test src/offlineReplay.test.ts",
     "experiment:offline": "node --import tsx scripts/run-offline-experiment.ts"

@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page, type Route } from "@playwright/test";
 
 type Payment = { id: string; note?: string; state: string; direction: string };
 type Envelope<T> = { data: T };
@@ -12,10 +12,9 @@ const password = process.env.TX_LIVE_CUSTOMER_PASSWORD;
 function requireDisposableStack() {
   const frontend = new URL(process.env.TX_LIVE_FRONTEND_URL ?? "http://127.0.0.1:4174");
   const api = new URL(apiOrigin ?? "http://invalid.invalid");
-  for (const origin of [frontend, api]) {
-    if (origin.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(origin.hostname)) {
-      throw new Error("Offline live payment check requires loopback HTTP origins.");
-    }
+  if (!(["http:", "https:"].includes(frontend.protocol)) || api.protocol !== "https:" ||
+      ![frontend, api].every((url) => ["127.0.0.1", "localhost"].includes(url.hostname))) {
+    throw new Error("Offline live payment check requires a loopback frontend and HTTPS loopback API in a production frontend build.");
   }
   if (process.env.TX_LIVE_DISPOSABLE_DB !== "1" || !sender || !receiver || !other || !password || !apiOrigin) {
     throw new Error("Set TX_LIVE_DISPOSABLE_DB=1 and the disposable API, sender, receiver, other-user and password inputs.");
@@ -43,7 +42,7 @@ async function signIn(page: Page, identifier: string) {
   await expect(page.getByRole("button", { name: "Log out of TransactX" })).toBeVisible();
 }
 
-test("a retained intent survives reload and another user cannot replay it", async ({ page, request }) => {
+test("a retained intent survives a full offline reload and another user cannot replay it", async ({ page, context, request }) => {
   test.setTimeout(100_000);
   const origin = requireDisposableStack();
   const senderToken = await tokenFor(request, origin, sender!);
@@ -52,7 +51,17 @@ test("a retained intent survives reload and another user cannot replay it", asyn
   const matching = async (token: string) => (await paymentsFor(request, origin, token)).filter((payment) => payment.note === note);
   const attemptedKeys: string[] = [];
   const attemptedRequestIds: string[] = [];
-  let outage = true;
+  let outage = false;
+  const routeApi = async (route: Route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) return route.abort("failed");
+    if (url.pathname !== "/api/payments" || route.request().method() !== "POST") return route.continue();
+    attemptedKeys.push(route.request().headers()["idempotency-key"]);
+    attemptedRequestIds.push(route.request().headers()["x-request-id"]);
+    if (outage) await route.abort("failed");
+    else await route.continue();
+  };
+  await page.route("**/api/**", routeApi);
 
   await page.goto("/");
   await signIn(page, sender!);
@@ -64,28 +73,28 @@ test("a retained intent survives reload and another user cannot replay it", asyn
   await page.getByLabel("Optional note").fill(note);
   await page.getByRole("button", { name: "Review payment" }).click();
 
-  // Only the API write is unavailable; Vite and authenticated reads stay reachable.
-  await page.route(`${origin}/api/payments`, async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    attemptedKeys.push(route.request().headers()["idempotency-key"]);
-    attemptedRequestIds.push(route.request().headers()["x-request-id"]);
-    if (outage) await route.abort("failed");
-    else await route.continue();
-  });
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), { timeout: 15000 }).toBe(true);
+  outage = true;
   await page.getByRole("button", { name: "Confirm payment" }).click();
   await expect(page.getByRole("heading", { name: "Payment queued for replay" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Offline payment intents" })).toBeVisible();
   expect(await matching(senderToken)).toHaveLength(0);
 
+  await page.unroute("**/api/**", routeApi);
+  await context.setOffline(true);
   await page.reload();
+  await expect(page.getByRole("heading", { name: "You're offline" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Offline payment intents" })).toBeVisible();
-  await page.getByRole("button", { name: "Log out of TransactX" }).click();
+  await expect(page.getByText(receiver!, { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Log out" }).click();
+  outage = false;
+  await page.route("**/api/**", routeApi);
+  await context.setOffline(false);
   await signIn(page, other!);
   await expect(page.getByRole("heading", { name: "Offline payment intents" })).toHaveCount(0);
 
-  // Allow the queue's 30-second retry window to pass under the other identity.
-  await page.waitForTimeout(31_000);
-  outage = false;
+  // A new session and reload run the other user's replay worker, which must
+  // never claim the sender's IndexedDB record.
   await page.reload();
   await expect(page.getByRole("heading", { name: "Offline payment intents" })).toHaveCount(0);
   expect(await matching(senderToken)).toHaveLength(0);

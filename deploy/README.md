@@ -42,12 +42,20 @@ The same live suite includes an offline intent case. It requires three distinct
 disposable customer IDs (`TX_LIVE_SENDER_ID`, `TX_LIVE_RECEIVER_ID`,
 `TX_LIVE_OTHER_ID`), their `TX_LIVE_CUSTOMER_PASSWORD`, `TX_LIVE_API_URL`, and
 `TX_LIVE_DISPOSABLE_DB=1`. The sender needs at least ₹1 in its disposable
-account. Both URLs must be loopback HTTP. The test creates one ₹1 simulated
-payment, aborts only its API writes in Edge, reloads the browser, switches
-users, then reconnects and checks the actual API payment and ownership. Run it
-only against a disposable database and simulated banks. Its static frontend
-remains served during the API write outage, so a fully disconnected static
-shell still needs its separate release check.
+account. Use a production frontend build with its service worker active and
+the exact `TX_LIVE_API_URL` baked into `VITE_API_BASE_URL`; the API must be
+loopback HTTPS and the frontend must use a loopback origin. The test creates
+one ₹1 simulated payment, aborts its API write, disconnects the whole browser,
+reloads the cached shell, switches users, then reconnects and checks the real
+API payment and ownership. Run it only against a disposable database and
+simulated banks. Run this case alone with
+`npm run test:browser:live -- offline.live.spec.ts` when operator credentials
+are not part of the disposable stack. `npm run test:browser:offline-shell` separately checks the
+production shell and read-only saved-intent view with an explicit API fixture;
+that fixture test is not live payment evidence.
+The service worker stores only static HTML and hashed JS/CSS. The offline view
+does not show a cached balance or submit a payment until the API revalidates
+the session after reconnect.
 The environment examples list only options parsed by the current M2
 configuration. Earlier `TX_OUTBOX_*`, `TX_AI_*`, `TX_ANALYTICS_ENABLED` and
 `TX_TRACE_*` placeholders had no parser and must not be treated as enabling
