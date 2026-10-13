@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,14 +13,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresInvestigationStore provides the durable PostgreSQL implementation of
-// InvestigationStore, fulfilling the M3 C6 closeout gate and passing storetest.Run.
+// PostgresInvestigationStore provides the M3-owned PostgreSQL adapter for the
+// durable InvestigationStore contract. M2 still owns its canonical migration
+// and runtime composition; storetest.Run is the adapter acceptance gate.
 type PostgresInvestigationStore struct {
-	pool        *pgxpool.Pool
-	now         func() time.Time
-	mu          sync.Mutex
-	inputLimit  int64
-	outputLimit int64
+	pool *pgxpool.Pool
+	now  func() time.Time
 }
 
 // NewPostgresInvestigationStore creates an InvestigationStore backed by PostgreSQL.
@@ -38,17 +35,24 @@ func NewPostgresInvestigationStore(pool *pgxpool.Pool, now func() time.Time) (*P
 	}, nil
 }
 
-// SetUsageLimits configures the aggregate input and output token budgets.
-func (s *PostgresInvestigationStore) SetUsageLimits(inputLimit, outputLimit int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.inputLimit = inputLimit
-	s.outputLimit = outputLimit
-	_, _ = s.pool.Exec(context.Background(), `
-		INSERT INTO investigation_usage_limits (id, input_limit, output_limit)
-		VALUES (1, $1, $2)
-		ON CONFLICT (id) DO UPDATE SET input_limit = EXCLUDED.input_limit, output_limit = EXCLUDED.output_limit`,
-		inputLimit, outputLimit)
+// SetUsageLimits configures the aggregate token and integer micro-USD budgets.
+// Runtime composition should set these from its reviewed UTC budget window.
+func (s *PostgresInvestigationStore) SetUsageLimits(ctx context.Context, limits UsageAllowance) error {
+	if limits.InputTokens < 0 || limits.OutputTokens < 0 || limits.CostMicrousd < 0 {
+		return ErrUsageBudget
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO investigation_usage_limits (id, input_limit, output_limit, cost_limit_microusd)
+		VALUES (1, $1, $2, $3)
+		ON CONFLICT (id) DO UPDATE SET
+			input_limit = EXCLUDED.input_limit,
+			output_limit = EXCLUDED.output_limit,
+			cost_limit_microusd = EXCLUDED.cost_limit_microusd`,
+		limits.InputTokens, limits.OutputTokens, limits.CostMicrousd)
+	if err != nil {
+		return fmt.Errorf("set investigation usage limits: %w", err)
+	}
+	return nil
 }
 
 func (s *PostgresInvestigationStore) Create(ctx context.Context, request NewJob) (Job, bool, error) {
@@ -258,6 +262,22 @@ func (s *PostgresInvestigationStore) SaveCheckpoint(ctx context.Context, job Job
 			return ErrScopeViolation
 		}
 	}
+	if job.ProviderCallPending && !current.ProviderCallPending {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(736292)`); err != nil {
+			return fmt.Errorf("acquire provider-call admission lock: %w", err)
+		}
+		var anotherPending bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM investigation_jobs
+				WHERE id <> $1 AND provider_call_pending
+			)`, job.ID).Scan(&anotherPending); err != nil {
+			return fmt.Errorf("check active provider call: %w", err)
+		}
+		if anotherPending {
+			return ErrProviderCallLimit
+		}
+	}
 	if job.Status != StatusRunning && job.Status != StatusCompleted && job.Status != StatusFailed && job.Status != StatusCancelled {
 		return errors.New("invalid investigation job status")
 	}
@@ -277,8 +297,9 @@ func (s *PostgresInvestigationStore) SaveCheckpoint(ctx context.Context, job Job
 
 	_, err = tx.Exec(ctx, `
 		UPDATE investigation_jobs
-		SET status = $1, lease_owner = $2, lease_epoch = $3, lease_expires_at = $4, completed_at = $5, job_payload = $6
-		WHERE id = $7`, job.Status, job.LeaseOwner, job.LeaseEpoch, job.LeaseExpiresAt, completedAt, payload, job.ID)
+		SET status = $1, lease_owner = $2, lease_epoch = $3, lease_expires_at = $4,
+			completed_at = $5, provider_call_pending = $6, job_payload = $7
+		WHERE id = $8`, job.Status, job.LeaseOwner, job.LeaseEpoch, job.LeaseExpiresAt, completedAt, job.ProviderCallPending, payload, job.ID)
 	if err != nil {
 		return fmt.Errorf("update checkpoint job: %w", err)
 	}
@@ -313,11 +334,11 @@ func (s *PostgresInvestigationStore) Get(ctx context.Context, scope TrustedScope
 	return job, nil
 }
 
-func (s *PostgresInvestigationStore) ReserveUsage(ctx context.Context, job Job, input, output int64) (string, error) {
+func (s *PostgresInvestigationStore) ReserveUsage(ctx context.Context, job Job, allowance UsageAllowance) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if input < 0 || output < 0 || (input == 0 && output == 0) {
+	if allowance.InputTokens <= 0 || allowance.OutputTokens <= 0 || allowance.CostMicrousd < 0 {
 		return "", ErrUsageBudget
 	}
 
@@ -328,12 +349,12 @@ func (s *PostgresInvestigationStore) ReserveUsage(ctx context.Context, job Job, 
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	// Lock the budget limit row to serialize budget reservations
-	var inputLimit, outputLimit int64
+	var inputLimit, outputLimit, costLimitMicrousd int64
 	err = tx.QueryRow(ctx, `
-		SELECT input_limit, output_limit
+		SELECT input_limit, output_limit, cost_limit_microusd
 		FROM investigation_usage_limits
 		WHERE id = 1
-		FOR UPDATE`).Scan(&inputLimit, &outputLimit)
+		FOR UPDATE`).Scan(&inputLimit, &outputLimit, &costLimitMicrousd)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrUsageBudget
 	} else if err != nil {
@@ -366,13 +387,13 @@ func (s *PostgresInvestigationStore) ReserveUsage(ctx context.Context, job Job, 
 
 	// Check if this job already has a reservation
 	var existingID, existingStatus string
-	var existingIn, existingOut int64
+	var existingIn, existingOut, existingCostMicrousd int64
 	err = tx.QueryRow(ctx, `
-		SELECT id, reserved_input, reserved_output, status
+		SELECT id, reserved_input, reserved_output, reserved_cost_microusd, status
 		FROM investigation_usage_reservations
-		WHERE job_id = $1`, job.ID).Scan(&existingID, &existingIn, &existingOut, &existingStatus)
+		WHERE job_id = $1`, job.ID).Scan(&existingID, &existingIn, &existingOut, &existingCostMicrousd, &existingStatus)
 	if err == nil {
-		if existingIn == input && existingOut == output && existingStatus == usageReserved {
+		if existingIn == allowance.InputTokens && existingOut == allowance.OutputTokens && existingCostMicrousd == allowance.CostMicrousd && existingStatus == usageReserved {
 			if err := tx.Commit(ctx); err != nil {
 				return "", err
 			}
@@ -384,26 +405,28 @@ func (s *PostgresInvestigationStore) ReserveUsage(ctx context.Context, job Job, 
 	}
 
 	// Calculate currently committed/reserved budget
-	var consumedIn, consumedOut int64
+	var consumedIn, consumedOut, consumedCostMicrousd int64
 	err = tx.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_input ELSE actual_input END), 0),
-			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_output ELSE actual_output END), 0)
-		FROM investigation_usage_reservations`).Scan(&consumedIn, &consumedOut)
+			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_output ELSE actual_output END), 0),
+			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_cost_microusd ELSE actual_cost_microusd END), 0)
+		FROM investigation_usage_reservations`).Scan(&consumedIn, &consumedOut, &consumedCostMicrousd)
 	if err != nil {
 		return "", fmt.Errorf("calculate consumed usage: %w", err)
 	}
 
-	if consumedIn+input > inputLimit || consumedOut+output > outputLimit {
+	if consumedIn+allowance.InputTokens > inputLimit || consumedOut+allowance.OutputTokens > outputLimit || (allowance.CostMicrousd > 0 && (costLimitMicrousd == 0 || consumedCostMicrousd+allowance.CostMicrousd > costLimitMicrousd)) {
 		return "", ErrUsageBudget
 	}
 
 	id := uuid.NewString()
 	_, err = tx.Exec(ctx, `
 		INSERT INTO investigation_usage_reservations (
-			id, job_id, reserved_input, reserved_output, actual_input, actual_output, status
-		) VALUES ($1, $2, $3, $4, NULL, NULL, 'reserved')`,
-		id, job.ID, input, output)
+			id, job_id, reserved_input, reserved_output, reserved_cost_microusd,
+			actual_input, actual_output, actual_cost_microusd, status
+		) VALUES ($1, $2, $3, $4, $5, NULL, NULL, NULL, 'reserved')`,
+		id, job.ID, allowance.InputTokens, allowance.OutputTokens, allowance.CostMicrousd)
 	if err != nil {
 		return "", fmt.Errorf("insert reservation: %w", err)
 	}
@@ -426,12 +449,17 @@ func (s *PostgresInvestigationStore) CompleteUsage(ctx context.Context, job Job)
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	// Lock the budget limit row to serialize with other usage updates
-	var inputLimit, outputLimit int64
-	_ = tx.QueryRow(ctx, `
-		SELECT input_limit, output_limit
+	var budgetID int
+	err = tx.QueryRow(ctx, `
+		SELECT id
 		FROM investigation_usage_limits
 		WHERE id = 1
-		FOR UPDATE`).Scan(&inputLimit, &outputLimit)
+		FOR UPDATE`).Scan(&budgetID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrUsageBudget
+	} else if err != nil {
+		return fmt.Errorf("lock usage limits for completion: %w", err)
+	}
 
 	// Get current job
 	var currentPayload []byte
@@ -453,12 +481,12 @@ func (s *PostgresInvestigationStore) CompleteUsage(ctx context.Context, job Job)
 
 	// Check reservation
 	var resID, resJobID, resStatus string
-	var resInput, resOutput int64
+	var resInput, resOutput, resCostMicrousd int64
 	err = tx.QueryRow(ctx, `
-		SELECT id, job_id, reserved_input, reserved_output, status
+		SELECT id, job_id, reserved_input, reserved_output, reserved_cost_microusd, status
 		FROM investigation_usage_reservations
 		WHERE id = $1
-		FOR UPDATE`, job.UsageReservationID).Scan(&resID, &resJobID, &resInput, &resOutput, &resStatus)
+		FOR UPDATE`, job.UsageReservationID).Scan(&resID, &resJobID, &resInput, &resOutput, &resCostMicrousd, &resStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrUsageBudget
 	} else if err != nil {
@@ -480,21 +508,25 @@ func (s *PostgresInvestigationStore) CompleteUsage(ctx context.Context, job Job)
 		return ErrUsageBudget
 	}
 
-	actualInput, actualOutput := resInput, resOutput
+	actualInput, actualOutput, actualCostMicrousd := resInput, resOutput, resCostMicrousd
 	if job.Usage.InputTokens != nil {
 		actualInput = *job.Usage.InputTokens
 	}
 	if job.Usage.OutputTokens != nil {
 		actualOutput = *job.Usage.OutputTokens
 	}
-	if actualInput < 0 || actualOutput < 0 || actualInput > resInput || actualOutput > resOutput {
+	if job.Usage.CostMicrousd != nil {
+		actualCostMicrousd = *job.Usage.CostMicrousd
+	}
+	if actualInput < 0 || actualOutput < 0 || actualCostMicrousd < 0 || actualInput > resInput || actualOutput > resOutput || actualCostMicrousd > resCostMicrousd {
 		return ErrUsageBudget
 	}
 
 	_, err = tx.Exec(ctx, `
 		UPDATE investigation_usage_reservations
-		SET status = 'completed', actual_input = $1, actual_output = $2, updated_at = NOW()
-		WHERE id = $3`, actualInput, actualOutput, resID)
+		SET status = 'completed', actual_input = $1, actual_output = $2,
+			actual_cost_microusd = $3, updated_at = NOW()
+		WHERE id = $4`, actualInput, actualOutput, actualCostMicrousd, resID)
 	if err != nil {
 		return fmt.Errorf("update reservation completed: %w", err)
 	}
@@ -511,7 +543,7 @@ func (s *PostgresInvestigationStore) CompleteUsage(ctx context.Context, job Job)
 
 	_, err = tx.Exec(ctx, `
 		UPDATE investigation_jobs
-		SET status = $1, completed_at = $2, job_payload = $3
+		SET status = $1, completed_at = $2, provider_call_pending = FALSE, job_payload = $3
 		WHERE id = $4`, job.Status, completedAt, payload, job.ID)
 	if err != nil {
 		return fmt.Errorf("update completed job: %w", err)
@@ -581,62 +613,5 @@ func (s *PostgresInvestigationStore) MarkUsageUncertain(ctx context.Context, job
 
 	return tx.Commit(ctx)
 }
-
-func (s *PostgresInvestigationStore) EnsureSchema(ctx context.Context) error {
-	if _, err := s.pool.Exec(ctx, PostgresInvestigationStoreDDL); err != nil {
-		return fmt.Errorf("execute store DDL: %w", err)
-	}
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO investigation_usage_limits (id, input_limit, output_limit)
-		VALUES (1, $1, $2)
-		ON CONFLICT (id) DO NOTHING`, s.inputLimit, s.outputLimit)
-	if err != nil {
-		return fmt.Errorf("seed usage limits: %w", err)
-	}
-	return nil
-}
-
-// PostgresInvestigationStoreDDL defines the durable schema required for
-// investigation jobs, leases, checkpoints, usage reservations, and limits.
-const PostgresInvestigationStoreDDL = `
-CREATE TABLE IF NOT EXISTS investigation_jobs (
-    id TEXT PRIMARY KEY,
-    actor_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    payment_id TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL,
-    request_hash TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
-    mode TEXT NOT NULL,
-    question TEXT NOT NULL,
-    lease_owner TEXT,
-    lease_epoch BIGINT NOT NULL DEFAULT 0,
-    lease_expires_at TIMESTAMPTZ,
-    deadline_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL,
-    completed_at TIMESTAMPTZ,
-    job_payload JSONB NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_investigation_jobs_actor_idemp ON investigation_jobs (actor_id, idempotency_key);
-CREATE INDEX IF NOT EXISTS idx_investigation_jobs_active ON investigation_jobs (status) WHERE status IN ('queued', 'running');
-
-CREATE TABLE IF NOT EXISTS investigation_usage_reservations (
-    id TEXT PRIMARY KEY,
-    job_id TEXT NOT NULL REFERENCES investigation_jobs(id) ON DELETE CASCADE,
-    reserved_input BIGINT NOT NULL,
-    reserved_output BIGINT NOT NULL,
-    actual_input BIGINT,
-    actual_output BIGINT,
-    status TEXT NOT NULL CHECK (status IN ('reserved', 'completed', 'uncertain')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_investigation_usage_job ON investigation_usage_reservations (job_id);
-
-CREATE TABLE IF NOT EXISTS investigation_usage_limits (
-    id INT PRIMARY KEY DEFAULT 1,
-    input_limit BIGINT NOT NULL,
-    output_limit BIGINT NOT NULL
-);`
 
 var _ InvestigationStore = (*PostgresInvestigationStore)(nil)

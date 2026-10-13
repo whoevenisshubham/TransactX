@@ -39,11 +39,14 @@ CREATE INDEX IF NOT EXISTS runbook_chunks_tags_idx ON runbook_chunks USING GIN (
 CREATE TABLE IF NOT EXISTS investigation_usage_limits (
     id INT PRIMARY KEY DEFAULT 1,
     input_limit BIGINT NOT NULL,
-    output_limit BIGINT NOT NULL
+    output_limit BIGINT NOT NULL,
+    cost_limit_microusd BIGINT NOT NULL DEFAULT 0
 );
 
-INSERT INTO investigation_usage_limits (id, input_limit, output_limit)
-VALUES (1, 8000, 1200)
+ALTER TABLE investigation_usage_limits ADD COLUMN IF NOT EXISTS cost_limit_microusd BIGINT NOT NULL DEFAULT 0;
+
+INSERT INTO investigation_usage_limits (id, input_limit, output_limit, cost_limit_microusd)
+VALUES (1, 8000, 1200, 0)
 ON CONFLICT (id) DO NOTHING;
 
 -- 3. Upgrade investigation_jobs for durable checkpointing and lease protocol
@@ -61,6 +64,7 @@ ALTER TABLE investigation_jobs ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAU
 ALTER TABLE investigation_jobs ADD COLUMN IF NOT EXISTS request_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE investigation_jobs ADD COLUMN IF NOT EXISTS deadline_at TIMESTAMPTZ;
 ALTER TABLE investigation_jobs ADD COLUMN IF NOT EXISTS job_payload JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE investigation_jobs ADD COLUMN IF NOT EXISTS provider_call_pending BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_investigation_jobs_active ON investigation_jobs (status) WHERE status IN ('queued', 'running');
 
@@ -68,12 +72,18 @@ CREATE INDEX IF NOT EXISTS idx_investigation_jobs_active ON investigation_jobs (
 ALTER TABLE investigation_usage_reservations ALTER COLUMN id TYPE TEXT USING id::text;
 ALTER TABLE investigation_usage_reservations ALTER COLUMN job_id TYPE TEXT USING job_id::text;
 ALTER TABLE investigation_usage_reservations ALTER COLUMN actor_id TYPE TEXT USING actor_id::text;
+ALTER TABLE investigation_usage_reservations ALTER COLUMN actor_id DROP NOT NULL;
+ALTER TABLE investigation_usage_reservations ALTER COLUMN provider DROP NOT NULL;
+ALTER TABLE investigation_usage_reservations ALTER COLUMN model DROP NOT NULL;
+ALTER TABLE investigation_usage_reservations ALTER COLUMN reserved_tokens DROP NOT NULL;
 ALTER TABLE investigation_usage_reservations ALTER COLUMN status TYPE TEXT USING status::text;
 
 ALTER TABLE investigation_usage_reservations ADD COLUMN IF NOT EXISTS reserved_input BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE investigation_usage_reservations ADD COLUMN IF NOT EXISTS reserved_output BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE investigation_usage_reservations ADD COLUMN IF NOT EXISTS reserved_cost_microusd BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE investigation_usage_reservations ADD COLUMN IF NOT EXISTS actual_input BIGINT;
 ALTER TABLE investigation_usage_reservations ADD COLUMN IF NOT EXISTS actual_output BIGINT;
+ALTER TABLE investigation_usage_reservations ADD COLUMN IF NOT EXISTS actual_cost_microusd BIGINT;
 
 ALTER TABLE investigation_usage_reservations DROP CONSTRAINT IF EXISTS investigation_usage_reservations_status_check;
 ALTER TABLE investigation_usage_reservations ADD CONSTRAINT investigation_usage_reservations_status_check

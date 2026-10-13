@@ -5,18 +5,22 @@ package storetest
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/transactx/backend/internal/investigator"
 )
 
 // Factory must return a clean, isolated store for each subtest. The supplied
-// limits are aggregate input/output token budgets; zero means generation is
-// disabled. Implementations should register cleanup through t.Cleanup.
-type Factory func(t *testing.T, inputLimit, outputLimit int64) investigator.InvestigationStore
+// limits are aggregate input/output token and integer micro-USD budgets; zero
+// token limits mean generation is disabled. Implementations should register
+// cleanup through t.Cleanup.
+type Factory func(t *testing.T, limits investigator.UsageAllowance) investigator.InvestigationStore
 
 // Run executes the durable semantics required by the M3 service. M2 should
 // call Run from its PostgreSQL integration test with a schema-isolated factory.
@@ -27,7 +31,7 @@ func Run(t *testing.T, factory Factory) {
 	}
 
 	t.Run("idempotency_scope_and_copy_isolation", func(t *testing.T) {
-		store := factory(t, 0, 0)
+		store := factory(t, investigator.UsageAllowance{})
 		scope := testScope("actor-a")
 		request := testRequest(scope, "key-a", "hash-a")
 		job, created, err := store.Create(context.Background(), request)
@@ -39,7 +43,7 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatalf("replay = %+v, created=%t, err=%v", replay, replayCreated, err)
 		}
 		conflict := request
-		conflict.RequestHash = "hash-b"
+		conflict.RequestHash = testHash("hash-b")
 		if _, _, err := store.Create(context.Background(), conflict); !errors.Is(err, investigator.ErrIdempotencyConflict) {
 			t.Fatalf("idempotency conflict = %v", err)
 		}
@@ -63,7 +67,7 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatalf("store retained caller-owned job state: %+v, err=%v", persisted, err)
 		}
 		foreignActor := scope
-		foreignActor.ActorID = "actor-foreign"
+		foreignActor.ActorID = testScope("actor-foreign").ActorID
 		if _, err := store.Get(context.Background(), foreignActor, replay.ID); !errors.Is(err, investigator.ErrJobNotFound) {
 			t.Fatalf("foreign actor read = %v", err)
 		}
@@ -85,7 +89,7 @@ func Run(t *testing.T, factory Factory) {
 	})
 
 	t.Run("lease_fencing_and_checkpoint_resume", func(t *testing.T) {
-		store := factory(t, 0, 0)
+		store := factory(t, investigator.UsageAllowance{})
 		scope := testScope("actor-lease")
 		job := mustCreate(t, store, testRequest(scope, "lease-key", "lease-hash"))
 		const leaseDuration = 250 * time.Millisecond
@@ -129,16 +133,38 @@ func Run(t *testing.T, factory Factory) {
 		}
 	})
 
+	t.Run("global_provider_call_bound", func(t *testing.T) {
+		store := factory(t, investigator.UsageAllowance{InputTokens: 100, OutputTokens: 100, CostMicrousd: 100})
+		first := mustClaim(t, store, mustCreate(t, store, testRequest(testScope("actor-provider-a"), "provider-key-a", "provider-hash-a")), "provider-worker-a", time.Minute)
+		second := mustClaim(t, store, mustCreate(t, store, testRequest(testScope("actor-provider-b"), "provider-key-b", "provider-hash-b")), "provider-worker-b", time.Minute)
+
+		first.ProviderCallPending = true
+		if err := store.SaveCheckpoint(context.Background(), first); err != nil {
+			t.Fatalf("start first provider call: %v", err)
+		}
+		second.ProviderCallPending = true
+		if err := store.SaveCheckpoint(context.Background(), second); !errors.Is(err, investigator.ErrProviderCallLimit) {
+			t.Fatalf("parallel provider call = %v", err)
+		}
+		first.ProviderCallPending = false
+		if err := store.SaveCheckpoint(context.Background(), first); err != nil {
+			t.Fatalf("finish first provider call: %v", err)
+		}
+		if err := store.SaveCheckpoint(context.Background(), second); err != nil {
+			t.Fatalf("start second provider call after release: %v", err)
+		}
+	})
+
 	t.Run("transactional_usage_reservations", func(t *testing.T) {
-		store := factory(t, 100, 100)
+		store := factory(t, investigator.UsageAllowance{InputTokens: 100, OutputTokens: 100, CostMicrousd: 100})
 		first := mustClaim(t, store, mustCreate(t, store, testRequest(testScope("actor-budget-a"), "budget-key-a", "budget-hash-a")), "budget-worker-a", time.Minute)
 		second := mustClaim(t, store, mustCreate(t, store, testRequest(testScope("actor-budget-b"), "budget-key-b", "budget-hash-b")), "budget-worker-b", time.Minute)
-		if _, err := store.ReserveUsage(context.Background(), first, 0, 0); !errors.Is(err, investigator.ErrUsageBudget) {
+		if _, err := store.ReserveUsage(context.Background(), first, investigator.UsageAllowance{}); !errors.Is(err, investigator.ErrUsageBudget) {
 			t.Fatalf("zero reservation = %v", err)
 		}
 		missing := first
-		missing.ID = "missing-job"
-		if _, err := store.ReserveUsage(context.Background(), missing, 1, 1); !errors.Is(err, investigator.ErrJobNotFound) {
+		missing.ID = "00000000-0000-4000-8000-000000000099"
+		if _, err := store.ReserveUsage(context.Background(), missing, investigator.UsageAllowance{InputTokens: 1, OutputTokens: 1, CostMicrousd: 1}); !errors.Is(err, investigator.ErrJobNotFound) {
 			t.Fatalf("missing job reservation = %v", err)
 		}
 
@@ -155,7 +181,7 @@ func Run(t *testing.T, factory Factory) {
 			go func(job investigator.Job) {
 				defer workers.Done()
 				<-start
-				id, err := store.ReserveUsage(context.Background(), job, 80, 80)
+				id, err := store.ReserveUsage(context.Background(), job, investigator.UsageAllowance{InputTokens: 80, OutputTokens: 80, CostMicrousd: 80})
 				results <- result{id: id, err: err, job: job}
 			}(job)
 		}
@@ -180,13 +206,13 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatalf("parallel reservations succeeded=%d rejected=%d", succeeded, rejected)
 		}
 
-		reservationID, err := store.ReserveUsage(context.Background(), reservedJob, 80, 80)
+		reservationID, err := store.ReserveUsage(context.Background(), reservedJob, investigator.UsageAllowance{InputTokens: 80, OutputTokens: 80, CostMicrousd: 80})
 		if err != nil {
 			t.Fatalf("replay reservation: %v", err)
 		}
 		reservedJob.UsageReservationID = reservationID
-		actualInput, actualOutput := int64(60), int64(50)
-		reservedJob.Usage = investigator.Usage{InputTokens: &actualInput, OutputTokens: &actualOutput}
+		actualInput, actualOutput, actualCostMicrousd := int64(60), int64(50), int64(40)
+		reservedJob.Usage = investigator.Usage{InputTokens: &actualInput, OutputTokens: &actualOutput, CostMicrousd: &actualCostMicrousd}
 		reservedJob.Status = investigator.StatusCompleted
 		reservedJob.CompletedAt = time.Now().UTC()
 		reservedJob.Report = &investigator.InvestigationReport{SchemaVersion: "tx.investigation.v1", Mode: investigator.ModeEvidenceOnly}
@@ -200,16 +226,16 @@ func Run(t *testing.T, factory Factory) {
 		if reservedJob.ID == first.ID {
 			remainingJob = second
 		}
-		remaining, err := store.ReserveUsage(context.Background(), remainingJob, 40, 50)
+		remaining, err := store.ReserveUsage(context.Background(), remainingJob, investigator.UsageAllowance{InputTokens: 40, OutputTokens: 50, CostMicrousd: 60})
 		if err != nil || remaining == "" {
 			t.Fatalf("remaining budget reservation = %q, %v", remaining, err)
 		}
 	})
 
 	t.Run("uncertain_usage_is_lease_fenced_and_retains_budget", func(t *testing.T) {
-		store := factory(t, 100, 100)
+		store := factory(t, investigator.UsageAllowance{InputTokens: 100, OutputTokens: 100, CostMicrousd: 100})
 		job := mustClaim(t, store, mustCreate(t, store, testRequest(testScope("actor-uncertain"), "uncertain-key", "uncertain-hash")), "worker-a", 250*time.Millisecond)
-		reservationID, err := store.ReserveUsage(context.Background(), job, 80, 80)
+		reservationID, err := store.ReserveUsage(context.Background(), job, investigator.UsageAllowance{InputTokens: 80, OutputTokens: 80, CostMicrousd: 80})
 		if err != nil {
 			t.Fatalf("reserve uncertain usage: %v", err)
 		}
@@ -239,10 +265,10 @@ func Run(t *testing.T, factory Factory) {
 			t.Fatalf("complete uncertain usage = %v", err)
 		}
 		other := mustClaim(t, store, mustCreate(t, store, testRequest(testScope("actor-after-uncertain"), "after-key", "after-hash")), "worker-c", time.Minute)
-		if _, err := store.ReserveUsage(context.Background(), other, 21, 21); !errors.Is(err, investigator.ErrUsageBudget) {
+		if _, err := store.ReserveUsage(context.Background(), other, investigator.UsageAllowance{InputTokens: 1, OutputTokens: 1, CostMicrousd: 21}); !errors.Is(err, investigator.ErrUsageBudget) {
 			t.Fatalf("uncertain reservation released budget: %v", err)
 		}
-		if id, err := store.ReserveUsage(context.Background(), other, 20, 20); err != nil || id == "" {
+		if id, err := store.ReserveUsage(context.Background(), other, investigator.UsageAllowance{InputTokens: 20, OutputTokens: 20, CostMicrousd: 20}); err != nil || id == "" {
 			t.Fatalf("remaining budget after uncertainty = %q, %v", id, err)
 		}
 	})
@@ -250,7 +276,7 @@ func Run(t *testing.T, factory Factory) {
 
 func testScope(actorID string) investigator.TrustedScope {
 	return investigator.TrustedScope{
-		ActorID:           actorID,
+		ActorID:           uuid.NewSHA1(uuid.NameSpaceOID, []byte(actorID)).String(),
 		Role:              "OPS_VIEWER",
 		SelectedPaymentID: "11111111-1111-4111-8111-111111111111",
 	}
@@ -263,11 +289,15 @@ func testRequest(scope investigator.TrustedScope, idempotencyKey, requestHash st
 		PaymentID:      scope.SelectedPaymentID,
 		Question:       "What evidence explains the current state?",
 		IdempotencyKey: idempotencyKey,
-		RequestHash:    requestHash,
+		RequestHash:    testHash(requestHash),
 		Mode:           investigator.ModeEvidenceOnly,
 		DeadlineAt:     now.Add(30 * time.Second),
 		CreatedAt:      now,
 	}
+}
+
+func testHash(value string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
 
 func mustCreate(t *testing.T, store investigator.InvestigationStore, request investigator.NewJob) investigator.Job {

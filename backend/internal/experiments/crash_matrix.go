@@ -1048,6 +1048,10 @@ func (h *CrashMatrixHarness) runRec08_WorkerLeaseExpires_DelayedWorkerCASProtect
 		FaultBoundary: "Worker 1 lease expires while delayed; Worker 2 claims job; CAS rejects Worker 1",
 	}
 
+	// Clean prior recovery jobs and attempts to ensure deterministic claim
+	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_attempts`)
+	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_jobs`)
+
 	paymentID := uuid.New()
 	amount := int64(300)
 	_, _ = h.pool.Exec(ctx, `
@@ -1503,9 +1507,9 @@ func (h *CrashMatrixHarness) runRec14_ExhaustedAutomaticRetries(ctx context.Cont
 		FaultBoundary: "Recovery attempts exhausted maximum retry limit (20 attempts)",
 	}
 
-	// Clean prior recovery jobs and attempts for this harness
-	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	// Clean prior recovery jobs and attempts for deterministic single-job claim
+	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_attempts`)
+	_, _ = h.pool.Exec(ctx, `DELETE FROM recovery_jobs`)
 
 	paymentID := uuid.New()
 	amount := int64(250)

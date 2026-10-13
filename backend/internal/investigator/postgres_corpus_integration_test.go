@@ -8,69 +8,107 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/transactx/backend/internal/database"
 )
 
-// TestPostgresCorpusLifecycle uses disposable test-only DDL because migration
-// 000027 is M2-owned. It verifies the repository contract without introducing
-// a second canonical migration.
+// TestPostgresCorpusLifecycle verifies the repository contract, versioning semantics,
+// unique chunks, content hashes, and audience filtering against the real canonical migrations.
 func TestPostgresCorpusLifecycle(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("DATABASE_URL is not set: skipping disposable PostgreSQL corpus test")
 	}
+
+	testDBURL, cleanupDB := setupDisposableDB(t, databaseURL)
+	defer cleanupDB()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	admin, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(admin.Close)
-	schema := "tx_corpus_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	identifier := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		if _, err := admin.Exec(cleanupContext, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
-			t.Errorf("drop disposable corpus schema: %v", err)
-		}
-	})
-
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = schema
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	pool, err := pgxpool.New(ctx, testDBURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if _, err := pool.Exec(ctx, disposableCorpusDDL); err != nil {
-		t.Fatal(err)
+
+	// Apply all canonical migrations (000001 through 000029) via authoritative Migrator
+	migrationsDir := findRepoMigrationsDir(t)
+	migrator, err := database.NewMigrator(pool, migrationsDir)
+	if err != nil {
+		t.Fatalf("new migrator: %v", err)
 	}
+	applied, err := migrator.Up(ctx)
+	if err != nil {
+		t.Fatalf("apply canonical migrations: %v", err)
+	}
+	if applied < 29 {
+		t.Fatalf("expected at least 29 migrations applied, got %d", applied)
+	}
+
 	repository, err := NewPostgresCorpusRepository(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	build := approvedCorpus(t)
+	// 1. Stage corpus
 	if err := repository.Stage(ctx, build); err != nil {
 		t.Fatal(err)
 	}
+	// Verify staged version semantics via SQL
+	var stageStatus string
+	var stageChunks int
+	if err := pool.QueryRow(ctx, `SELECT status, chunk_count FROM corpus_versions WHERE version = $1`, build.Version).Scan(&stageStatus, &stageChunks); err != nil {
+		t.Fatalf("query staged version: %v", err)
+	}
+	if stageStatus != "staging" || stageChunks != len(build.Chunks) {
+		t.Fatalf("unexpected staged version record: status=%s, chunks=%d", stageStatus, stageChunks)
+	}
+
+	// Verify unique chunks and non-empty content hashes via SQL
+	var distinctChunkCount, totalChunkCount, emptyHashCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT chunk_id), COUNT(*), COUNT(*) FILTER (WHERE content_sha256 = '' OR source_sha256 = '')
+		FROM runbook_chunks
+		WHERE corpus_version = $1`, build.Version).Scan(&distinctChunkCount, &totalChunkCount, &emptyHashCount); err != nil {
+		t.Fatalf("query chunk metrics: %v", err)
+	}
+	if distinctChunkCount != totalChunkCount || totalChunkCount != len(build.Chunks) {
+		t.Fatalf("chunk uniqueness failure: distinct=%d, total=%d, expected=%d", distinctChunkCount, totalChunkCount, len(build.Chunks))
+	}
+	if emptyHashCount != 0 {
+		t.Fatalf("detected %d chunks with missing content or source hashes", emptyHashCount)
+	}
+
+	// Idempotent re-stage
 	if err := repository.Stage(ctx, build); err != nil {
 		t.Fatalf("duplicate stage: %v", err)
 	}
+
+	// 2. Activate corpus
 	if err := repository.Activate(ctx, build.Version, build.ManifestSHA256); err != nil {
 		t.Fatal(err)
 	}
 
+	// Verify active version semantics and one-active constraint via SQL
+	var activeStatus string
+	var activatedAt *time.Time
+	var activeCount int
+	if err := pool.QueryRow(ctx, `SELECT status, activated_at FROM corpus_versions WHERE version = $1`, build.Version).Scan(&activeStatus, &activatedAt); err != nil {
+		t.Fatalf("query active version: %v", err)
+	}
+	if activeStatus != "active" || activatedAt == nil {
+		t.Fatalf("version was not marked active: status=%s, activatedAt=%v", activeStatus, activatedAt)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM corpus_versions WHERE status = 'active'`).Scan(&activeCount); err != nil {
+		t.Fatalf("count active versions: %v", err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("expected exactly 1 active version, got %d", activeCount)
+	}
+
+	// 3. Retrieve operational runbooks
 	scope := TrustedScope{ActorID: "operator", Role: "OPS_VIEWER", SelectedPaymentID: "selected"}
 	chunks, err := repository.Retrieve(ctx, scope, "lost participant reply unknown outcome", []string{"recovery", "unknown_outcome"}, 5)
 	if err != nil {
@@ -81,15 +119,35 @@ func TestPostgresCorpusLifecycle(t *testing.T) {
 	}
 	saved := chunks[0]
 
+	// 4. Verify audience filtering: CUSTOMER role must be denied access to operational runbooks
+	customerScope := TrustedScope{ActorID: "customer", Role: "CUSTOMER", SelectedPaymentID: "selected"}
+	customerChunks, err := repository.Retrieve(ctx, customerScope, "lost participant reply unknown outcome", []string{"recovery"}, 5)
+	if err == nil && len(customerChunks) > 0 {
+		t.Fatalf("customer role retrieved operational chunks: %v", summarizeChunks(customerChunks))
+	}
+
+	// SQL assertion for audience filtering: runbooks must NOT allow CUSTOMER role
+	var customerAccessibleCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM runbook_chunks
+		WHERE corpus_version = $1 AND 'CUSTOMER' = ANY(allowed_roles)`, build.Version).Scan(&customerAccessibleCount); err != nil {
+		t.Fatalf("query customer accessible chunks: %v", err)
+	}
+	if customerAccessibleCount != 0 {
+		t.Fatalf("expected 0 customer accessible chunks in operational runbooks, found %d", customerAccessibleCount)
+	}
+
+	// 5. Test injection defense
 	injected := `pending'); DROP TABLE runbook_chunks; --`
 	if _, err := repository.Retrieve(ctx, scope, injected, []string{"recovery"}, 5); err != nil {
 		t.Fatalf("parameterized injection-shaped query failed: %v", err)
 	}
 	var chunkCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM runbook_chunks`).Scan(&chunkCount); err != nil || chunkCount != len(build.Chunks) {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM runbook_chunks WHERE corpus_version = $1`, build.Version).Scan(&chunkCount); err != nil || chunkCount != len(build.Chunks) {
 		t.Fatalf("chunks after injection-shaped query = %d, %v", chunkCount, err)
 	}
 
+	// 6. Stage and activate new version (v2) and verify previous version is retired
 	next := CorpusBuild{Version: "tx.corpus.c1.pg2", ManifestSHA256: strings.Repeat("b", 64)}
 	for index, chunk := range build.Chunks {
 		if chunk.Path == "docs/runbooks/projections-and-anomaly-analytics.md" {
@@ -105,10 +163,24 @@ func TestPostgresCorpusLifecycle(t *testing.T) {
 	if err := repository.Activate(ctx, next.Version, next.ManifestSHA256); err != nil {
 		t.Fatal(err)
 	}
+
+	// Verify retired version semantics via SQL
+	var prevStatus string
+	var prevDeactivatedAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT status, deactivated_at FROM corpus_versions WHERE version = $1`, build.Version).Scan(&prevStatus, &prevDeactivatedAt); err != nil {
+		t.Fatalf("query previous version status: %v", err)
+	}
+	if prevStatus != "retired" || prevDeactivatedAt == nil {
+		t.Fatalf("previous version was not retired: status=%s, deactivatedAt=%v", prevStatus, prevDeactivatedAt)
+	}
+
+	// Citation resolution persists across active version transition
 	resolved, err := repository.Resolve(ctx, build.Version, saved.ID, scope.Role)
 	if err != nil || resolved.SHA256 != saved.SHA256 {
 		t.Fatalf("old citation after switch = %+v, %v", resolved, err)
 	}
+
+	// Active retrieval reflects new version
 	removed, err := repository.Retrieve(ctx, scope, "IsolationForest held-out baseline", []string{"baseline", "model"}, 5)
 	if err != nil {
 		t.Fatal(err)
@@ -128,35 +200,3 @@ func hasChunk(chunks []RunbookChunk, path, heading string) bool {
 	}
 	return false
 }
-
-const disposableCorpusDDL = `
-CREATE TABLE corpus_versions (
-    version TEXT PRIMARY KEY,
-    manifest_sha256 TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('staging', 'active', 'retired')),
-    chunk_count INTEGER NOT NULL CHECK (chunk_count >= 0),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    activated_at TIMESTAMPTZ,
-    deactivated_at TIMESTAMPTZ
-);
-CREATE UNIQUE INDEX corpus_versions_one_active_idx ON corpus_versions ((status)) WHERE status = 'active';
-CREATE TABLE runbook_chunks (
-    corpus_version TEXT NOT NULL REFERENCES corpus_versions(version),
-    chunk_id TEXT NOT NULL,
-    document_path TEXT NOT NULL,
-    heading TEXT NOT NULL,
-    start_line INTEGER NOT NULL CHECK (start_line > 0),
-    end_line INTEGER NOT NULL CHECK (end_line >= start_line),
-    source_sha256 TEXT NOT NULL,
-    content_sha256 TEXT NOT NULL,
-    implementation_status TEXT NOT NULL CHECK (implementation_status IN ('existing', 'planned')),
-    tags TEXT[] NOT NULL,
-    allowed_roles TEXT[] NOT NULL,
-    content TEXT NOT NULL,
-    search_vector TSVECTOR GENERATED ALWAYS AS (
-        to_tsvector('simple', coalesce(heading, '') || ' ' || coalesce(content, ''))
-    ) STORED,
-    PRIMARY KEY (corpus_version, chunk_id)
-);
-CREATE INDEX runbook_chunks_search_idx ON runbook_chunks USING GIN (search_vector);
-CREATE INDEX runbook_chunks_tags_idx ON runbook_chunks USING GIN (tags);`

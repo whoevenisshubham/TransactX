@@ -43,6 +43,10 @@ type GenerationRequest struct {
 type Usage struct {
 	InputTokens  *int64 `json:"inputTokens"`
 	OutputTokens *int64 `json:"outputTokens"`
+	CostMicrousd *int64 `json:"costMicrousd"`
+}
+type UsageAllowance struct {
+	InputTokens, OutputTokens, CostMicrousd int64
 }
 type GenerationResult struct {
 	Report            *InvestigationReport
@@ -64,6 +68,7 @@ type ProviderToolOutput struct {
 }
 type Provider interface {
 	Generate(context.Context, GenerationRequest) (GenerationResult, error)
+	RequiresCostReservation() bool
 }
 
 type Job struct {
@@ -104,14 +109,16 @@ type NewJob struct {
 
 // M2 must implement actor-scoped idempotency, lease epochs and transactional
 // reservations. Every mutating method after Claim rejects stale lease
-// owners/epochs. CompleteUsage atomically persists the terminal Job and actual
-// usage. MarkUsageUncertain is idempotent and retains the reserved allowance.
+// owners/epochs. SaveCheckpoint also admits at most one false-to-true
+// ProviderCallPending transition globally. CompleteUsage atomically persists
+// the terminal Job and actual usage. MarkUsageUncertain is idempotent and
+// retains the reserved allowance.
 type InvestigationStore interface {
 	Create(context.Context, NewJob) (Job, bool, error)
 	Claim(context.Context, string, string, time.Duration) (Job, error)
 	SaveCheckpoint(context.Context, Job) error
 	Get(context.Context, TrustedScope, string) (Job, error)
-	ReserveUsage(context.Context, Job, int64, int64) (string, error)
+	ReserveUsage(context.Context, Job, UsageAllowance) (string, error)
 	CompleteUsage(context.Context, Job) error
 	MarkUsageUncertain(context.Context, Job) error
 }

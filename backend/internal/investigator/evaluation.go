@@ -69,24 +69,29 @@ type EvaluationCaseResult struct {
 }
 
 type EvaluationMetrics struct {
-	TotalCases              int            `json:"totalCases"`
-	PassedCases             int            `json:"passedCases"`
-	CategoryCounts          map[string]int `json:"categoryCounts"`
-	PublishedReportCases    int            `json:"publishedReportCases"`
-	CitationValidCases      int            `json:"citationValidCases"`
-	TypedAgreementCases     int            `json:"typedAgreementCases"`
-	RetrievalCases          int            `json:"retrievalCases"`
-	RetrievalHitsAt5        int            `json:"retrievalHitsAt5"`
-	RetrievalRecallAt5      float64        `json:"retrievalRecallAt5"`
-	SecurityCases           int            `json:"securityCases"`
-	SecurityBlocked         int            `json:"securityBlocked"`
-	MissingEvidenceCases    int            `json:"missingEvidenceCases"`
-	MissingEvidenceAbstains int            `json:"missingEvidenceAbstains"`
-	RetrievalP50Micros      int64          `json:"retrievalP50Micros"`
-	RetrievalP95Micros      int64          `json:"retrievalP95Micros"`
-	ProviderCalls           int            `json:"providerCalls"`
-	ActualProviderUsage     Usage          `json:"actualProviderUsage"`
-	PaidCostUSD             string         `json:"paidCostUsd"`
+	TotalCases              int             `json:"totalCases"`
+	PassedCases             int             `json:"passedCases"`
+	CategoryCounts          map[string]int  `json:"categoryCounts"`
+	PublishedReportCases    int             `json:"publishedReportCases"`
+	CitationValidCases      int             `json:"citationValidCases"`
+	TypedAgreementCases     int             `json:"typedAgreementCases"`
+	RetrievalCases          int             `json:"retrievalCases"`
+	RetrievalHitsAt5        int             `json:"retrievalHitsAt5"`
+	RetrievalRecallAt5      float64         `json:"retrievalRecallAt5"`
+	SecurityCases           int             `json:"securityCases"`
+	SecurityBlocked         int             `json:"securityBlocked"`
+	MissingEvidenceCases    int             `json:"missingEvidenceCases"`
+	MissingEvidenceAbstains int             `json:"missingEvidenceAbstains"`
+	RetrievalP50Micros      int64           `json:"retrievalP50Micros"`
+	RetrievalP95Micros      int64           `json:"retrievalP95Micros"`
+	ProviderCalls           int             `json:"providerCalls"`
+	ActualProviderUsage     EvaluationUsage `json:"actualProviderUsage"`
+	PaidCostUSD             string          `json:"paidCostUsd"`
+}
+
+type EvaluationUsage struct {
+	InputTokens  *int64 `json:"inputTokens"`
+	OutputTokens *int64 `json:"outputTokens"`
 }
 
 type LiveProviderEvaluation struct {

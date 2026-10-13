@@ -113,6 +113,8 @@ func (provider *OpenAIProvider) Generate(ctx context.Context, request Generation
 	return decodeOpenAIResponse(raw)
 }
 
+func (provider *OpenAIProvider) RequiresCostReservation() bool { return provider.sendAPIKey }
+
 func (provider *OpenAIProvider) requestBody(request GenerationRequest) ([]byte, error) {
 	packet := struct {
 		Question      string         `json:"question"`

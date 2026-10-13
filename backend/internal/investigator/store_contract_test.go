@@ -2,25 +2,83 @@ package investigator_test
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/transactx/backend/internal/database"
 	"github.com/transactx/backend/internal/investigator"
 	"github.com/transactx/backend/internal/investigator/storetest"
 )
 
 func TestMemoryInvestigationStoreConformanceHarness(t *testing.T) {
-	storetest.Run(t, func(t *testing.T, inputLimit, outputLimit int64) investigator.InvestigationStore {
+	storetest.Run(t, func(t *testing.T, limits investigator.UsageAllowance) investigator.InvestigationStore {
 		t.Helper()
 		store := investigator.NewMemoryInvestigationStore(time.Now)
-		store.SetUsageLimits(inputLimit, outputLimit)
+		store.SetUsageLimits(limits.InputTokens, limits.OutputTokens, limits.CostMicrousd)
 		return store
 	})
+}
+
+func findRepoMigrationsDir(t *testing.T) string {
+	t.Helper()
+	candidates := []string{
+		"../../migrations",
+		"../migrations",
+		"migrations",
+		"backend/migrations",
+	}
+	for _, c := range candidates {
+		clean := filepath.Clean(c)
+		if info, err := os.Stat(clean); err == nil && info.IsDir() {
+			abs, _ := filepath.Abs(clean)
+			return abs
+		}
+	}
+	t.Fatal("could not find migrations directory from test")
+	return ""
+}
+
+func setupDisposableDB(t *testing.T, databaseURL string) (string, func()) {
+	t.Helper()
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatalf("failed to parse database URL: %v", err)
+	}
+
+	adminPool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		t.Fatalf("failed to connect to admin database: %v", err)
+	}
+
+	dbName := "tx_store_conf_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = adminPool.Exec(context.Background(), fmt.Sprintf("CREATE DATABASE %s;", dbName))
+	if err != nil {
+		adminPool.Close()
+		t.Fatalf("failed to create disposable database %s: %v", dbName, err)
+	}
+
+	cleanup := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = adminPool.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName))
+		adminPool.Close()
+	}
+
+	testDBURL := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		config.ConnConfig.User,
+		config.ConnConfig.Password,
+		config.ConnConfig.Host,
+		config.ConnConfig.Port,
+		dbName,
+	)
+
+	return testDBURL, cleanup
 }
 
 func TestPostgresInvestigationStoreConformance(t *testing.T) {
@@ -29,53 +87,50 @@ func TestPostgresInvestigationStoreConformance(t *testing.T) {
 		t.Skip("DATABASE_URL is not set: skipping PostgreSQL investigation store conformance test")
 	}
 
-	adminCtx, adminCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer adminCancel()
+	testDBURL, cleanup := setupDisposableDB(t, databaseURL)
+	defer cleanup()
 
-	admin, err := pgxpool.New(adminCtx, databaseURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, testDBURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
+	defer pool.Close()
 
-	storetest.Run(t, func(t *testing.T, inputLimit, outputLimit int64) investigator.InvestigationStore {
+	// Apply all canonical migrations (000001 through 000029) via authoritative Migrator
+	migrationsDir := findRepoMigrationsDir(t)
+	migrator, err := database.NewMigrator(pool, migrationsDir)
+	if err != nil {
+		t.Fatalf("new migrator: %v", err)
+	}
+	applied, err := migrator.Up(ctx)
+	if err != nil {
+		t.Fatalf("apply canonical migrations: %v", err)
+	}
+	if applied < 29 {
+		t.Fatalf("expected at least 29 migrations applied, got %d", applied)
+	}
+
+	storetest.Run(t, func(t *testing.T, limits investigator.UsageAllowance) investigator.InvestigationStore {
 		t.Helper()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+		subCtx, subCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer subCancel()
 
-		schema := "tx_store_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-		identifier := pgx.Identifier{schema}.Sanitize()
-		if _, err := admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-			t.Fatal(err)
+		// Clean tables between subtests for complete test isolation against canonical schema
+		if _, err := pool.Exec(subCtx, "TRUNCATE investigation_usage_reservations, investigation_jobs CASCADE;"); err != nil {
+			t.Fatalf("truncate investigation tables: %v", err)
 		}
-		t.Cleanup(func() {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cleanupCancel()
-			if _, err := admin.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
-				t.Errorf("drop disposable store schema: %v", err)
-			}
-		})
-
-		config, err := pgxpool.ParseConfig(databaseURL)
-		if err != nil {
-			t.Fatal(err)
-		}
-		config.ConnConfig.RuntimeParams["search_path"] = schema
-		pool, err := pgxpool.NewWithConfig(ctx, config)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(pool.Close)
 
 		store, err := investigator.NewPostgresInvestigationStore(pool, time.Now)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := store.EnsureSchema(ctx); err != nil {
+		if err := store.SetUsageLimits(subCtx, limits); err != nil {
 			t.Fatal(err)
 		}
-		store.SetUsageLimits(inputLimit, outputLimit)
 		return store
 	})
 }
