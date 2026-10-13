@@ -1,7 +1,7 @@
 # TransactX — M1/M2/M3 Integration & Release Verification Checkpoint
 
 **Date:** 2026-10-13  
-**Status:** INTEGRATED & REVERIFIED (GATE 6 COMPLETE)  
+**Status:** INTEGRATED; final M1 acceptance gates pending
 **Integration Branch:** `v2/integration-m1-m2-m3`  
 **Base:** `origin/release/transactx-v2` (`39fc5c7`)  
 **Integrated Commits:**
@@ -12,6 +12,14 @@
 - **Gate 6 Integration Work:** Synchronize final M3 head (`99f3e14`), reconcile fresh and upgraded migration history (`000029` + additive `000030`), enforce strict HTTP investigation request decoding (`DecodeCreateInvestigationRequest`), correct B10 healthy-window selection and remove fixed fallback alerts, revalidate M2 crash matrix and financial invariants, and verify browser acceptance.
 
 ---
+
+## Current M1 acceptance correction — candidate 90288d2
+
+Independent current-source evidence is in `candidate902-acceptance-m1.json` and `M1.md`. Canonical fresh/upgrade store conformance, corpus lifecycle and analytics package tests passed on disposable PostgreSQL 18.6. Native authenticated browser investigation/saved evidence citations, admin navigation, analytics/viewer denial and actor scope passed. Viewer offline SSE initially failed; M1 fixed browser connectivity handling and the focused native reconnect/reread test passed, followed by actual 10-second JWT expiry/reconnect. No fixture browser result closes a native acceptance gate.
+
+The historical matrices below preserve reported runs, but their broad release-readiness claims are not accepted without source-matched gate evidence. `crash_matrix.go` still seeds states, discards SQL errors and unconditionally sets participant uniqueness true. Current analytics eligibility also permits positive seeded/healthy flags to override explicit negative review, and silently ignores calibration SQL failures. Precise M2 corrections are in `M1_INTEGRATION_REQUIREMENTS.md`. Native kill/restart, automatic projection, encrypted restore continuation, current production offline replay, accessibility/zoom, final combined suite and archive/install smoke remain pending. Release remains at `6ad42bf`.
+
+Deployment uses the agreed JWT and native Linux services. It needs configured free host/access and a valid HTTPS API origin; OAuth/IdP and cluster provisioning are not prerequisites or planned additions. Off-machine backup persistence and optional live-provider validation remain separately unavailable. Spending is zero and paid provider calls are disabled.
 
 ## 1. M2 Reliability, Platform & Integration Findings
 
@@ -223,7 +231,7 @@
 | **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
 
 ### 5.7 Remaining Operational & Infrastructure Gates
-- **Live Browser Acceptance on Target Staging Host:** Staging environment deployment and live OAuth/IdP sign-in flow pending cluster provisioning.
+- **Live Browser Acceptance on Target Staging Host:** JWT/native deployment requires configured free host/access and a valid HTTPS API origin.
 - **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
 - **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
 
@@ -342,9 +350,6 @@
 | **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
 
 ### 6.8 Remaining Operational & Infrastructure Gates
-- **Live Browser Acceptance on Target Staging Host:** Staging environment deployment and live OAuth/IdP sign-in flow pending cluster provisioning.
+- **Live Browser Acceptance on Target Staging Host:** JWT/native deployment requires configured free host/access and a valid HTTPS API origin.
 - **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
 - **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
-
-
-

@@ -45,6 +45,7 @@ type SubscribeOptions = {
   fetchImpl?: typeof fetch;
   reconnectDelayMs?: number;
   staleAfterMs?: number;
+  network?: { events: EventTarget; isOnline: () => boolean };
 };
 
 // The stream carries invalidation hints only. Callers refetch authoritative
@@ -58,6 +59,9 @@ export function subscribeOperationalEvents(
   const fetchImpl = options.fetchImpl ?? fetch;
   const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
   const staleAfterMs = options.staleAfterMs ?? 35000;
+  const network = options.network ?? (typeof window === "undefined" ? undefined : {
+    events: window, isOnline: () => navigator.onLine,
+  });
   let stopped = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
@@ -75,6 +79,10 @@ export function subscribeOperationalEvents(
 
   const connect = async () => {
     if (stopped) return;
+    if (network && !network.isOnline()) {
+      onStatus("disconnected");
+      return;
+    }
     onStatus("connecting");
     const controller = new AbortController();
     activeController = controller;
@@ -113,14 +121,30 @@ export function subscribeOperationalEvents(
       if (!stopped) {
         onStatus("disconnected");
         onHint({ event: "gap", topics: ["all"], reason: "stream_disconnected" });
-        reconnectTimer = setTimeout(() => void connect(), reconnectDelayMs);
+        if (!network || network.isOnline()) reconnectTimer = setTimeout(() => void connect(), reconnectDelayMs);
       }
     }
   };
 
+  const offline = () => {
+    if (stopped) return;
+    if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+    clearWatchdog();
+    onStatus("disconnected");
+    activeController?.abort("browser_offline");
+  };
+  const online = () => {
+    if (stopped || activeController) return;
+    if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+    void connect();
+  };
+  network?.events.addEventListener("offline", offline);
+  network?.events.addEventListener("online", online);
   void connect();
   return () => {
     stopped = true;
+    network?.events.removeEventListener("offline", offline);
+    network?.events.removeEventListener("online", online);
     clearWatchdog();
     if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
     activeController?.abort("subscription_closed");

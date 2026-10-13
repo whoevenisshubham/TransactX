@@ -3,6 +3,44 @@ import assert from "node:assert/strict";
 import { parseOperationalEventStream, subscribeOperationalEvents, type OperationalHint } from "./operationalEvents";
 
 describe("operational SSE recovery", () => {
+  it("aborts an open stream offline and reconnects only when online", async () => {
+    const events = new EventTarget();
+    let isOnline = true;
+    let calls = 0;
+    let signal: AbortSignal | undefined;
+    const statuses: string[] = [];
+    const hints: OperationalHint[] = [];
+    const stop = subscribeOperationalEvents("token", (hint) => hints.push(hint), (status) => statuses.push(status), {
+      network: { events, isOnline: () => isOnline }, reconnectDelayMs: 0,
+      fetchImpl: async (_url, init) => {
+        calls += 1;
+        signal = init?.signal ?? undefined;
+        return new Response(new ReadableStream({ start(controller) {
+          controller.enqueue(new TextEncoder().encode('event: ready\ndata: {"topics":["all"]}\n\n'));
+          signal?.addEventListener("abort", () => controller.error(new Error("aborted")), { once: true });
+        } }));
+      },
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(statuses.at(-1), "connected");
+      isOnline = false;
+      events.dispatchEvent(new Event("offline"));
+      assert.equal(signal?.aborted, true);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(statuses.at(-1), "disconnected");
+      assert.equal(calls, 1);
+      isOnline = true;
+      events.dispatchEvent(new Event("online"));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(calls, 2);
+      assert.equal(statuses.at(-1), "connected");
+      assert.equal(hints.filter((hint) => hint.event === "ready").length, 2);
+    } finally { stop(); }
+    events.dispatchEvent(new Event("online"));
+    assert.equal(calls, 2, "closed subscriptions cannot reconnect");
+  });
+
   it("clears a rejected session without retrying or issuing stale-data hints", async () => {
     let calls = 0;
     let rejected = 0;

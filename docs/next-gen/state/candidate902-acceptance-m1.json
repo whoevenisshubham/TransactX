@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "tx.m1.acceptance.v1",
+  "testedCandidate": "90288d22f2cc834a0e2ecf7902e842baa6fefc48",
+  "date": "2026-10-13",
+  "environment": {
+    "node": "22.20.0",
+    "browser": "Edge 154.0.4258.62",
+    "os": "Windows",
+    "providerCalls": 0,
+    "database": "PostgreSQL 18.6, disposable loopback database and generated local credentials",
+    "go": "1.27.1",
+    "spend": 0
+  },
+  "sourceHashes": {
+    "frontend/src/operationalEvents.ts": "23e1c10484eab8b42e021f94d75339a71a45734867b2bfe3ab2393385f8bcfcc",
+    "frontend/src/operationalEvents.test.ts": "40a4477fa7a6b13b2c92f267cf5d4d899a02b70881da82647128ad3d6bab305c",
+    "frontend/browser/ops.live.spec.ts": "d5c45c5db8494f9a4f7f055974be32e0ab930f6ce376af1bea91ce9cf6f9e0a3",
+    "backend/migrations/000030_m3_investigator_store_upgrade.up.sql": "206216348fec290b9495b45109a81d7491f9809d8278846271a2127a0ce21a2c",
+    "backend/internal/analytics/repository.go": "f73f6bb27f107d5fec5ed28b2e02e861bfbfd15a3f4c31efc17f34f6f48d96b5",
+    "backend/internal/experiments/crash_matrix.go": "158bb627245112ad8bb75f7c9de698b2442c5678c1062ea4e3ff7a29c14b6195"
+  },
+  "privateLogHashes": {
+    "store": "4ed49cc1db88ca1ac21f03bdaaaf2ea2ee44ffe952f5a48d46a598963f0c83a9",
+    "analytics": "48e2fadab259f2017608d120d82de0365f7aa18abeec8171257509d34082a35a",
+    "browser-before": "3b208d19401c7f161c3f4c06a1ac6cd78911888877a23d19d1e8d6533f5255f1",
+    "browser-reconnect": "d69ab4822fd59a98542f0f89646f144290658447b3b51b9b03469987af1cd7c1",
+    "browser": "c1475653bd753031f50e951191fa793f6df773210da2539f839fa1c70296b95c"
+  },
+  "results": {
+    "canonicalFreshAndUpgrade": "PASS: both five-case store conformance suites ran through canonical migrations 1-30; upgraded case verified historical payload and usage assertions",
+    "analytics": "PASS: all internal/analytics tests with DATABASE_URL configured; see remaining provenance audit requirements",
+    "nativeBrowserExpiry": "PASS: actual 10s JWT, offline expiry, reconnect/sign-in and storage clearing, 1/1 in 15.1s",
+    "nativeBrowserInitial": "4 passed, 1 failed, 1 skipped: completed investigation and retained evidence links/keyboard, admin navigation, analytics and viewer-denial, actor/idempotency scope passed; viewer offline transition failed; expiry intentionally requires separate 10s configuration",
+    "corpus": "PASS: TestPostgresCorpusLifecycle on canonical disposable database",
+    "focusedFrontend": "4/4 operationalEvents tests and lint passed",
+    "nativeBrowserAfterM1Fix": "PASS: viewer worklist offline/disconnected -> connected and authoritative reread, 1/1 in 8.0s"
+  },
+  "limitations": [
+    "Development frontend against native candidate binaries; production service-worker replay on this candidate pending",
+    "No final combined suite, accessibility/200% zoom acceptance, new native kill/restart, encrypted restore continuation, or clean-source archive claimed",
+    "crash_matrix.go still seeds states, ignores SQL errors and sets ParticipantUnique=true; historical 20/20 is not native-crash acceptance",
+    "Analytics calibration permits seeded=true/healthy=true even with reviewed_healthy=false and silently ignores query/scan/iteration failures; owner correction required",
+    "Public JWT/native host deployment and off-machine backup require configured host/access; no OAuth, IdP or cluster prerequisite"
+  ]
+}
