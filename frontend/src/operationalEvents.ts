@@ -118,10 +118,30 @@ export function subscribeOperationalEvents(
     }
   };
 
+  const handleOffline = () => {
+    activeController?.abort("browser_offline");
+  };
+
+  const handleOnline = () => {
+    if (!stopped && !activeController) {
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+      void connect();
+    }
+  };
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+  }
+
   void connect();
   return () => {
     stopped = true;
     clearWatchdog();
+    if (typeof window !== "undefined") {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    }
     if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
     activeController?.abort("subscription_closed");
   };
