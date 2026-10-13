@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-13",
+  "candidateSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "scope": "Combined schema and approved corpus encrypted preservation; native worker recovery and projection acceptance pending",
+  "environment": "Fresh private isolated PostgreSQL 18.6 cluster, loopback only, locally generated password and age identity",
+  "commands": ["deploy/scripts/backup.sh", "deploy/scripts/restore-check.sh", "go run ./cmd/migrate -target-db <restored-database> verify"],
+  "backupSha256": "756a37b5d2cff72e981face8dd0a2d6d7303da7ac099086b3680942d1099d81f",
+  "encryptedBackupBytes": 169986,
+  "restoreCheckerReportSha256": "d9adb23be0e9acb7e2c753a3d8a3f965903c9b0ef99e2eb44a93492dbc049954",
+  "restoreStartedAt": "2026-10-13T07:46:24Z",
+  "restoreFinishedAt": "2026-10-13T07:46:26Z",
+  "preserved": {
+    "verifiedMigrationRecords": 29,
+    "corpusChunks": 35,
+    "activeCorpusVersions": 1,
+    "corpusContentSha256": "ac6408c9f6010e71baf55dd247df8e0dd5092e68411a65de9842a5062f030bf8",
+    "completedInvestigations": 1,
+    "investigationPayloadSha256": "b1720d47b7f5af0685a0c9b64016cd749c8c0d4cfd4e292a1d8192903be537ff",
+    "outboxEvents": 1,
+    "outboxDeliveries": 1,
+    "consumerInbox": 0,
+    "worklistRows": 0
+  },
+  "checker": {"threeSchemas": true, "nonnegativeBalances": true, "balancedCentralLedger": true, "noOrphanIdempotency": true},
+  "limitations": ["One synthetic payment and one account; no settled ledger, participant operations or payment idempotency rows, so financial checks do not prove recovery", "Investigation completed by in-process HTTP test setup before backup", "Worker continuation, projection rebuild and native crash recovery not run", "Local encrypted copy only; off-VM persistence and global-role restoration not verified", "Windows/Git Bash rehearsal does not prove Linux host deployment"],
+  "isolatedClusterStopped": true,
+  "privateArtifactsRetainedOutsideRepository": true,
+  "spending": 0
+}
