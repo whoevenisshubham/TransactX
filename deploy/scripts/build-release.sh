@@ -21,10 +21,13 @@ sha="$(git -C "$repo" rev-parse HEAD)"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid source SHA.' >&2; exit 1; }
 dirty=false
 [[ -z "$(git -C "$repo" status --porcelain)" ]] || dirty=true
-commands=(api bank-a bank-b worker migrate maintain-merkle)
+commands=(api bank-a bank-b worker migrate maintain-merkle corpus)
+command_source() {
+  if [[ "$1" == corpus ]]; then printf 'internal/investigator/cmd/corpus'; else printf 'cmd/%s' "$1"; fi
+}
 missing=()
 for command in "${commands[@]}"; do
-  [[ -d "$repo/backend/cmd/$command" ]] || missing+=("$command")
+  [[ -d "$repo/backend/$(command_source "$command")" ]] || missing+=("$command")
 done
 if ((${#missing[@]})) && ! $allow_incomplete; then
   echo "Required v2 commands missing: ${missing[*]}" >&2; exit 1
@@ -32,6 +35,9 @@ fi
 origin_args=()
 if $validate_only; then origin_args+=(--allow-missing); fi
 frontend_api_origin="$(node "$repo/deploy/scripts/verify-api-origin.mjs" "${origin_args[@]}")"
+if [[ -d "$repo/backend/internal/investigator/cmd/corpus" ]]; then
+  node "$repo/deploy/scripts/stage-corpus.mjs" "$repo"
+fi
 if $validate_only; then
   printf 'Source: %s\nDirty tree: %s\nMissing planned commands: %s\nFrontend API origin: %s\nValidation only: no archive was written.\n' "$sha" "$dirty" "${missing[*]:-none}" "${frontend_api_origin:-unset; required for an archive}"
   exit 0
@@ -48,8 +54,9 @@ mkdir -p "$stage/bin" "$stage/migrations" "$stage/frontend" "$stage/deploy" "$st
 for arch in amd64 arm64; do
   mkdir -p "$stage/bin/linux-$arch"
   for command in "${commands[@]}"; do
-    [[ -d "$repo/backend/cmd/$command" ]] || continue
-    (cd "$repo/backend" && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -buildvcs=true -trimpath -ldflags '-s -w' -o "$stage/bin/linux-$arch/transactx-$command" "./cmd/$command")
+    source="$(command_source "$command")"
+    [[ -d "$repo/backend/$source" ]] || continue
+    (cd "$repo/backend" && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -buildvcs=true -trimpath -ldflags '-s -w' -o "$stage/bin/linux-$arch/transactx-$command" "./$source")
   done
 done
 cp "$repo"/backend/migrations/*.sql "$stage/migrations/"
@@ -58,6 +65,9 @@ cp -R "$repo/deploy/env" "$repo/deploy/systemd" "$repo/deploy/caddy" "$repo/depl
 cp "$repo/deploy/README.md" "$stage/deploy/README.md"
 cp "$repo/deploy/RESTORE_REHEARSAL.md" "$stage/deploy/RESTORE_REHEARSAL.md"
 cp "$repo/README.md" "$stage/docs/README.md"
+if [[ -d "$repo/backend/internal/investigator/cmd/corpus" ]]; then
+  node "$repo/deploy/scripts/stage-corpus.mjs" "$repo" "$stage"
+fi
 cp "$repo/docs/next-gen/execution-pack/docs/next-gen/DEPLOYMENT_AND_BACKUP.md" "$stage/docs/DEPLOYMENT_AND_BACKUP.md"
 (cd "$repo/backend" && go list -m all) > "$stage/go-dependencies.txt"
 cp "$repo/frontend/package-lock.json" "$stage/frontend-package-lock.json"

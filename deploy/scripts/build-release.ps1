@@ -11,8 +11,11 @@ if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repo 'deploy\out' }
 $sourceSha = (& git -C $repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceSha -notmatch '^[0-9a-f]{40}$') { throw 'Cannot determine source SHA.' }
 $dirty = @(& git -C $repo status --porcelain).Count -gt 0
-$commands = @('api', 'bank-a', 'bank-b', 'worker', 'migrate', 'maintain-merkle')
-$missing = @($commands | Where-Object { -not (Test-Path -LiteralPath (Join-Path $repo "backend\cmd\$_")) })
+$commands = @('api', 'bank-a', 'bank-b', 'worker', 'migrate', 'maintain-merkle', 'corpus')
+$commandSources = @{}
+foreach ($command in $commands) { $commandSources[$command] = "cmd/$command" }
+$commandSources['corpus'] = 'internal/investigator/cmd/corpus'
+$missing = @($commands | Where-Object { -not (Test-Path -LiteralPath (Join-Path $repo "backend/$($commandSources[$_])")) })
 if ($missing.Count -gt 0 -and -not $AllowIncomplete) { throw "Required v2 commands missing: $($missing -join ', '). Use -AllowIncomplete only for an inspection archive." }
 if ($dirty -and -not $AllowDirty -and -not $ValidateOnly) { throw 'Git tree is dirty; commit and rerun for a release artifact.' }
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw 'Go is required.' }
@@ -24,6 +27,10 @@ if ($ValidateOnly) { $originOptions += '--allow-missing' }
 $frontendApiOrigin = @(& node (Join-Path $PSScriptRoot 'verify-api-origin.mjs') @originOptions) -join ''
 if ($LASTEXITCODE -ne 0) { throw 'Frontend API origin validation failed.' }
 $frontendApiOrigin = $frontendApiOrigin.Trim()
+if ($missing -notcontains 'corpus') {
+  & node (Join-Path $PSScriptRoot 'stage-corpus.mjs') $repo
+  if ($LASTEXITCODE -ne 0) { throw 'Approved corpus input validation failed.' }
+}
 if ($ValidateOnly) {
   Write-Output "Source: $sourceSha"
   Write-Output "Dirty tree: $dirty"
@@ -67,7 +74,7 @@ try {
       foreach ($command in $commands) {
         if ($missing -contains $command) { continue }
         $output = Join-Path $binDir "transactx-$command"
-        & go build -buildvcs=true -trimpath -ldflags '-s -w' -o $output "./cmd/$command"
+        & go build -buildvcs=true -trimpath -ldflags '-s -w' -o $output "./$($commandSources[$command])"
         if ($LASTEXITCODE -ne 0) { throw "Go build failed: $command/$arch" }
       }
     } finally { Pop-Location }
@@ -83,6 +90,10 @@ Copy-Item -Path (Join-Path $repo 'deploy\scripts') -Destination (Join-Path $stag
 Copy-Item -LiteralPath (Join-Path $repo 'deploy\README.md') -Destination (Join-Path $stage 'deploy\README.md')
 Copy-Item -LiteralPath (Join-Path $repo 'deploy\RESTORE_REHEARSAL.md') -Destination (Join-Path $stage 'deploy\RESTORE_REHEARSAL.md')
 Copy-Item -LiteralPath (Join-Path $repo 'README.md') -Destination (Join-Path $stage 'docs\README.md')
+if ($missing -notcontains 'corpus') {
+  & node (Join-Path $PSScriptRoot 'stage-corpus.mjs') $repo $stage
+  if ($LASTEXITCODE -ne 0) { throw 'Approved corpus staging failed.' }
+}
 Copy-Item -LiteralPath (Join-Path $repo 'docs\next-gen\execution-pack\docs\next-gen\DEPLOYMENT_AND_BACKUP.md') -Destination (Join-Path $stage 'docs\DEPLOYMENT_AND_BACKUP.md')
 
 # Windows checkouts can have CRLF in shell scripts and service files. Normalize

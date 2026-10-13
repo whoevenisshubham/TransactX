@@ -110,6 +110,16 @@ projection with the CLI. Its continuation input was manually seeded, and the
 native worker still does not deliver outbox events. A7 therefore remains open.
 The private age identity is never included in the archive.
 
+The release includes `bin/linux-*/transactx-corpus`, the approved corpus manifest
+at `docs/runbooks/corpus-manifest.json`, and its six document inputs at their
+original relative paths. Both builders reject an input hash mismatch and stage
+the reviewed documents with LF encoding. After canonical migrations and the
+corpus integration gates pass, use the matching architecture's corpus command
+with `-root <bundle-root> -manifest <bundle-root>/docs/runbooks/corpus-manifest.json`
+and the configured local database connection to stage it; `-activate` explicitly
+activates the version. `-dry-run` validates the packaged inputs without database
+writes. The corpus command does not call a model provider.
+
 See [RESTORE_REHEARSAL.md](RESTORE_REHEARSAL.md) for the isolated local procedure,
 measured fixture result, refusal checks and remaining recovery gates.
 
