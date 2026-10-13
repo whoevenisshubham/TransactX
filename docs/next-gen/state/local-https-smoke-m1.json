@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "frontendSourceSha": "4b37f48",
+  "scope": "Local deployment smoke against native API/canonical PostgreSQL and current production frontend preview through real loopback TLS proxies",
+  "productionBuild": "passed",
+  "basicSmoke": {"command": "deploy/scripts/smoke.sh --api-origin <loopback-https> --frontend-origin <loopback-https>", "exitCode": 0, "checks": ["API health", "Database health", "SPA worklist deep-link refresh", "Allowed CORS origin", "Blocked origin not accepted"]},
+  "authenticatedSmoke": {"command": "same smoke command with private --auth-header-file", "exitCode": 1, "reached": "Authenticated worklist API envelope", "failure": "No SSE event was observed", "knownDependency": "Native telemetry ResponseWriter omits http.Flusher, producing stream HTTP 500"},
+  "tls": "Generated local certificate, certificate verification enabled, private curl CA configuration; no system trust modification or insecure TLS flags",
+  "initialAttempt": "Schannel curl ignored CURL_CA_BUNDLE and rejected the untrusted test root. Retried using private CURL_HOME config with explicit cacert; verification then passed.",
+  "limitations": ["Windows/Git Bash local test, not Linux/Caddy/public-host deployment", "No public DNS/certificate ownership proof", "External bank/database port denial not tested", "Full authenticated SSE smoke failed"],
+  "allProbeProcessesStopped": true,
+  "spending": 0
+}
