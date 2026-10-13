@@ -1,6 +1,17 @@
 package investigator
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"time"
+)
+
+const MaxCreateInvestigationRequestBytes int64 = 32 * 1024
+
+var ErrInvalidCreateInvestigationRequest = errors.New("invalid investigation create request")
 
 // CreateInvestigationRequest is the body M2 decodes after common auth, body
 // size, unknown-field and idempotency middleware have run. TrustedScope and
@@ -8,6 +19,32 @@ import "time"
 type CreateInvestigationRequest struct {
 	PaymentId string `json:"paymentId"`
 	Question  string `json:"question"`
+}
+
+// DecodeCreateInvestigationRequest is the bounded HTTP composition seam. It
+// accepts exactly one JSON object with only the public create fields; trusted
+// actor, role, payment scope, mode and provider configuration stay server-owned.
+func DecodeCreateInvestigationRequest(reader io.Reader) (CreateInvestigationRequest, error) {
+	if reader == nil {
+		return CreateInvestigationRequest{}, ErrInvalidCreateInvestigationRequest
+	}
+	raw, err := io.ReadAll(io.LimitReader(reader, MaxCreateInvestigationRequestBytes+1))
+	if err != nil {
+		return CreateInvestigationRequest{}, fmt.Errorf("%w: read body", ErrInvalidCreateInvestigationRequest)
+	}
+	if int64(len(raw)) > MaxCreateInvestigationRequestBytes {
+		return CreateInvestigationRequest{}, fmt.Errorf("%w: body exceeds %d bytes", ErrInvalidCreateInvestigationRequest, MaxCreateInvestigationRequestBytes)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var request CreateInvestigationRequest
+	if err := decoder.Decode(&request); err != nil {
+		return CreateInvestigationRequest{}, fmt.Errorf("%w: malformed body", ErrInvalidCreateInvestigationRequest)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return CreateInvestigationRequest{}, fmt.Errorf("%w: trailing JSON", ErrInvalidCreateInvestigationRequest)
+	}
+	return request, nil
 }
 
 type CreateInvestigationResponse struct {
