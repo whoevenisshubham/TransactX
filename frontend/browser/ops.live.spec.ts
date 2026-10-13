@@ -60,6 +60,20 @@ test("viewer creates a real evidence-only investigation completed by the native 
   await expect(page.getByText("Coverage:", { exact: false })).toBeVisible();
   await expect(page.getByText("LLM investigation", { exact: false })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  const citations = page.getByRole("link", { name: /^View evidence / });
+  await expect(citations.first()).toBeVisible();
+  const references = [...new Set(await citations.evaluateAll((links) => links.map((link) => (link as HTMLAnchorElement).href)))];
+  await citations.first().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Payment journey" })).toBeVisible();
+  for (const reference of references) {
+    const url = new URL(reference);
+    expect(url.pathname).toBe(`/console/payments/${paymentId}`);
+    const evidenceElement = decodeURIComponent(url.hash.slice(1));
+    expect(evidenceElement.startsWith("evidence-")).toBe(true);
+    await page.goto(reference);
+    await expect(page.locator(`[id=${JSON.stringify(evidenceElement)}]`)).toBeVisible();
+  }
 });
 
 for (const [role, identity] of Object.entries(identities)) {
