@@ -41,7 +41,7 @@
 | **B10** | Durable operational analytics windows | Migration 000028, `internal/analytics`, ADR-037 (`10845f4`) | 8 analytics test suites, temporal cutoff verified | **VERIFIED** |
 | **B11** | Mount investigator & corpus packages | Migration 000027, `internal/investigator`, ADR-036 (`74f8042`) | 6 investigator suites, 9-phase HTTP contract test | **VERIFIED** |
 | **B12** | Prove crash safety & event restart | `internal/experiments/crash_matrix.go`, ADR-038 (`fa1454c`) | 20 fault boundary scenarios (20/20 PASS in 0.91s) | **VERIFIED** |
-| **B13** | Close backend release gates | `RELEASE_REPORT.md`, `docs/next-gen/state/M2.md` | Full backend & frontend test suites, diff & vet check | **VERIFIED** |
+| **B13** | Close backend release gates & resolve CI | `RELEASE_REPORT.md`, `docs/next-gen/state/M2.md` (`5b779f0`) | Resolved 4 CI failures (REC-08 lease clock, export isolation, trace flush), full backend/frontend suites | **VERIFIED** |
 
 ---
 
