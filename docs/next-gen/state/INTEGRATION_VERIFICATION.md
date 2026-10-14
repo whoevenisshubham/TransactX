@@ -903,10 +903,11 @@ Local verification was executed on the integration worktree:
 - **Bash Builder Preflight:** `deploy/scripts/build-release.sh --validate-only` confirmed 100% agreement with the PowerShell builder.
 
 ### 13.4 Candidate Identity & Remote CI Verification
-- **Integration Candidate SHA:** `0b36a748274b5b10ad92c3727dbf04aef878e51d`
-- **Matching GitHub Actions Run:** [Run #38515370402](https://github.com/whoevenisshubham/TransactX/actions/runs/38515370402) (**Completed Success — 100% Green**)
-  - Backend validation (migrations, 42 Go packages, race detector, vet, build): **SUCCESS**
-  - Frontend validation (ESLint, 97 Vitest tests, money bounds, Vite build): **SUCCESS**
+- **Gate 15 Validated Checkpoint Commit:** `af2880924e842d681ab8fef4f72873149c5de36d`
+- **Matching GitHub Actions Run:** [Run #38519196732](https://github.com/whoevenisshubham/TransactX/actions/runs/38519196732) (**Completed Success — 100% Green**)
+  - Backend validation (migrations, 42 Go packages, race detector, vet, build): **Completed successfully**
+  - Frontend validation (ESLint, 97 Vitest tests, money bounds, Vite build): **Completed successfully**
+- **Historical Integration Candidate:** `0b36a748274b5b10ad92c3727dbf04aef878e51d` (CI [Run #38515370402](https://github.com/whoevenisshubham/TransactX/actions/runs/38515370402) — **SUCCESS**)
 - **Partner Branch Heads:**
   - M2: `10409c51e60533bf27ce12862b3c466bbea359d0` (cherry-pick `365ec8c0c554b666a4086923f2da09996bc7d789`, CI [Run #38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) — **SUCCESS**)
   - M3: `15efc9436dc07e13049d2d77627023d4038773fa` (CI [Run #38438272677](https://github.com/whoevenisshubham/TransactX/actions/runs/38438272677) — **SUCCESS**)
