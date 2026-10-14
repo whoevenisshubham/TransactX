@@ -1,6 +1,12 @@
 # C4 investigator integration handoff
 
-This handoff is source-compatible with shared contract `tx.v2.1`. It does not modify M1/M2-owned handlers, configuration, migrations or Go dependencies. The M3 PostgreSQL adapter has isolated normal/race conformance evidence, but this handoff does not claim canonical-migration, HTTP, real-response UI or provider verification.
+This handoff is source-compatible with shared contract `tx.v2.1`. M3 did not modify M1/M2-owned handlers, configuration, migrations or Go dependencies. The original handoff supplied package-local evidence and left canonical migration, HTTP and real-response UI verification to the owners; the final integrated result is recorded below. Live provider verification remains separate and pending.
+
+## Final evidence-only integration result
+
+Integration head `318496b` contains M3 through `99f3e14`; current M3 `0285f0e` merges into it without conflicts. Additive migration 000030 passes both fresh and seeded legacy-upgrade conformance, and the current DDL-free canonical gate passes all five store cases in normal/race modes. The canonical corpus stages, activates, role-filters, retires and preserves old citation resolution. The mounted handler uses `DecodeCreateInvestigationRequest`; its authenticated integration suite covers 400/403/409/202 behavior, JWT-owned scope and actor-scoped idempotency.
+
+Source-matched native M1 evidence covers a real worker-completed evidence-only investigation, saved-page reload, every retained evidence link resolving to its exact payment target, strict body rejection, foreign actor/customer denial, durable analytics/model-off rendering and narrow/zoom accessibility. The shared C0/C4 validator still passes all nine immutable evidence fixtures and four UI fixtures. This closes the evidence-only C4/C6 handoff; no paid provider was configured or called, so live LLM/RAG evaluation is not claimed.
 
 ## M2 package and mount contract
 
@@ -11,7 +17,7 @@ This handoff is source-compatible with shared contract `tx.v2.1`. It does not mo
 - Stage corpus `tx.corpus.c1.v1`, verify its manifest hash/chunk count, then activate it only after migration and role-filtered retrieval checks. Retain retired chunks for saved citation drilldowns.
 - Apply the existing JWT/RBAC, body-size, unknown-field, idempotency and rate-limit middleware. Never expose SQL, shell, mutation or arbitrary URL tools. Preserve the 30-second job, three-second evidence read, two core attempts, topK five, eight unique tools and two provider-round bounds.
 
-M2 acceptance still required: canonical migration 000027 tests, trusted real evidence reads, `internal/investigator/storetest.Run` with `PostgresInvestigationStore` against that canonical schema, authenticated POST/GET denial and success paths, active-corpus ingestion through the canonical schema, persisted citation resolution and native B10 analytics windows. The store adapter and corpus repository pass against isolated test-only PostgreSQL DDL in normal/race runs; those results do not replace canonical migration or runtime gates, nor the C4 memory evaluation's limitations.
+Original M2 acceptance requirements were: canonical migration tests, trusted real evidence reads, `internal/investigator/storetest.Run` with `PostgresInvestigationStore` against that canonical schema, authenticated POST/GET denial and success paths, active-corpus ingestion through the canonical schema, persisted citation resolution and native B10 analytics windows. The final integrated result above supplies those runtime gates; the historical test-only DDL and C4 memory evaluation remain supporting rather than substitutive evidence.
 
 The M2 branch is now source-available, but its audited head `c64a9e62870e4ed802910b9ee84e0dee73ffc9bb` does not implement the complete contract above and overlaps this package's model/service files. Follow `M2_COMPATIBILITY_AUDIT.md`: retain the M3 service, use the strict evidence and live-feature adapter seams, reconcile migration 000027 deliberately, and do not mount both investigator implementations. Availability of the branch is not a passing live gate.
 
@@ -26,7 +32,7 @@ The M2 branch is now source-available, but its audited head `c64a9e62870e4ed8029
 
 Render `mode`, job status/error, nullable usage, fact-level evidence IDs, immutable runbook chunk IDs, missing evidence, coverage and snapshot time. Do not display inference as an authoritative fact, do not call evidence-only output an LLM result, and retain the synthetic/offline qualification for anomaly windows. The statistical baseline remains the default; IsolationForest remains experimental and must not affect routing or settlement.
 
-M1 acceptance still required: schema validation against the shared contract, saved citation drilldowns, stale snapshot treatment, mode/error/partial labels, null measurements and real browser flows after M2 mounts the endpoints.
+Original M1 acceptance requirements were: schema validation against the shared contract, saved citation drilldowns, stale snapshot treatment, mode/error/partial labels, null measurements and real browser flows after M2 mounted the endpoints. Fixture tests cover every mode/error/partial/stale label, while the source-matched native browser evidence covers the real evidence-only path, saved citations, nullable analytics and role denial. A live provider result remains intentionally absent.
 
 Cross-branch audit update: M1 head `8afec7afdb2f78f43283e6c7d78c65aee28331a8` accepts all four committed C4 investigation fixtures, both matching evidence snapshots and all four anomaly windows. A disposable browser run exposed one narrow-layout defect: immutable `runbook:<hash>` references overflow at 360px. `M1_COMPATIBILITY_AUDIT.md` contains the exact one-line CSS patch; with it, all five cross-branch artifact browser tests and M1 lint pass. The patch has not been committed to M1, and routed fixtures do not replace the remaining live endpoint gate.
 
