@@ -72,6 +72,13 @@ func runRebuild(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
 	start := time.Now()
 	logger.Info("starting worklist projection rebuild", "target", "ops_payment_worklist")
 
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		logger.Error("failed to begin transaction", "error", err)
+		os.Exit(1)
+	}
+	defer tx.Rollback(ctx)
+
 	// Acquire exclusive maintenance transaction advisory lock
 	var locked bool
 	err = tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock($1)", projections.WorklistMaintenanceLockKey).Scan(&locked)
@@ -79,13 +86,6 @@ func runRebuild(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
 		logger.Error("failed to acquire exclusive maintenance lock: another rebuild is in progress or workers are holding projection locks", "error", err)
 		os.Exit(1)
 	}
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		logger.Error("failed to begin transaction", "error", err)
-		os.Exit(1)
-	}
-	defer tx.Rollback(ctx)
 
 	// 1. Build temporary snapshot from authoritative tables
 	createTempQuery := `
