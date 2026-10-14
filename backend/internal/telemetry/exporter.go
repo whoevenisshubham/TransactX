@@ -33,22 +33,34 @@ type RawSpanRecord struct {
 	PaymentID     *uuid.UUID
 }
 
+// ExporterOption configures optional parameters for BoundedPostgresExporter.
+type ExporterOption func(*BoundedPostgresExporter)
+
+// WithConsumerBarrier holds the background consumer at a test-controlled barrier
+// before reading items from the bounded queue.
+func WithConsumerBarrier(barrier <-chan struct{}) ExporterOption {
+	return func(e *BoundedPostgresExporter) {
+		e.consumerBarrier = barrier
+	}
+}
+
 // BoundedPostgresExporter implements a safe, asynchronous, non-blocking span exporter.
 type BoundedPostgresExporter struct {
-	pool        *pgxpool.Pool
-	cfg         Config
-	metrics     *Metrics
-	logger      *slog.Logger
-	queue       chan RawSpanRecord
-	flushReq    chan chan struct{}
-	stopCh      chan struct{}
-	wg          sync.WaitGroup
-	stopped     bool
-	stoppedMu   sync.Mutex
+	pool            *pgxpool.Pool
+	cfg             Config
+	metrics         *Metrics
+	logger          *slog.Logger
+	queue           chan RawSpanRecord
+	flushReq        chan chan struct{}
+	stopCh          chan struct{}
+	wg              sync.WaitGroup
+	stopped         bool
+	stoppedMu       sync.Mutex
+	consumerBarrier <-chan struct{}
 }
 
 // NewBoundedPostgresExporter creates and starts the asynchronous bounded exporter worker.
-func NewBoundedPostgresExporter(pool *pgxpool.Pool, cfg Config, metrics *Metrics, logger *slog.Logger) *BoundedPostgresExporter {
+func NewBoundedPostgresExporter(pool *pgxpool.Pool, cfg Config, metrics *Metrics, logger *slog.Logger, opts ...ExporterOption) *BoundedPostgresExporter {
 	if cfg.QueueCapacity <= 0 {
 		cfg.QueueCapacity = 1000
 	}
@@ -73,6 +85,11 @@ func NewBoundedPostgresExporter(pool *pgxpool.Pool, cfg Config, metrics *Metrics
 		queue:    make(chan RawSpanRecord, cfg.QueueCapacity),
 		flushReq: make(chan chan struct{}),
 		stopCh:   make(chan struct{}),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(exp)
+		}
 	}
 
 	exp.wg.Add(1)
@@ -161,6 +178,14 @@ func (e *BoundedPostgresExporter) Shutdown(ctx context.Context) error {
 // workerLoop drains the channel in batches and writes them to PostgreSQL.
 func (e *BoundedPostgresExporter) workerLoop() {
 	defer e.wg.Done()
+
+	if e.consumerBarrier != nil {
+		select {
+		case <-e.consumerBarrier:
+		case <-e.stopCh:
+			return
+		}
+	}
 
 	ticker := time.NewTicker(e.cfg.BatchTimeout)
 	defer ticker.Stop()
