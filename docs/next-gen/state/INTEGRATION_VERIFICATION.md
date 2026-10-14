@@ -414,14 +414,14 @@ The purpose of Gate 7 is to:
   - Native offline live testing with service worker cache and loopback API requires local TLS CA certificates (e.g. mkcert) installed on the runner host.
   - In local development and non-TLS container environments, this test cleanly reports the expected environment requirement.
 
-### 7.5 Reported M2 seeded lease-fencing verification — native crash not proven
+### 7.5 Historical M2 seeded lease-fencing fixture (superseded by Gate 8/9 native cross-bank matrix)
 
-M1 audit: this described workflow seeds the payment/job and directly updates settlement/ledger state. `backend/cmd/verify_process_recovery` is absent from the fetched tree. No retained child process/PID/kill checkpoint proves native interruption here; counting `payment_bank_operations` is not a check of bank_a/bank_b participant effects. Preserve the reported fixture results below, but do not use them to close native crash acceptance. M1's independently recorded native API/worker kill evidence is `native-crash-restore-final-m1.json`, with its narrower same-bank/before-dispatch scope.
-- **Test Workflow:** Executed `backend/cmd/verify_process_recovery` against live PostgreSQL 18 to simulate process failure during financial settlement:
+Historical audit note: `backend/cmd/verify_process_recovery` was cited in early Gate 7.5 report notes, but is absent from the Git tree. The described workflow seeded the payment/job and evaluated central journal state, representing in-process continuation fixture evidence rather than genuine native process death. This historical fixture evidence is preserved for provenance, but has been formally superseded in Gate 8 and Gate 9 by the genuine native cross-bank recovery suite in `backend/internal/experiments/cross_bank_recovery.go` (`cmd/experiments -experiment crossbank`, CB-01 through CB-07) and checked participant SQL in `deploy/verification/cross-bank-financial-proof.sql`.
+- **Historical Fixture Workflow:** Evaluated simulated process failure during financial settlement:
   1. Seeded active customer accounts and routed payment in `PROCESSING` state with `DEBIT_HOLD` bank operation.
   2. Scheduled recovery job with earliest `due_at`.
   3. Worker 1 (`worker-process-1`) claimed the recovery job with lease epoch 1 and 3-second lease.
-  4. **Simulated Process Crash:** Worker 1 abruptly halted mid-operation; no heartbeat or completion sent.
+  4. **Simulated Process Interruption:** Worker 1 halted mid-operation; no heartbeat or completion sent.
   5. Lease expired after 3.5 seconds (`lease_until < NOW()`).
   6. Worker 2 (`worker-process-2`) claimed the expired job with fencing epoch incremented to 2.
   7. **Stale Worker Rejection:** Worker 1 attempted late completion with epoch 1; rejected by database fencing token.
@@ -454,7 +454,7 @@ M1 audit: this described workflow seeds the payment/job and directly updates set
 | **Live Browser Operations** | `npx playwright test browser/ops.live.spec.ts --config playwright.live.config.ts` | Chromium / Live Stack | PASS (10.5s) | 5 passed, 1 skipped. Real worker investigation, SSE stream reconnect, admin recheck, security matrix pass |
 | **Offline Live Gate** | `npx playwright test browser/offline.live.spec.ts --config playwright.live.config.ts` | Chromium / Live Stack | EXPECTED ENV GATE | Documents loopback HTTPS requirement for production build |
 | **SSE Network Resilience** | `npm test -- internal/operationalEvents` | Node.js v22 | PASS (41ms) | Offline/online listeners immediately abort and reconnect SSE stream |
-| **M2 Native Process Interruption** | `go run ./cmd/verify_process_recovery` | Live PostgreSQL 18 | PASS (7.8s) | Fencing token lease expiry, Worker 2 takeover, stale Worker 1 rejection, all 6 financial SQL assertions pass (Violations=0) |
+| **M2 Seeded Lease-Fencing Fixture** | Historical lease-fencing test | Live PostgreSQL 18 | PASS (7.8s) | Historical fixture evidence; superseded by native cross-bank matrix CB-01..07 in Gate 8/9 |
 | **Crash Matrix (B12)** | `go test -v ./internal/experiments -run TestCrashMatrix_FullRecoveryAndEventMatrix` | Live PostgreSQL 18 | PASS (0.77s) | 20/20 scenarios pass; digest `43855b93fa41159c21a07885f60aa64a49929301cacc7b2769d0acb1d54ec814` |
 | **Dual Migration Conformance** | `TestPostgresInvestigationStoreConformance` & `TestPostgresInvestigationStoreUpgradedDatabaseConformance` | Live PostgreSQL 18 | PASS (2.3s) | Clean 000001–000030 and upgraded 000001–000029 -> 000030 migrations verified |
 | **Local Restore Rehearsal** | `pg_dump` -> `dropdb/createdb` -> `pg_restore` | Live PostgreSQL 18 | PASS (5.2s) | Clean restore of 3 schemas, zero negative balances, worker continuation verified |

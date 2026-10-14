@@ -1,6 +1,35 @@
 # M1 integration review: M2-owned corrections
 
-## Current candidate recheck — 90288d2, 13 October
+## Current candidate recheck — 318496b, 14 October (Gate 9 / Pre-Gate 10)
+
+### Status of M2-Owned Requirements: ALL CLOSED & VERIFIED ON SOURCE
+
+1. **Analytics Calibration Provenance & Negative Review Precedence Veto (Group A): CLOSED**
+   - Implemented in `backend/internal/analytics/repository.go` (`parseBoolFlag`, `evaluateHealthyEligibility`).
+   - Verified that explicit negative reviews (`operational_review_passed: false` or `investigation_review_passed: false`) veto any conflicting positive `healthy` or `seeded` flags.
+   - Non-boolean values, malformed metadata, and database query/scan/iteration errors fail closed (`baseline_status: "error"`, `scoring_outcome: "error"`, `model_status: "unavailable"`).
+   - All 13 tests in `backend/internal/analytics/analytics_test.go` pass against live PostgreSQL 18.
+   - Baseline remains default statistical; experimental ML does not control settlement. Providers disabled ($0 / ₹0).
+
+2. **Crash Matrix Hardening & Genuine Native Cross-Bank Recovery (Group B): CLOSED**
+   - Hardened `backend/internal/experiments/crash_matrix.go` to check every SQL `Scan` error and scope cleanup strictly to test users (`h.testUserID`, `h.testRecvUserID`).
+   - Negative fault-injection tests in `crash_matrix_test.go` prove detection of participant amount divergence and debit/credit imbalance.
+   - Excised references to absent `backend/cmd/verify_process_recovery`. Genuine native recovery implemented in `backend/internal/experiments/cross_bank_recovery.go` (CB-01 to CB-07) and verified by `deploy/verification/cross-bank-financial-proof.sql` across Bank A, Bank B, and central double-entry ledgers.
+   - `TestCrossBankRecovery_FullMatrix` passed 7/7 scenarios with 0 financial invariant violations.
+
+3. **Migration 29/30 Upgrade Policy & Canonical Store Conformance (Group C): CLOSED**
+   - Canonical M3 investigator store schema established via `000029_m3_investigator_store.up.sql` and additive upgrade `000030_m3_investigator_store_upgrade.up.sql`.
+   - Dual conformance verified: `TestPostgresInvestigationStoreConformance` (fresh 000001–000030) and `TestPostgresInvestigationStoreUpgradedDatabaseConformance` (000001–000029 -> 000030) pass against canonical PostgreSQL 18.
+   - Rollback policy documented: destructive rollback is lossy and unsafe for live databases; forward additive corrections are enforced.
+
+4. **Integration Head & Discrepancy Resolution (Group D): RESOLVED**
+   - Intermediate heads `90288d2` (Gate 6) and `72383d0` (Gate 7) are confirmed direct ancestors of current HEAD `318496bec4127f0f0e62a0947e49c1d0b70c5d1a`.
+   - M1 delivery evidence and operator accessibility improvements merged into `v2/integration-m1-m2-m3` via `4623f5e`.
+   - CI Run #38427120892 passed 100% green.
+
+---
+
+## Historical candidate recheck — 90288d2, 13 October
 
 M1 production browser follow-up is recorded in `production-browser-final-m1.json`: account-isolated real offline replay and financial/projection SQL passed, as did real viewer keyboard/accessibility at 360/768/1440 and native 200% zoom after M1 contrast/input-width fixes. These supersede the prior absence of A5 evidence within that scoped source/environment. Broader native fault cases and final source-matched release/archive gates remain pending; the M2 corrections below remain owner dependencies.
 
