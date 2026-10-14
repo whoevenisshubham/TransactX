@@ -111,8 +111,17 @@ func TestBoundedExporter_QueueOverloadNeverBlocks(t *testing.T) {
 		BatchTimeout:  time.Hour, // don't flush automatically
 	}
 	metrics := NewMetrics()
-	exp := NewBoundedPostgresExporter(nil, cfg, metrics, nil)
-	defer exp.Shutdown(context.Background())
+	barrier := make(chan struct{})
+	exp := NewBoundedPostgresExporter(nil, cfg, metrics, nil, WithConsumerBarrier(barrier))
+	defer func() {
+		// Ensure barrier is unblocked before shutdown to allow worker to exit cleanly
+		select {
+		case <-barrier:
+		default:
+			close(barrier)
+		}
+		exp.Shutdown(context.Background())
+	}()
 
 	tp := sdktrace.NewTracerProvider()
 	tracer := tp.Tracer("test")
@@ -124,7 +133,8 @@ func TestBoundedExporter_QueueOverloadNeverBlocks(t *testing.T) {
 		spans = append(spans, span.(sdktrace.ReadOnlySpan))
 	}
 
-	// Exporting 10 spans when queue capacity is 2 must succeed immediately and record drops
+	// Exporting 10 spans when queue capacity is 2 and consumer is held at barrier
+	// must succeed immediately without blocking and record drops for queue overflow.
 	done := make(chan error, 1)
 	go func() {
 		done <- exp.ExportSpans(context.Background(), spans)
@@ -147,6 +157,14 @@ func TestBoundedExporter_QueueOverloadNeverBlocks(t *testing.T) {
 	}
 	if metrics.ExportedSpans.Load()+metrics.DroppedSpans.Load() != 10 {
 		t.Errorf("expected total exported + dropped == 10, got %d + %d", metrics.ExportedSpans.Load(), metrics.DroppedSpans.Load())
+	}
+
+	// Release the barrier so the worker drains the queued spans cleanly
+	close(barrier)
+	flushCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := exp.Flush(flushCtx); err != nil {
+		t.Fatalf("Flush returned error after releasing barrier: %v", err)
 	}
 }
 
