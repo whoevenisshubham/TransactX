@@ -64,8 +64,8 @@ and off-machine durability remain unverified.
    - Requires owner-controlled public HTTPS domain and TLS termination for `VITE_API_BASE_URL`.
    - Fail-closed builder guard preserved: builder outputs `unset; required for an archive` and writes no release archive until configured.
 5. **Native Linux Deployment Host & Infrastructure (PENDING OWNER INPUT):**
-   - Requires owner-provided native Linux target host/access, DNS and TLS configuration for archive extraction, service installation, and private-port smoke testing ($0 / ₹0 spend).
-   - Off-machine backup requires an independently configured destination (S3/GCS bucket) and live multi-region DR drill.
+   - Requires owner-provided native Linux target host/access, DNS and TLS configuration for archive extraction and service installation via `deploy/scripts/install-release.sh`, Caddy setup via `deploy/caddy/Caddyfile.example`, and private-port smoke testing via `deploy/scripts/smoke.sh` ($0 / ₹0 spend).
+   - Off-machine backup requires an independently configured destination (S3/GCS bucket or mounted share) using `deploy/scripts/backup.sh` and live multi-region DR drill via `deploy/scripts/restore-check.sh`.
    - Production browser smoke requires target host execution of `playwright.live.config.ts` with owner-controlled test credentials.
    - Live-provider validation remains disabled (zero spend / $0 / ₹0). OAuth/IdP and Kubernetes are not prerequisites.
 

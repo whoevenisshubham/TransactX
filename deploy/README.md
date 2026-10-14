@@ -120,7 +120,8 @@ those services. M2 owns any future runtime configuration for them.
    the new API. Never blindly replay migration SQL on an existing database.
 4. Install the matching systemd units. Start Bank A and Bank B, then API, then
    worker. Configure Caddy only for an owner-controlled hostname with working
-   DNS. The Caddyfile proxies the API on loopback; bank/DB ports stay private.
+   DNS. Copy `deploy/caddy/Caddyfile.example` to `/etc/caddy/Caddyfile` and configure
+   for your domain; it proxies the API on loopback while bank/DB ports stay private.
 5. Configure Vercel with Root Directory `frontend`, Build Command
    `npm run build`, Output Directory `dist`, and an actual HTTPS
    `VITE_API_BASE_URL`. Add that exact Vercel origin to backend CORS. The SPA

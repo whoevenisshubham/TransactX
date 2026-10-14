@@ -804,7 +804,7 @@ Full production release acceptance is strictly gated on the following four owner
    - **Enables:** Configuring `VITE_API_BASE_URL` during release packaging (`build-release.ps1` / `build-release.sh`) to produce a verified production release archive (`transactx-v2-amd64.tar.gz` / `transactx-v2-arm64.tar.gz`) containing a production-ready frontend bundle.
 2. **Native Linux Deployment Target Host & DNS/TLS Configuration:**
    - **Missing Input:** Owner-provided native Linux server (Ubuntu 22.04/24.04, amd64 or arm64), SSH/deployment access, public DNS record pointing to host, and TLS certificates (or Let's Encrypt automated ACME setup via Caddy).
-   - **Enables:** Production archive extraction, systemd service installation (`deploy/systemd/`), Caddy reverse proxy setup (`deploy/caddy/Caddyfile`), environment configuration (`/etc/transactx/transactx.env`), and private loopback port verification.
+   - **Enables:** Production archive extraction, systemd service installation (`deploy/systemd/`), Caddy reverse proxy setup (`deploy/caddy/Caddyfile.example`), environment configuration (`/etc/transactx/transactx.env`), and private loopback port verification.
 3. **Off-Machine Backup Destination & Multi-Region Recovery Drill:**
    - **Missing Input:** Owner-configured off-machine cloud storage bucket (e.g. AWS S3 or GCP Cloud Storage with IAM bucket policies) and backup push credentials.
    - **Enables:** Automated daily encrypted database backup replication off the primary VM host, followed by a live end-to-end multi-region recovery drill verifying target RTO (< 30s) and RPO (0 data loss) under operational conditions.
@@ -859,5 +859,79 @@ Full production release acceptance is strictly gated on the following four owner
 - Zero paid cloud infrastructure provisioned ($0 / ₹0 spend).
 - The four release-owner external dependencies remain explicitly cataloged.
 
+---
 
+## 13. Gate 15: Deployment Runbook Accuracy, Script Contract Audit & Final Owner Handoff
+
+### 13.1 Script Path Audit & Discrepancy Reconciliation
+An audit of deployment documentation identified four inaccurate script and configuration paths referenced in prior report text. None of these four paths existed in the repository. They have been reconciled with their verified real checked-in implementations:
+
+| Inaccurate Report Reference | Exists in Repo? | Verified Real Checked-in Path | Exact CLI Contract / Supported Arguments | Operational Scope & Verified Safety Guards |
+|---|---|---|---|---|
+| `deploy/scripts/install.sh` | **NO** (Absent) | `deploy/scripts/install-release.sh` | `--archive <path> --sha256 <64-hex> --source-sha <40-hex> [--validate-only] [--activate]` | Validates archive hash, metadata, directory traversal (`/*|../*`), 8 required binary commands for amd64/arm64, corpus manifest. Extracts to `/opt/transactx/releases/<sha>` and atomically points `/opt/transactx/current`. Does not run migrations or systemd units. |
+| `deploy/scripts/https-smoke.sh` | **NO** (Absent) | `deploy/scripts/smoke.sh` | `--api-origin <https-url> --frontend-origin <https-url> [--auth-header-file <path>]` | Verifies HTTPS health (`/health`, `/health/db`), SPA deep link refresh, and CORS reflection/denial. If owner-only auth header supplied, verifies authenticated worklist envelope and SSE stream. |
+| `deploy/scripts/restore.sh` | **NO** (Absent) | `deploy/scripts/restore-check.sh` | `--backup <path> --identity <path> --sha256 <64-hex> --source-sha <40-hex> --target-db transactx_restore_<name> --report-dir <path> [--validate-only]` | Restores age-encrypted snapshot into a new disposable database (`transactx_restore_*`); checks 3 schemas and 8 financial invariants. Refuses live database; does not apply global roles or run worker continuation. |
+| `deploy/caddy/Caddyfile` | **NO** (Active config absent) | `deploy/caddy/Caddyfile.example` | Template file (not active configuration) | Demonstrates reverse-proxying `127.0.0.1:8080` with `flush_interval -1` for SSE streaming while keeping bank/DB ports private. Operator copies to `/etc/caddy/Caddyfile` with real DNS. |
+
+*Note on tooling policy:* In accordance with governance constraints, no dummy compatibility wrapper scripts (`install.sh`, `https-smoke.sh`, `restore.sh`) were added to the repository. The verified real scripts are documented directly.
+
+### 13.2 Verified Script Contracts, Safety Guards & Explicit Limitations
+1. **`deploy/scripts/install-release.sh`:**
+   - **Prerequisites:** Linux `x86_64` or `aarch64`; `sha256sum`, `tar`; root privileges (`EUID == 0`) for actual install; service account `transactx:transactx`.
+   - **Safety Guards:** Traversal check (`/*|../*|*/../*|./../*`), SHA-256 integrity match, `metadata.json` source SHA match, completeness verification (all 8 commands: `api`, `bank-a`, `bank-b`, `worker`, `migrate`, `maintain-merkle`, `corpus`, `rebuild-worklist` present for both architectures), corpus manifest check (`docs/runbooks/corpus-manifest.json`), atomic symlink swap (`mv -Tf`).
+   - **Limitations:** Does NOT execute database migrations (operator must run migration CLI first) and does NOT manage systemd daemon states.
+2. **`deploy/scripts/smoke.sh`:**
+   - **Prerequisites:** `curl`; public HTTPS API and frontend origins.
+   - **Safety Guards:** Exact HTTPS origin regex (`^https://[A-Za-z0-9.-]+(:[0-9]+)?$`), owner-only permissions check on auth header file (`find "$auth_header_file" -perm /077` must be empty, exit 2), CORS allowed and blocked origin checks (`https://blocked.example.invalid` must be rejected).
+   - **Limitations:** Does NOT check external port denial (prints reminder to operator) and does NOT execute payment write mutations.
+3. **`deploy/scripts/backup.sh`:**
+   - **Prerequisites:** PostgreSQL client tools (`pg_dump`, `pg_dumpall`, `age`, `sha256sum`, `stat`, `realpath`); environment variables `PGDATABASE=transactx`, `PGHOST`, `PGUSER`, `PGPASSFILE` (must be owner-only, mode 600), `BACKUP_AGE_RECIPIENT` (`^age1[a-z0-9]{20,}$`), `BACKUP_DIR` (absolute path).
+   - **Safety Guards:** Refuses non-`transactx` database name; enforces age public key format; single custom-format `pg_dump` covers `public`, `bank_a`, `bank_b`; separate encrypted `pg_dumpall --globals-only` without passwords; atomic file movement; if `BACKUP_OFFVM_DIR` is set, verifies it is an actively mounted filesystem (`mountpoint -q`) to prevent silent local writes.
+   - **Limitations:** Relies on operating system filesystem mounts for off-VM replication; does not invoke cloud vendor SDKs.
+4. **`deploy/scripts/restore-check.sh`:**
+   - **Prerequisites:** `age`, `pg_restore`, `psql`, `createdb`, `sha256sum`, `node`, `realpath`; local PostgreSQL host (`127.0.0.1`, `localhost`, `/var/run/postgresql`).
+   - **Safety Guards:** Refuses live database (`target != $PGDATABASE && target != 'transactx'`); target name must match `^transactx_restore_[a-z0-9_]{4,40}$`; `createdb` fails if target exists; decrypts directly to `pg_restore` pipe without unencrypted disk writes; verifies 3 schemas, non-negative balances, central ledger double-entry conservation, and zero orphan idempotency records; writes `tx.restore.v1` JSON evidence report with SHA-256 sidecar.
+   - **Limitations:** Does NOT restore global roles to shared cluster (`globalRoles: not_applied_to_shared_cluster`); does NOT start worker continuation (`workerContinuation: not_run`); does NOT rebuild projection (`projectionRebuild: not_run`). These remain separate operational gates.
+5. **`deploy/caddy/Caddyfile.example`:**
+   - Checked-in file is an example template, not active configuration. Demonstrates reverse-proxying `127.0.0.1:8080` with `flush_interval -1` for live SSE streaming while keeping bank/DB ports private.
+
+### 13.3 Local Preflight Verification Evidence
+Local verification was executed on the integration worktree:
+- **Delivery Document Staging:** `node deploy/scripts/stage-delivery-docs.mjs .` validated all 13 delivery documents/evidence files/queries with zero escapes and LF line endings.
+- **Approved Corpus Staging:** `node deploy/scripts/stage-corpus.mjs .` verified all 6 approved corpus documents against `docs/runbooks/corpus-manifest.json`.
+- **PowerShell Builder Preflight:** `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` verified clean tree, all 8 production commands present, and enforced fail-closed origin requirement (`Frontend API origin: unset; required for an archive`).
+- **Bash Builder Preflight:** `deploy/scripts/build-release.sh --validate-only` confirmed 100% agreement with the PowerShell builder.
+
+### 13.4 Candidate Identity & Remote CI Verification
+- **Integration Candidate SHA:** `0b36a748274b5b10ad92c3727dbf04aef878e51d`
+- **Matching GitHub Actions Run:** [Run #38515370402](https://github.com/whoevenisshubham/TransactX/actions/runs/38515370402) (**Completed Success — 100% Green**)
+  - Backend validation (migrations, 42 Go packages, race detector, vet, build): **SUCCESS**
+  - Frontend validation (ESLint, 97 Vitest tests, money bounds, Vite build): **SUCCESS**
+- **Partner Branch Heads:**
+  - M2: `10409c51e60533bf27ce12862b3c466bbea359d0` (cherry-pick `365ec8c0c554b666a4086923f2da09996bc7d789`, CI [Run #38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) — **SUCCESS**)
+  - M3: `15efc9436dc07e13049d2d77627023d4038773fa` (CI [Run #38438272677](https://github.com/whoevenisshubham/TransactX/actions/runs/38438272677) — **SUCCESS**)
+  - M1: `bc7c16706a7dfb21d4f8beda7e4f26adc66512c1` (CI [Run #38374972580](https://github.com/whoevenisshubham/TransactX/actions/runs/38374972580) — **SUCCESS**)
+  - Release Base: `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d` on `release/transactx-v2` (**Untouched**)
+
+### 13.5 Outstanding Release-Owner Blockers & Enabled Acceptance Tests
+Production release deployment cannot proceed until the release owner provides the following four inputs through secure operational channels:
+1. **Public HTTPS API Origin (`VITE_API_BASE_URL`):**
+   - *Missing Input:* Owner-controlled public HTTPS domain and TLS certificate/termination endpoint.
+   - *Enables:* Running `build-release.ps1 -ApiBaseUrl https://<domain>` or `build-release.sh --api-base-url https://<domain>` to generate `transactx-v2-amd64.tar.gz` and SHA-256 sidecar.
+2. **Native Linux Deployment Target Host & DNS/TLS Configuration:**
+   - *Missing Input:* Target Ubuntu 22.04/24.04 server access, DNS record, and TLS certificate (or automated ACME via Caddy).
+   - *Enables:* Running `deploy/scripts/install-release.sh --archive transactx-v2-amd64.tar.gz --sha256 <hash> --source-sha <sha> --activate`, configuring `/etc/caddy/Caddyfile` from `deploy/caddy/Caddyfile.example`, starting systemd services, and executing `deploy/scripts/smoke.sh --api-origin https://<api-domain> --frontend-origin https://<frontend-domain>`.
+3. **Off-Machine Backup Destination & Multi-Region Recovery Drill:**
+   - *Missing Input:* Cloud storage destination (S3/GCS bucket or remote NFS/CIFS share mounted on the host) and backup push credentials.
+   - *Enables:* Configuring `BACKUP_OFFVM_DIR` in `deploy/scripts/backup.sh`, running automated backups, and executing multi-region recovery drill via `deploy/scripts/restore-check.sh` to measure operational RTO (< 30s) and RPO (0 data loss).
+4. **Production Browser Live Smoke Verification:**
+   - *Missing Input:* Owner-controlled production operator credentials and live frontend URL.
+   - *Enables:* Executing `npx playwright test browser/ops.live.spec.ts --config playwright.live.config.ts` against the live production origin.
+
+### 13.6 Preserved Governance & Release Safeguards
+- **No Deployment Attempted:** No fake deployment or mock production release was created.
+- **PR Status:** PRs #22, #23, #24, #25 remain strictly open, draft, and unmerged.
+- **Release Branch Protection:** `release/transactx-v2` preserved at `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d`.
+- **Zero Cloud Spend:** Strictly $0 / ₹0 expenditure.
+- **Handoff Status:** All local delivery document reconciliation, script path auditing, and contract verification are complete. No further broad implementation gates will be created; the next production step requires owner-provided infrastructure.
 
