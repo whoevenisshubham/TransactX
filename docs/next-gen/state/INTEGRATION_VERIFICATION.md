@@ -824,4 +824,40 @@ Full production release acceptance is strictly gated on the following four owner
   - Cloud expenditure remains strictly $0 / ₹0. Zero paid cloud infrastructure provisioned.
   - Zero secrets, credentials, or private keys committed or logged.
 
+---
+
+## 12. Gate 13: Final M2 Source Equivalence, Completion Arithmetic & PR Handoff Reconciliation
+
+### 12.1 Telemetry Source Equivalence Audit
+- **Exporter Source Inspection:**
+  - Blob hash of `backend/internal/telemetry/exporter.go` on M2 (`10409c51e60533bf27ce12862b3c466bbea359d0`): `384a908fd4ce51b4e3fde3898d8ab5707d355a77`.
+  - Blob hash of `backend/internal/telemetry/exporter.go` on Integration (`b3ee82769078ebe6d53b2d1f5d0258dc07d38f79`): `384a908fd4ce51b4e3fde3898d8ab5707d355a77`.
+  - Direct tree comparison (`git diff 10409c5..b3ee827 -- backend/internal/telemetry/exporter.go`): **0 bytes difference**.
+  - Rationale for apparent GitHub diff: GitHub's comparison view runs a three-dot diff against the common merge base (`c9da5fb9035dff259c936fb79785eecbd93efde6`). Because `10409c5` was cherry-picked to integration as `365ec8c0c554b666a4086923f2da09996bc7d789` instead of merged with a merge commit, GitHub flags `exporter.go` in the changed files list even though the files at the heads are identical.
+- **Telemetry Test Inspection:**
+  - `TestBoundedExporter_QueueOverloadNeverBlocks` is 100% identical on both branches. Both branches implement the deterministic consumer barrier (`WithConsumerBarrier`), hold the consumer during queue fill, verify non-blocking caller return and span drops, and cleanly release the barrier for graceful worker shutdown.
+  - The integration branch contains two additive integration tests (`TestHTTPMiddleware_FlusherSupport` and `TestSpanDTO_JSONSerialization_Gate4Contracts`) introduced in Gate 4 (`df19487`) to validate SSE streaming flusher support and API DTO contract backward compatibility.
+  - Guarantees preserved: consumer barrier makes overload deterministic under race detection, caller remains non-blocking, exporter drains and shuts down cleanly, and production defaults are unaffected.
+
+### 12.2 M2 Completion Calculation Arithmetic
+- Explicit score breakdown:
+  - Engineering implementation: 100% (Weight 40%) -> 40.0%
+  - Automated and integration acceptance: 100% (Weight 40%) -> 40.0%
+  - Documentation and evidence: 100% (Weight 10%) -> 10.0%
+  - Formal milestone governance/closure: 95% (Weight 10%) -> 9.5%
+- Weighted total: `40.0% + 40.0% + 10.0% + 9.5% = 99.5%` (Display: **99.5% raw, 99% conservative whole number**).
+- Corrected previous report text where 99.5% was rounded down to 98% without showing the exact arithmetic.
+
+### 12.3 Verified Remote CI Workflows
+- **M2 Lane CI:** Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c51e60533bf27ce12862b3c466bbea359d0`: **SUCCESS (100% green)**.
+- **Integration Lane CI:** Run [#38514608172](https://github.com/whoevenisshubham/TransactX/actions/runs/38514608172) on `b3ee82769078ebe6d53b2d1f5d0258dc07d38f79`: **SUCCESS (100% green)**.
+- Both workflows verified: backend migrations, unit tests, race tests, builds, and frontend tests, linting, money bounds, and Vite build all passed cleanly.
+
+### 12.4 Preserved Governance & Release Safeguards
+- PRs #22, #23, #24, #25 remain strictly open, draft, and unmerged.
+- Release branch `release/transactx-v2` preserved at `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d`.
+- Zero paid cloud infrastructure provisioned ($0 / ₹0 spend).
+- The four release-owner external dependencies remain explicitly cataloged.
+
+
 
