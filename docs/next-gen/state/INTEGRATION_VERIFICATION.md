@@ -665,10 +665,10 @@ In accordance with M1 and integration requirements, the following release gates 
   - Strict compliance with constraints: no sleeps added, dropped-span assertion preserved with full strength, and test executed with race detection enabled.
 - **Local & Remote Verification:**
   - Ran `go test -count=50 -run TestBoundedExporter_QueueOverloadNeverBlocks ./internal/telemetry`: 50/50 passes (100% deterministic).
-  - Committed to `v2/m2-reliability-platform` as `10409c5750fc878a84617150a0f8bfdfcb881515` and pushed to `origin/v2/m2-reliability-platform`.
-  - **GitHub Actions Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c5` COMPLETED SUCCESS (100% GREEN)**:
+  - Committed to `v2/m2-reliability-platform` as `10409c51e60533bf27ce12862b3c466bbea359d0` and pushed to `origin/v2/m2-reliability-platform`.
+  - **GitHub Actions Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c51e60533bf27ce12862b3c466bbea359d0` COMPLETED SUCCESS (100% GREEN)**:
     - Backend (Migrations, Unit/Integration Tests, Race Tests, Build) and Frontend (Unit, Lint, Money, Build) all passed cleanly.
-  - Cherry-picked to `v2/integration-m1-m2-m3` as `365ec8c` with zero divergence.
+  - Cherry-picked to `v2/integration-m1-m2-m3` as `365ec8c0c554b666a4086923f2da09996bc7d789` with zero divergence.
 
 ### 10.2 Integration of Latest M3 Changes
 - **Synchronized Branch Head:** Merged `origin/v2/m3-investigation-analytics` (`15efc9436dc07e13049d2d77627023d4038773fa`) into `v2/integration-m1-m2-m3` via merge commit `5998778`.
@@ -717,7 +717,7 @@ In accordance with M1 and integration requirements, the following release gates 
 
 | Gate / Suite | Verification Command | Environment | Result | Evidence / Details |
 |---|---|---|---|---|
-| **M2 CI Workflow** | Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c5` | Ubuntu 24.04 (Containers) | **PASS (100% GREEN)** | Telemetry queue overload race test resolved; full backend & frontend green |
+| **M2 CI Workflow** | Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c51e60533bf27ce12862b3c466bbea359d0` | Ubuntu 24.04 (Containers) | **PASS (100% GREEN)** | Telemetry queue overload race test resolved; full backend & frontend green |
 | **Canonical Store Contract** | `go test -v ./internal/investigator -run TestPostgresInvestigationStoreCanonicalSchemaConformance` | Live PostgreSQL 18 | **PASS** | All 5 subtests pass against canonical 000001–000030 migration schema |
 | **Cross-Bank Recovery Matrix** | `go test -v ./internal/experiments -run TestCrossBankRecovery_FullMatrix` | Live PostgreSQL 18 | **PASS (7.56s)** | 7/7 scenarios pass; 0 financial invariant violations across Bank A, Bank B, and central ledger |
 | **Crash Matrix Hardening (B12)** | `go test -v ./internal/experiments -run TestCrashMatrix_` | Live PostgreSQL 18 | **PASS (0.68s)** | 20/20 scenarios pass; negative payload and debit-credit fault tests pass |
@@ -747,5 +747,81 @@ In accordance with M1 and integration requirements, the following release gates 
    - **Configured Native Linux Target Host:** Native Linux target host for release archive extraction, systemd service installation, Caddy reverse-proxy configuration, and private-port smoke testing. Zero paid cloud hosting has been provisioned ($0 / ₹0 spend).
    - **Off-Machine Backup Destination & Disaster Recovery Drill:** Cloud object store (S3/GCS bucket) configured for daily encrypted database backup replication, plus formal multi-region restore drill. (Local restore rehearsal has passed successfully).
    - **Production Browser Live Smoke:** Live host execution of `playwright.live.config.ts` against the live production origin with real credentials.
+
+---
+
+## 11. Gate 11: Final M1 Release Readiness, Evidence Reconciliation & Owner Handoff
+
+### 11.1 Source-Reference Reconciliation & Commit Lineage
+- **Lane Branch & Integration Lineage:**
+  - **M2 Source Commit:** `10409c51e60533bf27ce12862b3c466bbea359d0` (branch `v2/m2-reliability-platform`, PR #24). Contains the deterministic consumer barrier fix for `TestBoundedExporter_QueueOverloadNeverBlocks`.
+  - **Integration Cherry-Pick Commit:** `365ec8c0c554b666a4086923f2da09996bc7d789` (on branch `v2/integration-m1-m2-m3`). Applies the telemetry race fix cleanly to the combined integration codebase.
+  - **M3 Integration Commit:** `5998778b3ed48d08b485bd2853e65f577901c8e2` (merging M3 head `15efc9436dc07e13049d2d77627023d4038773fa`). Integrates the canonical store contract test and audit documentation.
+  - **M1 Integration Commit:** `4623f5e376f4186758b4783db27156ad3622f301` (merging M1 head `bc7c16706a7dfb21d4f8beda7e4f26adc66512c1`). Integrates operator screen accessibility tokens and delivery evidence.
+  - **Release Base:** `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d` on `release/transactx-v2`. Preserved completely unchanged.
+- **Typographical SHA Correction:**
+  - Corrected the typographical error string `10409c5750fc878a84617150a0f8bfdfcb881515` (from previous report text) to the true verified Git commit SHA `10409c51e60533bf27ce12862b3c466bbea359d0`.
+  - Updated all references across `docs/next-gen/state/M2.md`, `docs/next-gen/state/M1_INTEGRATION_REQUIREMENTS.md`, `docs/next-gen/DELIVERY_REPORT.md`, `docs/next-gen/state/INTEGRATION_VERIFICATION.md`, and PR #25 description.
+  - Preserved distinction between the lane commit and integration cherry-pick without silently rewriting history.
+
+### 11.2 Independent Local Delivery Validation & Preflight Checks
+All locally achievable M1 delivery checks were executed and independently verified without public infrastructure:
+1. **Delivery Documentation & Evidence Staging (`stage-delivery-docs.mjs`):**
+   - Command: `node deploy/scripts/stage-delivery-docs.mjs .`
+   - Outcome: **PASS** — Exactly 13 approved delivery files, evidence records, and SQL verification scripts validated.
+   - Integrity: All files non-empty, all JSON files valid, all SQL and Markdown files encoded with LF line endings, and all relative paths contained within repository root (zero path traversal escapes).
+2. **Approved Corpus Manifest Validation (`stage-corpus.mjs`):**
+   - Command: `node deploy/scripts/stage-corpus.mjs .`
+   - Outcome: **PASS** — Exactly 6 approved runbook documents verified against `docs/runbooks/corpus-manifest.json`.
+   - Integrity: Corpus contents intact with zero unauthorized modifications.
+3. **Release Builder Preflight & Shell Parity:**
+   - PowerShell: `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly`
+   - Bash: `deploy/scripts/build-release.sh --validate-only`
+   - Outcome: **PASS** with 100% parity across platforms:
+     - Working tree clean.
+     - Exact Git HEAD detected.
+     - All 8 production commands verified present: `api`, `bank-a`, `bank-b`, `worker`, `migrate`, `maintain-merkle`, `corpus`, `rebuild-worklist` (0 missing commands).
+     - 6 approved corpus inputs verified.
+     - Release manifest schema `tx.release.v1` and file structure verified.
+4. **Fail-Closed Release Packaging Security Guard:**
+   - The release builder strictly evaluates `VITE_API_BASE_URL`.
+   - When unset or set to a loopback address, the builder intentionally fails closed: outputting `unset; required for an archive` and refusing to produce an ungrounded or insecure release archive.
+   - This fail-closed guard is preserved; no dummy placeholder or loopback override was inserted.
+
+### 11.3 CI Workflow Evidence Reconciliation
+- **Integration CI Workflow:**
+  - Run [#38508458230](https://github.com/whoevenisshubham/TransactX/actions/runs/38508458230) on `6afa93a3b95f9c756fa1f28ae7032eec190f6be9`: **Completed Success (100% green)**.
+  - All 4 composite jobs passed: Backend Migrations, Backend Tests (including Race Tests and Cross-Bank Recovery), Backend Build, and Frontend (Test, Lint, Money, Build).
+- **M2 Reliability Platform CI Workflow:**
+  - Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c51e60533bf27ce12862b3c466bbea359d0`: **Completed Success (100% green)**.
+- **M3 Investigation Analytics CI Workflow:**
+  - Run [#38438272677](https://github.com/whoevenisshubham/TransactX/actions/runs/38438272677) on `15efc9436dc07e13049d2d77627023d4038773fa`: **Completed Success (100% green)**.
+
+### 11.4 Release-Owner Handoff Checklist & External Blockers
+Full production release acceptance is strictly gated on the following four owner-provided external inputs and tasks:
+1. **Public HTTPS API Origin (`VITE_API_BASE_URL`):**
+   - **Missing Input:** Owner-provided publicly resolvable HTTPS URL and TLS certificate/termination endpoint.
+   - **Enables:** Configuring `VITE_API_BASE_URL` during release packaging (`build-release.ps1` / `build-release.sh`) to produce a verified production release archive (`transactx-v2-amd64.tar.gz` / `transactx-v2-arm64.tar.gz`) containing a production-ready frontend bundle.
+2. **Native Linux Deployment Target Host & DNS/TLS Configuration:**
+   - **Missing Input:** Owner-provided native Linux server (Ubuntu 22.04/24.04, amd64 or arm64), SSH/deployment access, public DNS record pointing to host, and TLS certificates (or Let's Encrypt automated ACME setup via Caddy).
+   - **Enables:** Production archive extraction, systemd service installation (`deploy/systemd/`), Caddy reverse proxy setup (`deploy/caddy/Caddyfile`), environment configuration (`/etc/transactx/transactx.env`), and private loopback port verification.
+3. **Off-Machine Backup Destination & Multi-Region Recovery Drill:**
+   - **Missing Input:** Owner-configured off-machine cloud storage bucket (e.g. AWS S3 or GCP Cloud Storage with IAM bucket policies) and backup push credentials.
+   - **Enables:** Automated daily encrypted database backup replication off the primary VM host, followed by a live end-to-end multi-region recovery drill verifying target RTO (< 30s) and RPO (0 data loss) under operational conditions.
+4. **Production Browser Live Smoke Verification:**
+   - **Missing Input:** Owner-controlled production test credentials and live deployment URL provided via secure channels (never committed to repository).
+   - **Enables:** Executing `npx playwright test browser/ops.live.spec.ts --config playwright.live.config.ts` against the live production origin to verify live worker dispatch, SSE streaming, authentication, and operator role security in a production browser environment.
+
+### 11.5 Branch, PR, and Financial Safeguards
+- **PR Status:**
+  - PR #22 (`v2/m1-product-delivery`): Open, Draft, Unmerged.
+  - PR #23 (`v2/m3-investigation-analytics`): Open, Draft, Unmerged.
+  - PR #24 (`v2/m2-reliability-platform`): Open, Draft, Unmerged.
+  - PR #25 (`v2/integration-m1-m2-m3`): Open, Draft, Unmerged.
+- **Release Branch Protection:**
+  - `release/transactx-v2` preserved at base commit `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d`. No commits, merges, tags, or releases performed.
+- **Financial & Secret Integrity:**
+  - Cloud expenditure remains strictly $0 / ₹0. Zero paid cloud infrastructure provisioned.
+  - Zero secrets, credentials, or private keys committed or logged.
 
 

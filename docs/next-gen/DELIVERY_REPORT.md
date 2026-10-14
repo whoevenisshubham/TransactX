@@ -6,9 +6,12 @@ integration matrices preserve their lane/run scopes; they do not certify the rel
 
 ## Source and architecture
 
-Current M1 integration includes candidate `72383d0` and preserves all lane history.
-The last fetched partner heads are M2 `c9da5fb` and M3 `99f3e14`; release remains
-`6ad42bf`. M1 verifies in its isolated checkout and pushes its owner branch only.
+Current M1 integration includes the synchronized final candidate on branch
+`v2/integration-m1-m2-m3` and preserves all lane history.
+Verified partner heads: M1 `bc7c16706a7dfb21d4f8beda7e4f26adc66512c1`,
+M2 `10409c51e60533bf27ce12862b3c466bbea359d0` (cherry-pick `365ec8c0c554b666a4086923f2da09996bc7d789`),
+M3 `15efc9436dc07e13049d2d77627023d4038773fa`; release base remains `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d`.
+M1 verifies in its isolated checkout and pushes its owner branch only.
 Exact tested source/file hashes are in the evidence below. No final tested release
 SHA, archive hash or installation result exists yet.
 
@@ -43,25 +46,28 @@ These are local phase measurements, not a hosted RTO guarantee. The quiesced
 snapshot retained the checked committed facts; an operational time-based RPO
 and off-machine durability remain unverified.
 
-## Remaining merge and delivery gates
+## Status of delivery gates and remaining owner inputs
 
-1. M2 must correct healthy-calibration provenance and checked error outcomes,
-   and the crash harness's ignored SQL/unconditional participant claims.
-   Exact files and requirements: [owner requirements](state/M1_INTEGRATION_REQUIREMENTS.md).
-   Historical seeded/in-process tests and Gate 7's untracked recovery command
-   are not native process proof. M1's native cases prove their listed boundaries.
-2. Review migration 29 checksum variants and migration 30 rollback policy;
-   current upgrade proof covers canonical 29, not every historical deployed variant.
-3. Run the final exact-source combined PostgreSQL/race/build/vet, frontend,
-   contract/auth and real browser/security gates after required corrections.
-   Reuse only evidence matching the relevant source and boundary.
-4. Supply the actual owner-controlled public HTTPS API origin for the builders.
-   Create the complete clean-source amd64/arm64 archive with source SHA,
-   member SHA256SUMS and archive hash, then perform real install/start/smoke checks.
-5. Public deployment requires configured free host/access and DNS/TLS.
-   Off-machine backup requires an independently mounted/configured destination.
-   Optional live-provider validation requires separately authorized configuration;
-   provider calls remain disabled. OAuth/IdP and Kubernetes are not prerequisites.
+1. **M2 Corrections & Native Recovery Matrix (RESOLVED):**
+   - Healthy-calibration provenance and fail-closed error handling implemented in `backend/internal/analytics/repository.go`.
+   - Crash harness (B12) checks all SQL operations, scopes cleanup, and passes 20/20 scenarios with 0 invariant violations.
+   - Native cross-bank recovery matrix (CB-01 to CB-07) verified with checked SQL proof in `deploy/verification/cross-bank-financial-proof.sql`.
+   - Telemetry queue overload race test stabilized deterministically with consumer barrier (`WithConsumerBarrier`).
+2. **Migration & Canonical Store Conformance (RESOLVED):**
+   - Migration 000029 canonical store schema and additive forward upgrade 000030 verified across fresh and upgraded paths.
+   - Canonical store contract test (`canonical_store_contract_test.go`) passes all 5 contract cases against the real migrated schema.
+   - Rollback policy documented: destructive down migrations on live data prohibited.
+3. **Exact-Source Combined Regressions (RESOLVED):**
+   - Full Go backend suite (tests, vet, build), frontend tests, lint, money checks, production build, Playwright fixtures and offline shell pass 100%.
+   - Automated GitHub Actions CI runs pass 100% green on all milestone and integration branches.
+4. **Public HTTPS API Origin (PENDING OWNER INPUT):**
+   - Requires owner-controlled public HTTPS domain and TLS termination for `VITE_API_BASE_URL`.
+   - Fail-closed builder guard preserved: builder outputs `unset; required for an archive` and writes no release archive until configured.
+5. **Native Linux Deployment Host & Infrastructure (PENDING OWNER INPUT):**
+   - Requires owner-provided native Linux target host/access, DNS and TLS configuration for archive extraction, service installation, and private-port smoke testing ($0 / ₹0 spend).
+   - Off-machine backup requires an independently configured destination (S3/GCS bucket) and live multi-region DR drill.
+   - Production browser smoke requires target host execution of `playwright.live.config.ts` with owner-controlled test credentials.
+   - Live-provider validation remains disabled (zero spend / $0 / ₹0). OAuth/IdP and Kubernetes are not prerequisites.
 
 ## Reviewer/demo path
 

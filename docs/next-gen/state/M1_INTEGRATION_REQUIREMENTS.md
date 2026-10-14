@@ -25,9 +25,9 @@
 
 4. **Integration Head & Discrepancy Resolution (Group D): RESOLVED**
    - Intermediate heads `90288d2` (Gate 6) and `72383d0` (Gate 7) are confirmed direct ancestors of integration candidate.
-   - M2 telemetry race test failure deterministically resolved via `WithConsumerBarrier` on `10409c5` (cherry-picked as `365ec8c`), CI run #38507513368 green.
-   - Latest M3 head `15efc94` integrated via merge commit `5998778`.
-   - M1 delivery evidence and operator accessibility improvements merged into `v2/integration-m1-m2-m3` via `4623f5e`.
+   - M2 telemetry race test failure deterministically resolved via `WithConsumerBarrier` on source commit `10409c51e60533bf27ce12862b3c466bbea359d0` (cherry-picked onto integration as `365ec8c0c554b666a4086923f2da09996bc7d789`), CI run #38507513368 green.
+   - Latest M3 head `15efc9436dc07e13049d2d77627023d4038773fa` integrated via merge commit `5998778b3ed48d08b485bd2853e65f577901c8e2`.
+   - M1 delivery evidence and operator accessibility improvements merged into `v2/integration-m1-m2-m3` via `4623f5e376f4186758b4783db27156ad3622f301`.
    - All regression suites (backend, migrations, cross-bank recovery, crash matrix, frontend unit/lint/build, browser fixtures/offline-shell) pass 100%.
 
 ---
