@@ -649,4 +649,103 @@ In accordance with M1 and integration requirements, the following release gates 
 | **Backend Go Vet** | `go vet ./...` | Go 1.24 | **PASS** | 0 issues across all packages |
 | **Full Backend Go Suite** | `go test -C backend -count=1 ./...` | Go 1.24 | **PASS (22.1s)** | All 42 packages pass 100% |
 
+---
+
+## 10. Gate 10: Stabilize M2 Race Acceptance, Integrate Latest M3, and Verify Final Candidate
+
+### 10.1 Telemetry Race-Test Failure Analysis and Deterministic Resolution
+- **Defect Analysis of Workflow Run #38506276054:**
+  - In `TestBoundedExporter_QueueOverloadNeverBlocks`, the test asserted `expected dropped spans count > 0 due to overload, got 0`.
+  - Inspection of `backend/internal/telemetry/exporter.go` revealed that `ExportSpans` sanitizes and redacts each span individually before queue insertion. Under race detector (`-race`) thread interleaving and scheduling jitter on GitHub Actions Linux runners, `workerLoop()` popped and processed spans from `e.queue` faster than `ExportSpans` could fill the bounded queue of capacity 2.
+  - As a result, the queue never reached capacity during the burst, spans were never dropped, and the assertion failed. The production non-blocking drop logic was completely sound, but the test lacked a deterministic synchronization guarantee.
+- **Deterministic Synchronization Implementation:**
+  - Introduced `ExporterOption` functional options and `WithConsumerBarrier(barrier <-chan struct{})` on `BoundedPostgresExporter`.
+  - In `TestBoundedExporter_QueueOverloadNeverBlocks`, a test-controlled barrier channel holds the exporter worker loop from draining the queue while `ExportSpans` fills it.
+  - The test verifies that queue overload occurs deterministically, excess spans increment the dropped span counter (`DroppedSpans > 0`), the caller remains completely non-blocking, and once the barrier channel is closed, the worker drains the queue cleanly without leaking goroutines.
+  - Strict compliance with constraints: no sleeps added, dropped-span assertion preserved with full strength, and test executed with race detection enabled.
+- **Local & Remote Verification:**
+  - Ran `go test -count=50 -run TestBoundedExporter_QueueOverloadNeverBlocks ./internal/telemetry`: 50/50 passes (100% deterministic).
+  - Committed to `v2/m2-reliability-platform` as `10409c5750fc878a84617150a0f8bfdfcb881515` and pushed to `origin/v2/m2-reliability-platform`.
+  - **GitHub Actions Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c5` COMPLETED SUCCESS (100% GREEN)**:
+    - Backend (Migrations, Unit/Integration Tests, Race Tests, Build) and Frontend (Unit, Lint, Money, Build) all passed cleanly.
+  - Cherry-picked to `v2/integration-m1-m2-m3` as `365ec8c` with zero divergence.
+
+### 10.2 Integration of Latest M3 Changes
+- **Synchronized Branch Head:** Merged `origin/v2/m3-investigation-analytics` (`15efc9436dc07e13049d2d77627023d4038773fa`) into `v2/integration-m1-m2-m3` via merge commit `5998778`.
+- **Integrated Commits:**
+  - `c9c4c66`: Add canonical migration store acceptance gate
+  - `0285f0e`: Checkpoint canonical schema acceptance gate
+  - `15efc94`: Close evidence-only M3 integration gates
+- **Integrated Files:**
+  - `backend/internal/investigator/canonical_store_contract_test.go`: DDL-free canonical store acceptance suite verifying `public` migration schema conformance.
+  - `backend/internal/anomaly/INTEGRATION.md`: Updated scoring and feature integration boundaries.
+  - `backend/internal/investigator/C4_HANDOFF.md`: Updated evaluation dataset and UI fixture specifications.
+  - `backend/internal/investigator/INTEGRATION.md`: Updated corpus lifecycle and storage specifications.
+  - `backend/internal/investigator/M2_COMPATIBILITY_AUDIT.md`: Reconciliation guide for migration 000029/000030 and shared adapters.
+  - `docs/next-gen/state/M3.md`: Authoritative M3 lane state checkpoint.
+- **Canonical Store Contract Test Verification (`canonical_store_contract_test.go`):**
+  - Executed `TestPostgresInvestigationStoreCanonicalSchemaConformance` against live PostgreSQL 18.6 canonical migration schema (000001–000030) on dedicated test database `transactx_canonical_store_test`.
+  - All 5 contract subtests passed 100%:
+    1. `idempotency_scope_and_copy_isolation`: Actor-scoped idempotency, request hash conflict checks, active job limits, mutation isolation, and foreign scope rejection.
+    2. `lease_fencing_and_checkpoint_resume`: Worker lease expiration, checkpoint persistence, and resumption by subsequent worker with incremented lease epoch.
+    3. `global_provider_call_bound`: Transactional provider call exclusion across concurrent workers.
+    4. `transactional_usage_reservations`: Multi-dimensional input/output token and integer micro-USD reservations, concurrent overspend prevention, and unused budget release.
+    5. `uncertain_usage_is_lease_fenced_and_retains_budget`: Lease-fenced state transitions and full retention of reserved token/cost allowance.
+
+### 10.3 Re-audit of the Four M2 Correction Groups
+1. **Group A — Analytics Provenance & Precedence Veto:**
+   - Evaluated `backend/internal/analytics/repository.go` (`parseBoolFlag`, `evaluateHealthyEligibility`).
+   - Verified that explicit negative reviews veto any conflicting positive `healthy` or `seeded` flags.
+   - Non-boolean metadata, query/scan errors, and row-iteration failures fail closed (`baseline_status: "error"`, `scoring_outcome: "error"`, `model_status: "unavailable"`).
+   - All 14 tests in `backend/internal/analytics/analytics_test.go` pass against live PostgreSQL 18.
+2. **Group B — Crash Harness Invariants & Native Cross-Bank Recovery:**
+   - Evaluated `backend/internal/experiments/crash_matrix.go` and `cross_bank_recovery.go`.
+   - All SQL `Scan` and `Exec` calls check errors; cleanup is strictly scoped to test user IDs.
+   - Negative fault-injection tests prove detection of participant amount divergence and debit/credit imbalance.
+   - Native cross-bank recovery matrix (CB-01 through CB-07) executed cleanly (7.56s) with zero financial invariant violations across Bank A, Bank B, and central ledger, asserted by `deploy/verification/cross-bank-financial-proof.sql`.
+   - Crash matrix (B12) executed cleanly (0.68s) with 20/20 scenarios passing and zero violations.
+3. **Group C — Migration Policy & Real Canonical PostgreSQL Conformance:**
+   - Canonical M3 investigator store schema established via `000029_m3_investigator_store.up.sql` and additive forward upgrade `000030_m3_investigator_store_upgrade.up.sql`.
+   - Dual conformance verified: fresh install (000001–000030) and upgraded path (000001–000029 -> 000030) pass against canonical PostgreSQL 18.
+   - Rollback policy documented: destructive down migrations on live data are prohibited; forward additive migrations enforced.
+4. **Group D — Truthful Integration Reporting & Candidate Ancestry:**
+   - Confirmed intermediate commits `90288d2` and `72383d0` are genuine direct ancestors in Git commit history.
+   - Excised references to absent `backend/cmd/verify_process_recovery`.
+   - Synchronized M1 delivery evidence and M2 race stabilization into `v2/integration-m1-m2-m3`.
+
+### 10.4 Full Combined Regression Evidence Matrix
+
+| Gate / Suite | Verification Command | Environment | Result | Evidence / Details |
+|---|---|---|---|---|
+| **M2 CI Workflow** | Run [#38507513368](https://github.com/whoevenisshubham/TransactX/actions/runs/38507513368) on `10409c5` | Ubuntu 24.04 (Containers) | **PASS (100% GREEN)** | Telemetry queue overload race test resolved; full backend & frontend green |
+| **Canonical Store Contract** | `go test -v ./internal/investigator -run TestPostgresInvestigationStoreCanonicalSchemaConformance` | Live PostgreSQL 18 | **PASS** | All 5 subtests pass against canonical 000001–000030 migration schema |
+| **Cross-Bank Recovery Matrix** | `go test -v ./internal/experiments -run TestCrossBankRecovery_FullMatrix` | Live PostgreSQL 18 | **PASS (7.56s)** | 7/7 scenarios pass; 0 financial invariant violations across Bank A, Bank B, and central ledger |
+| **Crash Matrix Hardening (B12)** | `go test -v ./internal/experiments -run TestCrashMatrix_` | Live PostgreSQL 18 | **PASS (0.68s)** | 20/20 scenarios pass; negative payload and debit-credit fault tests pass |
+| **Analytics Fail-Closed Veto** | `go test -v ./internal/analytics` | Live PostgreSQL 18 | **PASS (7.20s)** | All 14 tests pass; non-boolean values and query/scan errors fail closed |
+| **Investigator Package Suite** | `go test -v ./internal/investigator` | Go 1.24 | **PASS (7.43s)** | Memory store harness, tool bounds, provider budgets, and strict decoders pass |
+| **Telemetry Package Suite** | `go test -v ./internal/telemetry` | Go 1.24 | **PASS (7.52s)** | Overload test with consumer barrier passes; 20/20 deterministic loop pass |
+| **HTTP Operations & Security** | `go test -v ./internal/http -run TestOperations_` | Live PostgreSQL 18 | **PASS (2.70s)** | Strict request decoder, actor-scoped idempotency, and RBAC pass |
+| **Database Migrations Suite** | `go test -v ./internal/database` | Live PostgreSQL 18 | **PASS (8.84s)** | All 24 test cases pass; 000001–000030 fresh, upgrade, checksum, and baseline verified |
+| **Backend Go Vet** | `go vet ./...` | Go 1.24 | **PASS** | 0 issues across all packages |
+| **Backend Go Build** | `go build ./...` | Go 1.24 | **PASS** | All binaries and commands compile cleanly |
+| **Frontend Test Suite** | `npm --prefix frontend run test` | Node.js v22 | **PASS (0.46s)** | 97/97 tests pass across 16 suites |
+| **Frontend Linter** | `npm --prefix frontend run lint` | TypeScript 7 | **PASS** | 0 type or lint errors |
+| **Frontend Money Integrity** | `npm --prefix frontend run test:money` | Node.js v22 | **PASS** | Integer paise boundary checks pass |
+| **Frontend Production Build** | `npm --prefix frontend run build` | Vite 8.3.0 | **PASS (0.20s)** | Production bundle compiled cleanly in `dist/` |
+| **Playwright Fixture Suite** | `npm --prefix frontend run test:browser:fixtures` | Chromium | **PASS (11.0s)** | 8/8 tests pass (including axe accessibility checks on investigation citations) |
+| **Playwright Offline Shell** | `npm --prefix frontend run test:browser:offline-shell` | Chromium | **PASS (4.4s)** | 2/2 tests pass (retained owner intent and token expiry) |
+| **Delivery Docs Staging** | `node deploy/scripts/stage-delivery-docs.mjs .` | Node.js v22 | **PASS** | Validated 13 delivery documents/evidence files/queries against approved allowlist |
+| **Release Builder Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | **PASS** | All 8 production commands present; 6 corpus documents verified; clean validation |
+
+### 10.5 Release-Owner Handoff & Explicit Pending Infrastructure Dependencies
+1. **Pull Request & Branch Status:**
+   - PR #22 (`v2/m1-product-delivery`), PR #23 (`v2/m3-investigation-analytics`), and PR #24 (`v2/m2-reliability-platform`) remain open, draft, and unmerged.
+   - PR #25 (`v2/integration-m1-m2-m3`) remains strictly in **draft** status.
+   - The release branch `release/transactx-v2` is completely unmodified.
+2. **Explicit Remaining Operational Infrastructure Blockers:**
+   - **Public HTTPS API Origin:** Public domain and TLS termination configured for `VITE_API_BASE_URL` so release builder can embed the production API origin.
+   - **Configured Native Linux Target Host:** Native Linux target host for release archive extraction, systemd service installation, Caddy reverse-proxy configuration, and private-port smoke testing. Zero paid cloud hosting has been provisioned ($0 / ₹0 spend).
+   - **Off-Machine Backup Destination & Disaster Recovery Drill:** Cloud object store (S3/GCS bucket) configured for daily encrypted database backup replication, plus formal multi-region restore drill. (Local restore rehearsal has passed successfully).
+   - **Production Browser Live Smoke:** Live host execution of `playwright.live.config.ts` against the live production origin with real credentials.
+
 

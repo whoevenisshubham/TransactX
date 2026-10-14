@@ -1,6 +1,6 @@
 # M1 integration review: M2-owned corrections
 
-## Current candidate recheck — 318496b, 14 October (Gate 9 / Pre-Gate 10)
+## Current candidate recheck — Gate 10 Final Combined Candidate, 14 October
 
 ### Status of M2-Owned Requirements: ALL CLOSED & VERIFIED ON SOURCE
 
@@ -20,12 +20,15 @@
 3. **Migration 29/30 Upgrade Policy & Canonical Store Conformance (Group C): CLOSED**
    - Canonical M3 investigator store schema established via `000029_m3_investigator_store.up.sql` and additive upgrade `000030_m3_investigator_store_upgrade.up.sql`.
    - Dual conformance verified: `TestPostgresInvestigationStoreConformance` (fresh 000001–000030) and `TestPostgresInvestigationStoreUpgradedDatabaseConformance` (000001–000029 -> 000030) pass against canonical PostgreSQL 18.
+   - Canonical contract test `backend/internal/investigator/canonical_store_contract_test.go` passes 100% on actual migrated schema across all 5 contract cases.
    - Rollback policy documented: destructive rollback is lossy and unsafe for live databases; forward additive corrections are enforced.
 
 4. **Integration Head & Discrepancy Resolution (Group D): RESOLVED**
-   - Intermediate heads `90288d2` (Gate 6) and `72383d0` (Gate 7) are confirmed direct ancestors of current HEAD `318496bec4127f0f0e62a0947e49c1d0b70c5d1a`.
+   - Intermediate heads `90288d2` (Gate 6) and `72383d0` (Gate 7) are confirmed direct ancestors of integration candidate.
+   - M2 telemetry race test failure deterministically resolved via `WithConsumerBarrier` on `10409c5` (cherry-picked as `365ec8c`), CI run #38507513368 green.
+   - Latest M3 head `15efc94` integrated via merge commit `5998778`.
    - M1 delivery evidence and operator accessibility improvements merged into `v2/integration-m1-m2-m3` via `4623f5e`.
-   - CI Run #38427120892 passed 100% green.
+   - All regression suites (backend, migrations, cross-bank recovery, crash matrix, frontend unit/lint/build, browser fixtures/offline-shell) pass 100%.
 
 ---
 
