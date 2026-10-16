@@ -31,20 +31,20 @@ import (
 
 // CrashScenarioResult captures the detailed outcome of a single fault boundary scenario.
 type CrashScenarioResult struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	FaultBoundary  string            `json:"faultBoundary"`
-	Passed         bool              `json:"passed"`
-	DurationMs     float64           `json:"durationMs"`
-	Checkpoints    []string          `json:"checkpoints"`
-	ObservedState  string            `json:"observedState"`
-	Invariants     []InvariantResult `json:"invariants"`
-	ErrorMessage   string            `json:"errorMessage,omitempty"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	FaultBoundary string            `json:"faultBoundary"`
+	Passed        bool              `json:"passed"`
+	DurationMs    float64           `json:"durationMs"`
+	Checkpoints   []string          `json:"checkpoints"`
+	ObservedState string            `json:"observedState"`
+	Invariants    []InvariantResult `json:"invariants"`
+	ErrorMessage  string            `json:"errorMessage,omitempty"`
 }
 
 // FinancialInvariantsSummary captures high-level financial consistency across all test cases.
 type FinancialInvariantsSummary struct {
-	NonnegativeBalances    bool  `json:"nonnegativeBalances"`
+	NonnegativeBalances     bool  `json:"nonnegativeBalances"`
 	DebitCreditConservation bool  `json:"debitCreditConservation"`
 	SingleLedgerPerPayment  bool  `json:"singleLedgerPerPayment"`
 	IdempotencyUnique       bool  `json:"idempotencyUnique"`
@@ -364,7 +364,20 @@ func deterministicOpID(paymentID uuid.UUID, name string) uuid.UUID {
 	return uuid.NewSHA1(paymentID, []byte(name))
 }
 
+// NewCrashMatrixHarness initializes the harness after validating that the connection pool is non-nil
+// and targets an authorized disposable test database.
 func NewCrashMatrixHarness(pool *pgxpool.Pool, seed int64) (*CrashMatrixHarness, error) {
+	if pool == nil {
+		return nil, errors.New("cannot initialize crash matrix harness with nil pool")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := VerifyPoolIsDisposable(ctx, pool); err != nil {
+		return nil, fmt.Errorf("refusing crash matrix harness on non-disposable database: %w", err)
+	}
+
 	meta := CaptureEnvironmentMetadata(seed, 20, map[string]string{
 		"matrix": "recovery_and_event_restart",
 	})
@@ -391,6 +404,12 @@ func (h *CrashMatrixHarness) insertBankOp(ctx context.Context, paymentID, bankID
 
 // SeedFixtures initializes a clean, isolated set of participants and accounts for the harness.
 func (h *CrashMatrixHarness) SeedFixtures(ctx context.Context) error {
+	if h.pool == nil {
+		return errors.New("cannot seed fixtures on nil pool")
+	}
+	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
+		return fmt.Errorf("refusing SeedFixtures on non-disposable database: %w", err)
+	}
 	h.testUserID = uuid.New()
 	h.testRecvUserID = uuid.New()
 	h.testBankAID = uuid.New()
@@ -434,34 +453,49 @@ func (h *CrashMatrixHarness) SeedFixtures(ctx context.Context) error {
 	return nil
 }
 
-func (h *CrashMatrixHarness) Cleanup(ctx context.Context) {
-	if h.testUserID != uuid.Nil {
-		tx, err := h.pool.Begin(ctx)
-		if err == nil {
-			defer tx.Rollback(ctx)
-			_, _ = tx.Exec(ctx, `SET LOCAL session_replication_role = 'replica'`)
-			_, _ = tx.Exec(ctx, `DELETE FROM payment_state_transitions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM payment_route_decisions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM idempotency_records WHERE user_id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM payments WHERE initiated_by_user_id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM accounts WHERE user_id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
-			_, _ = tx.Exec(ctx, `DELETE FROM banks WHERE id IN ($1, $2)`, h.testBankAID, h.testBankBID)
-			_, _ = tx.Exec(ctx, `DELETE FROM users WHERE id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
-			_ = tx.Commit(ctx)
+// Cleanup safely removes harness-scoped test fixtures without touching immutable transition tables or disabling triggers.
+func (h *CrashMatrixHarness) Cleanup(ctx context.Context) error {
+	if h.pool == nil || h.testUserID == uuid.Nil {
+		return nil
+	}
+	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
+		return fmt.Errorf("refusing Cleanup on non-disposable database: %w", err)
+	}
+
+	var cleanupErrs []error
+	execScoped := func(q string, args ...any) {
+		if _, err := h.pool.Exec(ctx, q, args...); err != nil {
+			cleanupErrs = append(cleanupErrs, err)
 		}
 	}
+
+	execScoped(`DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM idempotency_records WHERE user_id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM payment_route_decisions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
+	// Never delete from payment_state_transitions; only clean payments that have no transition FK constraints
+	execScoped(`DELETE FROM payments WHERE initiated_by_user_id IN ($1, $2) AND id NOT IN (SELECT payment_id FROM payment_state_transitions)`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM accounts WHERE user_id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
+	execScoped(`DELETE FROM banks WHERE id IN ($1, $2)`, h.testBankAID, h.testBankBID)
+	execScoped(`DELETE FROM users WHERE id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
+
+	if len(cleanupErrs) > 0 {
+		return fmt.Errorf("cleanup encountered %d errors: %v", len(cleanupErrs), cleanupErrs[0])
+	}
+	h.testUserID = uuid.Nil
+	h.testRecvUserID = uuid.Nil
+	return nil
 }
 
-func (h *CrashMatrixHarness) Close() {
-	h.Cleanup(context.Background())
+// Close releases harness resources and executes cleanup, returning any cleanup error encountered.
+func (h *CrashMatrixHarness) Close() error {
+	return h.Cleanup(context.Background())
 }
 
 func (h *CrashMatrixHarness) newPaymentsService() *payments.Service {
@@ -551,9 +585,8 @@ func (h *CrashMatrixHarness) RunScenario(ctx context.Context, id string) CrashSc
 }
 
 // RunAll executes the complete 20-scenario Recovery and Event Matrix against live PostgreSQL.
-func (h *CrashMatrixHarness) RunAll(ctx context.Context) (*CrashMatrixReport, error) {
-	lockConn, err := h.pool.Acquire(ctx)
-	if err == nil {
+func (h *CrashMatrixHarness) RunAll(ctx context.Context) (report *CrashMatrixReport, err error) {
+	if lockConn, acquireErr := h.pool.Acquire(ctx); acquireErr == nil {
 		_, _ = lockConn.Exec(ctx, `SELECT pg_advisory_lock(88880001)`)
 		defer func() {
 			_, _ = lockConn.Exec(context.Background(), `SELECT pg_advisory_unlock(88880001)`)
@@ -561,10 +594,21 @@ func (h *CrashMatrixHarness) RunAll(ctx context.Context) (*CrashMatrixReport, er
 		}()
 	}
 
-	if err := h.SeedFixtures(ctx); err != nil {
+	if err = h.SeedFixtures(ctx); err != nil {
 		return nil, err
 	}
-	defer h.Cleanup(ctx)
+	defer func() {
+		if cErr := h.Cleanup(ctx); cErr != nil {
+			if err != nil {
+				err = fmt.Errorf("%w; cleanup error: %v", err, cErr)
+			} else {
+				err = fmt.Errorf("crash matrix cleanup failed: %w", cErr)
+			}
+			if report != nil {
+				report.AllInvariantsSatisfied = false
+			}
+		}
+	}()
 
 	var scenarios []CrashScenarioResult
 	now := time.Now().UTC()
@@ -609,13 +653,13 @@ func (h *CrashMatrixHarness) RunAll(ctx context.Context) (*CrashMatrixReport, er
 	var postgresVer string
 	_ = h.pool.QueryRow(ctx, `SHOW server_version`).Scan(&postgresVer)
 
-	report := &CrashMatrixReport{
-		SchemaVersion:     "tx.crash_matrix.v1",
-		RunID:             fmt.Sprintf("run-%d-%s", now.Unix(), strings.ToLower(runtime.GOOS)),
-		RunTimestamp:      now,
-		GitCommit:         h.envMeta.GitCommit,
-		WorkingTree:       "clean",
-		Dirty:             false,
+	report = &CrashMatrixReport{
+		SchemaVersion: "tx.crash_matrix.v1",
+		RunID:         fmt.Sprintf("run-%d-%s", now.Unix(), strings.ToLower(runtime.GOOS)),
+		RunTimestamp:  now,
+		GitCommit:     h.envMeta.GitCommit,
+		WorkingTree:   "clean",
+		Dirty:         false,
 		Toolchain: map[string]string{
 			"go":       runtime.Version(),
 			"platform": runtime.GOOS + "/" + runtime.GOARCH,

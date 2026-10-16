@@ -1,10 +1,12 @@
 package experiments
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -155,25 +157,367 @@ func (r *CrossBankRecoveryReport) SaveArtifacts(rootDir string) (jsonPath string
 
 // CrossBankRecoveryHarness exercises recovery across real Bank A and Bank B participant boundaries.
 type CrossBankRecoveryHarness struct {
-	pool      *pgxpool.Pool
-	dbURL     string
-	bankAURL  string
-	bankBURL  string
-	bankASvr  *http.Server
-	bankBSvr  *http.Server
-	bankASvc  *bankservice.Service
-	bankBSvc  *bankservice.Service
-	clientA   bank.BankAdapter
-	clientB   bank.BankAdapter
-	testUsers []uuid.UUID
-	testBankA uuid.UUID
-	testBankB uuid.UUID
-	mu        sync.Mutex
+	pool         *pgxpool.Pool
+	dbURL        string
+	currentDB    string
+	bankAURL     string
+	bankBURL     string
+	bankASvr     *http.Server
+	bankBSvr     *http.Server
+	bankASvc     *bankservice.Service
+	bankBSvc     *bankservice.Service
+	clientA      bank.BankAdapter
+	clientB      bank.BankAdapter
+	testUsers    []uuid.UUID
+	testBankA    uuid.UUID
+	testBankB    uuid.UUID
+	backupRunner BackupRestoreRunner
+	mu           sync.Mutex
+}
+
+// CurrentDB returns the verified disposable database name bound to this harness.
+func (h *CrossBankRecoveryHarness) CurrentDB() string {
+	if h == nil {
+		return ""
+	}
+	return h.currentDB
+}
+
+// SetBackupRestoreRunner allows injecting a custom or mock runner for regression testing.
+func (h *CrossBankRecoveryHarness) SetBackupRestoreRunner(r BackupRestoreRunner) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.backupRunner = r
+}
+
+func (h *CrossBankRecoveryHarness) getBackupRestoreRunner() BackupRestoreRunner {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.backupRunner != nil {
+		return h.backupRunner
+	}
+	return &DefaultBackupRestoreRunner{}
+}
+
+// AllowedDisposableDBPrefixes lists prefixes for databases that may safely be used
+// for cross-bank recovery experiments and destructive fixture lifecycles.
+var AllowedDisposableDBPrefixes = []string{
+	"transactx_disposable_",
+	"transactx_cb_restore_",
+	"transactx_test_",
+	"transactx_m2_disposable_",
+}
+
+// ValidateDisposableDBName verifies that a database name is explicitly identified
+// as disposable, and rejects source or system databases.
+func ValidateDisposableDBName(dbName string) error {
+	trimmed := strings.TrimSpace(dbName)
+	if trimmed == "" {
+		return fmt.Errorf("database name cannot be empty")
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "transactx" {
+		return fmt.Errorf("refusing cross-bank recovery harness against source database %q: destructive experiment operations require an isolated disposable database", dbName)
+	}
+	for _, sysDB := range []string{"postgres", "template0", "template1"} {
+		if lower == sysDB {
+			return fmt.Errorf("refusing cross-bank recovery harness against system database %q", dbName)
+		}
+	}
+	for _, pfx := range AllowedDisposableDBPrefixes {
+		if strings.HasPrefix(lower, pfx) {
+			return nil
+		}
+	}
+	return fmt.Errorf("database %q is not explicitly identified as disposable (must start with one of: %s)",
+		dbName, strings.Join(AllowedDisposableDBPrefixes, ", "))
+}
+
+// VerifyPoolIsDisposable queries SELECT current_database() from the connection pool
+// and verifies that it is an explicitly allowed disposable database.
+func VerifyPoolIsDisposable(ctx context.Context, pool *pgxpool.Pool) (string, error) {
+	if pool == nil {
+		return "", fmt.Errorf("database pool is nil")
+	}
+	var currentDB string
+	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&currentDB); err != nil {
+		return "", fmt.Errorf("failed to query current_database(): %w", err)
+	}
+	if err := ValidateDisposableDBName(currentDB); err != nil {
+		return currentDB, err
+	}
+	return currentDB, nil
+}
+
+// ErrImmutableHistoryBlockedCleanup indicates that in-process SQL row deletion
+// was blocked by foreign key constraints referencing immutable payment_state_transitions records.
+var ErrImmutableHistoryBlockedCleanup = errors.New("in-process cleanup blocked by immutable payment state transitions (foreign key constraint)")
+
+// IsImmutableHistoryCleanupError inspects an error and reports whether it was
+// caused by foreign-key constraint violations on payments from payment_state_transitions.
+func IsImmutableHistoryCleanupError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrImmutableHistoryBlockedCleanup) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	isFK := strings.Contains(msg, "23503") || strings.Contains(msg, "foreign key") || strings.Contains(msg, "violates foreign key constraint")
+	isTransition := strings.Contains(msg, "payment_state_transitions")
+	return isFK && isTransition
+}
+
+// TeardownStatus describes the result of analyzing a cleanup failure against
+// the disposable-database lifecycle contract.
+type TeardownStatus string
+
+const (
+	// TeardownClean indicates that in-process cleanup fully succeeded (no residual rows).
+	TeardownClean TeardownStatus = "CLEAN"
+	// TeardownRequiresExternalDrop indicates that in-process cleanup was blocked by
+	// immutable transition history (payment_state_transitions) and the disposable
+	// database must be dropped externally (e.g., via dropdb or container teardown).
+	TeardownRequiresExternalDrop TeardownStatus = "REQUIRES_EXTERNAL_DROP"
+	// TeardownUnexpectedError indicates an unexpected database cleanup failure
+	// (e.g. connection failure, syntax error, commit failure).
+	TeardownUnexpectedError TeardownStatus = "UNEXPECTED_CLEANUP_ERROR"
+)
+
+// ClassifyTeardownError inspects a cleanup error and determines whether it represents
+// a clean state, an expected block by immutable transition history, or an unexpected error.
+func ClassifyTeardownError(cleanupErr error) TeardownStatus {
+	if cleanupErr == nil {
+		return TeardownClean
+	}
+	if errors.Is(cleanupErr, ErrImmutableHistoryBlockedCleanup) || IsImmutableHistoryCleanupError(cleanupErr) {
+		return TeardownRequiresExternalDrop
+	}
+	return TeardownUnexpectedError
+}
+
+const (
+	// OrchestratorContractVersion is the expected version identifier for orchestrator contracts.
+	OrchestratorContractVersion = "tx.orchestrator.contract.v1"
+	// EnvDisposableDBOrchestrated is the environment variable signaling external orchestration.
+	EnvDisposableDBOrchestrated = "TRANSACTX_DISPOSABLE_DB_ORCHESTRATED"
+	// EnvDisposableContractFile specifies the path to an orchestrator contract file.
+	EnvDisposableContractFile = "TRANSACTX_DISPOSABLE_CONTRACT_FILE"
+	// EnvDisposableOrchestratorContract specifies raw JSON of an orchestrator contract.
+	EnvDisposableOrchestratorContract = "TRANSACTX_DISPOSABLE_ORCHESTRATED_CONTRACT"
+	// EnvDisposableInvocationToken supplies the unique per-invocation token generated by the orchestrator.
+	EnvDisposableInvocationToken = "TRANSACTX_DISPOSABLE_INVOCATION_TOKEN"
+)
+
+// OrchestratorContractMaxAge is the maximum allowed age for a lifecycle contract before it is considered stale.
+const OrchestratorContractMaxAge = 1 * time.Hour
+
+// OrchestratorLifecycleContract represents the verified contract binding a disposable
+// test database to an active external orchestrator lifecycle that guarantees destruction.
+//
+// Security and platform boundaries:
+// 1. Invocation token: The invocation token is an accidental-misconfiguration and replay
+//    safeguard designed to bind the lifecycle contract strictly to a single test execution
+//    subprocess, preventing cross-run contamination or reuse of contracts from earlier runs.
+//    It is not cryptographic proof against a local user who can arbitrarily construct both
+//    the process environment and the contract file.
+// 2. Process ownership: On Windows/Git Bash, orchestratorPid is recorded as an identifying
+//    metadata attribute; it does not prove parent-child process tree ownership due to MSYS2/Win32
+//    PID virtualization differences.
+type OrchestratorLifecycleContract struct {
+	Version         string `json:"version"`
+	Database        string `json:"database"`
+	InvocationToken string `json:"invocationToken"`
+	OrchestratorPID int    `json:"orchestratorPid"`
+	CreatedAt       string `json:"createdAt"`
+}
+
+// Validate validates that the contract matches the required schema, binds to targetDB,
+// matches expectedToken, and contains a fresh, unexpired timestamp.
+func (c *OrchestratorLifecycleContract) Validate(targetDB string, expectedToken string) error {
+	if c == nil {
+		return fmt.Errorf("lifecycle contract is nil")
+	}
+	if strings.TrimSpace(c.Version) != OrchestratorContractVersion {
+		return fmt.Errorf("unsupported orchestrator contract version %q (expected %q)", c.Version, OrchestratorContractVersion)
+	}
+	if c.OrchestratorPID <= 0 {
+		return fmt.Errorf("invalid orchestrator PID %d in contract (must be > 0)", c.OrchestratorPID)
+	}
+	trimmedContractDB := strings.TrimSpace(c.Database)
+	if trimmedContractDB == "" {
+		return fmt.Errorf("contract database name is empty")
+	}
+	trimmedTargetDB := strings.TrimSpace(targetDB)
+	if trimmedTargetDB == "" {
+		return fmt.Errorf("target database name is empty")
+	}
+	if !strings.EqualFold(trimmedContractDB, trimmedTargetDB) {
+		return fmt.Errorf("contract database %q does not match active target database %q: ownership binding mismatch", c.Database, targetDB)
+	}
+
+	// Invocation token validation: safeguard against replay and cross-run contamination
+	trimmedContractToken := strings.TrimSpace(c.InvocationToken)
+	if trimmedContractToken == "" {
+		return fmt.Errorf("contract invocation token is empty")
+	}
+	if len(trimmedContractToken) < 8 {
+		return fmt.Errorf("contract invocation token %q is too short (must be >= 8 chars)", c.InvocationToken)
+	}
+	trimmedExpectedToken := strings.TrimSpace(expectedToken)
+	if trimmedExpectedToken == "" {
+		return fmt.Errorf("expected invocation token is empty (invocation token required to prove active lifecycle binding)")
+	}
+	if trimmedContractToken != trimmedExpectedToken {
+		return fmt.Errorf("contract invocation token %q does not match expected invocation token %q: invocation binding mismatch", c.InvocationToken, expectedToken)
+	}
+
+	// Freshness validation: CreatedAt must be a valid RFC3339 timestamp within OrchestratorContractMaxAge
+	trimmedCreatedAt := strings.TrimSpace(c.CreatedAt)
+	if trimmedCreatedAt == "" {
+		return fmt.Errorf("contract createdAt timestamp is empty")
+	}
+	parsedCreated, err := time.Parse(time.RFC3339, trimmedCreatedAt)
+	if err != nil {
+		return fmt.Errorf("invalid createdAt timestamp %q in contract (must be RFC3339): %w", c.CreatedAt, err)
+	}
+	now := time.Now().UTC()
+	// Allow 5 minutes clock skew tolerance for future timestamps
+	if parsedCreated.After(now.Add(5 * time.Minute)) {
+		return fmt.Errorf("contract createdAt %v is in the future (clock skew violation)", parsedCreated)
+	}
+	if now.Sub(parsedCreated) > OrchestratorContractMaxAge {
+		return fmt.Errorf("contract createdAt %v is stale (older than %v)", parsedCreated, OrchestratorContractMaxAge)
+	}
+
+	return nil
+}
+
+// ValidateAgainstTargetDB validates the contract against targetDB and the invocation token
+// resolved from the process environment (EnvDisposableInvocationToken).
+func (c *OrchestratorLifecycleContract) ValidateAgainstTargetDB(targetDB string) error {
+	return c.Validate(targetDB, os.Getenv(EnvDisposableInvocationToken))
+}
+
+// ResolveOrchestratorContract resolves and validates the active lifecycle contract for targetDB from the environment.
+// It verifies:
+// 1. TRANSACTX_DISPOSABLE_DB_ORCHESTRATED is set to "1".
+// 2. An explicit invocation token is supplied via TRANSACTX_DISPOSABLE_INVOCATION_TOKEN.
+// 3. An explicit contract file is provided via TRANSACTX_DISPOSABLE_CONTRACT_FILE pointing to a regular,
+//    non-empty, fresh file on disk. Inline JSON via TRANSACTX_DISPOSABLE_ORCHESTRATED_CONTRACT alone is
+//    explicitly rejected because it bypasses the orchestrator's filesystem lifecycle binding.
+// 4. The contract can be parsed and satisfies Validate(targetDB, expectedToken).
+//
+// If TRANSACTX_DISPOSABLE_DB_ORCHESTRATED is not "1", or if the contract is missing, malformed,
+// stale, or bound to a different database or token, it returns an error explaining the failure.
+func ResolveOrchestratorContract(targetDB string) (*OrchestratorLifecycleContract, error) {
+	if os.Getenv(EnvDisposableDBOrchestrated) != "1" {
+		return nil, fmt.Errorf("%s is not set to '1'", EnvDisposableDBOrchestrated)
+	}
+
+	expectedToken := strings.TrimSpace(os.Getenv(EnvDisposableInvocationToken))
+	if expectedToken == "" {
+		return nil, fmt.Errorf("orchestrator invocation token missing: %s=1 is set, but %s is empty (invocation binding required to prove current execution ownership)",
+			EnvDisposableDBOrchestrated, EnvDisposableInvocationToken)
+	}
+
+	contractFilePath := strings.TrimSpace(os.Getenv(EnvDisposableContractFile))
+	contractJSON := strings.TrimSpace(os.Getenv(EnvDisposableOrchestratorContract))
+
+	if contractFilePath == "" {
+		if contractJSON != "" {
+			return nil, fmt.Errorf("inline JSON contract (%s) rejected: lifecycle contract must be an ephemeral file on disk (%s) to guarantee orchestrator ownership binding",
+				EnvDisposableOrchestratorContract, EnvDisposableContractFile)
+		}
+		return nil, fmt.Errorf("orchestrator ownership contract missing: %s=1 is set, but no contract file provided via %s (environment variable alone does not establish teardown ownership)",
+			EnvDisposableDBOrchestrated, EnvDisposableContractFile)
+	}
+
+	fileInfo, err := os.Stat(contractFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat orchestrator contract file %q: %w", contractFilePath, err)
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("orchestrator contract path %q is not a regular file", contractFilePath)
+	}
+	if fileInfo.Size() == 0 {
+		return nil, fmt.Errorf("orchestrator contract file %q is empty", contractFilePath)
+	}
+	if time.Since(fileInfo.ModTime()) > OrchestratorContractMaxAge {
+		return nil, fmt.Errorf("orchestrator contract file %q is stale (last modified %v ago)", contractFilePath, time.Since(fileInfo.ModTime()))
+	}
+
+	data, err := os.ReadFile(contractFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read orchestrator contract file %q: %w", contractFilePath, err)
+	}
+
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, fmt.Errorf("orchestrator contract is empty")
+	}
+
+	var contract OrchestratorLifecycleContract
+	if err := json.Unmarshal(data, &contract); err != nil {
+		return nil, fmt.Errorf("malformed orchestrator contract: %w", err)
+	}
+
+	if err := contract.Validate(targetDB, expectedToken); err != nil {
+		return nil, fmt.Errorf("orchestrator contract validation failed: %w", err)
+	}
+
+	return &contract, nil
+}
+
+// EvaluateTestCleanupOutcome evaluates the cleanup error against the verified orchestrator contract,
+// target database, and invocation token.
+//
+// Rules:
+// 1. If cleanupErr == nil:
+//    Status is clean -> shouldFail = false, isDelegated = false.
+// 2. If cleanupErr has status TeardownRequiresExternalDrop (ErrImmutableHistoryBlockedCleanup):
+//    - If contract != nil and contract.Validate(targetDB, expectedToken) == nil:
+//      Teardown ownership is proven for targetDB and this specific invocation.
+//      The immutable-history block is delegated to the orchestrator's guaranteed dropdb lifecycle.
+//      shouldFail = false, isDelegated = true.
+//    - If contract is nil or invalid for targetDB/expectedToken:
+//      Teardown ownership is NOT proven. The cleanup error MUST fail the test.
+//      shouldFail = true, isDelegated = false.
+// 3. If cleanupErr has status TeardownUnexpectedError:
+//    - Regardless of contract, database, or token, unexpected SQL/connection errors MUST fail the test.
+//      shouldFail = true, isDelegated = false.
+func EvaluateTestCleanupOutcome(cleanupErr error, contract *OrchestratorLifecycleContract, targetDB string, expectedToken string) (shouldFail bool, isDelegated bool, diag string) {
+	status := ClassifyTeardownError(cleanupErr)
+	switch status {
+	case TeardownClean:
+		return false, false, "cleanup succeeded cleanly"
+	case TeardownRequiresExternalDrop:
+		if contract != nil {
+			if err := contract.Validate(targetDB, expectedToken); err == nil {
+				return false, true, fmt.Sprintf("in-process cleanup blocked by immutable transition history (%v); delegated to verified external orchestrator (PID %d, contract %s, token %s) owning database %q",
+					cleanupErr, contract.OrchestratorPID, contract.Version, contract.InvocationToken, contract.Database)
+			} else {
+				return true, false, fmt.Sprintf("in-process cleanup blocked by immutable transition history (%v); delegation rejected: invalid orchestrator contract: %v", cleanupErr, err)
+			}
+		}
+		return true, false, fmt.Sprintf("in-process cleanup blocked by immutable transition history (%v); delegation rejected: no verified orchestrator ownership contract for target database %q", cleanupErr, targetDB)
+	case TeardownUnexpectedError:
+		return true, false, fmt.Sprintf("unexpected cleanup error (status=%s): %v", status, cleanupErr)
+	default:
+		return true, false, fmt.Sprintf("unrecognized teardown status %s: %v", status, cleanupErr)
+	}
 }
 
 // NewCrossBankRecoveryHarness initializes the harness, starts HTTP listeners for Bank A (:8081) and Bank B (:8082).
 func NewCrossBankRecoveryHarness(pool *pgxpool.Pool, dbURL string) (*CrossBankRecoveryHarness, error) {
 	ctx := context.Background()
+
+	if pool == nil {
+		return nil, fmt.Errorf("database pool is required")
+	}
+	currentDB, err := VerifyPoolIsDisposable(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("cross-bank recovery harness rejected unsafe database: %w", err)
+	}
 
 	// Ensure bank records exist in public.banks
 	var bankAID, bankBID uuid.UUID
@@ -193,6 +537,7 @@ func NewCrossBankRecoveryHarness(pool *pgxpool.Pool, dbURL string) (*CrossBankRe
 	h := &CrossBankRecoveryHarness{
 		pool:      pool,
 		dbURL:     dbURL,
+		currentDB: currentDB,
 		bankAURL:  "http://127.0.0.1:8081",
 		bankBURL:  "http://127.0.0.1:8082",
 		testBankA: bankAID,
@@ -227,7 +572,6 @@ func NewCrossBankRecoveryHarness(pool *pgxpool.Pool, dbURL string) (*CrossBankRe
 		return nil, fmt.Errorf("bank B health check failed: %w", err)
 	}
 
-	var err error
 	h.clientA, err = bank.NewHTTPClient(h.bankAURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("client A: %w", err)
@@ -264,14 +608,28 @@ func (h *CrossBankRecoveryHarness) waitForHealth(url string, timeout time.Durati
 	return fmt.Errorf("timeout waiting for %s", url)
 }
 
-func (h *CrossBankRecoveryHarness) Close() {
+func (h *CrossBankRecoveryHarness) Close() error {
+	if h == nil {
+		return nil
+	}
+	var errs []error
 	if h.bankASvr != nil {
-		_ = h.bankASvr.Shutdown(context.Background())
+		if err := h.bankASvr.Shutdown(context.Background()); err != nil {
+			errs = append(errs, fmt.Errorf("shutdown bank A server: %w", err))
+		}
 	}
 	if h.bankBSvr != nil {
-		_ = h.bankBSvr.Shutdown(context.Background())
+		if err := h.bankBSvr.Shutdown(context.Background()); err != nil {
+			errs = append(errs, fmt.Errorf("shutdown bank B server: %w", err))
+		}
 	}
-	h.CleanupTestUsers(context.Background())
+	if err := h.CleanupTestUsers(context.Background()); err != nil {
+		errs = append(errs, fmt.Errorf("cleanup test users: %w", err))
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 type CrossBankFixture struct {
@@ -291,6 +649,12 @@ type CrossBankFixture struct {
 
 // SeedFixture provisions isolated sender (Bank A) and receiver (Bank B) accounts.
 func (h *CrossBankRecoveryHarness) SeedFixture(ctx context.Context, prefix string, amountPaise int64) (*CrossBankFixture, error) {
+	if h == nil || h.pool == nil {
+		return nil, fmt.Errorf("database pool is not initialized")
+	}
+	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
+		return nil, fmt.Errorf("seed fixture refused on unsafe database: %w", err)
+	}
 	senderUID := uuid.New()
 	recvUID := uuid.New()
 	senderAccID := uuid.New()
@@ -376,6 +740,12 @@ func (h *CrossBankRecoveryHarness) SeedFixture(ctx context.Context, prefix strin
 }
 
 func (h *CrossBankRecoveryHarness) insertPayment(ctx context.Context, fix *CrossBankFixture, state string) error {
+	if h == nil || h.pool == nil {
+		return fmt.Errorf("database pool is not initialized")
+	}
+	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
+		return fmt.Errorf("insert payment refused on unsafe database: %w", err)
+	}
 	query := `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, source_bank_id, destination_bank_id, source_bank_account_id, destination_bank_account_id, note, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', $6, $7, $8, $9, $10, $11, NOW(), NOW())`
@@ -389,40 +759,76 @@ func (h *CrossBankRecoveryHarness) insertPayment(ctx context.Context, fix *Cross
 	return err
 }
 
-func (h *CrossBankRecoveryHarness) CleanupTestUsers(ctx context.Context) {
+func (h *CrossBankRecoveryHarness) CleanupTestUsers(ctx context.Context) error {
+	if h == nil || h.pool == nil {
+		return nil
+	}
+	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
+		// Strictly refuse to execute any fixture cleanup against non-disposable databases
+		return fmt.Errorf("refusing fixture cleanup on non-disposable database: %w", err)
+	}
+
 	h.mu.Lock()
-	users := h.testUsers
-	h.testUsers = nil
+	users := make([]uuid.UUID, len(h.testUsers))
+	copy(users, h.testUsers)
 	h.mu.Unlock()
 
 	if len(users) == 0 {
-		return
+		return nil
 	}
 
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
-		return
+		return fmt.Errorf("begin cleanup transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	_, _ = tx.Exec(ctx, `SET LOCAL session_replication_role = 'replica'`)
-	_, _ = tx.Exec(ctx, `DELETE FROM bank_a.ledger_entries WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM bank_b.ledger_entries WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM bank_a.operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM bank_b.operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1)))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM idempotency_records WHERE user_id = ANY($1)`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM payments WHERE initiated_by_user_id = ANY($1)`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM accounts WHERE user_id = ANY($1)`, users)
-	_, _ = tx.Exec(ctx, `DELETE FROM users WHERE id = ANY($1)`, users)
-	_ = tx.Commit(ctx)
+	// Note: We deliberately do NOT execute 'SET LOCAL session_replication_role = replica'
+	// and never bypass triggers or foreign key constraints.
+	// For experiments with immutable transition history, rows in payment_state_transitions
+	// remain intact and will cause payment deletion to fail if FK constraints are present.
+	// Primary disposable database teardown is managed externally by test orchestrators.
+	steps := []struct {
+		table string
+		query string
+	}{
+		{"bank_a.ledger_entries", `DELETE FROM bank_a.ledger_entries WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"bank_b.ledger_entries", `DELETE FROM bank_b.ledger_entries WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"bank_a.operations", `DELETE FROM bank_a.operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"bank_b.operations", `DELETE FROM bank_b.operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"payment_bank_operations", `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"ledger_entries", `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id = ANY($1))`},
+		{"ledger_transactions", `DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"recovery_attempts", `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"recovery_jobs", `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"outbox_deliveries", `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1)))`},
+		{"outbox_events", `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"ops_payment_worklist", `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = ANY($1))`},
+		{"idempotency_records", `DELETE FROM idempotency_records WHERE user_id = ANY($1)`},
+		// Foreign key constraints will prevent deleting payments if immutable transitions exist;
+		// triggers remain enforced and are never disabled.
+		{"payments", `DELETE FROM payments WHERE initiated_by_user_id = ANY($1)`},
+		{"accounts", `DELETE FROM accounts WHERE user_id = ANY($1)`},
+		{"users", `DELETE FROM users WHERE id = ANY($1)`},
+	}
+
+	for _, step := range steps {
+		if _, err := tx.Exec(ctx, step.query, users); err != nil {
+			if step.table == "payments" && IsImmutableHistoryCleanupError(err) {
+				return fmt.Errorf("%w: cleanup table %s: %w", ErrImmutableHistoryBlockedCleanup, step.table, err)
+			}
+			return fmt.Errorf("cleanup table %s: %w", step.table, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit cleanup transaction: %w", err)
+	}
+
+	h.mu.Lock()
+	h.testUsers = nil
+	h.mu.Unlock()
+	return nil
 }
 
 func (h *CrossBankRecoveryHarness) newPaymentsService() *payments.Service {
@@ -474,13 +880,13 @@ func (h *CrossBankRecoveryHarness) RunAll(ctx context.Context) (*CrossBankRecove
 		scenarios = append(scenarios, res)
 	}
 
-	record(h.RunCB01_APITerminationAfterJournalBeforeDispatch(ctx))
-	record(h.RunCB02_WorkerTerminationAfterHoldBeforeCredit(ctx))
+	record(h.RunCB01_SeededRecoveryAfterJournalBeforeDispatch(ctx))
+	record(h.RunCB02_SeededRecoveryAfterHoldBeforeCredit(ctx))
 	record(h.RunCB03_ParticipantCommitLostHTTPResponse(ctx))
 	record(h.RunCB04_RestartWithExistingOperationUUID(ctx))
 	record(h.RunCB05_LeaseExpiryWorker2TakeoverStaleRejection(ctx))
 	record(h.RunCB06_PresenceBranchingAbsentPresentUnknown(ctx))
-	record(h.RunCB07_RestoreFromDisposableBackupPendingPayment(ctx))
+	record(h.RunCB07_UnencryptedDumpRestorePendingPayment(ctx))
 
 	finSummary := h.verifyOverallFinancialInvariants(ctx)
 
@@ -493,12 +899,12 @@ func (h *CrossBankRecoveryHarness) RunAll(ctx context.Context) (*CrossBankRecove
 	}
 
 	report := &CrossBankRecoveryReport{
-		SchemaVersion:          "tx.cross_bank_recovery.v1",
-		RunID:                  fmt.Sprintf("run-%d-%s", start.Unix(), strings.ToLower(runtime.GOOS)),
-		RunTimestamp:           start,
-		GitCommit:              gitCommit,
-		WorkingTree:            "clean",
-		Dirty:                  false,
+		SchemaVersion: "tx.cross_bank_recovery.v1",
+		RunID:         fmt.Sprintf("run-%d-%s", start.Unix(), strings.ToLower(runtime.GOOS)),
+		RunTimestamp:  start,
+		GitCommit:     gitCommit,
+		WorkingTree:   "clean",
+		Dirty:         false,
 		Toolchain: map[string]string{
 			"go":       runtime.Version(),
 			"platform": runtime.GOOS + "/" + runtime.GOARCH,
@@ -516,14 +922,14 @@ func (h *CrossBankRecoveryHarness) RunAll(ctx context.Context) (*CrossBankRecove
 }
 
 // -----------------------------------------------------------------------------
-// SCENARIO 1: API termination after central operation journal commits before participant dispatch
+// SCENARIO 1: Seeded state recovery after central operation journal commits before participant dispatch
 // -----------------------------------------------------------------------------
-func (h *CrossBankRecoveryHarness) RunCB01_APITerminationAfterJournalBeforeDispatch(ctx context.Context) CrossBankScenarioResult {
+func (h *CrossBankRecoveryHarness) RunCB01_SeededRecoveryAfterJournalBeforeDispatch(ctx context.Context) CrossBankScenarioResult {
 	start := time.Now()
 	res := CrossBankScenarioResult{
 		ID:            "CB-01",
-		Name:          "API killed after central journal before participant dispatch",
-		FaultBoundary: "API killed after journal commit in payment_bank_operations, before HTTP call reaches Bank A",
+		Name:          "In-process recovery: central journal committed before participant dispatch",
+		FaultBoundary: "Seeded state reconstruction: central journal committed in payment_bank_operations (PENDING) with Bank A absent; in-process Service.Resume completes transfer",
 	}
 
 	fix, err := h.SeedFixture(ctx, "cb01", 100)
@@ -568,15 +974,19 @@ func (h *CrossBankRecoveryHarness) RunCB01_APITerminationAfterJournalBeforeDispa
 		return res
 	}
 	res.Checkpoints = append(res.Checkpoints, "recovery_resumed_and_completed_cross_bank")
-	_ = h.projectPaymentEvents(ctx, fix.PaymentID)
+	if err := h.projectPaymentEvents(ctx, fix.PaymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("project payment events: %v", err)
+		return res
+	}
 
 	finSummary := h.verifySinglePaymentInvariants(ctx, fix)
 	res.ObservedState = "COMPLETED"
 	p1 := finSummary.TotalViolations == 0
 	p2 := resumeRes.Payment.State == payments.StateCompleted
+	stateStr := string(resumeRes.Payment.State)
 
 	res.Invariants = []InvariantResult{
-		{InvariantName: "Payment converged to COMPLETED", Passed: p2, Details: fmt.Sprintf("state=%s", resumeRes.Payment.State)},
+		{InvariantName: "Payment converged to COMPLETED", Passed: p2, Details: fmt.Sprintf("state=%s", stateStr)},
 		{InvariantName: "All 8 cross-bank financial invariants satisfied", Passed: p1, Details: fmt.Sprintf("violations=%d", finSummary.TotalViolations)},
 	}
 
@@ -588,15 +998,19 @@ func (h *CrossBankRecoveryHarness) RunCB01_APITerminationAfterJournalBeforeDispa
 	return res
 }
 
+func (h *CrossBankRecoveryHarness) RunCB01_APITerminationAfterJournalBeforeDispatch(ctx context.Context) CrossBankScenarioResult {
+	return h.RunCB01_SeededRecoveryAfterJournalBeforeDispatch(ctx)
+}
+
 // -----------------------------------------------------------------------------
-// SCENARIO 2: Worker termination during cross-bank transfer with Bank A hold committed, before Bank B credit
+// SCENARIO 2: Seeded state recovery mid-transfer with Bank A hold committed before Bank B credit
 // -----------------------------------------------------------------------------
-func (h *CrossBankRecoveryHarness) RunCB02_WorkerTerminationAfterHoldBeforeCredit(ctx context.Context) CrossBankScenarioResult {
+func (h *CrossBankRecoveryHarness) RunCB02_SeededRecoveryAfterHoldBeforeCredit(ctx context.Context) CrossBankScenarioResult {
 	start := time.Now()
 	res := CrossBankScenarioResult{
 		ID:            "CB-02",
-		Name:          "Worker killed after Bank A hold before Bank B credit",
-		FaultBoundary: "Worker process killed mid-transfer: Bank A hold committed, Bank B credit not dispatched",
+		Name:          "In-process recovery: Bank A hold committed before Bank B credit",
+		FaultBoundary: "Seeded state reconstruction mid-transfer: Bank A hold committed, Bank B credit uncalled; in-process recovery completes transfer without duplicate hold",
 	}
 
 	fix, err := h.SeedFixture(ctx, "cb02", 100)
@@ -620,8 +1034,12 @@ func (h *CrossBankRecoveryHarness) RunCB02_WorkerTerminationAfterHoldBeforeCredi
 			Currency:       "INR",
 		},
 	})
-	if err != nil || holdRes.Status != bank.OperationSucceeded {
+	if err != nil {
 		res.ErrorMessage = fmt.Sprintf("hold on Bank A failed: %v", err)
+		return res
+	}
+	if holdRes.Status != bank.OperationSucceeded {
+		res.ErrorMessage = fmt.Sprintf("hold on Bank A non-success status: %v", holdRes.Status)
 		return res
 	}
 
@@ -632,10 +1050,18 @@ func (h *CrossBankRecoveryHarness) RunCB02_WorkerTerminationAfterHoldBeforeCredi
 		res.ErrorMessage = fmt.Sprintf("insert central journal: %v", err)
 		return res
 	}
-	res.Checkpoints = append(res.Checkpoints, "bank_a_hold_committed_worker_killed_before_bank_b")
+	res.Checkpoints = append(res.Checkpoints, "bank_a_hold_committed_before_bank_b_dispatch")
 
-	presA, _ := h.clientA.(bank.OperationPresenceReader).GetOperationPresence(ctx, fix.PaymentID, fix.HoldOpID)
-	presB, _ := h.clientB.(bank.OperationPresenceReader).GetOperationPresence(ctx, fix.PaymentID, fix.CreditOpID)
+	presA, err := h.clientA.(bank.OperationPresenceReader).GetOperationPresence(ctx, fix.PaymentID, fix.HoldOpID)
+	if err != nil {
+		res.ErrorMessage = fmt.Sprintf("check Bank A presence: %v", err)
+		return res
+	}
+	presB, err := h.clientB.(bank.OperationPresenceReader).GetOperationPresence(ctx, fix.PaymentID, fix.CreditOpID)
+	if err != nil {
+		res.ErrorMessage = fmt.Sprintf("check Bank B presence: %v", err)
+		return res
+	}
 	if presA.Presence != bank.PresencePresent || presB.Presence != bank.PresenceAbsent {
 		res.ErrorMessage = fmt.Sprintf("unexpected presence: Bank A=%v, Bank B=%v", presA.Presence, presB.Presence)
 		return res
@@ -653,15 +1079,19 @@ func (h *CrossBankRecoveryHarness) RunCB02_WorkerTerminationAfterHoldBeforeCredi
 		return res
 	}
 	res.Checkpoints = append(res.Checkpoints, "recovery_resumed_without_duplicate_hold_and_completed")
-	_ = h.projectPaymentEvents(ctx, fix.PaymentID)
+	if err := h.projectPaymentEvents(ctx, fix.PaymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("project payment events: %v", err)
+		return res
+	}
 
 	finSummary := h.verifySinglePaymentInvariants(ctx, fix)
 	res.ObservedState = "COMPLETED"
 	p1 := finSummary.TotalViolations == 0
 	p2 := resumeRes.Payment.State == payments.StateCompleted
+	stateStr := string(resumeRes.Payment.State)
 
 	res.Invariants = []InvariantResult{
-		{InvariantName: "Payment completed cleanly", Passed: p2, Details: fmt.Sprintf("state=%s", resumeRes.Payment.State)},
+		{InvariantName: "Payment completed cleanly", Passed: p2, Details: fmt.Sprintf("state=%s", stateStr)},
 		{InvariantName: "Zero duplicate operations and financial invariants hold", Passed: p1, Details: fmt.Sprintf("violations=%d", finSummary.TotalViolations)},
 	}
 
@@ -671,6 +1101,10 @@ func (h *CrossBankRecoveryHarness) RunCB02_WorkerTerminationAfterHoldBeforeCredi
 	}
 	res.DurationMs = float64(time.Since(start).Microseconds()) / 1000.0
 	return res
+}
+
+func (h *CrossBankRecoveryHarness) RunCB02_WorkerTerminationAfterHoldBeforeCredit(ctx context.Context) CrossBankScenarioResult {
+	return h.RunCB02_SeededRecoveryAfterHoldBeforeCredit(ctx)
 }
 
 // -----------------------------------------------------------------------------
@@ -1097,6 +1531,128 @@ func (h *CrossBankRecoveryHarness) RunCB06_PresenceBranchingAbsentPresentUnknown
 	return res
 }
 
+// BackupRestoreRunner abstracts external command execution for backup and restore drills.
+type BackupRestoreRunner interface {
+	RunPgDump(ctx context.Context, host, port, user, password, srcDB, destFile string) ([]byte, error)
+	RunDropDB(ctx context.Context, host, port, user, password, dbName string) ([]byte, error)
+	RunCreateDB(ctx context.Context, host, port, user, password, dbName string) ([]byte, error)
+	RunPgRestore(ctx context.Context, host, port, user, password, dbName, srcFile string) ([]byte, error)
+}
+
+func buildPgEnv(host, port, user, password string) []string {
+	env := os.Environ()
+	env = append(env,
+		fmt.Sprintf("PGHOST=%s", host),
+		fmt.Sprintf("PGPORT=%s", port),
+		fmt.Sprintf("PGUSER=%s", user),
+	)
+	if password != "" {
+		env = append(env, fmt.Sprintf("PGPASSWORD=%s", password))
+	}
+	return env
+}
+
+func sanitizeDiagnostic(output string, password string) string {
+	if password != "" {
+		output = strings.ReplaceAll(output, password, "[REDACTED]")
+	}
+	return strings.TrimSpace(output)
+}
+
+func validateDisposableDB(targetDB, srcDB string) error {
+	if targetDB == "" {
+		return fmt.Errorf("target database name cannot be empty")
+	}
+	if targetDB == srcDB {
+		return fmt.Errorf("refusing to restore over source database %q", srcDB)
+	}
+	return ValidateDisposableDBName(targetDB)
+}
+
+// DefaultBackupRestoreRunner executes native PostgreSQL CLI utilities with container fallback.
+type DefaultBackupRestoreRunner struct{}
+
+func (d *DefaultBackupRestoreRunner) RunPgDump(ctx context.Context, host, port, user, password, srcDB, destFile string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "pg_dump", "-h", host, "-p", port, "-U", user, "-Fc", "-f", destFile, srcDB)
+	cmd.Env = buildPgEnv(host, port, user, password)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		if fi, statErr := os.Stat(destFile); statErr != nil || fi.Size() == 0 {
+			return out, fmt.Errorf("pg_dump produced empty or missing dump file")
+		}
+		return out, nil
+	}
+	if containerID := findPostgresContainer(); containerID != "" {
+		dumpF, fErr := os.Create(destFile)
+		if fErr == nil {
+			defer dumpF.Close()
+			cmdDocker := exec.CommandContext(ctx, "docker", "exec", containerID, "pg_dump", "-U", user, "-Fc", srcDB)
+			cmdDocker.Stdout = dumpF
+			var stderr bytes.Buffer
+			cmdDocker.Stderr = &stderr
+			if dErr := cmdDocker.Run(); dErr == nil {
+				if fi, statErr := os.Stat(destFile); statErr == nil && fi.Size() > 0 {
+					return []byte("docker pg_dump succeeded"), nil
+				}
+			}
+		}
+	}
+	return out, err
+}
+
+func (d *DefaultBackupRestoreRunner) RunDropDB(ctx context.Context, host, port, user, password, dbName string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", dbName)
+	cmd.Env = buildPgEnv(host, port, user, password)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if containerID := findPostgresContainer(); containerID != "" {
+			cmdDocker := exec.CommandContext(ctx, "docker", "exec", containerID, "dropdb", "-U", user, "--if-exists", dbName)
+			if outD, errD := cmdDocker.CombinedOutput(); errD == nil {
+				return outD, nil
+			}
+		}
+	}
+	return out, err
+}
+
+func (d *DefaultBackupRestoreRunner) RunCreateDB(ctx context.Context, host, port, user, password, dbName string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "createdb", "-h", host, "-p", port, "-U", user, dbName)
+	cmd.Env = buildPgEnv(host, port, user, password)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if containerID := findPostgresContainer(); containerID != "" {
+			cmdDocker := exec.CommandContext(ctx, "docker", "exec", containerID, "createdb", "-U", user, dbName)
+			if outD, errD := cmdDocker.CombinedOutput(); errD == nil {
+				return outD, nil
+			}
+		}
+	}
+	return out, err
+}
+
+func (d *DefaultBackupRestoreRunner) RunPgRestore(ctx context.Context, host, port, user, password, dbName, srcFile string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "pg_restore", "-h", host, "-p", port, "-U", user, "-d", dbName, "--no-owner", "--no-acl", srcFile)
+	cmd.Env = buildPgEnv(host, port, user, password)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return out, nil
+	}
+	if containerID := findPostgresContainer(); containerID != "" {
+		dumpReadF, openErr := os.Open(srcFile)
+		if openErr == nil {
+			defer dumpReadF.Close()
+			cmdDocker := exec.CommandContext(ctx, "docker", "exec", "-i", containerID, "pg_restore", "-U", user, "-d", dbName, "--no-owner", "--no-acl")
+			cmdDocker.Stdin = dumpReadF
+			var stderr bytes.Buffer
+			cmdDocker.Stderr = &stderr
+			if errD := cmdDocker.Run(); errD == nil {
+				return []byte("docker pg_restore succeeded"), nil
+			}
+		}
+	}
+	return out, err
+}
+
 func findPostgresContainer() string {
 	for _, filter := range []string{"ancestor=postgres:18", "ancestor=postgres", "publish=5432", "expose=5432"} {
 		out, err := exec.Command("docker", "ps", "--filter", filter, "--format", "{{.ID}}").Output()
@@ -1111,14 +1667,19 @@ func findPostgresContainer() string {
 }
 
 // -----------------------------------------------------------------------------
-// SCENARIO 7: Restore from disposable backup while eligible payment pending
+// SCENARIO 7: Unencrypted dump-and-restore: cross-bank payment pending during pg_dump
 // -----------------------------------------------------------------------------
-func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPayment(ctx context.Context) CrossBankScenarioResult {
+func (h *CrossBankRecoveryHarness) RunCB07_UnencryptedDumpRestorePendingPayment(ctx context.Context) CrossBankScenarioResult {
 	start := time.Now()
 	res := CrossBankScenarioResult{
 		ID:            "CB-07",
-		Name:          "Restore from disposable backup while eligible payment pending",
-		FaultBoundary: "Database backed up via pg_dump while cross-bank payment pending; restored into disposable DB; recovery converges cleanly",
+		Name:          "Unencrypted dump-and-restore: cross-bank payment pending during pg_dump",
+		FaultBoundary: "Non-encrypted PostgreSQL custom-format archive (pg_dump -Fc) while cross-bank payment pending; restored via pg_restore into disposable DB; worker continuation converges cleanly (does not satisfy encrypted DR acceptance)",
+	}
+
+	if h.pool == nil {
+		res.ErrorMessage = "database pool is nil"
+		return res
 	}
 
 	fix, err := h.SeedFixture(ctx, "cb07", 100)
@@ -1146,17 +1707,20 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 		res.ErrorMessage = fmt.Sprintf("hold failed: %v", err)
 		return res
 	}
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payment_bank_operations (id, payment_id, bank_id, operation_id, operation_type, status, amount_paise, currency, idempotency_key)
 		VALUES ($1, $2, $3, $4, 'HOLD', 'SUCCESS', $5, 'INR', $6)`,
-		uuid.New(), fix.PaymentID, h.testBankA, fix.HoldOpID, fix.AmountPaise, fix.HoldOpID.String())
+		uuid.New(), fix.PaymentID, h.testBankA, fix.HoldOpID, fix.AmountPaise, fix.HoldOpID.String()); err != nil {
+		res.ErrorMessage = fmt.Sprintf("insert payment_bank_operations: %v", err)
+		return res
+	}
 
 	repo := recovery.NewRepository(h.pool)
-	_ = repo.UpsertJob(ctx, fix.PaymentID, time.Now().Add(-10*time.Second))
+	if err := repo.UpsertJob(ctx, fix.PaymentID, time.Now().Add(-10*time.Second)); err != nil {
+		res.ErrorMessage = fmt.Sprintf("upsert recovery job: %v", err)
+		return res
+	}
 	res.Checkpoints = append(res.Checkpoints, "pending_payment_in_flight_with_hold_committed")
-
-	tmpDump := filepath.Join(os.TempDir(), fmt.Sprintf("transactx_cb_backup_%d.dump", time.Now().UnixNano()))
-	defer os.Remove(tmpDump)
 
 	host := "127.0.0.1"
 	port := "5432"
@@ -1182,97 +1746,79 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 		}
 	}
 
-	pgEnv := os.Environ()
-	pgEnv = append(pgEnv,
-		fmt.Sprintf("PGHOST=%s", host),
-		fmt.Sprintf("PGPORT=%s", port),
-		fmt.Sprintf("PGUSER=%s", user),
-	)
-	if password != "" {
-		pgEnv = append(pgEnv, fmt.Sprintf("PGPASSWORD=%s", password))
+	disposableDB := fmt.Sprintf("transactx_cb_restore_%d_%d", os.Getpid(), time.Now().UnixNano()%1000000000)
+	if err := validateDisposableDB(disposableDB, srcDB); err != nil {
+		res.ErrorMessage = fmt.Sprintf("target database validation failed: %v", err)
+		return res
 	}
 
-	disposableDB := fmt.Sprintf("transactx_cb_restore_%d", time.Now().Unix()%1000000)
+	tmpDump := filepath.Join(os.TempDir(), fmt.Sprintf("transactx_cb_backup_%d_%d.dump", os.Getpid(), time.Now().UnixNano()))
+	defer os.Remove(tmpDump)
 
-	// Attempt pg_dump custom format backup
-	cmdDump := exec.Command("pg_dump", "-h", host, "-p", port, "-U", user, "-Fc", "-f", tmpDump, srcDB)
-	cmdDump.Env = pgEnv
-	dumpOut, dumpErr := cmdDump.CombinedOutput()
-
-	backupSucceeded := false
-	if dumpErr == nil {
-		res.Checkpoints = append(res.Checkpoints, "pg_dump_custom_format_backup_completed")
-
-		cmdDropPrev := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
-		cmdDropPrev.Env = pgEnv
-		_ = cmdDropPrev.Run()
-
-		cmdCreate := exec.Command("createdb", "-h", host, "-p", port, "-U", user, disposableDB)
-		cmdCreate.Env = pgEnv
-		if _, err := cmdCreate.CombinedOutput(); err == nil {
-			cmdRestore := exec.Command("pg_restore", "-h", host, "-p", port, "-U", user, "-d", disposableDB, "--no-owner", "--no-acl", tmpDump)
-			cmdRestore.Env = pgEnv
-			_ = cmdRestore.Run()
-			res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
-			res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_completed")
-			backupSucceeded = true
-		}
-	}
-
-	// Step 2: If host pg_dump failed (e.g. server version mismatch in containerized CI environments),
-	// attempt pg_dump and pg_restore via docker exec using the container's matching PostgreSQL binaries.
-	if !backupSucceeded {
-		if containerID := findPostgresContainer(); containerID != "" {
-			dumpF, err := os.Create(tmpDump)
-			if err == nil {
-				cmdDockerDump := exec.Command("docker", "exec", containerID, "pg_dump", "-U", user, "-Fc", srcDB)
-				cmdDockerDump.Stdout = dumpF
-				if dumpErrDocker := cmdDockerDump.Run(); dumpErrDocker == nil {
-					_ = dumpF.Close()
-					res.Checkpoints = append(res.Checkpoints, "docker_pg_dump_custom_format_backup_completed")
-
-					_ = exec.Command("docker", "exec", containerID, "dropdb", "-U", user, "--if-exists", disposableDB).Run()
-					if errCreate := exec.Command("docker", "exec", containerID, "createdb", "-U", user, disposableDB).Run(); errCreate == nil {
-						res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
-						dumpReadF, errOpen := os.Open(tmpDump)
-						if errOpen == nil {
-							cmdDockerRestore := exec.Command("docker", "exec", "-i", containerID, "pg_restore", "-U", user, "-d", disposableDB, "--no-owner", "--no-acl")
-							cmdDockerRestore.Stdin = dumpReadF
-							_ = cmdDockerRestore.Run()
-							_ = dumpReadF.Close()
-							res.Checkpoints = append(res.Checkpoints, "docker_pg_restore_into_disposable_database_completed")
-							backupSucceeded = true
-						}
-					}
-				} else {
-					_ = dumpF.Close()
-				}
-			}
-		}
-	}
-
-	// Step 3: Fall back to native template database creation if neither host nor docker pg_dump succeeded.
-	if !backupSucceeded {
-		_, _ = h.pool.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", disposableDB))
-		if _, err := h.pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s TEMPLATE %s", disposableDB, srcDB)); err != nil {
-			res.ErrorMessage = fmt.Sprintf("backup/restore failed: pg_dump: %v (%s); template snapshot: %v", dumpErr, string(dumpOut), err)
-			return res
-		}
-		res.Checkpoints = append(res.Checkpoints, "native_template_snapshot_backup_completed")
-		res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
-		res.Checkpoints = append(res.Checkpoints, "snapshot_restored_into_disposable_database_completed")
-	}
+	runner := h.getBackupRestoreRunner()
 
 	defer func() {
-		_, _ = h.pool.Exec(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", disposableDB))
-		cmdDropClean := exec.Command("dropdb", "-h", host, "-p", port, "-U", user, "--if-exists", disposableDB)
-		cmdDropClean.Env = pgEnv
-		_ = cmdDropClean.Run()
-		if containerID := findPostgresContainer(); containerID != "" {
-			_ = exec.Command("docker", "exec", containerID, "dropdb", "-U", user, "--if-exists", disposableDB).Run()
+		if disposableDB != "" && disposableDB != srcDB && ValidateDisposableDBName(disposableDB) == nil {
+			_, dropErr := runner.RunDropDB(context.Background(), host, port, user, password, disposableDB)
+			if dropErr != nil {
+				if h.pool != nil {
+					_, _ = h.pool.Exec(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", disposableDB))
+				}
+				if res.ErrorMessage == "" && res.Passed {
+					res.Checkpoints = append(res.Checkpoints, fmt.Sprintf("cleanup_warning_dropdb_failed: %v", dropErr))
+				}
+			} else {
+				res.Checkpoints = append(res.Checkpoints, "disposable_database_dropped")
+			}
 		}
 	}()
 
+	// Step 1: Attempt pg_dump custom format backup
+	dumpOut, dumpErr := runner.RunPgDump(ctx, host, port, user, password, srcDB, tmpDump)
+	if dumpErr != nil {
+		sanitized := sanitizeDiagnostic(string(dumpOut), password)
+		res.ErrorMessage = fmt.Sprintf("backup failed: pg_dump: %v (%s)", dumpErr, sanitized)
+		res.Checkpoints = append(res.Checkpoints, "pg_dump_backup_failed")
+		return res
+	}
+
+	fi, statErr := os.Stat(tmpDump)
+	if statErr != nil || fi.Size() == 0 {
+		res.ErrorMessage = fmt.Sprintf("backup failed: dump file is missing or empty (stat: %v)", statErr)
+		res.Checkpoints = append(res.Checkpoints, "pg_dump_backup_failed")
+		return res
+	}
+	res.Checkpoints = append(res.Checkpoints, "pg_dump_custom_format_backup_completed")
+
+	// Step 2: Clean previous instance and create disposable database
+	_, _ = runner.RunDropDB(ctx, host, port, user, password, disposableDB)
+
+	createOut, createErr := runner.RunCreateDB(ctx, host, port, user, password, disposableDB)
+	if createErr != nil {
+		sanitized := sanitizeDiagnostic(string(createOut), password)
+		res.ErrorMessage = fmt.Sprintf("database creation failed: createdb: %v (%s)", createErr, sanitized)
+		res.Checkpoints = append(res.Checkpoints, "disposable_database_creation_failed")
+		return res
+	}
+	res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
+
+	// Step 3: Restore custom dump into disposable database
+	restoreOut, restoreErr := runner.RunPgRestore(ctx, host, port, user, password, disposableDB, tmpDump)
+	if restoreErr != nil {
+		sanitized := sanitizeDiagnostic(string(restoreOut), password)
+		res.ErrorMessage = fmt.Sprintf("restore failed: pg_restore: %v (%s)", restoreErr, sanitized)
+		res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_failed")
+		return res
+	}
+	if bytes.Contains(bytes.ToLower(restoreOut), []byte("error:")) {
+		sanitized := sanitizeDiagnostic(string(restoreOut), password)
+		res.ErrorMessage = fmt.Sprintf("restore completed with fatal errors: %s", sanitized)
+		res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_failed")
+		return res
+	}
+	res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_completed")
+
+	// Step 4: Connect to restored database
 	var userAuth string
 	if user != "" {
 		if password != "" {
@@ -1289,7 +1835,42 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 	}
 	defer restoredPool.Close()
 
-	// Use participant adapters pointing directly to the restored pool's schemas
+	// Step 5: Verify restored database isolation and pre-recovery data
+	var currentDB string
+	if err := restoredPool.QueryRow(ctx, `SELECT current_database()`).Scan(&currentDB); err != nil {
+		res.ErrorMessage = fmt.Sprintf("query restored current_database: %v", err)
+		return res
+	}
+	if currentDB != disposableDB {
+		res.ErrorMessage = fmt.Sprintf("isolation failure: connected to %q, expected %q", currentDB, disposableDB)
+		return res
+	}
+
+	var paymentState string
+	var paymentAmount int64
+	if err := restoredPool.QueryRow(ctx, `SELECT state, amount_paise FROM payments WHERE id = $1`, fix.PaymentID).Scan(&paymentState, &paymentAmount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("restored DB missing expected payment %s: %v", fix.PaymentID, err)
+		return res
+	}
+	if paymentState != "PROCESSING" || paymentAmount != fix.AmountPaise {
+		res.ErrorMessage = fmt.Sprintf("restored DB payment state mismatch: state=%s, amount=%d (expected PROCESSING, %d)", paymentState, paymentAmount, fix.AmountPaise)
+		return res
+	}
+
+	var holdOpsCount int
+	if err := restoredPool.QueryRow(ctx, `SELECT COUNT(*) FROM payment_bank_operations WHERE payment_id = $1 AND operation_id = $2 AND status = 'SUCCESS'`, fix.PaymentID, fix.HoldOpID).Scan(&holdOpsCount); err != nil || holdOpsCount != 1 {
+		res.ErrorMessage = fmt.Sprintf("restored DB missing committed hold operation: count=%d, err=%v", holdOpsCount, err)
+		return res
+	}
+
+	var bankAHoldCount int
+	if err := restoredPool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.operations WHERE payment_id = $1 AND operation_id = $2`, fix.PaymentID, fix.HoldOpID).Scan(&bankAHoldCount); err != nil || bankAHoldCount != 1 {
+		res.ErrorMessage = fmt.Sprintf("restored DB missing Bank A hold operation: count=%d, err=%v", bankAHoldCount, err)
+		return res
+	}
+	res.Checkpoints = append(res.Checkpoints, "restored_database_pre_recovery_state_verified")
+
+	// Step 6: Execute recovery continuation on the restored database
 	adapterRestoredA := bankservice.NewParticipantService(restoredPool, "BANK-A", "bank_a")
 	adapterRestoredB := bankservice.NewParticipantService(restoredPool, "BANK-B", "bank_b")
 	adapters := map[uuid.UUID]bank.BankAdapter{
@@ -1326,7 +1907,10 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 		testBankA: h.testBankA,
 		testBankB: h.testBankB,
 	}
-	_ = hRestored.projectPaymentEvents(ctx, fix.PaymentID)
+	if err := hRestored.projectPaymentEvents(ctx, fix.PaymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("project payment events on restored DB: %v", err)
+		return res
+	}
 
 	finSummary := hRestored.verifySinglePaymentInvariants(ctx, fix)
 	res.ObservedState = "COMPLETED"
@@ -1340,7 +1924,26 @@ func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPay
 
 	res.Passed = p1 && p2
 	if !res.Passed && res.ErrorMessage == "" {
-		res.ErrorMessage = fmt.Sprintf("invariants failed (violations=%d)", finSummary.TotalViolations)
+		res.ErrorMessage = fmt.Sprintf("invariants failed on restored DB (violations=%d)", finSummary.TotalViolations)
+	}
+	res.DurationMs = float64(time.Since(start).Microseconds()) / 1000.0
+	return res
+}
+
+func (h *CrossBankRecoveryHarness) RunCB07_RestoreFromDisposableBackupPendingPayment(ctx context.Context) CrossBankScenarioResult {
+	return h.RunCB07_UnencryptedDumpRestorePendingPayment(ctx)
+}
+
+// RunCB07_TemplateCloneDiagnostic runs a database clone drill for diagnostic comparison only.
+// It is explicitly classified as a database clone and does NOT satisfy CB-07 backup-and-restore acceptance.
+func (h *CrossBankRecoveryHarness) RunCB07_TemplateCloneDiagnostic(ctx context.Context) CrossBankScenarioResult {
+	start := time.Now()
+	res := CrossBankScenarioResult{
+		ID:            "CB-07-CLONE",
+		Name:          "Database clone diagnostic (not backup-and-restore acceptance)",
+		FaultBoundary: "Database cloned via CREATE DATABASE TEMPLATE; strictly diagnostic clone comparison",
+		Passed:        false,
+		ErrorMessage:  "database clone does not satisfy backup-and-restore acceptance requirements",
 	}
 	res.DurationMs = float64(time.Since(start).Microseconds()) / 1000.0
 	return res
@@ -1363,9 +1966,18 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 1. Nonnegative balances across public, bank_a, and bank_b
 	var negPublic, negA, negB int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE balance_paise < 0`).Scan(&negPublic)
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.accounts WHERE balance_paise < 0`).Scan(&negA)
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_b.accounts WHERE balance_paise < 0`).Scan(&negB)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE balance_paise < 0`).Scan(&negPublic); err != nil {
+		summary.NonnegativeBalances = false
+		summary.TotalViolations++
+	}
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.accounts WHERE balance_paise < 0`).Scan(&negA); err != nil {
+		summary.NonnegativeBalances = false
+		summary.TotalViolations++
+	}
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_b.accounts WHERE balance_paise < 0`).Scan(&negB); err != nil {
+		summary.NonnegativeBalances = false
+		summary.TotalViolations++
+	}
 	if negPublic+negA+negB > 0 {
 		summary.NonnegativeBalances = false
 		summary.TotalViolations += (negPublic + negA + negB)
@@ -1373,13 +1985,16 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 2. Exact Debit/Credit conservation for this payment
 	var debitSum, creditSum int64
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(le.amount_paise) FILTER (WHERE le.entry_type = 'DEBIT'), 0),
 			COALESCE(SUM(le.amount_paise) FILTER (WHERE le.entry_type = 'CREDIT'), 0)
 		FROM ledger_entries le
 		JOIN ledger_transactions lt ON lt.id = le.ledger_transaction_id
-		WHERE lt.payment_id = $1`, fix.PaymentID).Scan(&debitSum, &creditSum)
+		WHERE lt.payment_id = $1`, fix.PaymentID).Scan(&debitSum, &creditSum); err != nil {
+		summary.DebitCreditConservation = false
+		summary.TotalViolations++
+	}
 	summary.TotalLedgerDebitsPaise = debitSum
 	summary.TotalLedgerCreditsPaise = creditSum
 	if debitSum != fix.AmountPaise || creditSum != fix.AmountPaise || debitSum != creditSum {
@@ -1389,13 +2004,16 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// Central account reconstruction check
 	var reconErrors int
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM accounts a
 		WHERE a.id IN ($1, $2)
 		AND a.balance_paise != a.opening_balance_paise + COALESCE((
 			SELECT SUM(CASE WHEN le.entry_type = 'CREDIT' THEN le.amount_paise ELSE -le.amount_paise END)
 			FROM ledger_entries le WHERE le.account_id = a.id
-		), 0)`, fix.SenderCentralAcc, fix.RecvCentralAcc).Scan(&reconErrors)
+		), 0)`, fix.SenderCentralAcc, fix.RecvCentralAcc).Scan(&reconErrors); err != nil {
+		summary.DebitCreditConservation = false
+		summary.TotalViolations++
+	}
 	summary.CentralReconstructionErr = reconErrors
 	if reconErrors > 0 {
 		summary.DebitCreditConservation = false
@@ -1404,7 +2022,10 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 3. Exactly 1 ledger transaction for this payment
 	var ledgerTxCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, fix.PaymentID).Scan(&ledgerTxCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, fix.PaymentID).Scan(&ledgerTxCount); err != nil {
+		summary.SingleLedgerPerPayment = false
+		summary.TotalViolations++
+	}
 	if ledgerTxCount != 1 {
 		summary.SingleLedgerPerPayment = false
 		summary.TotalViolations++
@@ -1412,8 +2033,11 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 4. Idempotency unique mapping
 	var idempMatches int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM idempotency_records WHERE user_id = $1 AND key = $2 AND payment_id = $3`,
-		fix.SenderUserID, fix.IdempotencyKey, fix.PaymentID).Scan(&idempMatches)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM idempotency_records WHERE user_id = $1 AND key = $2 AND payment_id = $3`,
+		fix.SenderUserID, fix.IdempotencyKey, fix.PaymentID).Scan(&idempMatches); err != nil {
+		summary.IdempotencyUnique = false
+		summary.TotalViolations++
+	}
 	if idempMatches != 1 {
 		summary.IdempotencyUnique = false
 		summary.TotalViolations++
@@ -1421,10 +2045,22 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 5. Participant operation uniqueness
 	var dupAOps, dupBOps int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM (SELECT operation_id FROM bank_a.operations WHERE payment_id = $1 GROUP BY operation_id HAVING COUNT(*) > 1) d`, fix.PaymentID).Scan(&dupAOps)
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM (SELECT operation_id FROM bank_b.operations WHERE payment_id = $1 GROUP BY operation_id HAVING COUNT(*) > 1) d`, fix.PaymentID).Scan(&dupBOps)
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.operations WHERE payment_id = $1`, fix.PaymentID).Scan(&summary.BankAOperationsCount)
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_b.operations WHERE payment_id = $1`, fix.PaymentID).Scan(&summary.BankBOperationsCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM (SELECT operation_id FROM bank_a.operations WHERE payment_id = $1 GROUP BY operation_id HAVING COUNT(*) > 1) d`, fix.PaymentID).Scan(&dupAOps); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	}
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM (SELECT operation_id FROM bank_b.operations WHERE payment_id = $1 GROUP BY operation_id HAVING COUNT(*) > 1) d`, fix.PaymentID).Scan(&dupBOps); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	}
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.operations WHERE payment_id = $1`, fix.PaymentID).Scan(&summary.BankAOperationsCount); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	}
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_b.operations WHERE payment_id = $1`, fix.PaymentID).Scan(&summary.BankBOperationsCount); err != nil {
+		summary.ParticipantUnique = false
+		summary.TotalViolations++
+	}
 	if dupAOps+dupBOps > 0 {
 		summary.ParticipantUnique = false
 		summary.TotalViolations += (dupAOps + dupBOps)
@@ -1432,10 +2068,13 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 6. Payload integrity (amounts match, currency INR)
 	var badPayloads int
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT (SELECT COUNT(*) FROM bank_a.operations WHERE payment_id = $1 AND (amount_paise != $2 OR currency != 'INR')) +
 		       (SELECT COUNT(*) FROM bank_b.operations WHERE payment_id = $1 AND (amount_paise != $2 OR currency != 'INR'))`,
-		fix.PaymentID, fix.AmountPaise).Scan(&badPayloads)
+		fix.PaymentID, fix.AmountPaise).Scan(&badPayloads); err != nil {
+		summary.PayloadIntegrity = false
+		summary.TotalViolations++
+	}
 	if badPayloads > 0 {
 		summary.PayloadIntegrity = false
 		summary.TotalViolations += badPayloads
@@ -1443,7 +2082,7 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 7. Correlation between central journal and participant operations
 	var mismatches int
-	_ = h.pool.QueryRow(ctx, `
+	if err := h.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM payment_bank_operations j
 		LEFT JOIN (
 			SELECT operation_id, payment_id, amount_paise, currency FROM bank_a.operations
@@ -1451,7 +2090,10 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 			SELECT operation_id, payment_id, amount_paise, currency FROM bank_b.operations
 		) p ON p.operation_id = j.operation_id
 		WHERE j.payment_id = $1 AND (p.operation_id IS NULL OR p.payment_id != j.payment_id OR p.amount_paise != j.amount_paise OR p.currency != j.currency)`,
-		fix.PaymentID).Scan(&mismatches)
+		fix.PaymentID).Scan(&mismatches); err != nil {
+		summary.CorrelationIntegrity = false
+		summary.TotalViolations++
+	}
 	if mismatches > 0 {
 		summary.CorrelationIntegrity = false
 		summary.TotalViolations += mismatches
@@ -1459,7 +2101,10 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 
 	// 8. Worklist convergence
 	var worklistCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ops_payment_worklist WHERE payment_id = $1 AND current_state = 'COMPLETED'`, fix.PaymentID).Scan(&worklistCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ops_payment_worklist WHERE payment_id = $1 AND current_state = 'COMPLETED'`, fix.PaymentID).Scan(&worklistCount); err != nil {
+		summary.WorklistConvergence = false
+		summary.TotalViolations++
+	}
 	if worklistCount < 1 {
 		summary.WorklistConvergence = false
 		summary.TotalViolations++

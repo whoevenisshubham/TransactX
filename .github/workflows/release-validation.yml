@@ -45,6 +45,8 @@ jobs:
       - name: Build
         working-directory: backend
         run: go build ./...
+      - name: Cross-Bank Recovery Disposable Database Lifecycle
+        run: bash backend/scripts/run-cross-bank-disposable.sh --base-url "postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable"
 
   frontend:
     runs-on: ubuntu-latest

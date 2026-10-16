@@ -141,20 +141,39 @@ when the mount disappears. Local retention keeps seven daily and two Sunday
 copies. The backup timer does not run until the owner installs its unit and
 configures the backup identity and destination.
 
-`restore-check.sh` refuses a live database name, creates a new disposable
-`transactx_restore_*` database, decrypts directly into `pg_restore`, checks
-central and participant schemas, balances, central ledger conservation and
-idempotency references, and writes a safe report. It never applies global roles
-to the shared cluster or drops an existing database. The current native M1
-rehearsal at `4d8f2af` killed the real API after its operation journal committed,
-encrypted/restored that pending snapshot, and verified worker continuation.
-A native restored worker was also killed during a running lease; its replacement
-took over at a higher epoch. Automatic worker projection and acknowledged outbox
-delivery were proven before running the independent rebuild CLI. See
-`docs/next-gen/state/native-crash-restore-final-m1.json` for exact scope/hashes.
-This was a local same-bank transfer, not every crash boundary or off-machine
-disaster recovery. The historical manually seeded rehearsal remains narrower.
-The private age identity is never included in the archive.
+`restore-check.sh` refuses a live database name, requires owner-only permissions
+(mode 0400 or 0600) on the resolved private age identity file before decryption,
+sets client `umask 077` for local report and temporary files (PostgreSQL server data
+files are governed by the server daemon's umask), requires an explicit completeness
+contract (`--expected-counts <manifest.json>` covering all five core tables with safe
+non-negative integers and requiring > 0 total rows, or `--allow-empty`), creates a
+new disposable `transactx_restore_*` database, decrypts directly into `pg_restore`,
+checks central and participant schemas, balances (non-negative balances on `public.accounts`,
+`bank_a.accounts`, and `bank_b.accounts`), central ledger conservation (double-entry net-zero balance
+across `public.ledger_transactions` and `public.ledger_entries`), idempotency references (no orphan
+`public.idempotency_records`), and row counts for five core tables (`public.payments`,
+`public.accounts`, `bank_a.operations`, `bank_b.operations`, `public.idempotency_records`), and writes
+a safe report.
+A supplied manifest demonstrates that restored counts satisfy that manifest across those five core
+tables and observe actual populated data (recording `checks.populationContractSatisfied: true`,
+`checks.populatedDataVerified: true`, and `checks.completenessVerified: true`, such as the fixed
+`acceptance-expected-counts.json` for the single-payment fixture); this manifest row-count check does
+not assert counts for `public.ledgers`, `public.ledger_entries`, `public.ledger_transactions`,
+`payment_state_transitions`, or other uncounted tables. Meanwhile, `--allow-empty` verifies that the
+five core tables contain strictly zero rows (failing if populated rows are detected) and reports
+`checks.populationContractSatisfied: true`, `checks.coreTablesEmptyVerified: true`,
+`checks.populatedDataVerified: false`, and `checks.completenessVerified: false`; neither offline
+tests nor fixture checks prove complete restoration of every table across arbitrary databases. It
+never applies global roles to the shared cluster or drops an existing database. The
+current native M1 rehearsal at `4d8f2af` killed the real API after its operation
+journal committed, encrypted/restored that pending snapshot, and verified worker
+continuation. A native restored worker was also killed during a running lease; its
+replacement took over at a higher epoch. Automatic worker projection and acknowledged
+outbox delivery were proven before running the independent rebuild CLI. See
+`docs/next-gen/state/native-crash-restore-final-m1.json` for exact scope/hashes. This
+was a local same-bank transfer, not every crash boundary or off-machine disaster
+recovery. The historical manually seeded rehearsal remains narrower. The private
+age identity is never included in the archive.
 
 For independent read-only SQL proof, run `deploy/verification/native-financial-proof.sql`
 against the disposable database with psql `ON_ERROR_STOP=1` and variables

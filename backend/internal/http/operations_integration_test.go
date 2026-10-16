@@ -28,11 +28,24 @@ import (
 func setupOperationsTestServer(t *testing.T, recoveryControlEnabled bool) (*httptest.Server, *pgxpool.Pool, *auth.JWTManager) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
+		t.Skip("DATABASE_URL not set; skipping live operations integration tests")
 	}
-	pool, err := database.NewPool(context.Background(), dbURL)
+	ctx := context.Background()
+	pool, err := database.NewPool(ctx, dbURL)
 	if err != nil {
-		t.Fatalf("failed to connect to database: %v", err)
+		t.Skipf("failed to connect to database: %v", err)
+	}
+
+	var currentDB string
+	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&currentDB); err != nil {
+		pool.Close()
+		t.Fatalf("failed to query current_database(): %v", err)
+	}
+	lower := strings.ToLower(strings.TrimSpace(currentDB))
+	if lower == "transactx" || lower == "postgres" || lower == "template0" || lower == "template1" ||
+		(!strings.HasPrefix(lower, "transactx_disposable_") && !strings.HasPrefix(lower, "transactx_test_") && !strings.HasPrefix(lower, "transactx_m2_disposable_") && !strings.HasPrefix(lower, "transactx_cb_restore_")) {
+		pool.Close()
+		t.Fatalf("refusing operations integration test against non-disposable database %q", currentDB)
 	}
 
 	jwtManager, err := auth.NewJWTManager(strings.Repeat("o", 32), "ops-test", time.Hour)
@@ -1038,5 +1051,3 @@ func TestOperations_Investigation_StrictDecoderAndScopeContract(t *testing.T) {
 		t.Fatalf("expected 200 OK for admin reading job 1, got %v (%d)", err, resp.StatusCode)
 	}
 }
-
-

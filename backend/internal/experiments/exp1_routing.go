@@ -229,7 +229,12 @@ func runRoutingSimulation(ctx context.Context, seed int64, totalRequests int, mo
 			Latency:        simulatedLatency,
 			LatencyMs:      float64(simulatedLatency.Microseconds()) / 1000.0,
 			DecisionReason: decision.Reason,
-			ErrorMessage:   func() string { if !opSuccess { return "bank execution failed" }; return "" }(),
+			ErrorMessage: func() string {
+				if !opSuccess {
+					return "bank execution failed"
+				}
+				return ""
+			}(),
 		})
 	}
 

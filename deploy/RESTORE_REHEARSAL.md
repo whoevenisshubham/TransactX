@@ -21,11 +21,22 @@ subsequently applied and verified this exact input from an empty disposable
 database on 13 October 2026.
 
 Generate a fresh age identity with `age-keygen` outside the backup directory.
-Keep the private identity and PostgreSQL passfile owner-only. On Windows, use a
-private NTFS DACL; Git Bash's POSIX mode display is affected by `umask`. Do not
-copy either secret into the release archive or commit it. Use a local backup
-directory with sufficient free space. A mounted off-VM target needs a separate
-Linux validation before claiming independent persistence.
+The private identity and PostgreSQL passfile must be owner-only (mode 0400 or 0600).
+The restore checker resolves the identity to its canonical path via `realpath -e` (ensuring
+symbolic links cannot bypass inspection), verifies it is a regular file, and enforces that
+the private identity excludes group and other read/write/execute permissions
+(`find "$identity_path" -perm /077 -print` must be empty) before target database creation
+or decryption begins. Missing files or permission-inspection failures fail closed.
+Setting `umask 077` inside `restore-check.sh` establishes the file-creation mask for local
+files created directly by the shell process (such as the JSON report and temporary files);
+it does not govern database files created by the PostgreSQL server process in `PGDATA` (which
+are controlled by the server daemon's umask), nor does it alter the inode mode bits of an
+already existing identity file. True POSIX inode permission enforcement by the OS kernel
+and filesystem remains an unverified runtime requirement on non-Linux hosts (e.g. Windows
+NTFS mounts). Do not claim that `umask 077` secures PostgreSQL's underlying database files.
+Do not copy either secret into the release archive or commit it. Use a local backup directory
+with sufficient free space. A mounted off-VM target needs a separate Linux validation before
+claiming independent persistence.
 
 ## Exercise the scripts
 
@@ -35,15 +46,79 @@ cluster. Run `deploy/scripts/backup.sh`; retain its encrypted `.dump.age` and
 matching `.globals.sql.age` plus both SHA-256 sidecars privately. Use the hash
 of the encrypted dump with `restore-check.sh --validate-only`, then run the
 checker with a new `--target-db transactx_restore_<unique>` and a private
-absolute `--report-dir`. Pass the exact source commit to `--source-sha` and the
-private identity path to `--identity`. The checker creates a fresh database;
-it never drops or overwrites one.
+absolute `--report-dir`. Pass the exact source commit to `--source-sha`, the
+private identity path to `--identity`, and an explicit completeness contract via
+`--expected-counts deploy/verification/acceptance-expected-counts.json` (or
+`--allow-empty` for an unpopulated schema-only restore). The checker creates a
+fresh database; it never drops or overwrites one. Omitting both flags causes
+the checker to fail closed with exit code 2.
 
-Check a deliberately tiny `BACKUP_MAX_BYTES`, a wrong backup hash, the live
-`transactx` target name and an already existing restore target. Each must fail.
-Also check that an incomplete release archive cannot be installed. Keep the
-disposable cluster and encrypted files until the report is reviewed; stop the
-cluster using its own `pg_ctl -D <disposable-data-dir> stop` command.
+The completeness check enforces that a populated acceptance manifest must explicitly cover
+all five core application tables: `public.payments`, `public.accounts`, `bank_a.operations`,
+`bank_b.operations`, and `public.idempotency_records`. For each table, an explicit assertion
+is required: either an exact count (`payments`, `accounts`, `bankAOperations`, `bankBOperations`,
+`idempotencyRecords`) or a minimum bound (`minPayments`, `minAccounts`, `minBankAOperations`,
+`minBankBOperations`, `minIdempotencyRecords`). Specifying both exact and minimum bounds for
+the same table, omitting any of the five tables, providing unknown keys, specifying recognized
+table assertions at both the top level and inside an embedded `counts` object (ambiguous manifest),
+providing non-object `counts` properties (such as strings, arrays, or `null`), or specifying
+non-integer, negative, fractional, `null`, boolean, string counts, or integers exceeding JavaScript's
+safe integer range (`Number.MAX_SAFE_INTEGER`, 9007199254740991) strictly fails validation (exit code 2).
+Both top-level keys and embedded `counts: { ... }` object shapes are supported.
+
+Furthermore, a populated acceptance manifest must not permit an entirely empty database. If all five
+core table assertions specify exact zeros or minimum bounds of zero (requiring zero total rows across
+all five tables), the manifest is rejected fail-closed during preflight with exit code 2
+(`Invalid populated acceptance manifest: assertions permit an entirely empty database. At least one table must require > 0 rows (use --allow-empty for empty-state verification)`).
+During post-restore verification, the script also verifies that at least one row exists across the
+declared five-table scope (`totalActual > 0`); observing zero total rows fails with exit code 1.
+
+The bundled `deploy/verification/acceptance-expected-counts.json` is a fixed fixture manifest
+specifically scoped to validate the single-payment rehearsal fixture in this document; its row-count
+scope covers strictly the five core application tables: `public.payments`, `public.accounts`,
+`bank_a.operations`, `bank_b.operations`, and `public.idempotency_records`. It does not validate
+row counts for any other tables in the database, including `public.ledgers`, `public.ledger_entries`,
+`public.ledger_transactions`, `payment_state_transitions`, `outbox_events`, `outbox_deliveries`,
+`inbox_records`, `recon_runs`, participant accounts (`bank_a.accounts`, `bank_b.accounts`), or
+migration ledgers. While `public.ledger_transactions` and `public.ledger_entries` participate in
+financial-invariant queries (verifying two-legged balanced debits and credits per transaction),
+and `public.accounts`, `bank_a.accounts`, and `bank_b.accounts` participate in non-negative balance
+invariant queries, their total row counts are not asserted by the acceptance manifest. Other tables,
+such as `payment_state_transitions`, are neither count-verified nor checked by invariant queries in
+this restore checker.
+
+Report semantics distinguish between schema/invariant verification, population contract satisfaction,
+empty-state core checks, and populated data verification:
+- For a validated populated restore manifest, the `tx.restore.v1` evidence report records
+  `checks.populationContractSatisfied: true`, `checks.populatedDataVerified: true`,
+  `checks.completenessVerified: true` (retained for backward compatibility; does not equate 5-table
+  assertions with database-wide completeness), `checks.coreTablesEmptyVerified: false`,
+  `emptyStateScope: "none"`, `emptyStateAllowed: false`, and `populationContract: "manifest:<filename>"`.
+- When `--allow-empty` is selected, it executes an explicit fail-closed check verifying that
+  the declared empty-state scope (`public.payments`, `public.accounts`, `bank_a.operations`,
+  `bank_b.operations`, `public.idempotency_records`) contains strictly zero rows. If any checked
+  table has nonzero rows, the restore check immediately fails with exit code 1. The resulting
+  evidence report records `checks.populationContractSatisfied: true`, `checks.coreTablesEmptyVerified: true`,
+  `emptyStateScope: "public.payments,public.accounts,bank_a.operations,bank_b.operations,public.idempotency_records"`,
+  `checks.populatedDataVerified: false`, `checks.completenessVerified: false`, `emptyStateAllowed: true`,
+  and `populationContract: "allow_empty"`. Structural schema checks (`threeSchemas`, `nonnegativeBalances`,
+  `balancedCentralLedger`, `noOrphanIdempotency`) verify schema and balance conservation. This empty-state
+  verification is strictly bounded to the declared core tables and does not imply that uncounted tables
+  across the entire database are empty.
+
+Furthermore, passing a static or stubbed offline test harness confirms script branching and error
+handling, but does not prove that a real encrypted archive restores successfully.
+
+If an operational scenario requires comprehensive database completeness across all
+tables, authoritative snapshot table inventories or dump table-of-contents catalog
+manifests would be required.
+
+Check a deliberately tiny `BACKUP_MAX_BYTES`, a wrong backup hash, an identity with
+group/other permissions (e.g. 0644), missing completeness contract, a count mismatch,
+a count below minimum, the live `transactx` target name, and an already existing
+restore target. Each must fail. Also check that an incomplete release archive cannot be
+installed. Keep the disposable cluster and encrypted files until the report is reviewed;
+stop the cluster using its own `pg_ctl -D <disposable-data-dir> stop` command.
 
 ## Measured fixture result
 

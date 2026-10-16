@@ -326,4 +326,3 @@ func TestCheckCircuitEligibilityDecisions_ActualViolation(t *testing.T) {
 		t.Errorf("expected first violation to be reported: got %s, wanted substring %s", inv.Details, expectedFirst)
 	}
 }
-

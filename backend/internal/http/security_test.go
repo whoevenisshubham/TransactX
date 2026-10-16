@@ -39,6 +39,16 @@ func TestRoleMatrix_OperationalEndpoints(t *testing.T) {
 	}
 	defer pool.Close()
 
+	var currentDB string
+	if err := pool.QueryRow(context.Background(), "SELECT current_database()").Scan(&currentDB); err != nil {
+		t.Fatalf("failed to query current_database(): %v", err)
+	}
+	lower := strings.ToLower(strings.TrimSpace(currentDB))
+	if lower == "transactx" || lower == "postgres" || lower == "template0" || lower == "template1" ||
+		(!strings.HasPrefix(lower, "transactx_disposable_") && !strings.HasPrefix(lower, "transactx_test_") && !strings.HasPrefix(lower, "transactx_m2_disposable_") && !strings.HasPrefix(lower, "transactx_cb_restore_")) {
+		t.Fatalf("refusing operational endpoints test against non-disposable database %q", currentDB)
+	}
+
 	ctrl := chaos.NewController(nil)
 	cb, _ := circuit.NewBreaker(circuit.DefaultConfig())
 	var reconEngine *reconciliation.Engine
@@ -445,6 +455,16 @@ func TestAuditLogRecording(t *testing.T) {
 		t.Skip("PostgreSQL not available")
 	}
 	defer pool.Close()
+
+	var currentDB string
+	if err := pool.QueryRow(context.Background(), "SELECT current_database()").Scan(&currentDB); err != nil {
+		t.Fatalf("failed to query current_database(): %v", err)
+	}
+	lower := strings.ToLower(strings.TrimSpace(currentDB))
+	if lower == "transactx" || lower == "postgres" || lower == "template0" || lower == "template1" ||
+		(!strings.HasPrefix(lower, "transactx_disposable_") && !strings.HasPrefix(lower, "transactx_test_") && !strings.HasPrefix(lower, "transactx_m2_disposable_") && !strings.HasPrefix(lower, "transactx_cb_restore_")) {
+		t.Fatalf("refusing audit log test against non-disposable database %q", currentDB)
+	}
 
 	auditStore := audit.NewPostgresStore(pool)
 	jwtManager, _ := auth.NewJWTManager(strings.Repeat("d", 32), "audit-test", time.Hour)

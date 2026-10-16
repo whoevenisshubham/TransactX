@@ -111,13 +111,15 @@ Deployment uses the agreed JWT and native Linux services. It needs configured fr
    - Playwright fixture suite (8/8) and offline shell suite (2/2) ran and PASSED locally.
    - The opt-in live browser test (`npm run test:browser:live`) requires an HTTPS loopback API (`api.protocol === 'https:'`) with pre-provisioned TLS certificates and credentials. This is an environment/deployment gate that cannot be run without local TLS certs installed.
 
-3. **Release Packaging (`build-release.ps1`):**
-   - `-ValidateOnly` confirms that all required planned v2 binaries (`api`, `bank-a`, `bank-b`, `worker`, `migrate`, `maintain-merkle`) compile and build cleanly.
-   - Production archive packaging requires `TRANSACTX_FRONTEND_API_ORIGIN` set, a clean git working tree, and tar generation. This will be produced upon final release sign-off.
+3. **Release Packaging (`build-release.ps1` / `build-release.sh`):**
+   - `-ValidateOnly` / `--validate-only` performs inspection-only validation: verifies source SHA, git status, presence of all planned v2 commands, allows an unset origin via `verify-api-origin.mjs --allow-missing`, and checks delivery and corpus document staging. It writes no archive and executes no compilation.
+   - Production archive generation requires the frontend public HTTPS API origin set via environment variable `VITE_API_BASE_URL` (enforced by `verify-api-origin.mjs`), a clean git working tree (unless `-AllowDirty` / `--allow-dirty`), and all required v2 commands present (unless `-AllowIncomplete` / `--allow-incomplete`). It compiles Linux amd64 and arm64 binaries, builds the frontend bundle, and produces a timestamped tarball with SHA-256 sidecars.
+   - Note: The release builder scripts do NOT accept `-ApiBaseUrl` or `--api-base-url` command-line flags.
 
-4. **Off-VM Restore & Cloud RPO/RTO:**
-   - Restore rehearsal was executed and verified against a fresh disposable local database.
-   - True off-VM backup persistence, offsite cloud storage replication, and multi-region disaster recovery remain operational deployment gates.
+4. **Backup and Recovery Objectives & Off-Machine Storage:**
+   - Approved plan targets: Daily encrypted backup, Recovery Point Objective (RPO) of up to 24 hours, and measured restore Recovery Time Objective (RTO) under 30 minutes on the documented rehearsal environment ($0 cloud spend).
+   - Rehearsal vs. Target: Local restore rehearsal was executed and verified against a fresh disposable database (restore checker: ~3–4s, restored worker startup/convergence: ~11.1s in separate local phases; not a hosted RTO guarantee or operational RPO).
+   - Off-machine storage: Supports owner-controlled local storage copies or an owner-configured mounted directory (`BACKUP_OFFVM_DIR`) per documented storage controls; paid cloud services or multi-region replication are not required by the plan.
 
 5. **Milestone PR Status:**
    - Milestone PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged per instructions.
@@ -237,8 +239,8 @@ Deployment uses the agreed JWT and native Linux services. It needs configured fr
 | **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
 
 ### 5.7 Remaining Operational & Infrastructure Gates
-- **Live Browser Acceptance on Target Staging Host:** Staging environment deployment and live OAuth/IdP sign-in flow pending cluster provisioning.
-- **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
+- **Live Browser Acceptance on Target Host:** Target host deployment and live browser acceptance flow pending host provisioning.
+- **Off-VM Backup & Operational RPO/RTO Verification:** Configuring an owner-controlled mounted off-VM directory (`BACKUP_OFFVM_DIR`) or local copy for daily encrypted backups, and verifying operational RPO (target up to 24 hours) and RTO (target under 30 minutes on documented rehearsal environment; $0 cloud spend).
 - **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
 
 ---
@@ -356,8 +358,8 @@ Deployment uses the agreed JWT and native Linux services. It needs configured fr
 | **Release Build Validation** | `powershell -File .\deploy\scripts\build-release.ps1 -ValidateOnly` | Windows / Local | PASS | All 6 planned commands validated |
 
 ### 6.8 Remaining Operational & Infrastructure Gates
-- **Live Browser Acceptance on Target Staging Host:** Staging environment deployment and live OAuth/IdP sign-in flow pending cluster provisioning.
-- **Off-VM Disaster Recovery & Cloud RPO/RTO:** Automated snapshot export to remote object storage and automated restore failover drill pending production infrastructure deployment.
+- **Live Browser Acceptance on Target Host:** Target host deployment and live browser acceptance flow pending host provisioning.
+- **Off-VM Backup & Operational RPO/RTO Verification:** Configuring an owner-controlled mounted off-VM directory (`BACKUP_OFFVM_DIR`) or local copy for daily encrypted backups, and verifying operational RPO (target up to 24 hours) and RTO (target under 30 minutes on documented rehearsal environment; $0 cloud spend).
 - **Milestone PR Status:** PRs #22 (M1), #23 (M3), and #24 (M2) remain open and unmerged. Integration PR #25 is updated on branch `v2/integration-m1-m2-m3` in draft status.
 
 ---
@@ -502,13 +504,17 @@ Historical audit note: `backend/cmd/verify_process_recovery` was cited in early 
 - **SQL Verification Proof:**
   - Created `deploy/verification/cross-bank-financial-proof.sql` asserting 8 independent financial and platform invariants across Bank A (`bank_a.*`), Bank B (`bank_b.*`), and central double-entry ledger.
 - **Native 7-Scenario Recovery Matrix (`backend/internal/experiments/cross_bank_recovery.go`):**
-  1. `CB-01`: API killed after central journal before participant dispatch (Bank A ABSENT, recovery completes transfer) => **PASS** (44.33 ms, state=COMPLETED).
-  2. `CB-02`: Worker killed after Bank A hold before Bank B credit (Bank A PRESENT, Bank B ABSENT, recovery completes transfer) => **PASS** (20.12 ms, state=COMPLETED).
+  1. `CB-01`: In-process recovery: central journal committed before participant dispatch (Bank A ABSENT, recovery completes transfer; seeded-state reconstruction without process kill) => **PASS** (44.33 ms, state=COMPLETED).
+  2. `CB-02`: In-process recovery: Bank A hold committed before Bank B credit (Bank A PRESENT, Bank B ABSENT, recovery completes transfer; seeded-state reconstruction mid-transfer without process kill) => **PASS** (20.12 ms, state=COMPLETED).
   3. `CB-03`: Participant commit followed by lost HTTP response (Bank B provisional credit PRESENT, recovery avoids duplicate credit, completes transfer) => **PASS** (18.44 ms, state=COMPLETED).
   4. `CB-04`: Restart with existing operation UUID and authoritative presence (exact immutable UUID retained on participant, 0 duplicate/orphan operations) => **PASS** (17.56 ms, state=COMPLETED).
   5. `CB-05`: Lease expiry, Worker 2 takeover with incremented epoch, rejection of stale Worker 1 completion via fencing token CAS => **PASS** (2590.62 ms, state=COMPLETED).
   6. `CB-06`: Presence branching across `ABSENT` (replays), `PRESENT` (no replay), and `UNAVAILABLE`/`UNKNOWN` (fails closed, never maps to absent) => **PASS** (16.75 ms, state=COMPLETED).
-  7. `CB-07`: Restore from disposable backup (`pg_dump` -> `pg_restore`) while eligible payment pending; worker converges on restored DB => **PASS** (1319.68 ms, state=COMPLETED).
+  7. `CB-07`: Unencrypted dump-and-restore: cross-bank payment pending during pg_dump (`pg_dump -Fc` -> `pg_restore` into disposable DB); worker converges on restored DB (does not satisfy encrypted DR acceptance) => **PASS** (1319.68 ms, state=COMPLETED).
+
+  *Note on Fault Boundary Classification:* Scenarios CB-01 and CB-02 in `cross_bank_recovery.go` are in-process seeded-state reconstruction and recovery tests that verify banking presence resolution, double-entry ledger integrity, and idempotent continuation without OS process termination. Genuine operating system process-kill evidence is separately established and preserved by M1 in `docs/next-gen/state/cross-bank-native-recovery-m1.json` (actual API process termination after Bank A hold commit with network barrier) and `native-crash-restore-final-m1.json`.
+
+  *Note on CB-07 Scope:* Scenario CB-07 exercises unencrypted PostgreSQL custom-format dump (`pg_dump -Fc`) and restore (`pg_restore`) into an isolated disposable database with worker continuation. It does not invoke `age` public-key encryption and does not satisfy encrypted disaster-recovery acceptance. Encrypted backup and restore verification is separately governed by `deploy/scripts/backup.sh` and `deploy/scripts/restore-check.sh` (which use `age` public-key encryption with offline checks and `workerContinuation: "not_run"`), with prior native encrypted restore evidence preserved in `docs/next-gen/state/native-crash-restore-final-m1.json`.
 - **Invariant Assertions:**
   - `NonnegativeBalances`: 0 negative balances across `accounts`, `bank_a.accounts`, and `bank_b.accounts`.
   - `DebitCreditConservation`: Sum of debits == Sum of credits == payment amount; central account reconstructed balances match ledger entries exactly.
@@ -623,9 +629,9 @@ In accordance with M1 and integration requirements, the following release gates 
 2. **Configured Native Linux Host & DNS/TLS:**
    - Status: **Pending Owner Action**.
    - Requirement: Native Linux target host for release archive extraction, systemd service installation, Caddy reverse-proxy configuration, and private-port smoke testing. Zero paid cloud hosting has been provisioned.
-3. **Off-Machine Backup Destination & Disaster Recovery Drill:**
+3. **Off-Machine Backup Destination & Operational Recovery Drill:**
    - Status: **Pending Owner Action**.
-   - Requirement: Cloud object store (S3/GCS bucket) configured for daily encrypted database backup replication, plus formal multi-region restore drill satisfying organizational RPO/RTO. (Local restore rehearsal has passed successfully).
+   - Requirement: Owner-controlled off-machine destination (mounted directory for `BACKUP_OFFVM_DIR` or owner-controlled local storage copy) configured for daily `age`-encrypted database backups, plus operational restore verification satisfying project RPO (target up to 24 hours) and RTO (target under 30 minutes on documented rehearsal environment). Zero paid cloud infrastructure is required. (Local isolated restore rehearsal has passed successfully; restore checker phase ~3–4s, restored worker continuation ~11.1s).
 4. **Production Browser Live Smoke:**
    - Status: **Pending Owner Action / Target Host**.
    - Requirement: Live host execution of `playwright.live.config.ts` against the live production origin with real credentials.
@@ -805,9 +811,9 @@ Full production release acceptance is strictly gated on the following four owner
 2. **Native Linux Deployment Target Host & DNS/TLS Configuration:**
    - **Missing Input:** Owner-provided native Linux server (Ubuntu 22.04/24.04, amd64 or arm64), SSH/deployment access, public DNS record pointing to host, and TLS certificates (or Let's Encrypt automated ACME setup via Caddy).
    - **Enables:** Production archive extraction, systemd service installation (`deploy/systemd/`), Caddy reverse proxy setup (`deploy/caddy/Caddyfile.example`), environment configuration (`/etc/transactx/transactx.env`), and private loopback port verification.
-3. **Off-Machine Backup Destination & Multi-Region Recovery Drill:**
-   - **Missing Input:** Owner-configured off-machine cloud storage bucket (e.g. AWS S3 or GCP Cloud Storage with IAM bucket policies) and backup push credentials.
-   - **Enables:** Automated daily encrypted database backup replication off the primary VM host, followed by a live end-to-end multi-region recovery drill verifying target RTO (< 30s) and RPO (0 data loss) under operational conditions.
+3. **Off-Machine Backup Destination & Operational Recovery Verification:**
+   - **Missing Input:** Owner-configured off-machine destination (mounted directory for `BACKUP_OFFVM_DIR` or owner-controlled local storage copy) and storage controls.
+   - **Enables:** Automated daily `age`-encrypted database backup replication off the primary host, followed by operational restore drill verifying project target RTO (under 30 minutes on documented rehearsal environment) and RPO (up to 24 hours) under operational conditions without paid cloud services.
 4. **Production Browser Live Smoke Verification:**
    - **Missing Input:** Owner-controlled production test credentials and live deployment URL provided via secure channels (never committed to repository).
    - **Enables:** Executing `npx playwright test browser/ops.live.spec.ts --config playwright.live.config.ts` against the live production origin to verify live worker dispatch, SSE streaming, authentication, and operator role security in a production browser environment.
@@ -870,30 +876,52 @@ An audit of deployment documentation identified four inaccurate script and confi
 |---|---|---|---|---|
 | `deploy/scripts/install.sh` | **NO** (Absent) | `deploy/scripts/install-release.sh` | `--archive <path> --sha256 <64-hex> --source-sha <40-hex> [--validate-only] [--activate]` | Validates archive hash, metadata, directory traversal (`/*|../*`), 8 required binary commands for amd64/arm64, corpus manifest. Extracts to `/opt/transactx/releases/<sha>` and atomically points `/opt/transactx/current`. Does not run migrations or systemd units. |
 | `deploy/scripts/https-smoke.sh` | **NO** (Absent) | `deploy/scripts/smoke.sh` | `--api-origin <https-url> --frontend-origin <https-url> [--auth-header-file <path>]` | Verifies HTTPS health (`/health`, `/health/db`), SPA deep link refresh, and CORS reflection/denial. If owner-only auth header supplied, verifies authenticated worklist envelope and SSE stream. |
-| `deploy/scripts/restore.sh` | **NO** (Absent) | `deploy/scripts/restore-check.sh` | `--backup <path> --identity <path> --sha256 <64-hex> --source-sha <40-hex> --target-db transactx_restore_<name> --report-dir <path> [--validate-only]` | Restores age-encrypted snapshot into a new disposable database (`transactx_restore_*`); checks 3 schemas and 8 financial invariants. Refuses live database; does not apply global roles or run worker continuation. |
+| `deploy/scripts/restore.sh` | **NO** (Absent) | `deploy/scripts/restore-check.sh` | `--backup <path> --identity <path> --sha256 <64-hex> --source-sha <40-hex> --target-db transactx_restore_<name> --report-dir <path> [--expected-counts <path> | --allow-empty] [--validate-only]` | Restores age-encrypted snapshot into a new disposable database (`transactx_restore_*`); enforces owner-only identity permissions; checks 3 schemas, 8 financial invariants, and expected application counts; refuses live database; does not apply global roles or run worker continuation. |
 | `deploy/caddy/Caddyfile` | **NO** (Active config absent) | `deploy/caddy/Caddyfile.example` | Template file (not active configuration) | Demonstrates reverse-proxying `127.0.0.1:8080` with `flush_interval -1` for SSE streaming while keeping bank/DB ports private. Operator copies to `/etc/caddy/Caddyfile` with real DNS. |
 
 *Note on tooling policy:* In accordance with governance constraints, no dummy compatibility wrapper scripts (`install.sh`, `https-smoke.sh`, `restore.sh`) were added to the repository. The verified real scripts are documented directly.
 
 ### 13.2 Verified Script Contracts, Safety Guards & Explicit Limitations
-1. **`deploy/scripts/install-release.sh`:**
+1. **`deploy/scripts/build-release.ps1` & `deploy/scripts/build-release.sh`:**
+   - **Prerequisites:** `go`, `npm`, `node`, `tar`; git repository with valid source SHA.
+   - **Accepted Parameters:**
+     - `-ValidateOnly` (PowerShell) / `--validate-only` (Bash): Inspection-only mode. Validates source SHA, tree dirty status, presence of planned commands, runs `verify-api-origin.mjs --allow-missing` (allowing unset `VITE_API_BASE_URL`), and checks delivery and corpus document staging. It writes NO archive and runs no compilation.
+     - `-AllowIncomplete` / `--allow-incomplete`: Allows packaging an inspection archive even if some v2 commands are missing.
+     - `-AllowDirty` / `--allow-dirty`: Allows building from a dirty git tree (prohibited for release artifacts).
+     - `-OutputDirectory <path>` (PowerShell only, default `deploy/out`).
+   - **Frontend API Origin Contract:**
+     - The builders do NOT support `-ApiBaseUrl` or `--api-base-url` command-line parameters.
+     - The origin is strictly read from the environment variable `VITE_API_BASE_URL` (enforced via `node deploy/scripts/verify-api-origin.mjs`).
+     - Must be a valid public HTTPS origin without path (except `/`), credentials, port, query, or fragment, and cannot be an IP or reserved domain.
+   - **Output:** Builds Linux `amd64` and `arm64` Go binaries, executes frontend `npm ci`, `npm test`, `npm run lint`, `npm run build`, and archives binaries, migrations, static assets, configuration examples, public runbooks, and SHA-256 sidecars into `deploy/out/transactx-<sha12>-<timestamp>.tar.gz`.
+2. **`deploy/scripts/verify-api-origin.mjs`:**
+   - **Options:** `--allow-missing` (permits unset origin during preflight validation).
+   - **Verification:** Evaluates `process.env.VITE_API_BASE_URL`. Validates protocol (`https:`), absence of username/password, pathname (`/`), absence of search/hash, valid non-IP hostname containing `.`, and exclusion of reserved names (`localhost`, `example.com`, etc.). Outputs normalized origin.
+3. **`deploy/scripts/install-release.sh`:**
    - **Prerequisites:** Linux `x86_64` or `aarch64`; `sha256sum`, `tar`; root privileges (`EUID == 0`) for actual install; service account `transactx:transactx`.
    - **Safety Guards:** Traversal check (`/*|../*|*/../*|./../*`), SHA-256 integrity match, `metadata.json` source SHA match, completeness verification (all 8 commands: `api`, `bank-a`, `bank-b`, `worker`, `migrate`, `maintain-merkle`, `corpus`, `rebuild-worklist` present for both architectures), corpus manifest check (`docs/runbooks/corpus-manifest.json`), atomic symlink swap (`mv -Tf`).
    - **Limitations:** Does NOT execute database migrations (operator must run migration CLI first) and does NOT manage systemd daemon states.
-2. **`deploy/scripts/smoke.sh`:**
+4. **`deploy/scripts/smoke.sh`:**
    - **Prerequisites:** `curl`; public HTTPS API and frontend origins.
    - **Safety Guards:** Exact HTTPS origin regex (`^https://[A-Za-z0-9.-]+(:[0-9]+)?$`), owner-only permissions check on auth header file (`find "$auth_header_file" -perm /077` must be empty, exit 2), CORS allowed and blocked origin checks (`https://blocked.example.invalid` must be rejected).
    - **Limitations:** Does NOT check external port denial (prints reminder to operator) and does NOT execute payment write mutations.
-3. **`deploy/scripts/backup.sh`:**
+5. **`deploy/scripts/backup.sh`:**
    - **Prerequisites:** PostgreSQL client tools (`pg_dump`, `pg_dumpall`, `age`, `sha256sum`, `stat`, `realpath`); environment variables `PGDATABASE=transactx`, `PGHOST`, `PGUSER`, `PGPASSFILE` (must be owner-only, mode 600), `BACKUP_AGE_RECIPIENT` (`^age1[a-z0-9]{20,}$`), `BACKUP_DIR` (absolute path).
    - **Safety Guards:** Refuses non-`transactx` database name; enforces age public key format; single custom-format `pg_dump` covers `public`, `bank_a`, `bank_b`; separate encrypted `pg_dumpall --globals-only` without passwords; atomic file movement; if `BACKUP_OFFVM_DIR` is set, verifies it is an actively mounted filesystem (`mountpoint -q`) to prevent silent local writes.
    - **Limitations:** Relies on operating system filesystem mounts for off-VM replication; does not invoke cloud vendor SDKs.
-4. **`deploy/scripts/restore-check.sh`:**
+6. **`deploy/scripts/restore-check.sh`:**
    - **Prerequisites:** `age`, `pg_restore`, `psql`, `createdb`, `sha256sum`, `node`, `realpath`; local PostgreSQL host (`127.0.0.1`, `localhost`, `/var/run/postgresql`).
-   - **Safety Guards:** Refuses live database (`target != $PGDATABASE && target != 'transactx'`); target name must match `^transactx_restore_[a-z0-9_]{4,40}$`; `createdb` fails if target exists; decrypts directly to `pg_restore` pipe without unencrypted disk writes; verifies 3 schemas, non-negative balances, central ledger double-entry conservation, and zero orphan idempotency records; writes `tx.restore.v1` JSON evidence report with SHA-256 sidecar.
-   - **Limitations:** Does NOT restore global roles to shared cluster (`globalRoles: not_applied_to_shared_cluster`); does NOT start worker continuation (`workerContinuation: not_run`); does NOT rebuild projection (`projectionRebuild: not_run`). These remain separate operational gates.
-5. **`deploy/caddy/Caddyfile.example`:**
-   - Checked-in file is an example template, not active configuration. Demonstrates reverse-proxying `127.0.0.1:8080` with `flush_interval -1` for live SSE streaming while keeping bank/DB ports private.
+   - **Safety Guards:**
+     - Resolves the private `age` identity to its canonical target via `realpath -e` (ensuring regular file and preventing symlink bypasses) and enforces owner-only permissions (`find "$identity_path" -perm /077` must be empty, exit 2; accepts modes 0400/0600, rejects group/other permissions) before decryption or target creation begins. `umask 077` governs local files created directly by the shell process (such as reports and temporary files), not server-side PGDATA database files (which are governed by the PostgreSQL daemon's umask) or existing file modes; true POSIX inode permissions remain an unverified runtime requirement on non-Linux platforms.
+     - Enforces explicit completeness contract: requires `--expected-counts <manifest.json>` (e.g. `deploy/verification/acceptance-expected-counts.json`) or `--allow-empty` (fails closed with exit 2 if neither is provided; prevents empty restores from silently passing financial checks). The manifest must cover all five core tables (`payments`, `accounts`, `bank_a.operations`, `bank_b.operations`, `idempotency_records`) with exact or minimum assertions; partial manifests, unknown keys, ambiguous mixed top-level and embedded assertions, non-object counts, conflicting assertions, invalid counts (null, string, float, negative, boolean), counts exceeding JavaScript's safe integer range (`Number.MAX_SAFE_INTEGER`, 9007199254740991), or manifests permitting an entirely empty database (all assertions exact or minimum zero) strictly fail validation (exit code 2).
+     - Refuses live database (`target != $PGDATABASE && target != 'transactx'`); target name must match `^transactx_restore_[a-z0-9_]{4,40}$`.
+     - `createdb` fails if target exists; decrypts directly to `pg_restore` pipe without unencrypted disk writes.
+     - Verifies 3 schemas, non-negative balances (on `public.accounts`, `bank_a.accounts`, `bank_b.accounts`), central ledger double-entry conservation (pairwise net-zero balance on `public.ledger_transactions` and `public.ledger_entries`), zero orphan idempotency records (`public.idempotency_records` referencing `public.payments`), and expected row counts for five core tables (`public.payments`, `public.accounts`, `bank_a.operations`, `bank_b.operations`, `public.idempotency_records`). Manifest assertions validate restored counts strictly against the declared five-table scope; the manifest does not assert row counts for `public.ledgers`, `public.ledger_entries`, `public.ledger_transactions`, `payment_state_transitions`, or other uncounted tables (such as outbox events, deliveries, inbox records, or reconciliation runs). For populated manifests, post-restore checks also assert that actual rows exist across the five core tables (`totalActual > 0`), failing closed (exit code 1) if observed counts are all zero.
+     - `--allow-empty` is an explicit empty-state acceptance path that enforces strictly zero rows across the five checked core tables (fails closed with exit 1 if any checked table contains rows) and must not be conflated with populated disaster-recovery acceptance. This verification is bounded to the declared core scope and does not prove that uncounted tables across an arbitrary database are empty. Offline stubbed tests verify script rejection logic, not live encrypted restore success.
+     - Writes `tx.restore.v1` JSON evidence report with `populationContract`, `emptyStateAllowed`, `emptyStateScope` (`"public.payments,public.accounts,bank_a.operations,bank_b.operations,public.idempotency_records"` for empty state, `"none"` for populated), structural invariant checks, and explicit completeness indicators (`checks.populationContractSatisfied` is `true` for all valid passes; `checks.coreTablesEmptyVerified` is `true` for empty state and `false` for populated; while `checks.populatedDataVerified` and `checks.completenessVerified` are `true` for verified populated manifests and `false` for `--allow-empty`), accompanied by a SHA-256 sidecar.
+   - **Limitations:** Does NOT restore global roles to shared cluster (`globalRoles: not_applied_to_shared_cluster`); does NOT start worker continuation (`workerContinuation: not_run`); does NOT rebuild projection (`projectionRebuild: not_run`); does not measure operational recovery objectives (RPO/RTO). These remain separate operational gates.
+7. **`deploy/caddy/Caddyfile.example`:**
+   - Checked-in file is an example template, not active configuration. Demonstrates reverse-proxying `127.0.0.1:8080` with `flush_interval -1` for live SSE streaming while keeping bank/DB ports private. Operator copies to `/etc/caddy/Caddyfile` with real DNS.
 
 ### 13.3 Local Preflight Verification Evidence
 Local verification was executed on the integration worktree:
@@ -918,13 +946,16 @@ Local verification was executed on the integration worktree:
 Production release deployment cannot proceed until the release owner provides the following four inputs through secure operational channels:
 1. **Public HTTPS API Origin (`VITE_API_BASE_URL`):**
    - *Missing Input:* Owner-controlled public HTTPS domain and TLS certificate/termination endpoint.
-   - *Enables:* Running `build-release.ps1 -ApiBaseUrl https://<domain>` or `build-release.sh --api-base-url https://<domain>` to generate `transactx-v2-amd64.tar.gz` and SHA-256 sidecar.
+   - *Enables:* Setting environment variable `VITE_API_BASE_URL=https://<domain>` (enforced by `verify-api-origin.mjs`) and executing release packaging via `powershell -File deploy/scripts/build-release.ps1` or `deploy/scripts/build-release.sh` to generate production archives (`transactx-v2-amd64.tar.gz`, `transactx-v2-arm64.tar.gz`) and SHA-256 sidecars.
+   - *Contract Distinction:* Release builders accept `--validate-only`, `--allow-incomplete`, and `--allow-dirty`. They do NOT accept `-ApiBaseUrl` or `--api-base-url` command-line options; the origin is passed strictly via the `VITE_API_BASE_URL` environment variable.
 2. **Native Linux Deployment Target Host & DNS/TLS Configuration:**
    - *Missing Input:* Target Ubuntu 22.04/24.04 server access, DNS record, and TLS certificate (or automated ACME via Caddy).
-   - *Enables:* Running `deploy/scripts/install-release.sh --archive transactx-v2-amd64.tar.gz --sha256 <hash> --source-sha <sha> --activate`, configuring `/etc/caddy/Caddyfile` from `deploy/caddy/Caddyfile.example`, starting systemd services, and executing `deploy/scripts/smoke.sh --api-origin https://<api-domain> --frontend-origin https://<frontend-domain>`.
-3. **Off-Machine Backup Destination & Multi-Region Recovery Drill:**
-   - *Missing Input:* Cloud storage destination (S3/GCS bucket or remote NFS/CIFS share mounted on the host) and backup push credentials.
-   - *Enables:* Configuring `BACKUP_OFFVM_DIR` in `deploy/scripts/backup.sh`, running automated backups, and executing multi-region recovery drill via `deploy/scripts/restore-check.sh` to measure operational RTO (< 30s) and RPO (0 data loss).
+   - *Enables:* Running `deploy/scripts/install-release.sh --archive transactx-v2-amd64.tar.gz --sha256 <hash> --source-sha <sha> --activate`, configuring `/etc/caddy/Caddyfile` from `deploy/caddy/Caddyfile.example` (reverse proxying 127.0.0.1:8080 with `flush_interval -1` for SSE), applying reviewed migrations via `transactx-migrate`, starting systemd services, and executing `deploy/scripts/smoke.sh --api-origin https://<api-domain> --frontend-origin https://<frontend-domain>`.
+   - *Contract Distinction:* `install-release.sh` performs archive extraction, hash verification, permission setting, and symlink activation under `/opt/transactx`. It explicitly does NOT run migrations or start/restart systemd services, which remain separate administrator actions.
+3. **Off-Machine Backup Destination & Operational Recovery Drill:**
+   - *Missing Input:* Mounted off-VM destination directory (`BACKUP_OFFVM_DIR`) or owner-controlled local storage copy conforming to documented storage controls.
+   - *Enables:* Configuring `BACKUP_OFFVM_DIR` in `deploy/scripts/backup.sh`, running daily automated backups, and executing recovery verification via `deploy/scripts/restore-check.sh` to verify target RTO (< 30 minutes on documented rehearsal environment) and target RPO (up to 24 hours). Paid cloud storage (S3/GCS) and sub-30-second RTO / zero-data-loss RPO are not part of the approved plan.
+   - *Contract Distinction:* `backup.sh` enforces `age` public-key encryption using `$BACKUP_AGE_RECIPIENT` (creating `.dump.age` and `.globals.sql.age`). CB-07 is an unencrypted in-memory dump-and-restore test and does not prove encrypted disaster recovery. `restore-check.sh` decrypts into a disposable `transactx_restore_*` database and checks financial invariants, but explicitly marks `workerContinuation: "not_run"`, `projectionRebuild: "not_run"`, and `globalRoles: "not_applied_to_shared_cluster"`.
 4. **Production Browser Live Smoke Verification:**
    - *Missing Input:* Owner-controlled production operator credentials and live frontend URL.
    - *Enables:* Executing `npx playwright test browser/ops.live.spec.ts --config playwright.live.config.ts` against the live production origin.
@@ -935,4 +966,88 @@ Production release deployment cannot proceed until the release owner provides th
 - **Release Branch Protection:** `release/transactx-v2` preserved at `6ad42bff0ff01da6b4c88e5b702aa2b897fd452d`.
 - **Zero Cloud Spend:** Strictly $0 / ₹0 expenditure.
 - **Handoff Status:** All local delivery document reconciliation, script path auditing, and contract verification are complete. No further broad implementation gates will be created; the next production step requires owner-provided infrastructure.
+
+### 13.7 CI-Coverage and Release-Gate Reconciliation
+An audit of `.github/workflows/release-validation.yml` against repository tests establishes the exact boundary between automated CI coverage and external release gates:
+
+1. **Automated CI Coverage (Executed on Ubuntu 24.04 in GitHub Actions):**
+   - **Backend Job:**
+     - Runs on `ubuntu-latest` with a `postgres:18` container service on port 5432 and database `transactx_ci`.
+     - Applies migrations: executes `backend/migrations/*.up.sql` sequentially using `psql`.
+     - Tests: executes `go test -count=1 ./...` across all 42 Go packages (standard unit tests, plus database integration tests utilizing `DATABASE_URL`).
+     - Race detector: executes `go test -race -count=1 ./...`.
+     - Compilation: executes `go build ./...` across all backend commands.
+   - **Frontend Job:**
+     - Runs on `ubuntu-latest` with Node.js 22.
+     - Dependencies: executes `npm ci`.
+     - Tests: executes `npm test` (all 97 Vitest unit and component tests).
+     - Lint & Typecheck: executes `npm run lint` (ESLint and TypeScript type checks).
+     - Compilation: executes `npm run build` (Vite production bundle without `VITE_API_BASE_URL`).
+
+2. **Integration Tests Explicitly Skipped in CI:**
+   - **M3 Canonical Store Conformance (`canonical_store_contract_test.go`):**
+     - Test `TestPostgresInvestigationStoreCanonicalSchemaConformance` requires both `M3_CANONICAL_STORE_DATABASE_URL` and `M3_CANONICAL_STORE_RESET_DATABASE` pointing to a disposable database ending in `_test`.
+     - Neither variable is configured in `.github/workflows/release-validation.yml`. Consequently, this test skips in CI (`t.Skipf`). A green CI run does NOT certify canonical-store migration conformance.
+   - **PostgreSQL Native Restart Test (`postgres_restart_integration_test.go`):**
+     - Skips in CI with "run through scripts/verify-merkle-postgres-restart.ps1".
+   - **Evidence Scale Test (`experiment_test.go`):**
+     - Skips in CI when `M3_EVIDENCE_PATH` is absent.
+
+3. **External Release Gates (NOT Executed in CI):**
+   - **Live Browser Acceptance:** `playwright.config.ts`, `ops.live.spec.ts`, and offline shell tests require a running stack, loopback TLS certificates, and operator credentials.
+   - **Native OS Process Interruption:** Live SIGKILL/process termination drills (e.g. killing native processes during hold dispatch or mid-flight API kills).
+   - **Encrypted Backup & Restore Rehearsals:** `deploy/scripts/backup.sh` and `deploy/scripts/restore-check.sh` require `age` keys, local PostgreSQL, and disposable restore targets.
+   - **Release Builder Packaging:** `build-release.ps1` and `build-release.sh` require a verified public HTTPS origin in `VITE_API_BASE_URL` to package production bundles.
+   - **Native Linux Host Deployment:** `install-release.sh`, migration execution with advisory locks, systemd service management, Caddy reverse-proxy configuration, and `smoke.sh` HTTPS verification.
+   - **Release Principle:** Passing the CI workflow is a necessary prerequisite, but it does NOT prove or satisfy these external release gates.
+
+---
+
+## 14. Checkpoint 8D / 8D-1 / 8D-2 Execution Record: CB-01/CB-02 Validation, Database-Catalog Inspection Deviation & Evidence Consistency
+
+### 14.1 Checkpoint 8D Execution & Technical Outcomes (Original Execution Output Source of Truth)
+- **Scope & Objective:** Isolated validation of Integration cross-bank recovery scenarios CB-01 and CB-02 against a newly provisioned disposable PostgreSQL database without touching the source database `transactx`.
+- **Target Disposable Database:** `transactx_disposable_integration_ckpt8d_cb0102`
+- **Naming & Provisioning Validation:**
+  - Database name strictly validated against `ValidateDisposableDBName` rules (`transactx_disposable_` prefix, disallowed names check).
+  - Provisioned using `createdb` with `-T template0` against maintenance host `127.0.0.1:5432`, guaranteeing zero template cloning or dependency on `transactx` or any application database.
+- **Migration & Schema Verification:**
+  - Executed `backend/cmd/migrate` in `up` mode with advisory locking and checksum validation.
+  - Successfully applied all 30 checked-in migrations (`000001` through `000030`, `applied=30`).
+  - Schema verification confirmed all 44 tables across `public`, `bank_a`, and `bank_b` schemas with valid checksums and sequential ordering.
+- **Focused Test Execution & Actual Verified Subtests:**
+  - Command executed:
+    ```powershell
+    $origDB = $env:DATABASE_URL; try { $env:DATABASE_URL = "postgres://postgres@127.0.0.1:5432/transactx_disposable_integration_ckpt8d_cb0102?sslmode=disable"; go test -v ./internal/experiments -run '^TestCrossBankRecovery_CB01_CB02_Focused$' -count=1 } finally { $env:DATABASE_URL = $origDB }
+    ```
+  - Overall Outcome: `PASS`, exit code `0`, total execution time `2.366s` (test execution `0.23s`).
+  - Verified Subtests (matching original execution output exactly):
+    1. `CB-01_SeededRecoveryAfterJournalBeforeDispatch` (0.06s): **PASS** — Seeded recovery after central journal commit before bank dispatch; bank A presence checked and found absent; recovery resumed and routed payment settled central to Bank B; payment converged to `COMPLETED`; in-test financial invariant assertions passed (0 violations).
+    2. `CB-01_CancelledContext_FailsClosed` (0.00s): **PASS** — Verified fail-closed boundary on cancelled context; returned non-nil error.
+    3. `CB-02_SeededRecoveryAfterHoldBeforeCredit` (0.02s): **PASS** — Seeded recovery after hold committed on Bank A before credit to Bank B; bank A presence confirmed present; recovery resumed without duplicate hold and completed settlement; payment converged to `COMPLETED`; checkpoints verified zero false "killed" claims; in-test financial invariant assertions passed (0 violations).
+    4. `CB-02_CancelledContext_FailsClosed` (0.00s): **PASS** — Verified fail-closed boundary on cancelled context; returned non-nil error.
+  - *Correction of Historical Inconsistency (Checkpoint 8D-2):* The erroneous labels `CB01_Hold_Timeout_Expired_AutoRefund`, `CB02_Hold_Confirmed_Release_Lost_ReplaySuccess`, and freestanding `CB01_Financial_Invariants`/`CB02_Financial_Invariants` subtests reported in 8D-1 documentation have been reconciled and replaced with the actual verified subtests from the original execution output.
+- **Post-Test State & Preservation:**
+  - Target disposable database `transactx_disposable_integration_ckpt8d_cb0102` is preserved intact in its resulting post-test state (2 payments, 4 state transitions, 8 bank operations) for inspection. Zero databases were dropped.
+
+### 14.2 Database-Catalog Inspection Deviation Record
+- **Deviation Overview:**
+  During the execution of Checkpoint 8D, command history records that a wildcard catalog query was executed against the maintenance database `postgres`:
+  ```sql
+  SELECT datname FROM pg_database WHERE datname LIKE 'transactx%' ORDER BY datname;
+  ```
+- **Factual Evidence & Analysis:**
+  1. **Maintenance Connection Scope:** The query was submitted to the maintenance database `postgres` and queried catalog metadata in `pg_database`.
+  2. **Inclusion of Source Database Name:** Because the predicate `LIKE 'transactx%'` was used rather than an exact database name match, the query returned all databases matching the prefix, which included the source database name `transactx`.
+  3. **Classification as Metadata-Inspection Deviation:** Under the strict project safety rules (*"Never use a wildcard database-size query. All database existence checks must identify the exact disposable database name"*), this query constituted a metadata-inspection deviation.
+  4. **No Direct Connection to Source Database:** The command history proves that the command did not connect to `transactx`, select from `transactx`, or access any application tables within `transactx`.
+  5. **No Mutation of Source Data:** Zero mutation, deletion, or schema modification occurred in `transactx` or any other database as a result of this catalog lookup.
+  6. **No Further Source Investigation:** No further investigation, querying, inspection, measurement, or probing of the source database `transactx` is authorized or required.
+  7. **Status of Historical Records:** The 158 deleted source transition records in `transactx` remain unresolved and have not been reconstructed, restored, or altered.
+- **Correction of Historical Statements:**
+  Any statement claiming absolute zero inspection or access to the source database for Checkpoint 8D is formally corrected to acknowledge this metadata-inspection deviation in the catalog lookup history.
+
+### 14.3 Technical Results Preservation
+- The verification results for CB-01 and CB-02 remain fully valid, reproducible, and consistent with the original execution record.
+- All migration checksums, sequence verifications, scenario classifications, code changes, and database contents are preserved completely unaltered.
 

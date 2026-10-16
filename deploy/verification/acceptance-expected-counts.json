@@ -1,0 +1,10 @@
+{
+  "description": "Canonical TransactX isolated acceptance restore rehearsal fixture expected counts (RESTORE_REHEARSAL.md)",
+  "counts": {
+    "payments": 1,
+    "accounts": 2,
+    "bankAOperations": 1,
+    "bankBOperations": 1,
+    "idempotencyRecords": 1
+  }
+}

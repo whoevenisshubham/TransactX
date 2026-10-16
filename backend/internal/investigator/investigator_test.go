@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -15,11 +16,33 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func validateInvestigatorTestDBName(dbName string) error {
+	trimmed := strings.TrimSpace(dbName)
+	if trimmed == "" {
+		return fmt.Errorf("database name cannot be empty")
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "transactx" {
+		return fmt.Errorf("refusing test execution against source database %q: integration tests require an isolated disposable database", dbName)
+	}
+	for _, sysDB := range []string{"postgres", "template0", "template1"} {
+		if lower == sysDB {
+			return fmt.Errorf("refusing test execution against system database %q", dbName)
+		}
+	}
+	for _, pfx := range []string{"transactx_disposable_", "transactx_cb_restore_", "transactx_test_", "transactx_m2_disposable_"} {
+		if strings.HasPrefix(lower, pfx) {
+			return nil
+		}
+	}
+	return fmt.Errorf("database %q is not explicitly identified as disposable (must start with one of: transactx_disposable_, transactx_cb_restore_, transactx_test_, transactx_m2_disposable_)", dbName)
+}
+
 func getTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
+		t.Skip("DATABASE_URL not set; skipping live PostgreSQL investigator tests")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -32,6 +55,17 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Skipf("cannot ping postgresql (%s): %v", dbURL, err)
 	}
+
+	var currentDB string
+	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&currentDB); err != nil {
+		pool.Close()
+		t.Fatalf("failed to query current_database(): %v", err)
+	}
+	if err := validateInvestigatorTestDBName(currentDB); err != nil {
+		pool.Close()
+		t.Fatalf("unsafe test database connection rejected: %v", err)
+	}
+
 	_, _ = pool.Exec(ctx, "DELETE FROM investigation_jobs;")
 	return pool
 }

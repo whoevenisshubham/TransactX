@@ -65,7 +65,7 @@ and off-machine durability remain unverified.
    - Fail-closed builder guard preserved: builder outputs `unset; required for an archive` and writes no release archive until configured.
 5. **Native Linux Deployment Host & Infrastructure (PENDING OWNER INPUT):**
    - Requires owner-provided native Linux target host/access, DNS and TLS configuration for archive extraction and service installation via `deploy/scripts/install-release.sh`, Caddy setup via `deploy/caddy/Caddyfile.example`, and private-port smoke testing via `deploy/scripts/smoke.sh` ($0 / ₹0 spend).
-   - Off-machine backup requires an independently configured destination (S3/GCS bucket or mounted share) using `deploy/scripts/backup.sh` and live multi-region DR drill via `deploy/scripts/restore-check.sh`.
+   - Off-machine backup requires an owner-controlled destination (mounted directory for `BACKUP_OFFVM_DIR` or local storage copy) using `deploy/scripts/backup.sh` and operational recovery verification via `deploy/scripts/restore-check.sh` satisfying target RPO (up to 24h) and RTO (under 30 minutes on documented rehearsal environment; $0 cloud spend).
    - Production browser smoke requires target host execution of `playwright.live.config.ts` with owner-controlled test credentials.
    - Live-provider validation remains disabled (zero spend / $0 / ₹0). OAuth/IdP and Kubernetes are not prerequisites.
 

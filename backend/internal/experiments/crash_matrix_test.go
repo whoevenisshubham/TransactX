@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,11 @@ func TestCrashMatrix_FullRecoveryAndEventMatrix(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping live crash matrix test")
 	}
 
+	lowerURL := strings.ToLower(dbURL)
+	if strings.Contains(lowerURL, "/transactx") && !strings.Contains(lowerURL, "/transactx_") {
+		t.Fatal("SAFETY VIOLATION: DATABASE_URL points to protected source database transactx")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -53,7 +59,11 @@ func TestCrashMatrix_FullRecoveryAndEventMatrix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initialize crash matrix harness: %v", err)
 	}
-	defer harness.Close()
+	defer func() {
+		if closeErr := harness.Close(); closeErr != nil {
+			t.Errorf("harness.Close failed: %v", closeErr)
+		}
+	}()
 
 	t.Log("Starting Crash Matrix & Event Restart Verification (B12)...")
 	report, err := harness.RunAllScenarios(ctx)
@@ -135,6 +145,11 @@ func TestCrashMatrix_FinancialInvariants_DetectsParticipantPayloadMismatch(t *te
 		t.Skip("DATABASE_URL not set; skipping test")
 	}
 
+	lowerURL := strings.ToLower(dbURL)
+	if strings.Contains(lowerURL, "/transactx") && !strings.Contains(lowerURL, "/transactx_") {
+		t.Fatal("SAFETY VIOLATION: DATABASE_URL points to protected source database transactx")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -148,7 +163,11 @@ func TestCrashMatrix_FinancialInvariants_DetectsParticipantPayloadMismatch(t *te
 	if err != nil {
 		t.Fatalf("initialize harness: %v", err)
 	}
-	defer harness.Close()
+	defer func() {
+		if closeErr := harness.Close(); closeErr != nil {
+			t.Errorf("harness.Close failed: %v", closeErr)
+		}
+	}()
 
 	// Initial check: baseline must be clean
 	baseInv := harness.VerifyFinancialInvariants(ctx)
@@ -227,6 +246,11 @@ func TestCrashMatrix_FinancialInvariants_DetectsDebitCreditImbalance(t *testing.
 		t.Skip("DATABASE_URL not set; skipping test")
 	}
 
+	lowerURL := strings.ToLower(dbURL)
+	if strings.Contains(lowerURL, "/transactx") && !strings.Contains(lowerURL, "/transactx_") {
+		t.Fatal("SAFETY VIOLATION: DATABASE_URL points to protected source database transactx")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -240,7 +264,11 @@ func TestCrashMatrix_FinancialInvariants_DetectsDebitCreditImbalance(t *testing.
 	if err != nil {
 		t.Fatalf("initialize harness: %v", err)
 	}
-	defer harness.Close()
+	defer func() {
+		if closeErr := harness.Close(); closeErr != nil {
+			t.Errorf("harness.Close failed: %v", closeErr)
+		}
+	}()
 
 	baseInv := harness.VerifyFinancialInvariants(ctx)
 	if !baseInv.DebitCreditConservation {
@@ -308,6 +336,11 @@ func TestCrashMatrix_Scenario_FailsOnInjectedCancelledContext(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping test")
 	}
 
+	lowerURL := strings.ToLower(dbURL)
+	if strings.Contains(lowerURL, "/transactx") && !strings.Contains(lowerURL, "/transactx_") {
+		t.Fatal("SAFETY VIOLATION: DATABASE_URL points to protected source database transactx")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -321,7 +354,11 @@ func TestCrashMatrix_Scenario_FailsOnInjectedCancelledContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initialize harness: %v", err)
 	}
-	defer harness.Close()
+	defer func() {
+		if closeErr := harness.Close(); closeErr != nil {
+			t.Errorf("harness.Close failed: %v", closeErr)
+		}
+	}()
 
 	// Create an already-cancelled context
 	cancelledCtx, cancelNow := context.WithCancel(ctx)

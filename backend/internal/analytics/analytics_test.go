@@ -3,6 +3,7 @@ package analytics
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -13,11 +14,42 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// AllowedDisposableTestDBPrefixes defines database name prefixes considered safe and isolated for automated testing.
+var AllowedDisposableTestDBPrefixes = []string{
+	"transactx_disposable_",
+	"transactx_cb_restore_",
+	"transactx_test_",
+	"transactx_m2_disposable_",
+}
+
+func validateTestDatabaseName(dbName string) error {
+	trimmed := strings.TrimSpace(dbName)
+	if trimmed == "" {
+		return fmt.Errorf("database name cannot be empty")
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "transactx" {
+		return fmt.Errorf("refusing test execution against source database %q: integration tests require an isolated disposable database", dbName)
+	}
+	for _, sysDB := range []string{"postgres", "template0", "template1"} {
+		if lower == sysDB {
+			return fmt.Errorf("refusing test execution against system database %q", dbName)
+		}
+	}
+	for _, pfx := range AllowedDisposableTestDBPrefixes {
+		if strings.HasPrefix(lower, pfx) {
+			return nil
+		}
+	}
+	return fmt.Errorf("database %q is not explicitly identified as disposable (must start with one of: %s)",
+		dbName, strings.Join(AllowedDisposableTestDBPrefixes, ", "))
+}
+
 func getTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres@localhost:5432/transactx?sslmode=disable"
+		t.Skip("DATABASE_URL not set; skipping live PostgreSQL analytics tests")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -30,6 +62,17 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 		pool.Close()
 		t.Skipf("cannot ping postgresql (%s): %v", dbURL, err)
 	}
+
+	var currentDB string
+	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&currentDB); err != nil {
+		pool.Close()
+		t.Fatalf("failed to query current_database(): %v", err)
+	}
+	if err := validateTestDatabaseName(currentDB); err != nil {
+		pool.Close()
+		t.Fatalf("unsafe test database connection rejected: %v", err)
+	}
+
 	return pool
 }
 
@@ -531,9 +574,9 @@ func TestAnalytics_IneligiblePriorWindows_ExcludedFromCalibration(t *testing.T) 
 		{1, 40, nil, map[string]any{"reviewed_healthy": true, "anomalous": true}, WindowDuration},
 		{2, 40, nil, map[string]any{"reviewed_healthy": true, "ineligible": true}, WindowDuration},
 		{3, 40, &Warning{Code: "BASELINE_DEVIATION", Message: "dev"}, map[string]any{"reviewed_healthy": true}, WindowDuration},
-		{4, 10, nil, map[string]any{"reviewed_healthy": true}, WindowDuration}, // < 20 samples
+		{4, 10, nil, map[string]any{"reviewed_healthy": true}, WindowDuration},                 // < 20 samples
 		{5, 40, nil, map[string]any{"reviewed_healthy": true}, WindowDuration + 2*time.Minute}, // malformed duration
-		{10, 40, nil, map[string]any{"reviewed_healthy": true}, WindowDuration}, // future / same as scoreFrom
+		{10, 40, nil, map[string]any{"reviewed_healthy": true}, WindowDuration},                // future / same as scoreFrom
 		{6, 40, nil, map[string]any{"reviewed_healthy": true, "unreviewed": true}, WindowDuration},
 	}
 
@@ -1177,5 +1220,3 @@ func TestAnalytics_MalformedProvenance_FailsClosedToError(t *testing.T) {
 		t.Errorf("expected non-empty calibration_error in DB raw_aggregates")
 	}
 }
-
-
