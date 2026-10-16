@@ -18,16 +18,16 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: transactx_ci
+          POSTGRES_DB: transactx_disposable_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d transactx_ci"
+          --health-cmd "pg_isready -U postgres -d transactx_disposable_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
     env:
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/transactx_ci?sslmode=disable
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/transactx_disposable_ci?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
