@@ -786,7 +786,7 @@ func TestAnalytics_FitLiveBaseline_PriorHealthyCalibrationAndAlerts(t *testing.T
 			},
 			Advisory: true,
 		}
-		raw := map[string]any{"seeded": true}
+		raw := map[string]any{"seeded": true, "reviewed_healthy": true}
 		if err := repo.UpsertWindow(ctx, healthyWin, raw); err != nil {
 			t.Fatalf("seed healthy window %d failed: %v", i, err)
 		}

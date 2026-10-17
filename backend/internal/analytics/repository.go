@@ -514,12 +514,10 @@ func (r *PostgresRepository) AggregateWindow(ctx context.Context, entityType, en
 	}
 
 	// 6. Query prior completed healthy windows for the entity.
-	// Windows are independently designated healthy when attested by raw_aggregates
-	// (e.g. reviewed_healthy, healthy, or seeded), not marked ineligible or anomalous,
-	// baseline_alert IS NULL, and sample_count >= MinimumSampleCount.
-	//
-	// Precedence rule: explicit negative review (reviewed_healthy=false), anomalous state,
-	// ineligible flag, or unreviewed flag strictly vetoes eligibility even if healthy or seeded is true.
+	// Only the server-controlled reviewed_healthy JSON boolean attests health.
+	// Seed/provenance labels are historical context, never independent review.
+	// Negative review and exclusion flags veto attestation; malformed metadata
+	// and database errors produce an explicit scoring error, not warmup.
 	var priorHealthy []anomaly.LiveCalibrationWindow
 	var calibrationErr error
 
@@ -899,81 +897,37 @@ func (r *PostgresRepository) ComputeMetricsSummary(ctx context.Context, asOf tim
 	}, nil
 }
 
-func parseBoolFlag(key string, v any) (*bool, error) {
-	if v == nil {
-		return nil, nil
-	}
-	switch b := v.(type) {
-	case bool:
-		return &b, nil
-	case string:
-		lower := strings.ToLower(strings.TrimSpace(b))
-		if lower == "true" || lower == "t" || lower == "1" {
-			val := true
-			return &val, nil
-		}
-		if lower == "false" || lower == "f" || lower == "0" {
-			val := false
-			return &val, nil
-		}
-		return nil, fmt.Errorf("invalid boolean string for %s: %q", key, b)
-	default:
-		return nil, fmt.Errorf("invalid boolean type for %s: %T", key, v)
-	}
-}
-
+// evaluateHealthyEligibility reads stored server metadata, never client request flags.
+// reviewed_healthy=true is the sole healthy attestation. Runtime aggregation always
+// writes false; only independently reviewed calibration fixtures/data may set true.
+// Legacy labels remain stored unchanged but cannot grant eligibility.
 func evaluateHealthyEligibility(rawMap map[string]any) (bool, error) {
-	if rawMap == nil {
+	flags := make(map[string]bool)
+	for _, key := range []string{"reviewed_healthy", "healthy", "seeded", "ineligible", "anomalous", "unreviewed", "operational_review_passed", "investigation_review_passed"} {
+		if value, exists := rawMap[key]; exists {
+			flag, ok := value.(bool)
+			if !ok {
+				return false, fmt.Errorf("invalid boolean type for %s: %T", key, value)
+			}
+			flags[key] = flag
+		}
+	}
+	var provenance string
+	if value, exists := rawMap["provenance"]; exists {
+		var ok bool
+		provenance, ok = value.(string)
+		if !ok {
+			return false, fmt.Errorf("invalid provenance type: %T", value)
+		}
+	}
+	for _, key := range []string{"reviewed_healthy", "healthy", "operational_review_passed", "investigation_review_passed"} {
+		if value, exists := flags[key]; exists && !value {
+			return false, nil
+		}
+	}
+	if flags["ineligible"] || flags["anomalous"] || flags["unreviewed"] ||
+		provenance == "unreviewed_live" || provenance == "anomalous" || provenance == "ineligible" {
 		return false, nil
 	}
-
-	reviewedHealthy, err := parseBoolFlag("reviewed_healthy", rawMap["reviewed_healthy"])
-	if err != nil {
-		return false, err
-	}
-	healthy, err := parseBoolFlag("healthy", rawMap["healthy"])
-	if err != nil {
-		return false, err
-	}
-	seeded, err := parseBoolFlag("seeded", rawMap["seeded"])
-	if err != nil {
-		return false, err
-	}
-	ineligible, err := parseBoolFlag("ineligible", rawMap["ineligible"])
-	if err != nil {
-		return false, err
-	}
-	anomalous, err := parseBoolFlag("anomalous", rawMap["anomalous"])
-	if err != nil {
-		return false, err
-	}
-	unreviewed, err := parseBoolFlag("unreviewed", rawMap["unreviewed"])
-	if err != nil {
-		return false, err
-	}
-
-	prov, _ := rawMap["provenance"].(string)
-
-	// Precedence rule: explicit negative review or disqualifying flag ALWAYS vetoes eligibility,
-	// regardless of whether seeded or healthy is true.
-	if (reviewedHealthy != nil && !*reviewedHealthy) ||
-		(healthy != nil && !*healthy) ||
-		(ineligible != nil && *ineligible) ||
-		(anomalous != nil && *anomalous) ||
-		(unreviewed != nil && *unreviewed) ||
-		prov == "unreviewed_live" ||
-		prov == "anomalous" ||
-		prov == "ineligible" {
-		return false, nil
-	}
-
-	// Positive attestation check: must have explicit positive review or trusted seeded baseline.
-	isAttested := (reviewedHealthy != nil && *reviewedHealthy) ||
-		(healthy != nil && *healthy) ||
-		(seeded != nil && *seeded) ||
-		prov == "reviewed_healthy" ||
-		prov == "seeded_healthy"
-
-	return isAttested, nil
+	return flags["reviewed_healthy"], nil
 }
-
