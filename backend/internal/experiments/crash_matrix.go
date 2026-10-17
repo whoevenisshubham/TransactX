@@ -673,6 +673,7 @@ func (h *CrashMatrixHarness) RunAll(ctx context.Context) (report *CrashMatrixRep
 
 	var passedCount, failedCount int
 	record := func(res CrashScenarioResult) {
+		res.FaultBoundary = "In-process harness; no native process kill: " + res.FaultBoundary
 		if res.Passed {
 			passedCount++
 		} else {
@@ -709,15 +710,18 @@ func (h *CrashMatrixHarness) RunAll(ctx context.Context) (report *CrashMatrixRep
 	finSummary := h.verifyOverallFinancialInvariants(ctx)
 
 	var postgresVer string
-	_ = h.pool.QueryRow(ctx, `SHOW server_version`).Scan(&postgresVer)
+	if err := h.pool.QueryRow(ctx, `SHOW server_version`).Scan(&postgresVer); err != nil {
+		return nil, fmt.Errorf("read PostgreSQL version: %w", err)
+	}
 
+	gitCommit, workingTree, dirty := sourceProvenance("")
 	report = &CrashMatrixReport{
 		SchemaVersion: "tx.crash_matrix.v1",
 		RunID:         fmt.Sprintf("run-%d-%s", now.Unix(), strings.ToLower(runtime.GOOS)),
 		RunTimestamp:  now,
-		GitCommit:     h.envMeta.GitCommit,
-		WorkingTree:   "clean",
-		Dirty:         false,
+		GitCommit:     gitCommit,
+		WorkingTree:   workingTree,
+		Dirty:         dirty,
 		Toolchain: map[string]string{
 			"go":       runtime.Version(),
 			"platform": runtime.GOOS + "/" + runtime.GOARCH,
@@ -1595,10 +1599,7 @@ func (h *CrashMatrixHarness) runRec11_OriginalExecutionTargetRemoved(ctx context
 		res.ErrorMessage = fmt.Sprintf("seed unknown bank: %v", err)
 		return res
 	}
-	defer func() {
-		_, _ = h.pool.Exec(context.Background(), `DELETE FROM payments WHERE destination_bank_id = $1`, unknownBankID)
-		_, _ = h.pool.Exec(context.Background(), `DELETE FROM banks WHERE id = $1`, unknownBankID)
-	}()
+	// Preserve immutable fixture history; the verified disposable lifecycle owns teardown.
 
 	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, source_bank_id, destination_bank_id)
@@ -1726,7 +1727,11 @@ func (h *CrashMatrixHarness) runRec13_PermanentBusinessRejectionBeforeIrreversib
 	defer h.adapterA.SetHoldError(nil)
 
 	svc := h.newPaymentsService()
-	resumeRes, _ := svc.Resume(ctx, paymentID)
+	resumeRes, resumeErr := svc.Resume(ctx, paymentID)
+	if resumeErr != nil {
+		res.ErrorMessage = fmt.Sprintf("resume rejected payment: %v", resumeErr)
+		return res
+	}
 
 	var state string
 	if err := h.pool.QueryRow(ctx, `SELECT state FROM payments WHERE id = $1`, paymentID).Scan(&state); err != nil {
@@ -1978,13 +1983,20 @@ func (h *CrashMatrixHarness) runEvt02_CommittedEvent_DeliveredToProjection(ctx c
 		for _, d := range deliveries {
 			if d.EventID == ourEventID {
 				event, err := store.GetEvent(ctx, d.EventID)
-				if err == nil && event != nil {
-					_, err = projector.ProjectEvent(ctx, event)
-					if err == nil {
-						_, _ = dispatcher.CompleteDelivery(ctx, d.ConsumerName, d.EventID, "worker-1", d.LeaseEpoch)
-						dispatched++
-					}
+				if err != nil || event == nil {
+					res.ErrorMessage = fmt.Sprintf("load claimed event: %v", err)
+					return res
 				}
+				if _, err := projector.ProjectEvent(ctx, event); err != nil {
+					res.ErrorMessage = fmt.Sprintf("project claimed event: %v", err)
+					return res
+				}
+				acknowledged, ackErr := dispatcher.CompleteDelivery(ctx, d.ConsumerName, d.EventID, "worker-1", d.LeaseEpoch)
+				if ackErr != nil || !acknowledged {
+					res.ErrorMessage = fmt.Sprintf("acknowledge projected event: acknowledged=%v error=%v", acknowledged, ackErr)
+					return res
+				}
+				dispatched++
 			}
 		}
 		if dispatched > 0 {
@@ -2181,11 +2193,13 @@ func (h *CrashMatrixHarness) runEvt05_TwoDispatcherLeases_CASProtection(ctx cont
 	var wg sync.WaitGroup
 	var d1OurClaimed, d2OurClaimed int32
 	var d1Total, d2Total int32
+	var claimErr1, claimErr2 error
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		d1, _ := disp1.ClaimDueDeliveries(ctx, outbox.ConsumerOpsWorklist, "disp-1", 50, 30*time.Second)
+		d1, err := disp1.ClaimDueDeliveries(ctx, outbox.ConsumerOpsWorklist, "disp-1", 50, 30*time.Second)
+		claimErr1 = err
 		atomic.AddInt32(&d1Total, int32(len(d1)))
 		for _, d := range d1 {
 			if d.EventID == ourEventID {
@@ -2195,7 +2209,8 @@ func (h *CrashMatrixHarness) runEvt05_TwoDispatcherLeases_CASProtection(ctx cont
 	}()
 	go func() {
 		defer wg.Done()
-		d2, _ := disp2.ClaimDueDeliveries(ctx, outbox.ConsumerOpsWorklist, "disp-2", 50, 30*time.Second)
+		d2, err := disp2.ClaimDueDeliveries(ctx, outbox.ConsumerOpsWorklist, "disp-2", 50, 30*time.Second)
+		claimErr2 = err
 		atomic.AddInt32(&d2Total, int32(len(d2)))
 		for _, d := range d2 {
 			if d.EventID == ourEventID {
@@ -2205,6 +2220,10 @@ func (h *CrashMatrixHarness) runEvt05_TwoDispatcherLeases_CASProtection(ctx cont
 	}()
 	wg.Wait()
 
+	if claimErr1 != nil || claimErr2 != nil {
+		res.ErrorMessage = fmt.Sprintf("claim deliveries: %v / %v", claimErr1, claimErr2)
+		return res
+	}
 	totalOurClaimed := d1OurClaimed + d2OurClaimed
 	res.ObservedState = fmt.Sprintf("d1OurClaimed=%d, d2OurClaimed=%d, d1Total=%d, d2Total=%d", d1OurClaimed, d2OurClaimed, d1Total, d2Total)
 
@@ -2213,7 +2232,11 @@ func (h *CrashMatrixHarness) runEvt05_TwoDispatcherLeases_CASProtection(ctx cont
 	p1 := (d1OurClaimed == 1 && d2OurClaimed == 0) || (d1OurClaimed == 0 && d2OurClaimed == 1)
 	if !p1 && totalOurClaimed == 0 && (d1Total+d2Total) > 0 {
 		// If another delivery was ahead in queue, claim again to process our delivery
-		dRetry, _ := disp1.ClaimDueDeliveries(ctx, outbox.ConsumerOpsWorklist, "disp-1", 50, 30*time.Second)
+		dRetry, err := disp1.ClaimDueDeliveries(ctx, outbox.ConsumerOpsWorklist, "disp-1", 50, 30*time.Second)
+		if err != nil {
+			res.ErrorMessage = fmt.Sprintf("retry delivery claim: %v", err)
+			return res
+		}
 		for _, d := range dRetry {
 			if d.EventID == ourEventID {
 				p1 = true

@@ -603,6 +603,28 @@ func TestCrossBankRecovery_CB07_SeamFailures(t *testing.T) {
 		}
 	})
 
+	t.Run("SuccessfulRestoreTeardownFailureFailsClosed", func(t *testing.T) {
+		realRunner := &DefaultBackupRestoreRunner{}
+		harness.SetBackupRestoreRunner(&mockBackupRestoreRunner{
+			dumpFn:    realRunner.RunPgDump,
+			createFn:  realRunner.RunCreateDB,
+			restoreFn: realRunner.RunPgRestore,
+			dropFn: func(ctx context.Context, host, port, user, password, dbName string) ([]byte, error) {
+				// Destroy the real disposable fixture, then inject the reported failure.
+				out, err := realRunner.RunDropDB(ctx, host, port, user, password, dbName)
+				if err != nil {
+					return out, err
+				}
+				return out, fmt.Errorf("injected teardown result failure")
+			},
+		})
+		defer harness.SetBackupRestoreRunner(nil)
+		res := harness.RunCB07_RestoreFromDisposableBackupPendingPayment(ctx)
+		if res.Passed || !strings.Contains(res.ErrorMessage, "disposable restore teardown failed") {
+			t.Fatalf("successful restore masked teardown failure: passed=%v error=%s", res.Passed, res.ErrorMessage)
+		}
+	})
+
 	t.Run("RestoredDataMissingPaymentFailsClosed", func(t *testing.T) {
 		// Simulate a situation where pg_restore succeeded, but restored into an empty
 		// or unpopulated database where the payment record does not exist.

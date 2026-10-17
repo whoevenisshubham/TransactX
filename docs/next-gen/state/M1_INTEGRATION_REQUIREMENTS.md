@@ -1,3 +1,7 @@
+## Current takeover status — 17 October 2026
+
+Current human instructions authorize remaining M1/M2/M3 corrections in the isolated finishing branch. Prior lane handoff/closure assertions below are historical. Credential parsing and sole healthy attestation corrections are committed; remaining acceptance/reporting corrections are being verified against fresh disposable databases. Current evidence and unfinished work are tracked in M1.md, not a new numbered gate. The public-origin/host inputs and historical 158-transition dataset decision remain separate from code acceptance.
+
 # M1 integration review: M2-owned corrections
 
 ## Current candidate recheck — Gate 10 Final Combined Candidate, 14 October

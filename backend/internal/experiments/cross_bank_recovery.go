@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -141,16 +143,20 @@ func (r *CrossBankRecoveryReport) SaveArtifacts(rootDir string) (jsonPath string
 	// Also write top-level files in artifacts/v2/cross_bank_recovery/
 	rootJson := filepath.Join(rootDir, "v2", "cross_bank_recovery", "cross_bank_recovery.json")
 	rootCsv := filepath.Join(rootDir, "v2", "cross_bank_recovery", "cross_bank_recovery.csv")
-	_ = os.WriteFile(rootJson, finalBytes, 0644)
-	_ = os.WriteFile(rootCsv, []byte(strings.Join(func() []string {
-		var lines []string
-		lines = append(lines, "scenario_id,name,fault_boundary,passed,duration_ms,observed_state,invariants_count,error_message")
-		for _, sc := range r.Scenarios {
-			lines = append(lines, fmt.Sprintf("%s,%s,%s,%t,%.2f,%s,%d,%s",
-				sc.ID, sc.Name, sc.FaultBoundary, sc.Passed, sc.DurationMs, sc.ObservedState, len(sc.Invariants), sc.ErrorMessage))
-		}
-		return lines
-	}(), "\n")), 0644)
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return jsonPath, csvPath, fmt.Errorf("flush CSV: %w", err)
+	}
+	csvBytes, err := os.ReadFile(csvPath)
+	if err != nil {
+		return jsonPath, csvPath, fmt.Errorf("read CSV for canonical copy: %w", err)
+	}
+	if err := os.WriteFile(rootJson, finalBytes, 0644); err != nil {
+		return jsonPath, csvPath, err
+	}
+	if err := os.WriteFile(rootCsv, csvBytes, 0644); err != nil {
+		return jsonPath, csvPath, err
+	}
 
 	return jsonPath, csvPath, nil
 }
@@ -958,7 +964,9 @@ func (h *CrossBankRecoveryHarness) projectPaymentEvents(ctx context.Context, pay
 		return err
 	}
 	for _, evt := range events {
-		_, _ = projector.ProjectEvent(ctx, evt)
+		if _, err := projector.ProjectEvent(ctx, evt); err != nil {
+			return fmt.Errorf("project payment event: %w", err)
+		}
 	}
 	return nil
 }
@@ -970,6 +978,7 @@ func (h *CrossBankRecoveryHarness) RunAll(ctx context.Context) (*CrossBankRecove
 	var passedCount, failedCount int
 
 	record := func(res CrossBankScenarioResult) {
+		res.FaultBoundary = "In-process harness; no native process kill: " + res.FaultBoundary
 		if res.Passed {
 			passedCount++
 		} else {
@@ -989,20 +998,19 @@ func (h *CrossBankRecoveryHarness) RunAll(ctx context.Context) (*CrossBankRecove
 	finSummary := h.verifyOverallFinancialInvariants(ctx)
 
 	var postgresVer string
-	_ = h.pool.QueryRow(ctx, `SHOW server_version`).Scan(&postgresVer)
-
-	var gitCommit string
-	if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
-		gitCommit = strings.TrimSpace(string(out))
+	if err := h.pool.QueryRow(ctx, `SHOW server_version`).Scan(&postgresVer); err != nil {
+		return nil, fmt.Errorf("read PostgreSQL version: %w", err)
 	}
+
+	gitCommit, workingTree, dirty := sourceProvenance("")
 
 	report := &CrossBankRecoveryReport{
 		SchemaVersion: "tx.cross_bank_recovery.v1",
 		RunID:         fmt.Sprintf("run-%d-%s", start.Unix(), strings.ToLower(runtime.GOOS)),
 		RunTimestamp:  start,
 		GitCommit:     gitCommit,
-		WorkingTree:   "clean",
-		Dirty:         false,
+		WorkingTree:   workingTree,
+		Dirty:         dirty,
 		Toolchain: map[string]string{
 			"go":       runtime.Version(),
 			"platform": runtime.GOOS + "/" + runtime.GOARCH,
@@ -1241,10 +1249,13 @@ func (h *CrossBankRecoveryHarness) RunCB03_ParticipantCommitLostHTTPResponse(ctx
 		res.ErrorMessage = fmt.Sprintf("hold failed: %v", err)
 		return res
 	}
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payment_bank_operations (id, payment_id, bank_id, operation_id, operation_type, status, amount_paise, currency, idempotency_key)
 		VALUES ($1, $2, $3, $4, 'HOLD', 'SUCCESS', $5, 'INR', $6)`,
-		uuid.New(), fix.PaymentID, h.testBankA, fix.HoldOpID, fix.AmountPaise, fix.HoldOpID.String())
+		uuid.New(), fix.PaymentID, h.testBankA, fix.HoldOpID, fix.AmountPaise, fix.HoldOpID.String()); err != nil {
+		res.ErrorMessage = fmt.Sprintf("write scenario checkpoint: %v", err)
+		return res
+	}
 
 	creditRes, err := h.clientB.ProvisionalCredit(ctx, bank.ProvisionalCreditRequest{
 		OperationRequest: bank.OperationRequest{
@@ -1261,10 +1272,13 @@ func (h *CrossBankRecoveryHarness) RunCB03_ParticipantCommitLostHTTPResponse(ctx
 		return res
 	}
 
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payment_bank_operations (id, payment_id, bank_id, operation_id, operation_type, status, amount_paise, currency, idempotency_key)
 		VALUES ($1, $2, $3, $4, 'PROVISIONAL_CREDIT', 'PENDING', $5, 'INR', $6)`,
-		uuid.New(), fix.PaymentID, h.testBankB, fix.CreditOpID, fix.AmountPaise, fix.CreditOpID.String())
+		uuid.New(), fix.PaymentID, h.testBankB, fix.CreditOpID, fix.AmountPaise, fix.CreditOpID.String()); err != nil {
+		res.ErrorMessage = fmt.Sprintf("write scenario checkpoint: %v", err)
+		return res
+	}
 	res.Checkpoints = append(res.Checkpoints, "bank_b_credit_committed_response_lost_central_journal_pending")
 
 	presB, err := h.clientB.(bank.OperationPresenceReader).GetOperationPresence(ctx, fix.PaymentID, fix.CreditOpID)
@@ -1289,7 +1303,10 @@ func (h *CrossBankRecoveryHarness) RunCB03_ParticipantCommitLostHTTPResponse(ctx
 		return res
 	}
 	res.Checkpoints = append(res.Checkpoints, "payment_converged_without_duplicate_credit")
-	_ = h.projectPaymentEvents(ctx, fix.PaymentID)
+	if err := h.projectPaymentEvents(ctx, fix.PaymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("project payment events: %v", err)
+		return res
+	}
 
 	finSummary := h.verifySinglePaymentInvariants(ctx, fix)
 	res.ObservedState = "COMPLETED"
@@ -1297,7 +1314,10 @@ func (h *CrossBankRecoveryHarness) RunCB03_ParticipantCommitLostHTTPResponse(ctx
 	p2 := resumeRes.Payment.State == payments.StateCompleted
 
 	var bCreditCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_b.operations WHERE payment_id = $1 AND operation_type = 'PROVISIONAL_CREDIT'`, fix.PaymentID).Scan(&bCreditCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_b.operations WHERE payment_id = $1 AND operation_type = 'PROVISIONAL_CREDIT'`, fix.PaymentID).Scan(&bCreditCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("read scenario invariant: %v", err)
+		return res
+	}
 	p3 := bCreditCount == 1
 
 	res.Invariants = []InvariantResult{
@@ -1322,7 +1342,7 @@ func (h *CrossBankRecoveryHarness) RunCB04_RestartWithExistingOperationUUID(ctx 
 	res := CrossBankScenarioResult{
 		ID:            "CB-04",
 		Name:          "Restart with existing operation UUID and authoritative presence",
-		FaultBoundary: "Process restarted; recovers using original operation UUIDs without generating new identifiers or orphan entries",
+		FaultBoundary: "Seeded journal; new in-process service instance resumes original operation UUIDs (no process death)",
 	}
 
 	fix, err := h.SeedFixture(ctx, "cb04", 100)
@@ -1343,7 +1363,7 @@ func (h *CrossBankRecoveryHarness) RunCB04_RestartWithExistingOperationUUID(ctx 
 		res.ErrorMessage = fmt.Sprintf("insert hold journal: %v", err)
 		return res
 	}
-	res.Checkpoints = append(res.Checkpoints, "initial_process_crashed_after_journaling_existing_uuid")
+	res.Checkpoints = append(res.Checkpoints, "seeded_journal_existing_uuid")
 
 	restartedSvc := h.newPaymentsService()
 
@@ -1356,11 +1376,17 @@ func (h *CrossBankRecoveryHarness) RunCB04_RestartWithExistingOperationUUID(ctx 
 		res.ErrorMessage = fmt.Sprintf("expected COMPLETED, got %s", resumeRes.Status)
 		return res
 	}
-	res.Checkpoints = append(res.Checkpoints, "restarted_instance_resumed_and_completed_with_exact_uuid")
-	_ = h.projectPaymentEvents(ctx, fix.PaymentID)
+	res.Checkpoints = append(res.Checkpoints, "new_in_process_service_completed_with_exact_uuid")
+	if err := h.projectPaymentEvents(ctx, fix.PaymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("project payment events: %v", err)
+		return res
+	}
 
 	var matchingHoldCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.operations WHERE payment_id = $1 AND operation_id = $2`, fix.PaymentID, fix.HoldOpID).Scan(&matchingHoldCount)
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.operations WHERE payment_id = $1 AND operation_id = $2`, fix.PaymentID, fix.HoldOpID).Scan(&matchingHoldCount); err != nil {
+		res.ErrorMessage = fmt.Sprintf("read scenario invariant: %v", err)
+		return res
+	}
 	p3 := matchingHoldCount == 1
 
 	finSummary := h.verifySinglePaymentInvariants(ctx, fix)
@@ -1461,7 +1487,7 @@ func (h *CrossBankRecoveryHarness) RunCB05_LeaseExpiryWorker2TakeoverStaleReject
 	if claimedJobW1.LastAttemptID != nil {
 		staleAttemptID = *claimedJobW1.LastAttemptID
 	}
-	staleResolved, _ := repo.CompleteAttempt(ctx, recovery.CompleteAttemptRequest{
+	staleResolved, err := repo.CompleteAttempt(ctx, recovery.CompleteAttemptRequest{
 		AttemptID:  staleAttemptID,
 		PaymentID:  fix.PaymentID,
 		LeaseEpoch: claimedJobW1.LeaseEpoch,
@@ -1472,6 +1498,10 @@ func (h *CrossBankRecoveryHarness) RunCB05_LeaseExpiryWorker2TakeoverStaleReject
 		Result:     "COMPLETED",
 		ReasonCode: "stale_attempt",
 	})
+	if err != nil {
+		res.ErrorMessage = fmt.Sprintf("check stale completion: %v", err)
+		return res
+	}
 	if staleResolved {
 		res.ErrorMessage = "stale worker 1 was erroneously permitted to finalize after lease loss"
 		return res
@@ -1510,7 +1540,10 @@ func (h *CrossBankRecoveryHarness) RunCB05_LeaseExpiryWorker2TakeoverStaleReject
 		return res
 	}
 	res.Checkpoints = append(res.Checkpoints, "worker_2_successfully_finalized_job")
-	_ = h.projectPaymentEvents(ctx, fix.PaymentID)
+	if err := h.projectPaymentEvents(ctx, fix.PaymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("project payment events: %v", err)
+		return res
+	}
 
 	finSummary := h.verifySinglePaymentInvariants(ctx, fix)
 	res.ObservedState = "COMPLETED"
@@ -1595,10 +1628,13 @@ func (h *CrossBankRecoveryHarness) RunCB06_PresenceBranchingAbsentPresentUnknown
 		return res
 	}
 
-	_, _ = h.pool.Exec(ctx, `
+	if _, err := h.pool.Exec(ctx, `
 		INSERT INTO payment_bank_operations (id, payment_id, bank_id, operation_id, operation_type, status, amount_paise, currency, idempotency_key)
 		VALUES ($1, $2, $3, $4, 'HOLD', 'SUCCESS', $5, 'INR', $6)`,
-		uuid.New(), fix.PaymentID, h.testBankA, fix.HoldOpID, fix.AmountPaise, fix.HoldOpID.String())
+		uuid.New(), fix.PaymentID, h.testBankA, fix.HoldOpID, fix.AmountPaise, fix.HoldOpID.String()); err != nil {
+		res.ErrorMessage = fmt.Sprintf("write scenario checkpoint: %v", err)
+		return res
+	}
 
 	svc := h.newPaymentsService()
 	resumeRes, err := svc.Resume(ctx, fix.PaymentID)
@@ -1607,7 +1643,10 @@ func (h *CrossBankRecoveryHarness) RunCB06_PresenceBranchingAbsentPresentUnknown
 		return res
 	}
 	res.Checkpoints = append(res.Checkpoints, "completed_cross_bank_transfer_after_presence_branch_checks")
-	_ = h.projectPaymentEvents(ctx, fix.PaymentID)
+	if err := h.projectPaymentEvents(ctx, fix.PaymentID); err != nil {
+		res.ErrorMessage = fmt.Sprintf("project payment events: %v", err)
+		return res
+	}
 
 	finSummary := h.verifySinglePaymentInvariants(ctx, fix)
 	res.ObservedState = "COMPLETED"
@@ -1767,9 +1806,9 @@ func findPostgresContainer() string {
 // -----------------------------------------------------------------------------
 // SCENARIO 7: Unencrypted dump-and-restore: cross-bank payment pending during pg_dump
 // -----------------------------------------------------------------------------
-func (h *CrossBankRecoveryHarness) RunCB07_UnencryptedDumpRestorePendingPayment(ctx context.Context) CrossBankScenarioResult {
+func (h *CrossBankRecoveryHarness) RunCB07_UnencryptedDumpRestorePendingPayment(ctx context.Context) (res CrossBankScenarioResult) {
 	start := time.Now()
-	res := CrossBankScenarioResult{
+	res = CrossBankScenarioResult{
 		ID:            "CB-07",
 		Name:          "Unencrypted dump-and-restore: cross-bank payment pending during pg_dump",
 		FaultBoundary: "Non-encrypted PostgreSQL custom-format archive (pg_dump -Fc) while cross-bank payment pending; restored via pg_restore into disposable DB; worker continuation converges cleanly (does not satisfy encrypted DR acceptance)",
@@ -1854,17 +1893,14 @@ func (h *CrossBankRecoveryHarness) RunCB07_UnencryptedDumpRestorePendingPayment(
 	defer os.Remove(tmpDump)
 
 	runner := h.getBackupRestoreRunner()
+	restoreCreated := false
 
 	defer func() {
-		if disposableDB != "" && disposableDB != srcDB && ValidateDisposableDBName(disposableDB) == nil {
+		if restoreCreated && disposableDB != srcDB && ValidateDisposableDBName(disposableDB) == nil {
 			_, dropErr := runner.RunDropDB(context.Background(), host, port, user, password, disposableDB)
 			if dropErr != nil {
-				if h.pool != nil {
-					_, _ = h.pool.Exec(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE)", disposableDB))
-				}
-				if res.ErrorMessage == "" && res.Passed {
-					res.Checkpoints = append(res.Checkpoints, fmt.Sprintf("cleanup_warning_dropdb_failed: %v", dropErr))
-				}
+				res.Passed = false
+				res.ErrorMessage += fmt.Sprintf("; disposable restore teardown failed: %v", dropErr)
 			} else {
 				res.Checkpoints = append(res.Checkpoints, "disposable_database_dropped")
 			}
@@ -1888,8 +1924,7 @@ func (h *CrossBankRecoveryHarness) RunCB07_UnencryptedDumpRestorePendingPayment(
 	}
 	res.Checkpoints = append(res.Checkpoints, "pg_dump_custom_format_backup_completed")
 
-	// Step 2: Clean previous instance and create disposable database
-	_, _ = runner.RunDropDB(ctx, host, port, user, password, disposableDB)
+	// Step 2: Create a unique disposable target; never delete a preexisting database.
 
 	createOut, createErr := runner.RunCreateDB(ctx, host, port, user, password, disposableDB)
 	if createErr != nil {
@@ -1898,6 +1933,7 @@ func (h *CrossBankRecoveryHarness) RunCB07_UnencryptedDumpRestorePendingPayment(
 		res.Checkpoints = append(res.Checkpoints, "disposable_database_creation_failed")
 		return res
 	}
+	restoreCreated = true
 	res.Checkpoints = append(res.Checkpoints, "disposable_database_created")
 
 	// Step 3: Restore custom dump into disposable database
@@ -1917,15 +1953,14 @@ func (h *CrossBankRecoveryHarness) RunCB07_UnencryptedDumpRestorePendingPayment(
 	res.Checkpoints = append(res.Checkpoints, "pg_restore_into_disposable_database_completed")
 
 	// Step 4: Connect to restored database
-	var userAuth string
-	if user != "" {
-		if password != "" {
-			userAuth = fmt.Sprintf("%s:%s@", user, password)
-		} else {
-			userAuth = fmt.Sprintf("%s@", user)
-		}
+	restoredConnection := &url.URL{
+		Scheme: "postgres", Host: net.JoinHostPort(host, port),
+		Path: disposableDB, RawQuery: "sslmode=disable",
 	}
-	restoredURL := fmt.Sprintf("postgres://%s%s:%s/%s?sslmode=disable", userAuth, host, port, disposableDB)
+	if user != "" {
+		restoredConnection.User = url.UserPassword(user, password)
+	}
+	restoredURL := restoredConnection.String()
 	restoredPool, err := database.NewPool(ctx, restoredURL)
 	if err != nil {
 		res.ErrorMessage = fmt.Sprintf("connect to restored DB: %v", err)
@@ -2220,48 +2255,55 @@ func (h *CrossBankRecoveryHarness) verifySinglePaymentInvariants(ctx context.Con
 }
 
 func (h *CrossBankRecoveryHarness) verifyOverallFinancialInvariants(ctx context.Context) CrossBankFinancialSummary {
-	var summary CrossBankFinancialSummary
-	summary.NonnegativeBalances = true
-	summary.DebitCreditConservation = true
-	summary.SingleLedgerPerPayment = true
-	summary.IdempotencyUnique = true
-	summary.ParticipantUnique = true
-	summary.PayloadIntegrity = true
-	summary.CorrelationIntegrity = true
-	summary.WorklistConvergence = true
-
-	var negCount int
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE balance_paise < 0`).Scan(&negCount)
-	if negCount > 0 {
-		summary.NonnegativeBalances = false
-		summary.TotalViolations += negCount
+	// Reuse the checked independent central/participant assertions; do not publish
+	// unconditional uniqueness/payload claims or interpret SQL failures as zero.
+	base := (&CrashMatrixHarness{pool: h.pool}).verifyOverallFinancialInvariants(ctx)
+	summary := CrossBankFinancialSummary{
+		NonnegativeBalances:     base.NonnegativeBalances,
+		DebitCreditConservation: base.DebitCreditConservation,
+		SingleLedgerPerPayment:  base.SingleLedgerPerPayment,
+		IdempotencyUnique:       base.IdempotencyUnique,
+		ParticipantUnique:       base.ParticipantUnique,
+		PayloadIntegrity:        base.ParticipantUnique,
+		CorrelationIntegrity:    base.ParticipantUnique,
+		TotalViolations:         base.TotalViolations,
+		TotalLedgerDebitsPaise:  base.TotalLedgerDebitsPaise,
+		TotalLedgerCreditsPaise: base.TotalLedgerCreditsPaise,
+		WorklistConvergence:     true,
 	}
-
-	var debits, credits int64
-	_ = h.pool.QueryRow(ctx, `
-		SELECT
-			COALESCE(SUM(amount_paise) FILTER (WHERE entry_type = 'DEBIT'), 0),
-			COALESCE(SUM(amount_paise) FILTER (WHERE entry_type = 'CREDIT'), 0)
-		FROM ledger_entries`).Scan(&debits, &credits)
-	summary.TotalLedgerDebitsPaise = debits
-	summary.TotalLedgerCreditsPaise = credits
-	if debits != credits {
+	for _, bankName := range []string{"bank_a", "bank_b"} {
+		var count int
+		if err := h.pool.QueryRow(ctx, "SELECT COUNT(*) FROM "+bankName+".operations").Scan(&count); err != nil {
+			summary.ParticipantUnique = false
+			summary.TotalViolations++
+		}
+		if bankName == "bank_a" {
+			summary.BankAOperationsCount = count
+		} else {
+			summary.BankBOperationsCount = count
+		}
+	}
+	var reconstruction, missingProjection int
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM accounts a
+		WHERE a.user_id = ANY($1::uuid[]) AND a.balance_paise != a.opening_balance_paise + COALESCE((
+		SELECT SUM(CASE WHEN le.entry_type='CREDIT' THEN le.amount_paise ELSE -le.amount_paise END)
+		FROM ledger_entries le WHERE le.account_id=a.id), 0)`, h.testUsers).Scan(&reconstruction); err != nil {
 		summary.DebitCreditConservation = false
 		summary.TotalViolations++
+	} else if reconstruction > 0 {
+		summary.DebitCreditConservation = false
+		summary.TotalViolations += reconstruction
 	}
-
-	var dupLedgers int
-	_ = h.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM (
-			SELECT payment_id FROM ledger_transactions GROUP BY payment_id HAVING COUNT(*) > 1
-		) d`).Scan(&dupLedgers)
-	if dupLedgers > 0 {
-		summary.SingleLedgerPerPayment = false
-		summary.TotalViolations += dupLedgers
+	summary.CentralReconstructionErr = reconstruction
+	if err := h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM payments p
+		WHERE p.initiated_by_user_id=ANY($1::uuid[]) AND p.state='COMPLETED'
+		AND NOT EXISTS (SELECT 1 FROM ops_payment_worklist w WHERE w.payment_id=p.id AND w.current_state=p.state
+		AND w.event_version=p.event_version)`, h.testUsers).Scan(&missingProjection); err != nil {
+		summary.WorklistConvergence = false
+		summary.TotalViolations++
+	} else if missingProjection > 0 {
+		summary.WorklistConvergence = false
+		summary.TotalViolations += missingProjection
 	}
-
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_a.operations`).Scan(&summary.BankAOperationsCount)
-	_ = h.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bank_b.operations`).Scan(&summary.BankBOperationsCount)
-
 	return summary
 }

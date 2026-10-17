@@ -1,3 +1,11 @@
+## Final completion takeover — 17 October 2026
+
+Current finishing checkout starts at integration `86e12e4`, with M1 `bc7c167`, M3 `15efc94` and normally merged M2 `e61ebd0` history. See the compact current evidence map in M1.md. Historical closure percentages and native-process wording below do not supersede source verification. CB/REC harness scenarios are seeded/in-process evidence, not native process kills; distinct M1 native artifacts retain their measured scope.
+
+**Historical dataset incident (unresolved, excluded from clean-release claims):** repository history reports 158 missing `payment_state_transitions` rows in the protected source dataset. Their original contents, affected payments and recoverability have not been independently established in this takeover. Existing clean-database tests and native/encrypted restore artifacts validate fresh disposable data, not recovery of those rows. No verified pre-incident backup capable of restoring this history has been identified in the reviewed repository evidence. Owner decision required: supply provenance-verified pre-incident recovery material and authorize a separate isolated forensic comparison, then explicitly approve any proposed source remediation; otherwise keep the affected dataset preserved and excluded. This task does not authorize source access/mutation, guessed history, trigger bypass, deletion or dataset disposal.
+
+Delivery uses `VITE_API_BASE_URL` with the real checked-in builder interfaces; preflight is not an archive. Backup scope is daily encrypted backups with measured RPO up to 24 hours and rehearsal RTO target under 30 minutes, not guarantees. Multi-region/zero-RPO/paid storage requirements in older handoff prose are withdrawn. Public origin, authorized native Linux hosting and independent backup destination remain unconfigured; spending/provider calls zero.
+
 # TransactX — M1/M2/M3 Integration & Release Verification Checkpoint
 
 **Date:** 2026-10-13  

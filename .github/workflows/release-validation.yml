@@ -45,8 +45,25 @@ jobs:
       - name: Build
         working-directory: backend
         run: go build ./...
-      - name: Dedicated Disposable Database Lifecycle (Cross-Bank & Crash Matrix)
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+      # Broad suites intentionally skip destructive matrices without a lifecycle
+      # contract. This separate invocation must run them, including race coverage.
+      - name: Dedicated Disposable Database Lifecycle (Cross-Bank & Crash Matrix, race)
+        env:
+          GOFLAGS: -race
         run: bash backend/scripts/run-cross-bank-disposable.sh --base-url "postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable"
+      - name: Canonical migrated investigation store acceptance
+        env:
+          M3_CANONICAL_STORE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/transactx_disposable_canonical_test?sslmode=disable
+          M3_CANONICAL_STORE_RESET_DATABASE: transactx_disposable_canonical_test
+        run: |
+          PGPASSWORD=postgres createdb -h 127.0.0.1 -U postgres transactx_disposable_canonical_test
+          trap 'PGPASSWORD=postgres dropdb -h 127.0.0.1 -U postgres transactx_disposable_canonical_test' EXIT
+          for migration in backend/migrations/*.up.sql; do psql "$M3_CANONICAL_STORE_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
+          cd backend
+          go test -race -count=1 ./internal/investigator -run '^TestPostgresInvestigationStoreCanonicalSchemaConformance$'
 
   frontend:
     runs-on: ubuntu-latest
@@ -63,6 +80,9 @@ jobs:
       - name: Test
         working-directory: frontend
         run: npm test
+      - name: Money boundaries
+        working-directory: frontend
+        run: npm run test:money
       - name: Lint
         working-directory: frontend
         run: npm run lint

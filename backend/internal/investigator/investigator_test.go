@@ -49,11 +49,11 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		t.Skipf("cannot connect to postgresql (%s): %v", dbURL, err)
+		t.Fatalf("configured PostgreSQL connection failed: %v", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		t.Skipf("cannot ping postgresql (%s): %v", dbURL, err)
+		t.Fatalf("configured PostgreSQL ping failed: %v", err)
 	}
 
 	var currentDB string
@@ -66,13 +66,16 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("unsafe test database connection rejected: %v", err)
 	}
 
-	_, _ = pool.Exec(ctx, "DELETE FROM investigation_jobs;")
+	if _, err := pool.Exec(ctx, "DELETE FROM investigation_jobs;"); err != nil {
+		pool.Close()
+		t.Fatalf("clean disposable investigation jobs: %v", err)
+	}
 	return pool
 }
 
 func TestSchemaCompliance_Investigation_AgainstV2Schema(t *testing.T) {
 	schemaPaths := []string{
-		"C:/DL_EXam/tut/m/Project_update/TransactX_M2/docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json",
+		"../../../docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json",
 		"docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json",
 	}
 
@@ -85,7 +88,7 @@ func TestSchemaCompliance_Investigation_AgainstV2Schema(t *testing.T) {
 		}
 	}
 	if err != nil {
-		t.Skip("v2.schema.json not accessible from test path, skipping schema contract test")
+		t.Fatalf("required v2.schema.json is not accessible: %v", err)
 	}
 
 	var schemaRoot struct {

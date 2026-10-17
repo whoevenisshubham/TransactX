@@ -141,6 +141,12 @@ when the mount disappears. Local retention keeps seven daily and two Sunday
 copies. The backup timer does not run until the owner installs its unit and
 configures the backup identity and destination.
 
+Run daily backups. The operational target is measured RPO up to 24 hours and
+a rehearsal RTO under 30 minutes in the documented environment. Measure both
+during the configured-host rehearsal; these are targets, not guarantees. A
+mounted independent destination is sufficient; multi-region infrastructure,
+paid buckets and zero-RPO replication are outside this release scope.
+
 `restore-check.sh` refuses a live database name, requires owner-only permissions
 (mode 0400 or 0600) on the resolved private age identity file before decryption,
 sets client `umask 077` for local report and temporary files (PostgreSQL server data
