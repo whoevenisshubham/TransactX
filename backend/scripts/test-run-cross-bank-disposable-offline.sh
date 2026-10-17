@@ -20,10 +20,18 @@ export LOG_FILE
 
 # Find real node for URL parsing (zero network, pure JS)
 REAL_NODE="$(command -v node)"
+export REAL_NODE
 
 # Create stubs
 cat << 'EOF' > "$STUB_BIN/createdb"
 #!/usr/bin/env bash
+if [[ "${VERIFY_LITERAL_CREDENTIALS:-0}" == "1" ]]; then
+  "$REAL_NODE" -e '
+    if (process.env.PGUSER !== process.env.EXPECTED_USER || process.env.PGPASSWORD !== process.env.EXPECTED_PASSWORD) {
+      console.error("Literal credential preservation failed"); process.exit(9);
+    }
+  '
+fi
 echo "createdb [PGDATABASE=${PGDATABASE:-}, PGSSLMODE=${PGSSLMODE:-}] $*" >> "$LOG_FILE"
 if [[ "${MOCK_CREATEDB_FAIL:-0}" == "1" ]]; then
   echo "createdb: error: database creation failed" >&2
@@ -761,6 +769,27 @@ else
   cat "$TEST_TMP/out.log" >&2
   FAILED_TESTS=$((FAILED_TESTS + 1))
 fi
+
+# Credentials are data, including text that would execute if evaluated as Bash.
+export EXPECTED_USER='user $HOME "quote" '\''single'\'' \ `touch credential-backtick-marker` $(touch credential-substitution-marker)'
+export EXPECTED_PASSWORD='pass $USER "quote" '\''single'\'' \ spaces `touch credential-backtick-marker` $(touch credential-substitution-marker)'
+credential_url="$("$REAL_NODE" -e '
+  const u = new URL("postgres://127.0.0.1/postgres?sslmode=disable");
+  u.username = process.env.EXPECTED_USER;
+  u.password = process.env.EXPECTED_PASSWORD;
+  process.stdout.write(u.href);
+')"
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+if (cd "$TEST_TMP" && PATH="$STUB_BIN:$CLEAN_SYS_PATH" VERIFY_LITERAL_CREDENTIALS=1 \
+    bash "$ORCHESTRATOR_SCRIPT" --base-url "$credential_url" > /dev/null 2> "$TEST_TMP/credential-error.log") &&
+   [[ ! -e "$TEST_TMP/credential-backtick-marker" && ! -e "$TEST_TMP/credential-substitution-marker" ]]; then
+  echo "  [PASS] Credentials preserved literally; no shell payload executed"
+  PASSED_TESTS=$((PASSED_TESTS + 1))
+else
+  echo "  [FAIL] Literal credential regression" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+unset EXPECTED_USER EXPECTED_PASSWORD credential_url
 
 echo "============================================================"
 echo "Offline Validation Summary:"

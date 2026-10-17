@@ -68,6 +68,7 @@ interrupted=false
 db_name=""
 BASE_MAINT_DB="postgres"
 contract_file=""
+connection_file=""
 
 cleanup() {
   local trap_exit=$?
@@ -93,6 +94,10 @@ cleanup() {
         echo "[orchestrator] Successfully destroyed disposable test database '${db_name}'."
       fi
     fi
+  fi
+
+  if [[ -n "${connection_file:-}" ]]; then
+    rm -f -- "$connection_file"
   fi
 
   # Clean up lifecycle contract marker file if created
@@ -137,10 +142,16 @@ trap cleanup EXIT
 trap on_signal INT TERM
 
 # 2. Parse and strictly validate base connection URL
-parsed_exports="$(node -e '
+connection_file="$(mktemp)"
+node -e '
   const raw = process.argv[1];
   try {
     const u = new URL(raw);
+    // NUL-delimited data only: never generate shell source from credentials.
+    const emit = (key, value) => {
+      if (value.includes("\0")) throw new Error("NUL is not supported in connection values");
+      process.stdout.write(key + "\0" + value + "\0");
+    };
 
     // 1. Protocol validation: must be postgres: or postgresql:
     if (u.protocol !== "postgres:" && u.protocol !== "postgresql:") {
@@ -233,26 +244,31 @@ parsed_exports="$(node -e '
         console.error("Invalid sslmode " + JSON.stringify(sslmode) + " in database URL: only disable, allow, prefer, require, verify-ca, verify-full are permitted.");
         process.exit(2);
       }
-      console.log("export PGSSLMODE=" + JSON.stringify(sslmode.toLowerCase()));
+      emit("PGSSLMODE", sslmode.toLowerCase());
     }
 
-    console.log("export PGHOST=" + JSON.stringify(host));
-    console.log("export PGPORT=" + JSON.stringify(port));
-    console.log("export PGUSER=" + JSON.stringify(decodeURIComponent(u.username || "postgres")));
-    if (u.password) {
-      console.log("export PGPASSWORD=" + JSON.stringify(decodeURIComponent(u.password)));
-    }
-    console.log("export BASE_MAINT_DB=" + JSON.stringify("postgres"));
-    console.log("export PGDATABASE=" + JSON.stringify("postgres"));
+    emit("PGHOST", host);
+    emit("PGPORT", port);
+    emit("PGUSER", decodeURIComponent(u.username || "postgres"));
+    emit("PGPASSWORD", decodeURIComponent(u.password));
+    emit("BASE_MAINT_DB", "postgres");
+    emit("PGDATABASE", "postgres");
   } catch (e) {
     console.error("Invalid base database URL: " + e.message);
     process.exit(2);
   }
-' "$base_url")" || {
+' "$base_url" > "$connection_file" || {
   echo "Failed to validate base PostgreSQL connection URL." >&2
   exit 2
 }
-eval "$parsed_exports"
+while IFS= read -r -d "" key && IFS= read -r -d "" value; do
+  case "$key" in
+    PGHOST|PGPORT|PGUSER|PGPASSWORD|PGSSLMODE|BASE_MAINT_DB|PGDATABASE) export "$key=$value" ;;
+    *) echo "Invalid connection field." >&2; exit 2 ;;
+  esac
+done < "$connection_file"
+rm -f -- "$connection_file"
+connection_file=""
 
 # 3. Generate unique disposable database name
 unique_suffix="$(date +%s)_$$"
