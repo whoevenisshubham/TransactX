@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,6 +54,10 @@ type Service struct {
 	staticBaseline         string
 	circuitEligibility     CircuitEligibility
 	routeDecisionResolver  func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)
+	concurrencySem         chan struct{}
+	concurrencyLimit       int
+	concurrencyOnce        sync.Once
+	recoveryMetrics        *RecoveryMetrics
 }
 
 func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapter bank.BankAdapter) *Service {
@@ -60,11 +65,33 @@ func NewService(accountsRepository *accounts.Repository, recipientsRepository *r
 }
 
 func NewServiceWithAdapters(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter) *Service {
-	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters}
+	var ledgerRepo *ledger.Repository
+	if paymentRepository != nil && paymentRepository.db != nil {
+		ledgerRepo = ledger.NewRepository(paymentRepository.db)
+	}
+	svc := &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledgerRepo, adapters: adapters}
+	if paymentRepository != nil {
+		paymentRepository.SetAdapterResolver(func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool) {
+			src, dst, ok, _ := svc.RoutedAdaptersForPayment(ctx, payment)
+			return src, dst, ok
+		})
+	}
+	return svc
 }
 
 func NewServiceWithAdaptiveRouting(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter, routeTargets map[uuid.UUID]string, healthService HealthSnapshotProvider) *Service {
-	return &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledger.NewRepository(paymentRepository.db), adapters: adapters, routeTargets: routeTargets, health: healthService, selectionMode: SelectionModeAdaptive}
+	var ledgerRepo *ledger.Repository
+	if paymentRepository != nil && paymentRepository.db != nil {
+		ledgerRepo = ledger.NewRepository(paymentRepository.db)
+	}
+	svc := &Service{accounts: accountsRepository, recipients: recipientsRepository, payments: paymentRepository, ledger: ledgerRepo, adapters: adapters, routeTargets: routeTargets, health: healthService, selectionMode: SelectionModeAdaptive}
+	if paymentRepository != nil {
+		paymentRepository.SetAdapterResolver(func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool) {
+			src, dst, ok, _ := svc.RoutedAdaptersForPayment(ctx, payment)
+			return src, dst, ok
+		})
+	}
+	return svc
 }
 
 func NewServiceWithExecutionTargets(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapters map[uuid.UUID]bank.BankAdapter, executionTargets map[RouteKey][]ExecutionTarget, healthService HealthSnapshotProvider, mode SelectionMode, staticBaseline string) *Service {
@@ -133,6 +160,18 @@ func (service *Service) GetForUser(ctx context.Context, userID, paymentID uuid.U
 	return service.payments.GetForUser(ctx, userID, paymentID)
 }
 
+// GetPayment retrieves a payment by its unique ID.
+func (service *Service) GetPayment(ctx context.Context, paymentID uuid.UUID) (*Payment, error) {
+	if service.payments == nil {
+		return nil, ErrNotFound
+	}
+	p, err := service.payments.Get(ctx, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 func (service *Service) CreateWithResult(ctx context.Context, input CreateInput) (Payment, bool, error) {
 	key := strings.TrimSpace(input.IdempotencyKey)
 	currency := strings.ToUpper(strings.TrimSpace(input.Currency))
@@ -150,24 +189,11 @@ func (service *Service) CreateWithResult(ctx context.Context, input CreateInput)
 	requestHash := paymentRequestHash(input.SourceAccountID, recipientIdentifier, input.AmountPaise, currency, note)
 	if payment, duplicate, err := service.payments.GetIdempotent(ctx, input.UserID, key, requestHash); err != nil || duplicate {
 		if err == nil && duplicate && service.hasRoutedAdapters() {
-			if payment.State == StateBankSettledCentralPending {
-				recovered, recoveryErr := service.payments.RecoverBankSettledCentralPending(ctx, payment.ID)
-				return recovered, true, recoveryErr
+			resumeResult, resumeErr := service.Resume(ctx, payment.ID)
+			if resumeErr != nil {
+				return resumeResult.Payment, true, resumeErr
 			}
-			if payment.State == StatePendingReconciliation || payment.State == StateProcessing {
-				sourceAdapter, destinationAdapter, ok, err := service.RoutedAdaptersForPayment(ctx, payment)
-				if err != nil {
-					return Payment{}, true, err
-				}
-				if ok {
-					recoveryErr := service.payments.RecoverRoutedPayment(ctx, payment, sourceAdapter, destinationAdapter)
-					recovered, getErr := service.payments.Get(ctx, payment.ID)
-					if getErr != nil {
-						return Payment{}, true, getErr
-					}
-					return recovered, true, recoveryErr
-				}
-			}
+			return resumeResult.Payment, true, nil
 		}
 		return payment, duplicate, err
 	}
@@ -352,6 +378,31 @@ func (service *Service) RoutedAdaptersForPayment(ctx context.Context, payment Pa
 				}
 			}
 		}
+
+		// Also check configured routeTargets (used by default adaptive routing)
+		if service.routeTargets != nil {
+			configuredTarget := service.routeTargets[sourceBankID]
+			if configuredTarget == "" {
+				configuredTarget = sourceBankID.String()
+			}
+			if configuredTarget == targetID {
+				var src, dst bank.BankAdapter
+				if service.adapters != nil {
+					src = service.adapters[sourceBankID]
+					dst = service.adapters[destBankID]
+				}
+				if src == nil {
+					src = service.adapter
+				}
+				if dst == nil {
+					dst = service.adapter
+				}
+				if src != nil && dst != nil {
+					return src, dst, true, nil
+				}
+			}
+		}
+
 		// If a pending payment has route history but the selected execution target
 		// is no longer configured, fail closed / leave it pending.
 		// Do not silently substitute another execution target.

@@ -12,10 +12,12 @@ import (
 
 	"github.com/transactx/backend/internal/bankservice"
 	"github.com/transactx/backend/internal/database"
+	"github.com/transactx/backend/internal/telemetry"
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	jsonHandler := slog.NewJSONHandler(os.Stdout, nil)
+	logger := slog.New(telemetry.NewTraceCorrelatingHandler(jsonHandler))
 	databaseURL := env("BANK_B_DATABASE_URL", os.Getenv("DATABASE_URL"))
 	if databaseURL == "" {
 		logger.Error("BANK_B_DATABASE_URL or DATABASE_URL is required")
@@ -28,9 +30,20 @@ func main() {
 	}
 	defer db.Close()
 
+	telCfg := telemetry.DefaultConfig("transactx-bank-b")
+	telProvider, telShutdown, _ := telemetry.InitProvider(context.Background(), telCfg, db, logger)
+	if telShutdown != nil {
+		defer telShutdown(context.Background())
+	}
+
+	bankHandler := bankservice.Handler(bankservice.NewParticipantService(db, "BANK-B", "bank_b"))
+	if telProvider != nil {
+		bankHandler = telemetry.HTTPMiddleware(telProvider.Tracer(), telProvider.Metrics())(bankHandler)
+	}
+
 	server := &http.Server{
 		Addr:              env("BANK_B_ADDR", ":8082"),
-		Handler:           bankservice.Handler(bankservice.NewParticipantService(db, "BANK-B", "bank_b")),
+		Handler:           bankHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	serverErrors := make(chan error, 1)

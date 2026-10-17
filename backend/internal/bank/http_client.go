@@ -9,11 +9,14 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type HTTPClient struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL      string
+	httpClient   *http.Client
+	serviceToken string
 }
 
 func NewHTTPClient(baseURL string, httpClient *http.Client) (*HTTPClient, error) {
@@ -24,6 +27,16 @@ func NewHTTPClient(baseURL string, httpClient *http.Client) (*HTTPClient, error)
 		httpClient = &http.Client{Timeout: 5 * time.Second}
 	}
 	return &HTTPClient{baseURL: strings.TrimRight(baseURL, "/"), httpClient: httpClient}, nil
+}
+
+// SetServiceToken configures the participant service token for authenticated private endpoints.
+func (client *HTTPClient) SetServiceToken(token string) {
+	client.serviceToken = strings.TrimSpace(token)
+}
+
+// ServiceToken returns the configured participant service token.
+func (client *HTTPClient) ServiceToken() string {
+	return client.serviceToken
 }
 
 func (client *HTTPClient) GetHealth(ctx context.Context) (HealthResult, error) {
@@ -73,6 +86,17 @@ func (client *HTTPClient) GetLedgerSnapshot(ctx context.Context, scope LedgerSco
 	return result, client.do(ctx, http.MethodGet, path, "", &result)
 }
 
+// GetOperationPresence queries the participant's authoritative presence endpoint.
+// It returns presence: "present" or "absent", without inferring absence from errors or timeouts.
+func (client *HTTPClient) GetOperationPresence(ctx context.Context, paymentID, operationID uuid.UUID) (OperationPresenceResult, error) {
+	var result OperationPresenceResult
+	if paymentID == uuid.Nil || operationID == uuid.Nil {
+		return result, &AdapterError{Code: ErrCodePermanentFailure, Message: "payment ID and operation ID are required for presence check"}
+	}
+	path := "/internal/operations/" + url.PathEscape(operationID.String()) + "/presence?paymentId=" + url.QueryEscape(paymentID.String())
+	return result, client.do(ctx, http.MethodGet, path, "", &result)
+}
+
 func (client *HTTPClient) doJSON(ctx context.Context, method, path string, input any, output any) error {
 	payload, err := json.Marshal(input)
 	if err != nil {
@@ -94,6 +118,10 @@ func (client *HTTPClient) do(ctx context.Context, method, path, payload string, 
 	}
 	if payload != "" {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if client.serviceToken != "" {
+		request.Header.Set("X-Service-Token", client.serviceToken)
+		request.Header.Set("Authorization", "Bearer "+client.serviceToken)
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
@@ -146,3 +174,4 @@ func classifyHTTPError(status int, typedCode ErrorCode, message string) error {
 }
 
 var _ BankAdapter = (*HTTPClient)(nil)
+var _ OperationPresenceReader = (*HTTPClient)(nil)

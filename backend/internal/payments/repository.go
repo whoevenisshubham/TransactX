@@ -25,9 +25,14 @@ type Repository struct {
 	recoverRoutedFn                func(ctx context.Context, payment Payment, sourceAdapter, destinationAdapter bank.BankAdapter) error
 	getFn                          func(ctx context.Context, id uuid.UUID) (Payment, error)
 	getSelectedExecutionTargetIDFn func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)
+	recoveryMetrics                *RecoveryMetrics
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
+
+func (repository *Repository) SetRecoveryMetrics(metrics *RecoveryMetrics) {
+	repository.recoveryMetrics = metrics
+}
 
 func (repository *Repository) SetAdapterResolver(fn func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool)) {
 	repository.adapterResolver = fn

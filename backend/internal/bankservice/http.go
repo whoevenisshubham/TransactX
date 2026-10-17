@@ -1,8 +1,10 @@
 package bankservice
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,6 +81,45 @@ func Handler(service *Service) http.Handler {
 			}
 		}
 		result, serviceErr := service.GetOperationStatus(request.Context(), bank.OperationStatusRequest{PaymentID: paymentID, OperationID: operationID})
+		writeResult(writer, result, serviceErr)
+	})
+	mux.HandleFunc("GET /internal/operations/{operationID}/presence", func(writer http.ResponseWriter, request *http.Request) {
+		token := service.ServiceToken()
+		if token != "" {
+			reqToken := request.Header.Get("X-Service-Token")
+			if reqToken == "" {
+				authHeader := request.Header.Get("Authorization")
+				if strings.HasPrefix(authHeader, "Bearer ") {
+					reqToken = strings.TrimPrefix(authHeader, "Bearer ")
+				}
+			}
+			if subtle.ConstantTimeCompare([]byte(reqToken), []byte(token)) != 1 {
+				writeAdapterError(writer, http.StatusUnauthorized, &bank.AdapterError{
+					Code:    bank.ErrCodePermanentFailure,
+					Message: "unauthorized: invalid participant service token",
+				})
+				return
+			}
+		}
+
+		operationID, err := uuid.Parse(request.PathValue("operationID"))
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid operation ID")
+			return
+		}
+		var paymentID uuid.UUID
+		value := request.URL.Query().Get("paymentId")
+		if value == "" {
+			writeError(writer, http.StatusBadRequest, "paymentId is required")
+			return
+		}
+		paymentID, err = uuid.Parse(value)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid payment ID")
+			return
+		}
+
+		result, serviceErr := service.GetOperationPresence(request.Context(), paymentID, operationID)
 		writeResult(writer, result, serviceErr)
 	})
 	mux.HandleFunc("GET /v1/ledger/snapshot", func(writer http.ResponseWriter, request *http.Request) {

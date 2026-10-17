@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "frontendSourceSha": "71ce8fe",
+  "command": "npx playwright test --config playwright.live.config.ts --grep 'viewer creates a real evidence-only investigation'",
+  "result": "1 passed",
+  "testDurationSeconds": 7.2,
+  "environment": "Edge; development Vite frontend, native API, Bank A, Bank B and worker; canonical PostgreSQL 18.6; loopback listeners; private generated credentials; active approved corpus",
+  "observed": ["Real viewer login", "Scoped investigation POST accepted with idempotency header", "Native worker completed evidence-only job", "Saved report reload retained completed evidence summary", "Facts/coverage rendered", "360px no-horizontal-overflow assertion passed"],
+  "independentEvidence": {
+    "workerLogJobId": "0df3c655-8ac0-4603-9454-45d9e0b39c04",
+    "postgresJobId": "0df3c655-8ac0-4603-9454-45d9e0b39c04",
+    "status": "completed",
+    "leaseEpoch": 1,
+    "reportMode": "evidence_only",
+    "usageReservations": 0
+  },
+  "limitations": ["Development frontend and loopback HTTP; production HTTPS offline reload not exercised", "Recovery scheduler disabled; no financial effects tested", "Normal native investigator execution, not crash/restart proof", "Does not close reservation, analytics scoring, projection, full citation or foreign-actor gates"],
+  "allProbeProcessesStopped": true,
+  "paidProviderCalls": 0,
+  "spending": 0
+}

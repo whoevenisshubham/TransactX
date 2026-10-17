@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "tx.m1.browser.acceptance.v1",
+  "date": "2026-10-13",
+  "sourceBase": "ea4001880cd8bd5e245646bc1cd4d9ec86e34f13",
+  "nativeBinarySource": "4d8f2af862cfa2f7e32e6a9a0d3b8f8b50218a84",
+  "backendSourceDifference": "none: git diff 4d8f2af..ea40018 -- backend is empty",
+  "frontendPatch": "Dark-theme button contrast and tablet date-input bounds, plus live accessibility/zoom harness",
+  "sourceHashes": {
+    "frontend/browser/accessibility.live.spec.ts": "3c0aee6304cc5025f3d22e553b688b144ff8ee669733d03d9d9a0bbe74aa7212",
+    "frontend/browser/offline.live.spec.ts": "adc8bc739916e9a64604935719101ba568fa2fde9317dc45b7e137a37fc1a7ec",
+    "frontend/playwright.live.config.ts": "5c6ccf852348ca1a3e9fe99579b308a766cdf0c03f208237d939886dc6fbb466",
+    "frontend/src/styles.css": "0144b23e1061c54e60140a924571e7a35c9e7923b6d3b8ad0c899acede2fa7bb",
+    "frontend/src/design/ops.css": "f1c58d170b0e890e179d0f2f6bdb8ab2b6f55d7e65c15eb079166dcad27bf1c3"
+  },
+  "privateLogHashes": {
+    "offline-browser-pass.log": "9d24e9715651c5a7817d7483a9b97e035df256ae4cbce10aaab95ae4cab87cd3",
+    "accessibility-before.log": "c4341ca0bce80f78f802b1626d881edada815b9ddbdf40ccf5e5b0c7b4c93a50",
+    "accessibility-layout-before.log": "0cfce7c352c250e1bd0830f56da4b33fa1912f9a473315170454d1e1dc10f777",
+    "accessibility-pass.log": "d975490fdf48627503c518911e4bd50853ce7902ac9a560ca5e1c54fca1c7419",
+    "accessibility-browser.log": "2ed338b05c0fc8ec6e961f38d1fdc8379b292e0ca413b2a8ff8b8efda77cc480",
+    "pin-nondisposable.log": "1bd4e25d6d9baf26d224aa74a89e37b27f9709603e79d5a8a620d34e7d4af1c5",
+    "pin-external.log": "1bd4e25d6d9baf26d224aa74a89e37b27f9709603e79d5a8a620d34e7d4af1c5"
+  },
+  "environment": {
+    "tls": "Generated localhost certificate, Node additional CA and exact browser SPKI pin; no global certificate-error bypass",
+    "systemTrustAfterProbe": "Generated certificate absent; all native probe processes/database stopped",
+    "frontend": "production Vite build and real service worker",
+    "providerCalls": 0,
+    "browser": "Edge 154.0.4258.62",
+    "node": "22.20.0",
+    "database": "PostgreSQL 18.6, generated local credentials and synthetic opening balances",
+    "spend": 0
+  },
+  "results": {
+    "lint": "passed",
+    "pinGuards": "Non-disposable and external-host pin attempts both rejected with exit 1",
+    "zoomArtifactRerun": "Focused 1/1 passed in 14.0s after persisting actual-zoom.json",
+    "offlineReplay": "1/1 passed in 6.0s: real account-isolated IndexedDB replay, full offline reload, stable key/request identity, one completed logical payment and foreign account 404",
+    "accessibility": "4/4 passed in 49.2s: 360/768/1440 and actual 200%; real login, Tab/Enter navigation, native completed investigator, saved citation fragment/target viewport, analytics; zero critical/serious axe findings and no document overflow"
+  },
+  "actualZoom": {
+    "zoom": 2,
+    "before": {
+      "width": 1406,
+      "ratio": 1
+    },
+    "after": {
+      "width": 703,
+      "ratio": 2
+    },
+    "browser": "154.0.4258.62"
+  },
+  "offlineFinancialAndProjectionChecks": {
+    "payload": {
+      "nullOrInvalidPayloads": 0,
+      "bankIdentityMismatch": 0,
+      "confirmAccountMismatch": 0,
+      "activeCorpusVersions": 1,
+      "activeCorpusChunks": 35,
+      "manifestHash": "b882f8d6127910afe9685e66d96e82ba2d6e001c4c8d48f51ff66cffc6fbdbce"
+    },
+    "financial": {
+      "paymentState": "COMPLETED",
+      "paymentAmount": 100,
+      "logicalPayments": 1,
+      "idempotencyRows": 1,
+      "ledgerTransactions": 1,
+      "ledgerEntries": 2,
+      "correctLedgerEntries": 2,
+      "centralTotal": 10000,
+      "centralReconstructionErrors": 0,
+      "centralSender": 9800,
+      "centralReceiver": 200,
+      "participantTotal": 10000,
+      "participantSender": 9800,
+      "participantReceiver": 200,
+      "participantOperations": 4,
+      "otherParticipantOperations": 0,
+      "participantUniqueOperations": 4,
+      "participantPayloadErrors": 0,
+      "originalHoldRows": 1,
+      "participantLedgerRows": 3,
+      "participantLedgerDuplicates": 0,
+      "correctParticipantEntries": 3,
+      "journalRows": 4,
+      "journalParticipantMismatch": 0,
+      "projectionRows": 1,
+      "pendingDeliveries": 0,
+      "outboxEvents": 6,
+      "inboxEvents": 6,
+      "recoveryJob": null
+    }
+  },
+  "correctedFindings": [
+    "Native dark theme primary button white text contrasted 2.64:1; theme foreground/hover colors corrected without changing accent palette",
+    "Native 768px date input intrinsic width caused 11px overflow; bounded controls corrected",
+    "Harness now selects the actual completed-payment state and tests exact citation URL/ID/scroll rather than CSS :target",
+    "Windows trust operations did not provide reliable unattended validation; failed setup attempts retained, temporary exact certificate removed and pin used only in isolated loopback browser context",
+    "Parent credential environment restored after independent SQL helper so final reads do not block on a password prompt"
+  ],
+  "limitations": [
+    "Offline run used application source ea40018 before presentation-only CSS correction; replay/service-worker/payment source unchanged. Final combined release suite still pending",
+    "Accessibility covers real viewer operations screens in the observed dark theme; no claim of every legacy admin screen or physical mobile hardware",
+    "Local generated-certificate pin is not public DNS/CA/host deployment proof",
+    "M2 analytics provenance/SQL-error and crash-harness corrections, wider native fault boundaries and complete release archive/install smoke remain pending"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "train": [
+    "controlled_outage-1002",
+    "controlled_outage-1012",
+    "healthy-1000",
+    "healthy-1010",
+    "projection_backlog-1005",
+    "projection_backlog-1015",
+    "recovery_backlog-1004",
+    "recovery_backlog-1014",
+    "rising_latency-1001",
+    "rising_latency-1011",
+    "traffic_burst-1006",
+    "traffic_burst-1016",
+    "transient_drops-1003",
+    "transient_drops-1013"
+  ],
+  "validation": [
+    "controlled_outage-1102",
+    "controlled_outage-1112",
+    "healthy-1100",
+    "healthy-1110",
+    "projection_backlog-1105",
+    "projection_backlog-1115",
+    "recovery_backlog-1104",
+    "recovery_backlog-1114",
+    "rising_latency-1101",
+    "rising_latency-1111",
+    "traffic_burst-1106",
+    "traffic_burst-1116",
+    "transient_drops-1103",
+    "transient_drops-1113"
+  ],
+  "test": [
+    "controlled_outage-1202",
+    "controlled_outage-1212",
+    "healthy-1200",
+    "healthy-1210",
+    "projection_backlog-1205",
+    "projection_backlog-1215",
+    "recovery_backlog-1204",
+    "recovery_backlog-1214",
+    "rising_latency-1201",
+    "rising_latency-1211",
+    "traffic_burst-1206",
+    "traffic_burst-1216",
+    "transient_drops-1203",
+    "transient_drops-1213"
+  ]
+}

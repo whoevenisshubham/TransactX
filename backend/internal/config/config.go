@@ -86,6 +86,25 @@ type Config struct {
 	CircuitSuccessThreshold   int
 	CircuitRestorationSteps   int
 	CircuitSuccessPolicy      string
+	DBMaxConns                int
+	PaymentConcurrency        int
+	MigrationsDir             string
+	RecoveryEnabled           bool
+	RecoveryConcurrency       int
+	RecoveryStaleAfter        time.Duration
+	RecoveryScanInterval      time.Duration
+	RecoveryLease             time.Duration
+	RecoveryHeartbeat         time.Duration
+	RecoveryAttemptTimeout    time.Duration
+	RecoveryMaxAttempts       int
+	WorkerJobFamilies         []string
+	WorkerLabel               string
+	BuildSHA                  string
+	AllowRegistration         bool
+	ChaosEnabled              bool
+	RecoveryControlEnabled    bool
+	BankAServiceToken         string
+	BankBServiceToken         string
 }
 
 func Load() (Config, error) {
@@ -166,6 +185,111 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("CIRCUIT_SUCCESS_POLICY must be DECREMENT or RESET: %q", circuitSuccessPolicy)
 	}
 
+	dbMaxConns, err := strconv.Atoi(getEnv("TX_DB_MAX_CONNS", "8"))
+	if err != nil || dbMaxConns <= 0 {
+		return Config{}, fmt.Errorf("TX_DB_MAX_CONNS must be a positive integer: %w", err)
+	}
+
+	paymentConcurrency, err := strconv.Atoi(getEnv("TX_PAYMENT_CONCURRENCY", "2"))
+	if err != nil || paymentConcurrency <= 0 {
+		return Config{}, fmt.Errorf("TX_PAYMENT_CONCURRENCY must be a positive integer: %w", err)
+	}
+
+	if dbMaxConns < 3 {
+		return Config{}, fmt.Errorf("TX_DB_MAX_CONNS must be at least 3 to allow concurrency plus 2 query reserve: %d", dbMaxConns)
+	}
+	if paymentConcurrency > dbMaxConns-2 {
+		return Config{}, fmt.Errorf("TX_PAYMENT_CONCURRENCY (%d) exceeds pool capacity preserving 2 query reserve (TX_DB_MAX_CONNS=%d)", paymentConcurrency, dbMaxConns)
+	}
+
+	recoveryEnabled, err := strconv.ParseBool(getEnv("TX_RECOVERY_ENABLED", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_RECOVERY_ENABLED must be true or false: %w", err)
+	}
+
+	recoveryConcurrency, err := strconv.Atoi(getEnv("TX_RECOVERY_CONCURRENCY", "2"))
+	if err != nil || recoveryConcurrency <= 0 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_CONCURRENCY must be a positive integer: %w", err)
+	}
+	if recoveryConcurrency > dbMaxConns-2 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_CONCURRENCY (%d) exceeds pool capacity preserving 2 query reserve (TX_DB_MAX_CONNS=%d)", recoveryConcurrency, dbMaxConns)
+	}
+
+	recoveryStaleAfter, err := time.ParseDuration(getEnv("TX_RECOVERY_STALE_AFTER", "30s"))
+	if err != nil || recoveryStaleAfter <= 0 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_STALE_AFTER must be a positive duration: %w", err)
+	}
+
+	recoveryScanInterval, err := time.ParseDuration(getEnv("TX_RECOVERY_SCAN_INTERVAL", "10s"))
+	if err != nil || recoveryScanInterval <= 0 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_SCAN_INTERVAL must be a positive duration: %w", err)
+	}
+
+	recoveryLease, err := time.ParseDuration(getEnv("TX_RECOVERY_LEASE", "60s"))
+	if err != nil || recoveryLease <= 0 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_LEASE must be a positive duration: %w", err)
+	}
+
+	recoveryHeartbeat, err := time.ParseDuration(getEnv("TX_RECOVERY_HEARTBEAT", "15s"))
+	if err != nil || recoveryHeartbeat <= 0 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_HEARTBEAT must be a positive duration: %w", err)
+	}
+
+	recoveryAttemptTimeout, err := time.ParseDuration(getEnv("TX_RECOVERY_ATTEMPT_TIMEOUT", "20s"))
+	if err != nil || recoveryAttemptTimeout <= 0 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_ATTEMPT_TIMEOUT must be a positive duration: %w", err)
+	}
+
+	recoveryMaxAttempts, err := strconv.Atoi(getEnv("TX_RECOVERY_MAX_ATTEMPTS", "20"))
+	if err != nil || recoveryMaxAttempts <= 0 {
+		return Config{}, fmt.Errorf("TX_RECOVERY_MAX_ATTEMPTS must be a positive integer: %w", err)
+	}
+
+	if recoveryAttemptTimeout >= recoveryLease {
+		return Config{}, fmt.Errorf("TX_RECOVERY_ATTEMPT_TIMEOUT (%v) must be strictly less than TX_RECOVERY_LEASE (%v)", recoveryAttemptTimeout, recoveryLease)
+	}
+	if recoveryHeartbeat >= recoveryLease {
+		return Config{}, fmt.Errorf("TX_RECOVERY_HEARTBEAT (%v) must be strictly less than TX_RECOVERY_LEASE (%v)", recoveryHeartbeat, recoveryLease)
+	}
+
+	var workerJobFamilies []string
+	if rawFamilies := strings.TrimSpace(getEnv("TX_JOB_FAMILIES", "recovery")); rawFamilies != "" {
+		for _, part := range strings.Split(rawFamilies, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				workerJobFamilies = append(workerJobFamilies, trimmed)
+			}
+		}
+	}
+	if len(workerJobFamilies) == 0 {
+		workerJobFamilies = []string{"recovery"}
+	}
+
+	workerLabel := strings.TrimSpace(getEnv("TX_WORKER_LABEL", "transactx-worker"))
+	buildSHA := strings.TrimSpace(getEnv("TX_BUILD_SHA", getEnv("GIT_COMMIT", getEnv("BUILD_SHA", "dev"))))
+
+	defaultControlBool := "false"
+	if developmentMode {
+		defaultControlBool = "true"
+	}
+	allowRegistration, err := strconv.ParseBool(getEnv("TX_ALLOW_REGISTRATION", defaultControlBool))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_ALLOW_REGISTRATION must be true or false: %w", err)
+	}
+	chaosEnabled, err := strconv.ParseBool(getEnv("TX_CHAOS_ENABLED", defaultControlBool))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_CHAOS_ENABLED must be true or false: %w", err)
+	}
+	recoveryControlEnabled, err := strconv.ParseBool(getEnv("TX_RECOVERY_CONTROL_ENABLED", defaultControlBool))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_RECOVERY_CONTROL_ENABLED must be true or false: %w", err)
+	}
+
+	bankAServiceToken := strings.TrimSpace(getEnv("BANK_A_SERVICE_TOKEN", os.Getenv("TX_BANK_A_SERVICE_TOKEN")))
+	bankBServiceToken := strings.TrimSpace(getEnv("BANK_B_SERVICE_TOKEN", os.Getenv("TX_BANK_B_SERVICE_TOKEN")))
+
+	migrationsDir := getEnv("TX_MIGRATIONS_DIR", "migrations")
+
 	cfg := Config{
 		Address:                   getEnv("APP_ADDR", ":8080"),
 		DatabaseURL:               getEnv("DATABASE_URL", ""),
@@ -192,9 +316,36 @@ func Load() (Config, error) {
 		CircuitSuccessThreshold:   circuitSuccessThreshold,
 		CircuitRestorationSteps:   circuitRestorationSteps,
 		CircuitSuccessPolicy:      circuitSuccessPolicy,
+		DBMaxConns:                dbMaxConns,
+		PaymentConcurrency:        paymentConcurrency,
+		MigrationsDir:             migrationsDir,
+		RecoveryEnabled:           recoveryEnabled,
+		RecoveryConcurrency:       recoveryConcurrency,
+		RecoveryStaleAfter:        recoveryStaleAfter,
+		RecoveryScanInterval:      recoveryScanInterval,
+		RecoveryLease:             recoveryLease,
+		RecoveryHeartbeat:         recoveryHeartbeat,
+		RecoveryAttemptTimeout:    recoveryAttemptTimeout,
+		RecoveryMaxAttempts:       recoveryMaxAttempts,
+		WorkerJobFamilies:         workerJobFamilies,
+		WorkerLabel:               workerLabel,
+		BuildSHA:                  buildSHA,
+		AllowRegistration:         allowRegistration,
+		ChaosEnabled:              chaosEnabled,
+		RecoveryControlEnabled:    recoveryControlEnabled,
+		BankAServiceToken:         bankAServiceToken,
+		BankBServiceToken:         bankBServiceToken,
 	}
 	if !developmentMode && len([]byte(cfg.JWTSecret)) < 32 {
 		return Config{}, errors.New("JWT_SECRET must contain at least 32 bytes outside development mode")
+	}
+	if !developmentMode {
+		if cfg.BankAURL != "" && cfg.BankAServiceToken == "" {
+			return Config{}, errors.New("BANK_A_SERVICE_TOKEN is required outside development mode when BANK_A_URL is configured")
+		}
+		if cfg.BankBURL != "" && cfg.BankBServiceToken == "" {
+			return Config{}, errors.New("BANK_B_SERVICE_TOKEN is required outside development mode when BANK_B_URL is configured")
+		}
 	}
 	if participantProvisioning && cfg.DefaultBankCode != cfg.BankACode && cfg.DefaultBankCode != cfg.BankBCode {
 		return Config{}, fmt.Errorf("DEFAULT_BANK_CODE must match BANK_A_CODE or BANK_B_CODE when participant provisioning is enabled")

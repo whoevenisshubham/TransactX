@@ -10,207 +10,30 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
-
-	"github.com/transactx/backend/internal/auth"
-	"github.com/transactx/backend/internal/bank"
-	"github.com/transactx/backend/internal/chaos"
-	"github.com/transactx/backend/internal/circuit"
+	"github.com/transactx/backend/internal/app"
 	"github.com/transactx/backend/internal/config"
-	"github.com/transactx/backend/internal/database"
-	"github.com/transactx/backend/internal/health"
-	apihttp "github.com/transactx/backend/internal/http"
-	"github.com/transactx/backend/internal/payments"
-	"github.com/transactx/backend/internal/reconciliation"
+	"github.com/transactx/backend/internal/telemetry"
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	jsonHandler := slog.NewJSONHandler(os.Stdout, nil)
+	logger := slog.New(telemetry.NewTraceCorrelatingHandler(jsonHandler))
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("load configuration", "error", err)
 		os.Exit(1)
 	}
 
-	db, err := database.NewPool(context.Background(), cfg.DatabaseURL)
+	env, err := app.BuildEnvironment(context.Background(), cfg, logger)
 	if err != nil {
-		logger.Error("connect to PostgreSQL", "error", err)
+		logger.Error("build environment", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer env.Close()
 
-	jwtManager, err := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTLifetime)
-	if err != nil {
-		logger.Error("configure JWT", "error", err)
-		os.Exit(1)
-	}
-	authService := auth.NewService(db, jwtManager, cfg.DefaultBankCode)
-	if cfg.ParticipantProvisioning {
-		authService.WithParticipantProvisioner(auth.NewSimulationParticipantAccountProvisioner())
-	}
-	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
-	chaosRepo := chaos.NewRepository(db)
-	chaosController := chaos.NewController(chaosRepo)
-
-	adapters := make(map[uuid.UUID]bank.BankAdapter)
-	healthTargets := make(map[string]health.HealthChecker)
-	routeTargets := make(map[uuid.UUID]string)
-	bankIDs := make(map[string]uuid.UUID)
-	configureBank := func(url, code string) {
-		if url == "" {
-			return
-		}
-		var bankID uuid.UUID
-		if err := db.QueryRow(context.Background(), `SELECT id FROM banks WHERE code = $1 AND status = 'ACTIVE'`, code).Scan(&bankID); err != nil {
-			logger.Error("resolve configured bank", "code", code, "error", err)
-			os.Exit(1)
-		}
-		adapter, clientErr := bank.NewHTTPClient(url, nil)
-		if clientErr != nil {
-			logger.Error("configure bank adapter", "code", code, "error", clientErr)
-			os.Exit(1)
-		}
-		chaosAdapter := chaos.NewChaosAdapter(code, adapter, chaosController)
-		adapters[bankID] = chaosAdapter
-		healthTargets[code] = chaosAdapter
-		routeTargets[bankID] = code
-		bankIDs[code] = bankID
-	}
-	configureBank(cfg.BankAURL, cfg.BankACode)
-	configureBank(cfg.BankBURL, cfg.BankBCode)
-
-	executionTargets := make(map[payments.RouteKey][]payments.ExecutionTarget)
-	for _, targetCfg := range cfg.ExecutionTargets {
-		srcID, srcOK := bankIDs[targetCfg.SourceBank]
-		dstID, dstOK := bankIDs[targetCfg.DestinationBank]
-		if !srcOK || !dstOK {
-			logger.Error("execution target bank not found", "source_bank", targetCfg.SourceBank, "destination_bank", targetCfg.DestinationBank)
-			os.Exit(1)
-		}
-		srcAdapter := adapters[srcID]
-		if targetCfg.SourceEndpoint != "" {
-			var err error
-			srcAdapter, err = bank.NewHTTPClient(targetCfg.SourceEndpoint, nil)
-			if err != nil {
-				logger.Error("configure source adapter for execution target", "candidate_id", targetCfg.CandidateID, "error", err)
-				os.Exit(1)
-			}
-		}
-		dstAdapter := adapters[dstID]
-		if targetCfg.DestinationEndpoint != "" {
-			var err error
-			dstAdapter, err = bank.NewHTTPClient(targetCfg.DestinationEndpoint, nil)
-			if err != nil {
-				logger.Error("configure destination adapter for execution target", "candidate_id", targetCfg.CandidateID, "error", err)
-				os.Exit(1)
-			}
-		}
-		if targetCfg.Endpoint != "" {
-			endpointAdapter, err := bank.NewHTTPClient(targetCfg.Endpoint, nil)
-			if err != nil {
-				logger.Error("configure health target for execution target", "target_id", targetCfg.ExecutionTargetID, "error", err)
-				os.Exit(1)
-			}
-			healthTargets[targetCfg.ExecutionTargetID] = chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, endpointAdapter, chaosController)
-		}
-		key := payments.RouteKey{SourceBankID: srcID, DestinationBankID: dstID}
-		executionTargets[key] = append(executionTargets[key], payments.ExecutionTarget{
-			CandidateID:        targetCfg.CandidateID,
-			ExecutionTargetID:  targetCfg.ExecutionTargetID,
-			SourceAdapter:      chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, srcAdapter, chaosController),
-			DestinationAdapter: chaos.NewChaosAdapter(targetCfg.ExecutionTargetID, dstAdapter, chaosController),
-		})
-	}
-
-	circuitCfg := circuit.Config{
-		FailureThreshold:     cfg.CircuitFailureThreshold,
-		TimeoutThreshold:     cfg.CircuitTimeoutThreshold,
-		RollingWindow:        cfg.CircuitRollingWindow,
-		OpenCooldown:         cfg.CircuitOpenCooldown,
-		HalfOpenProbeLimit:   cfg.CircuitHalfOpenProbeLimit,
-		SuccessThreshold:     cfg.CircuitSuccessThreshold,
-		RestorationSteps:     cfg.CircuitRestorationSteps,
-		SuccessPolicy:        circuit.SuccessPolicy(cfg.CircuitSuccessPolicy),
-		StepSuccessThreshold: 2,
-	}
-	circuitRepo := circuit.NewRepository(db)
-	circuitBreaker, err := circuit.NewBreaker(circuitCfg, circuitRepo)
-	if err != nil {
-		logger.Error("initialize circuit breaker", "error", err)
-		os.Exit(1)
-	}
-	healthService.SetSampleObserver(circuitBreaker.RecordHealthSample)
-	healthService.SetProbeGate(circuitBreaker)
-
-	var executionTargetIDs []string
-	for _, targets := range executionTargets {
-		for _, et := range targets {
-			if et.ExecutionTargetID != "" {
-				executionTargetIDs = append(executionTargetIDs, et.ExecutionTargetID)
-			}
-		}
-	}
-	var bankCodes []string
-	for code := range bankIDs {
-		bankCodes = append(bankCodes, code)
-	}
-	var explicitHealthTargetIDs []string
-	for targetID := range healthTargets {
-		if _, isBank := bankIDs[targetID]; !isBank {
-			explicitHealthTargetIDs = append(explicitHealthTargetIDs, targetID)
-		}
-	}
-	chaosController.SetTargetValidator(chaos.BuildTargetValidator(explicitHealthTargetIDs, executionTargetIDs, bankCodes...))
-	if err := chaosController.Hydrate(context.Background()); err != nil {
-		logger.Error("hydrate chaos scenarios", "error", err)
-		os.Exit(1)
-	}
-
-	// Build the reconciliation engine backed by two distinct read sources:
-	// 1. Canonical source: authoritative central PostgreSQL financial ledger
-	// 2. Participant source: bank participant adapter
-	knownParticipants := make(reconciliation.KnownParticipants)
-	participantAdapters := make(map[string]bank.BankAdapter)
-	for code, bankID := range bankIDs {
-		knownParticipants[code] = true
-		participantAdapters[code] = adapters[bankID]
-	}
-	reconRepo := reconciliation.NewRunRepository(db)
-	reconEngine := reconciliation.NewEngine(
-		knownParticipants,
-		reconRepo,
-		// Canonical factory: authoritative central PostgreSQL ledger
-		func(_ context.Context, participantID string, _ reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-			return reconciliation.NewDurableCentralRepositoryParticipant(db, participantID, 15*time.Minute)
-		},
-		// Participant factory: bank participant adapter
-		func(_ context.Context, participantID string, _ reconciliation.Scope) (reconciliation.ReconciliationParticipant, error) {
-			adapter, ok := participantAdapters[participantID]
-			if !ok {
-				return nil, reconciliation.ErrInvalidParticipant
-			}
-			return reconciliation.NewDurableRepositoryParticipant(
-				db, adapter, participantID, "participant:"+participantID, 15*time.Minute,
-			)
-		},
-	)
-
-	var handler http.Handler
-	participantSources := make(map[string]reconciliation.LedgerSnapshotSource, len(participantAdapters))
-	for code, adapter := range participantAdapters {
-		participantSources[code] = adapter
-	}
-	runtimeOptions := apihttp.RuntimeOptions{SimulationMode: cfg.SimulationMode, CORSAllowedOrigins: cfg.CORSAllowedOrigins, ParticipantSources: participantSources}
-	if len(adapters) == 0 {
-		handler = apihttp.NewHandlerWithReconciliationAndRuntimeOptions(db, logger, authService, jwtManager, chaosController, reconEngine, runtimeOptions)
-	} else if len(executionTargets) > 0 {
-		handler = apihttp.NewHandlerWithExecutionTargetsCircuitChaosReconciliationAndRuntimeOptions(db, logger, authService, jwtManager, adapters, healthTargets, executionTargets, healthService, payments.SelectionMode(cfg.RoutingMode), cfg.RoutingStaticBaseline, circuitBreaker, chaosController, reconEngine, runtimeOptions)
-	} else {
-		handler = apihttp.NewHandlerWithBankAdaptersHealthRoutingChaosReconciliationAndRuntimeOptions(db, logger, authService, jwtManager, adapters, healthTargets, routeTargets, healthService, chaosController, reconEngine, runtimeOptions)
-	}
 	server := &http.Server{
 		Addr:              cfg.Address,
-		Handler:           handler,
+		Handler:           env.NewHTTPHandler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

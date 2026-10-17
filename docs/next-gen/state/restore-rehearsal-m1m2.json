@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "tx.restore.integration.v1",
+  "runDateUtc": "2026-10-13",
+  "candidateSourceSha": "c13c9a6f4684313b02803a1db22609ebe18e03e7",
+  "scope": "M1 plus fetched M2; M3 live composition absent",
+  "database": "disposable PostgreSQL 18.6 on 127.0.0.1:55443",
+  "encryptedBackupSha256": "4ffc0d786cd60a7b861325fd141f9a4024da605b1c6939dcfcce2c94245e430a",
+  "encryptedBackupBytes": 178111,
+  "restoreCheckerReportSha256": "3f53b79d19734c63caacf768d93e7c1cd6b0a045dedaf9eb9d809067df3f971d",
+  "restoreStartedAt": "2026-10-13T04:04:51Z",
+  "restoreFinishedAt": "2026-10-13T04:04:54Z",
+  "restoredCounts": {
+    "payments": 36,
+    "accounts": 21,
+    "bankAOperations": 4,
+    "bankBOperations": 0,
+    "idempotencyRecords": 1
+  },
+  "restoreChecker": {
+    "threeSchemas": true,
+    "nonnegativeBalances": true,
+    "balancedCentralLedger": true,
+    "noOrphanIdempotency": true
+  },
+  "postRestoreWorker": {
+    "nativeWorkerProcessStarted": true,
+    "input": "one manually seeded VALIDATING payment and due recovery job in the restored database",
+    "result": "COMPLETED, recovery job resolved in one attempt",
+    "ledgerTransactions": 1,
+    "centralLedgerEntries": 2,
+    "centralLedgerNetPaise": 0,
+    "bankAOperations": 4,
+    "distinctBankAOperationIds": 4,
+    "negativeCentralAccounts": 0,
+    "negativeBankAAccounts": 0,
+    "negativeBankBAccounts": 0
+  },
+  "postRestoreProjectionRebuild": {
+    "previewAuthoritativePayments": 37,
+    "previewProjectedPayments": 36,
+    "rebuiltPayments": 37,
+    "verifiedProjectedPayments": 37,
+    "continuedPaymentState": "COMPLETED"
+  },
+  "limitations": [
+    "No native process crash was induced; the continuation input was manually seeded.",
+    "The native worker does not run the outbox projector; projection was rebuilt with the maintenance CLI.",
+    "Backup was retained on local private storage only; no off-VM copy or operational RPO was measured.",
+    "Global roles were archived but not applied to the shared disposable cluster.",
+    "M3 investigator and anomaly integration gates were not satisfied."
+  ]
+}

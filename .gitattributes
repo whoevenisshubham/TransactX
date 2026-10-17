@@ -1,0 +1,7 @@
+deploy/scripts/*.sh text eol=lf
+deploy/systemd/* text eol=lf
+deploy/env/* text eol=lf
+deploy/caddy/* text eol=lf
+backend/migrations/*.sql text eol=lf
+docs/*.md text eol=lf
+docs/**/*.md text eol=lf

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "tx.restore.v1",
+  "sourceSha": "ac23740533541ceb9b29549828cd938e9dc0f6a8",
+  "backupSha256": "2bfbc191c2e9d87b88df9d60837c56fec2da0b56767901234d8993418f8ec624",
+  "startedAt": "2026-10-11T03:28:56Z",
+  "finishedAt": "2026-10-11T03:28:59Z",
+  "targetDatabase": "transactx_restore_local2",
+  "pgRestoreVersion": "pg_restore (PostgreSQL) 18.6",
+  "counts": {
+    "payments": 1,
+    "accounts": 2,
+    "bankAOperations": 1,
+    "bankBOperations": 1,
+    "idempotencyRecords": 1
+  },
+  "checks": {
+    "threeSchemas": true,
+    "nonnegativeBalances": true,
+    "balancedCentralLedger": true,
+    "noOrphanIdempotency": true
+  },
+  "workerContinuation": "not_run",
+  "projectionRebuild": "not_run",
+  "globalRoles": "not_applied_to_shared_cluster"
+}

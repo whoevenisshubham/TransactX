@@ -1,0 +1,209 @@
+{
+  "sourceSha": "4d8f2af862cfa2f7e32e6a9a0d3b8f8b50218a84",
+  "startedAt": "2026-10-13T13:26:00.9876263Z",
+  "fault": "Real native API killed after committed central HOLD journal, while loopback network barrier delays actual bank hold; no payment/recovery states seeded",
+  "providerCalls": 0,
+  "spend": 0,
+  "openingBalances": {
+    "central": 10000,
+    "participant": 10000,
+    "sender": 10000,
+    "receiver": 0
+  },
+  "apiKill": {
+    "clientResult": {
+      "error": "fetch failed",
+      "at": "2026-10-13T13:26:14.66Z"
+    },
+    "checkpoint": {
+      "paymentId": "34d79471-d311-4056-8373-66a1ec74b5c9",
+      "state": "PROCESSING",
+      "operationId": "8cf62131-f351-59c2-8daf-b1a8657d75ce",
+      "journalRows": 1,
+      "participantRows": 0,
+      "ledgerTransactions": 0,
+      "recoveryJobs": 0
+    },
+    "at": "2026-10-13T13:26:14.6451658Z",
+    "processId": 46240
+  },
+  "backup": {
+    "sha256": "b5bc120034edc813dac22cf8f70fe8658f894a5a28e74189d61fe76c64c664de",
+    "localOnly": true,
+    "bytes": 167512
+  },
+  "restoredDatabase": "transactx_restore_native_7c30f3be8e80",
+  "restoreChecker": {
+    "schemaVersion": "tx.restore.v1",
+    "sourceSha": "4d8f2af862cfa2f7e32e6a9a0d3b8f8b50218a84",
+    "backupSha256": "b5bc120034edc813dac22cf8f70fe8658f894a5a28e74189d61fe76c64c664de",
+    "startedAt": "2026-10-13T13:26:20Z",
+    "finishedAt": "2026-10-13T13:26:23Z",
+    "targetDatabase": "transactx_restore_native_7c30f3be8e80",
+    "pgRestoreVersion": "pg_restore (PostgreSQL) 18.6",
+    "counts": {
+      "payments": 1,
+      "accounts": 4,
+      "bankAOperations": 0,
+      "bankBOperations": 0,
+      "idempotencyRecords": 1
+    },
+    "checks": {
+      "threeSchemas": true,
+      "nonnegativeBalances": true,
+      "balancedCentralLedger": true,
+      "noOrphanIdempotency": true
+    },
+    "workerContinuation": "not_run",
+    "projectionRebuild": "not_run",
+    "globalRoles": "not_applied_to_shared_cluster"
+  },
+  "status": "PASS_NATIVE_API_CRASH_WORKER_CRASH_ENCRYPTED_RESTORE_AUTOMATIC_PROJECTION",
+  "finishedAt": "2026-10-13T13:28:21.7492804Z",
+  "sourceContinuation": {
+    "apiReplaySamePayment": true,
+    "startedAt": "2026-10-13T13:28:02.8805368Z",
+    "apiProcessId": 49848,
+    "financialAndProjectionChecks": {
+      "paymentState": "COMPLETED",
+      "paymentAmount": 100,
+      "logicalPayments": 1,
+      "idempotencyRows": 1,
+      "ledgerTransactions": 1,
+      "ledgerEntries": 2,
+      "correctLedgerEntries": 2,
+      "centralTotal": 10000,
+      "centralReconstructionErrors": 0,
+      "centralSender": 9900,
+      "centralReceiver": 100,
+      "participantTotal": 10000,
+      "participantSender": 9900,
+      "participantReceiver": 100,
+      "participantOperations": 4,
+      "otherParticipantOperations": 0,
+      "participantUniqueOperations": 4,
+      "participantPayloadErrors": 0,
+      "originalHoldRows": 1,
+      "participantLedgerRows": 3,
+      "participantLedgerDuplicates": 0,
+      "correctParticipantEntries": 3,
+      "journalRows": 4,
+      "journalParticipantMismatch": 0,
+      "projectionRows": 1,
+      "pendingDeliveries": 0,
+      "outboxEvents": 8,
+      "inboxEvents": 8,
+      "recoveryJob": {
+        "status": "resolved",
+        "lease_epoch": 1,
+        "attempt_count": 1,
+        "last_reason_code": "COMPLETED"
+      }
+    },
+    "elapsedSeconds": 4.7866933,
+    "convergedAt": "2026-10-13T13:28:07.6650558Z",
+    "workerProcessId": 48652,
+    "manualProjectionRebuildBeforeProof": false,
+    "additionalPayloadCorpusAndChecksumChecks": {
+      "nullOrInvalidPayloads": 0,
+      "bankIdentityMismatch": 0,
+      "confirmAccountMismatch": 0,
+      "activeCorpusVersions": 1,
+      "activeCorpusChunks": 35,
+      "manifestHash": "b882f8d6127910afe9685e66d96e82ba2d6e001c4c8d48f51ff66cffc6fbdbce"
+    }
+  },
+  "workerKill": {
+    "at": "2026-10-13T13:28:09.8558095Z",
+    "checkpoint": {
+      "state": "PROCESSING",
+      "status": "running",
+      "leaseEpoch": 1,
+      "attemptCount": 1,
+      "participantRows": 0
+    },
+    "processId": 21248,
+    "originalOperationIdPreserved": true
+  },
+  "restoredContinuation": {
+    "apiReplaySamePayment": true,
+    "startedAt": "2026-10-13T13:28:07.7566314Z",
+    "apiProcessId": 48576,
+    "financialAndProjectionChecks": {
+      "paymentState": "COMPLETED",
+      "paymentAmount": 100,
+      "logicalPayments": 1,
+      "idempotencyRows": 1,
+      "ledgerTransactions": 1,
+      "ledgerEntries": 2,
+      "correctLedgerEntries": 2,
+      "centralTotal": 10000,
+      "centralReconstructionErrors": 0,
+      "centralSender": 9900,
+      "centralReceiver": 100,
+      "participantTotal": 10000,
+      "participantSender": 9900,
+      "participantReceiver": 100,
+      "participantOperations": 4,
+      "otherParticipantOperations": 0,
+      "participantUniqueOperations": 4,
+      "participantPayloadErrors": 0,
+      "originalHoldRows": 1,
+      "participantLedgerRows": 3,
+      "participantLedgerDuplicates": 0,
+      "correctParticipantEntries": 3,
+      "journalRows": 4,
+      "journalParticipantMismatch": 0,
+      "projectionRows": 1,
+      "pendingDeliveries": 0,
+      "outboxEvents": 9,
+      "inboxEvents": 9,
+      "recoveryJob": {
+        "status": "resolved",
+        "lease_epoch": 2,
+        "attempt_count": 2,
+        "last_reason_code": "COMPLETED"
+      }
+    },
+    "elapsedSeconds": 11.0832014,
+    "convergedAt": "2026-10-13T13:28:18.8398236Z",
+    "manualRebuildAfterAutomaticProof": "passed, financial and projection proof unchanged",
+    "workerProcessId": 25992,
+    "manualProjectionRebuildBeforeProof": false,
+    "additionalPayloadCorpusAndChecksumChecks": {
+      "nullOrInvalidPayloads": 0,
+      "bankIdentityMismatch": 0,
+      "confirmAccountMismatch": 0,
+      "activeCorpusVersions": 1,
+      "activeCorpusChunks": 35,
+      "manifestHash": "b882f8d6127910afe9685e66d96e82ba2d6e001c4c8d48f51ff66cffc6fbdbce"
+    }
+  },
+  "allProbeProcessesStopped": true,
+  "earlierHarnessAttempt": "Retained separately: Windows sha256sum path escaping rejected restore; initial opening-balance fixture also corrected before accepting financial proof. Final run used fresh cluster, normalized paths and explicit opening balances.",
+  "limitations": [
+    "One real API crash before hold dispatch and one restored worker crash before hold dispatch; not every crash boundary or dropped response after participant commit",
+    "Whole-DB backup and restore are local only; off-machine persistence and role restoration on production infrastructure remain pending",
+    "Manual rebuild ran only after automatic worker projection and outbox acknowledgements were independently proven",
+    "Historical crash matrix remains a seeded/in-process suite with unchecked SQL/participant claims, requiring M2 correction",
+    "This native financial scenario is a same-bank BANK-A transfer; Bank B ran but had no effects. Cross-bank process crashes and lost replies after participant commit remain unverified by this artifact."
+  ],
+  "privateEvidenceHashes": {
+    "native-crash.ps1": "193a57818151652a6728c8edc70689710beaf259417653b99d140fef60028113",
+    "native-continue.ps1": "5a6e6a43f3f5adc5c9809f6843e91a3162ea7bcfccf79285427ec29744fbc450",
+    "payload-check.ps1": "b277e949b5d8ecd0a00fd0ea3279d4d8f4573ce25e2434b63c4838fa4f8b87aa",
+    "financial-proof.sql": "458f125f5ac5dfc68e70927fba49cdce6cdb8b027ea8cd8f3e0693799bc32164",
+    "barrier.cjs": "91648865a4d10efce12727a50d72ea99aa1aca1aaf82accc161a213b15886489",
+    "client.cjs": "faf117075eb0b4390b83799cfa5515fd04052b9fed90672fce039454a687bf68"
+  },
+  "financialQueryTemplateHash": "5a739448c76ec161e8380762e1866a82d9fcfbe0d12c25f7279e5db770ea51d2",
+  "nativeBinaryHashes": {
+    "api": "fa66e68233f26dddcb393766d84e156db99f685342e4d508006e2f1c9f33c5de",
+    "bank-a": "67f7238b0c0eb3209549b664d81b94d3473335158cc647ff5215b6bb34442821",
+    "bank-b": "04401e44ea1f666f4462b3435e44d90b02feb5ab708ba56abde5bd3b9da74f90",
+    "worker": "090318774bd600601ed984225c3beb037bdac29a5bd2e6779092704c74050316",
+    "migrate": "97e5fbe849e4de152d85b4835657d5c94a4b6609c9b1f498eb3e97bf03a15936",
+    "rebuild-worklist": "6dbc952efc7b34ef4848a6bb612117352fcbc8e4263def42afe4abcfefacebfd"
+  },
+  "parameterizedQueryVerification": "PASS: committed read-only psql template executed on source and restored databases; both output objects parsed and key completion/payload/projection/corpus invariants asserted"
+}

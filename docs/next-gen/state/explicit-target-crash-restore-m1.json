@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "inputBackupSha256": "896d89409086c58d5e3bc88c29bd06ed563ac15b9fd576f1cca4bcc1c7958d85",
+  "setup": "Fresh restore of actual native API interruption; explicit configuration retained persisted BANK-A execution target and BANK-A source/destination, using the same native participant implementation; no payment/journal/job state edited",
+  "paymentId": "9a753550-233d-4ead-a4f9-312af26a0dcb",
+  "originalOperationId": "b2f68c2f-e94c-508b-b849-e0015f0bef1e",
+  "result": "FAILED continuation acceptance",
+  "worker": {"state": "PENDING_RECONCILIATION", "jobStatus": "deferred", "attemptCount": 5, "leaseEpoch": 5, "reasonCode": "TRANSIENT_ERROR", "originalHoldIdentityRetained": true, "participantOperations": 0},
+  "independentNativeParticipantProbe": {"statusHttpCode": 200, "status": "PENDING", "presenceHttpCode": 200, "presence": "absent", "paymentAndOperationIdentityMatched": true},
+  "sourceFinding": "internal/app/app.go wraps execution adapters in chaos.ChaosAdapter. That wrapper does not implement bank.OperationPresenceReader. internal/payments/routed.go checkPresenceAndReplay therefore cannot access the underlying HTTP client's authoritative absence result.",
+  "hypothesisCorrection": "A status-error early return was considered first; direct native status returned 200 PENDING, so the lost optional presence capability is the observed composition issue.",
+  "allProbeProcessesStopped": true,
+  "privateDatabasesAndEvidenceRetained": true,
+  "spending": 0
+}

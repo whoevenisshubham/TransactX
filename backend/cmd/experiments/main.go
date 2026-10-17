@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/transactx/backend/internal/database"
 	"github.com/transactx/backend/internal/experiments"
 )
 
@@ -40,7 +42,7 @@ func findRepoRoot() string {
 }
 
 func main() {
-	experimentFlag := flag.String("experiment", "all", "Experiment to run: 1|2|3|5|all (or routing|outage|latency|concurrency)")
+	experimentFlag := flag.String("experiment", "all", "Experiment to run: 1|2|3|5|crash|all (or routing|outage|latency|concurrency|crash)")
 	outputDirFlag := flag.String("output-dir", "", "Directory to write artifacts into (defaults to <repo_root>/artifacts)")
 	seedFlag := flag.Int64("seed", 42, "Deterministic seed for simulation")
 	requestsFlag := flag.Int("requests", 300, "Total number of operations/requests per experiment")
@@ -67,6 +69,24 @@ func main() {
 
 	selected := strings.ToLower(strings.TrimSpace(*experimentFlag))
 	runAll := selected == "all"
+
+	// Crash Matrix Experiment (B12): Run recovery fault boundaries and event restart scenarios against PostgreSQL
+	if selected == "crash" || selected == "matrix" {
+		if err := runCrashMatrix(ctx, outputDir, *seedFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Cross-Bank Recovery Matrix: Native cross-bank failure and lost-reply scenarios
+	if selected == "crossbank" || selected == "cb" {
+		if err := runCrossBankRecovery(ctx, outputDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	var results []*experiments.ExperimentResult
 
@@ -132,6 +152,12 @@ func main() {
 		}
 		fmt.Printf("[%s]\n  JSON: %s\n  CSV:  %s\n", res.ExperimentID, jsonPath, csvPath)
 	}
+
+	if err := evaluateAllBenchmarkResults(results); err != nil {
+		fmt.Fprintf(os.Stderr, "\nBenchmark verification failed:\n%v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Println("\nExperiments completed successfully with all invariants satisfied.")
 }
 
@@ -182,4 +208,230 @@ func printSummary(label string, s *experiments.ExperimentSummary) {
 			fmt.Printf("      [%s] %s: %s\n", status, inv.InvariantName, inv.Details)
 		}
 	}
+}
+
+func runCrashMatrix(ctx context.Context, outputDir string, seed int64) (err error) {
+	fmt.Println("\n[CRASH MATRIX] Recovery Fault Boundaries & Event Restart Matrix (B12)")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return fmt.Errorf("DATABASE_URL environment variable is required to run crash matrix experiment (must point to an isolated disposable database)")
+	}
+	pool, poolErr := database.NewPool(ctx, dbURL)
+	if poolErr != nil {
+		return fmt.Errorf("connecting to database: %w", poolErr)
+	}
+	defer pool.Close()
+
+	harness, initErr := experiments.NewCrashMatrixHarness(pool, seed)
+	if initErr != nil {
+		return fmt.Errorf("initializing crash matrix harness: %w", initErr)
+	}
+	defer func() {
+		if closeErr := harness.Close(); closeErr != nil {
+			err = combineExperimentAndCleanupError("crash matrix", err, closeErr)
+		}
+	}()
+
+	report, runErr := harness.RunAllScenarios(ctx)
+	if runErr != nil {
+		return fmt.Errorf("running crash matrix scenarios: %w", runErr)
+	}
+
+	fmt.Printf("\nCrash Matrix Results: %d Total | %d Passed | %d Failed | All Invariants: %t\n",
+		report.TotalScenarios, report.PassedCount, report.FailedCount, report.AllInvariantsSatisfied)
+	for _, s := range report.Scenarios {
+		status := "PASS"
+		if !s.Passed {
+			status = "FAIL"
+		}
+		fmt.Printf("  [%s] %-8s %-50s (%.2f ms, state=%s)\n", status, s.ID, s.Name, s.DurationMs, s.ObservedState)
+	}
+
+	jsonPath, csvPath, saveErr := report.SaveArtifacts(outputDir)
+	if saveErr != nil {
+		return fmt.Errorf("saving crash matrix artifacts: %w", saveErr)
+	}
+	fmt.Printf("\nSaved Artifacts:\n  JSON: %s\n  CSV:  %s\n  SHA256: %s\n", jsonPath, csvPath, report.ReportSHA256)
+
+	if report.FailedCount > 0 || !report.AllInvariantsSatisfied {
+		return fmt.Errorf("crash matrix verification failed: %d scenarios failed, all invariants satisfied: %t",
+			report.FailedCount, report.AllInvariantsSatisfied)
+	}
+
+	return nil
+}
+
+func runCrossBankRecovery(ctx context.Context, outputDir string) (err error) {
+	fmt.Println("\n[CROSS-BANK RECOVERY] Native Cross-Bank and Lost-Reply Recovery Matrix")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return fmt.Errorf("DATABASE_URL environment variable is required to run cross-bank recovery experiment (must point to an isolated disposable database)")
+	}
+	pool, poolErr := database.NewPool(ctx, dbURL)
+	if poolErr != nil {
+		return fmt.Errorf("connecting to database: %w", poolErr)
+	}
+	defer pool.Close()
+
+	harness, initErr := experiments.NewCrossBankRecoveryHarness(pool, dbURL)
+	if initErr != nil {
+		return fmt.Errorf("initializing cross-bank recovery harness: %w", initErr)
+	}
+	defer func() {
+		if closeErr := harness.Close(); closeErr != nil {
+			err = combineExperimentAndCleanupError("cross-bank recovery", err, closeErr)
+		}
+	}()
+
+	report, runErr := harness.RunAll(ctx)
+	if runErr != nil {
+		return fmt.Errorf("running cross-bank recovery scenarios: %w", runErr)
+	}
+
+	fmt.Printf("\nCross-Bank Recovery Results: %d Total | %d Passed | %d Failed | All Invariants: %t\n",
+		report.TotalScenarios, report.PassedCount, report.FailedCount, report.AllInvariantsSatisfied)
+	for _, s := range report.Scenarios {
+		status := "PASS"
+		if !s.Passed {
+			status = "FAIL"
+		}
+		fmt.Printf("  [%s] %-8s %-55s (%.2f ms, state=%s)\n", status, s.ID, s.Name, s.DurationMs, s.ObservedState)
+	}
+
+	jsonPath, csvPath, saveErr := report.SaveArtifacts(outputDir)
+	if saveErr != nil {
+		return fmt.Errorf("saving cross-bank recovery artifacts: %w", saveErr)
+	}
+	fmt.Printf("\nSaved Artifacts:\n  JSON: %s\n  CSV:  %s\n  SHA256: %s\n", jsonPath, csvPath, report.ReportSHA256)
+
+	if evalErr := evaluateCrossBankReport(report); evalErr != nil {
+		return evalErr
+	}
+
+	return nil
+}
+
+func evaluateCrossBankReport(report *experiments.CrossBankRecoveryReport) error {
+	if report == nil {
+		return fmt.Errorf("cross-bank recovery report is nil")
+	}
+	if report.FailedCount > 0 && !report.AllInvariantsSatisfied {
+		return fmt.Errorf("cross-bank recovery verification failed: %d scenarios failed, all invariants satisfied: false (violations=%d)",
+			report.FailedCount, report.FinancialSummary.TotalViolations)
+	}
+	if report.FailedCount > 0 {
+		return fmt.Errorf("cross-bank recovery verification failed: %d scenarios failed", report.FailedCount)
+	}
+	if !report.AllInvariantsSatisfied {
+		return fmt.Errorf("cross-bank recovery verification failed: 0 scenarios failed, but financial invariants not satisfied (violations=%d)",
+			report.FinancialSummary.TotalViolations)
+	}
+	return nil
+}
+
+func failedInvariantDetails(s *experiments.ExperimentSummary) string {
+	if s == nil {
+		return "summary is nil"
+	}
+	var failures []string
+	for _, inv := range s.Invariants {
+		if !inv.Passed {
+			failures = append(failures, fmt.Sprintf("%s [%s]", inv.InvariantName, inv.Details))
+		}
+	}
+	if len(failures) > 0 {
+		return strings.Join(failures, "; ")
+	}
+	return "AllInvariantsSatisfied is false"
+}
+
+// combineExperimentAndCleanupError combines an experiment failure with a subsequent cleanup failure.
+// If cleanup succeeded, it returns the experiment error unchanged (or nil if both succeeded).
+// If the experiment succeeded but cleanup failed, it returns the contextually wrapped cleanup error.
+// If both failed, it uses errors.Join to combine the primary experiment error and the
+// contextually wrapped cleanup error. This guarantees that:
+//   - errors.Is(result, expErr) is true
+//   - errors.Is(result, cleanupErr) is true
+//   - The diagnostic identifies the operation name and retains cleanup context.
+func combineExperimentAndCleanupError(opName string, expErr, cleanupErr error) error {
+	if cleanupErr == nil {
+		return expErr
+	}
+	cleanupCtxErr := fmt.Errorf("%s cleanup error: %w", opName, cleanupErr)
+	if expErr == nil {
+		return cleanupCtxErr
+	}
+	return errors.Join(expErr, cleanupCtxErr)
+}
+
+// evaluateBenchmarkResult validates that a benchmark result matches its experiment-specific
+// required shape and that all required invariant flags are satisfied.
+//
+// Required result shapes:
+//   - Experiment 1 (routing / "EXP-1" / "1"): requires both Baseline and Proposed summaries.
+//   - Experiment 2 (outage / "EXP-2" / "2"): requires both Baseline and Proposed summaries.
+//   - Experiment 3 (latency / "EXP-3" / "3"): requires both Baseline and Proposed summaries.
+//   - Experiment 5 (concurrency / "EXP-5" / "5"): requires Summary.
+//
+// Policy for unknown / unsupported experiment IDs:
+//
+//	Fails closed with an explicit error. An unknown experiment ID cannot have its required
+//	component shape inferred or guaranteed, so it is strictly rejected rather than
+//	defaulting or guessing.
+func evaluateBenchmarkResult(res *experiments.ExperimentResult) error {
+	if res == nil {
+		return fmt.Errorf("benchmark result is nil")
+	}
+
+	normID := strings.ToUpper(strings.TrimSpace(res.ExperimentID))
+	switch normID {
+	case "EXP-1", "1", "ROUTING", "EXP-2", "2", "OUTAGE", "EXP-3", "3", "LATENCY":
+		if res.Baseline == nil {
+			return fmt.Errorf("experiment %s (%s): missing required baseline summary", res.ExperimentID, res.Title)
+		}
+		if res.Proposed == nil {
+			return fmt.Errorf("experiment %s (%s): missing required proposed summary", res.ExperimentID, res.Title)
+		}
+		var invFailures []string
+		if !res.Baseline.AllInvariantsSatisfied {
+			invFailures = append(invFailures, fmt.Sprintf("baseline invariants not satisfied: %s", failedInvariantDetails(res.Baseline)))
+		}
+		if !res.Proposed.AllInvariantsSatisfied {
+			invFailures = append(invFailures, fmt.Sprintf("proposed invariants not satisfied: %s", failedInvariantDetails(res.Proposed)))
+		}
+		if len(invFailures) > 0 {
+			return fmt.Errorf("experiment %s (%s): %s", res.ExperimentID, res.Title, strings.Join(invFailures, "; "))
+		}
+		return nil
+
+	case "EXP-5", "5", "CONCURRENCY":
+		if res.Summary == nil {
+			return fmt.Errorf("experiment %s (%s): missing required summary", res.ExperimentID, res.Title)
+		}
+		if !res.Summary.AllInvariantsSatisfied {
+			return fmt.Errorf("experiment %s (%s): summary invariants not satisfied: %s",
+				res.ExperimentID, res.Title, failedInvariantDetails(res.Summary))
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("experiment %s (%s): unsupported experiment ID; cannot verify required benchmark result shape",
+			res.ExperimentID, res.Title)
+	}
+}
+
+func evaluateAllBenchmarkResults(results []*experiments.ExperimentResult) error {
+	if len(results) == 0 {
+		return fmt.Errorf("no benchmark results to evaluate")
+	}
+	var failureMessages []string
+	for _, res := range results {
+		if err := evaluateBenchmarkResult(res); err != nil {
+			failureMessages = append(failureMessages, err.Error())
+		}
+	}
+	if len(failureMessages) > 0 {
+		return fmt.Errorf("%s", strings.Join(failureMessages, "\n"))
+	}
+	return nil
 }

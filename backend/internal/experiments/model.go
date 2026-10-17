@@ -98,19 +98,19 @@ type ExperimentSample struct {
 
 // ExperimentSummary contains aggregate metrics for a scenario run.
 type ExperimentSummary struct {
-	TotalRequests          int                  `json:"totalRequests"`
-	SuccessCount           int                  `json:"successCount"`
-	FailureCount           int                  `json:"failureCount"`
-	PendingCount           int                  `json:"pendingCount"`
-	SuccessRate            float64              `json:"successRate"`
-	Latency                LatencyPercentiles   `json:"latency"`
-	RecoveryTimeMs         float64              `json:"recoveryTimeMs"`
-	IsolationTimeMs        float64              `json:"isolationTimeMs,omitempty"`
-	TrafficShare           []TrafficShare       `json:"trafficShare"`
-	DecisionReasons        map[string]int       `json:"decisionReasons"`
-	Invariants             []InvariantResult    `json:"invariants"`
-	AllInvariantsSatisfied bool                 `json:"allInvariantsSatisfied"`
-	AdditionalMetrics      map[string]any       `json:"additionalMetrics,omitempty"`
+	TotalRequests          int                `json:"totalRequests"`
+	SuccessCount           int                `json:"successCount"`
+	FailureCount           int                `json:"failureCount"`
+	PendingCount           int                `json:"pendingCount"`
+	SuccessRate            float64            `json:"successRate"`
+	Latency                LatencyPercentiles `json:"latency"`
+	RecoveryTimeMs         float64            `json:"recoveryTimeMs"`
+	IsolationTimeMs        float64            `json:"isolationTimeMs,omitempty"`
+	TrafficShare           []TrafficShare     `json:"trafficShare"`
+	DecisionReasons        map[string]int     `json:"decisionReasons"`
+	Invariants             []InvariantResult  `json:"invariants"`
+	AllInvariantsSatisfied bool               `json:"allInvariantsSatisfied"`
+	AdditionalMetrics      map[string]any     `json:"additionalMetrics,omitempty"`
 }
 
 // ExperimentResult represents the full benchmark result containing both baseline and proposed (or individual scenarios).

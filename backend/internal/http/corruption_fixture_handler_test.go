@@ -19,7 +19,7 @@ func TestLedgerCorruptionFixtureModeAndAuthorization(t *testing.T) {
 		t.Fatalf("fixture must be absent outside simulation mode: %d", res.Code)
 	}
 
-	enabled, manager := makeReconHandler(t, []string{"BANK-A"}, newMemReconStore(), RuntimeOptions{SimulationMode: true})
+	enabled, manager := makeReconHandler(t, []string{"BANK-A"}, newMemReconStore(), RuntimeOptions{SimulationMode: true, ChaosEnabled: true})
 	for _, tc := range []struct {
 		role   string
 		status int

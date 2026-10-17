@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "frontendBaseSha": "4e3d15f",
+  "scope": "Real native trace DTO decoding and expanded saved-report citation browser gate",
+  "nativeTrace": {
+    "authenticatedRole": "OPS_VIEWER",
+    "persistedSpansReturned": 1,
+    "decoderResult": "rejected",
+    "errorPath": "spans[0].startedAt",
+    "observedTimeKeys": ["startTime", "endTime"],
+    "requiredSharedKeys": ["startedAt", "finishedAt"]
+  },
+  "browser": {
+    "command": "npx playwright test --config playwright.live.config.ts --grep 'viewer creates a real'",
+    "result": "failed at evidence citation link assertion after completed report reload",
+    "durationSeconds": 11.1,
+    "precedingSteps": "Real login, export, native worker completion, saved report reload and mode/layout checks reached",
+    "reportId": "41795d74-d937-4fb0-b784-a7fdc01a24d8",
+    "observation": "Report shows older-snapshot warning and original hashed payment evidence ID as not in current snapshot; no evidence anchor rendered"
+  },
+  "sourceFinding": "operations.ReadPaymentEvidence hashes fresh collectedAt/source observedAt values and embeds the hash in payment/operation IDs. M3's durable Job retains Snapshot but PublicInvestigation does not expose it. Saved UI rereads current evidence, so the original cited snapshot cannot be reproduced through the mounted API.",
+  "nextOwnerActions": "M2 aligns trace DTO and reviews an authenticated retained-snapshot read contract with M3, preserving actor/payment scope and immutable citation identity; M1 then wires that contract and reruns links/keyboard gate",
+  "allProbeProcessesStopped": true,
+  "spending": 0
+}

@@ -3,6 +3,7 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestLoad_RuntimeOptions(t *testing.T) {
@@ -247,5 +248,92 @@ func TestLoad_CircuitSuccessPolicy(t *testing.T) {
 	_, err = Load()
 	if err == nil {
 		t.Fatal("expected error for invalid CIRCUIT_SUCCESS_POLICY, got nil")
+	}
+}
+
+func TestLoad_PaymentConcurrencyPoolReserve(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+
+	// Valid default: DBMaxConns=8, PaymentConcurrency=2 (8-2=6 >= 2)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error with defaults: %v", err)
+	}
+	if cfg.DBMaxConns != 8 || cfg.PaymentConcurrency != 2 {
+		t.Fatalf("got conns=%d, concurrency=%d", cfg.DBMaxConns, cfg.PaymentConcurrency)
+	}
+
+	// Exceeds reserve: DBMaxConns=4, PaymentConcurrency=3 (4-3=1 < 2)
+	t.Setenv("TX_DB_MAX_CONNS", "4")
+	t.Setenv("TX_PAYMENT_CONCURRENCY", "3")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when concurrency exceeds pool reserve, got nil")
+	}
+
+	// Valid constrained: DBMaxConns=4, PaymentConcurrency=2 (4-2=2 >= 2)
+	t.Setenv("TX_DB_MAX_CONNS", "4")
+	t.Setenv("TX_PAYMENT_CONCURRENCY", "2")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error for valid constrained pool: %v", err)
+	}
+	if cfg.DBMaxConns != 4 || cfg.PaymentConcurrency != 2 {
+		t.Fatalf("got conns=%d, concurrency=%d", cfg.DBMaxConns, cfg.PaymentConcurrency)
+	}
+}
+
+func TestLoad_RecoveryAndWorkerConfig(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+
+	// 1. Defaults
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error with defaults: %v", err)
+	}
+	if !cfg.RecoveryEnabled || cfg.RecoveryConcurrency != 2 || cfg.RecoveryMaxAttempts != 20 {
+		t.Fatalf("unexpected recovery defaults: %+v", cfg)
+	}
+	if cfg.RecoveryLease != 60*time.Second || cfg.RecoveryHeartbeat != 15*time.Second || cfg.RecoveryAttemptTimeout != 20*time.Second {
+		t.Fatalf("unexpected recovery timing defaults: %+v", cfg)
+	}
+	if !reflect.DeepEqual(cfg.WorkerJobFamilies, []string{"recovery"}) || cfg.WorkerLabel != "transactx-worker" {
+		t.Fatalf("unexpected worker defaults: %+v", cfg)
+	}
+
+	// 2. Recovery concurrency exceeds pool reserve
+	t.Setenv("TX_DB_MAX_CONNS", "4")
+	t.Setenv("TX_RECOVERY_CONCURRENCY", "3")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when recovery concurrency exceeds pool reserve, got nil")
+	}
+
+	// 3. Attempt timeout >= lease duration
+	t.Setenv("TX_RECOVERY_CONCURRENCY", "2")
+	t.Setenv("TX_RECOVERY_LEASE", "20s")
+	t.Setenv("TX_RECOVERY_ATTEMPT_TIMEOUT", "20s")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when attempt timeout >= lease duration, got nil")
+	}
+
+	// 4. Heartbeat >= lease duration
+	t.Setenv("TX_RECOVERY_ATTEMPT_TIMEOUT", "10s")
+	t.Setenv("TX_RECOVERY_HEARTBEAT", "20s")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when heartbeat >= lease duration, got nil")
+	}
+
+	// 5. Custom job families and valid timings
+	t.Setenv("TX_RECOVERY_HEARTBEAT", "5s")
+	t.Setenv("TX_JOB_FAMILIES", "recovery, delivery, analytics")
+	t.Setenv("TX_WORKER_LABEL", "custom-worker-1")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error with valid custom recovery config: %v", err)
+	}
+	if !reflect.DeepEqual(cfg.WorkerJobFamilies, []string{"recovery", "delivery", "analytics"}) {
+		t.Fatalf("expected parsed job families, got: %v", cfg.WorkerJobFamilies)
+	}
+	if cfg.WorkerLabel != "custom-worker-1" {
+		t.Fatalf("expected custom worker label, got: %s", cfg.WorkerLabel)
 	}
 }

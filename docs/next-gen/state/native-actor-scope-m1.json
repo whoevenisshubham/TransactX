@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-13",
+  "backendSourceSha": "e3b1abc47cab5c9e06970703ed69495b24f7ccd0",
+  "frontendBaseSha": "8f1beca",
+  "command": "npx playwright test --config playwright.live.config.ts --grep 'real investigation identity and idempotency'",
+  "result": "1 passed",
+  "testDurationSeconds": 0.468,
+  "environment": "Playwright API request context, real native API/login/JWT and canonical private PostgreSQL; two generated OPS_VIEWER users and a generated CUSTOMER",
+  "provisioning": "Second viewer/zero-balance account seeded only in the disposable database, using the same generated test password as the original operator; customer used real registration from the prior test. Initial SQL concatenation error rolled back the fixture transaction before retry.",
+  "checks": ["Same actor/key/request returns same job ID", "Same actor/key/changed question returns 409", "Creator reads own job 200", "Foreign viewer reads creator job 403", "Same key under foreign actor creates distinct job", "Forged body actorId/role do not change JWT authority", "CUSTOMER analytics and investigation GET return 403", "CUSTOMER investigation POST returns 403"],
+  "limitations": ["Authenticated HTTP boundary, not rendered browser or financial/crash proof", "Does not close retained-snapshot/corpus citation, reservation, SSE or projection gates"],
+  "allProbeProcessesStopped": true,
+  "spending": 0
+}

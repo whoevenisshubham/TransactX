@@ -2,6 +2,8 @@
 
 backend/bin/
 backend/*.test
+*.exe
+backend/run_tests.ps1
 
 frontend/node_modules/
 frontend/dist/
@@ -9,3 +11,7 @@ frontend/dist/
 *.log
 .DS_Store
 .cache/
+deploy/out/
+frontend/test-results/
+frontend/playwright-report/
+artifacts/

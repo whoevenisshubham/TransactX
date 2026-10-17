@@ -61,3 +61,5 @@ func contains(values []string, target string) bool {
 }
 
 func PublicRoles() []string { return []string{users.RoleCustomer, users.RoleMerchant} }
+
+func OpsRoles() []string { return []string{users.RoleOpsAdmin, users.RoleOpsViewer} }

@@ -3,9 +3,10 @@ package users
 import "github.com/google/uuid"
 
 const (
-	RoleCustomer = "CUSTOMER"
-	RoleMerchant = "MERCHANT"
-	RoleOpsAdmin = "OPS_ADMIN"
+	RoleCustomer  = "CUSTOMER"
+	RoleMerchant  = "MERCHANT"
+	RoleOpsAdmin  = "OPS_ADMIN"
+	RoleOpsViewer = "OPS_VIEWER"
 )
 
 type User struct {
@@ -30,4 +31,8 @@ func (user User) Public() PublicUser {
 
 func IsPublicRole(role string) bool {
 	return role == RoleCustomer || role == RoleMerchant
+}
+
+func IsOpsRole(role string) bool {
+	return role == RoleOpsAdmin || role == RoleOpsViewer
 }

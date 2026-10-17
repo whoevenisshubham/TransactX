@@ -1,0 +1,61 @@
+{
+  "version": "tx.retrieval.c1.v1",
+  "cases": [
+    {
+      "id": "lost-participant-reply",
+      "query": "The participant reply was lost after a payment operation timed out. Is that operation failed?",
+      "tags": ["recovery", "unknown_outcome"],
+      "expectedPath": "docs/runbooks/routed-payment-recovery.md",
+      "expectedHeading": "Unknown participant outcome"
+    },
+    {
+      "id": "central-row-before-dispatch",
+      "query": "A crash committed the central operation row before participant dispatch. Can pending status prove absence?",
+      "tags": ["recovery", "unknown_outcome"],
+      "expectedPath": "docs/runbooks/routed-payment-recovery.md",
+      "expectedHeading": "Operation absent before dispatch"
+    },
+    {
+      "id": "participant-settled-central-pending",
+      "query": "Participant settlement succeeded but the final central transaction did not commit.",
+      "tags": ["payment", "recovery"],
+      "expectedPath": "docs/runbooks/routed-payment-recovery.md",
+      "expectedHeading": "Bank-settled central-pending"
+    },
+    {
+      "id": "removed-original-target",
+      "query": "The persisted execution target is no longer configured. Should recovery use a healthy alternate route?",
+      "tags": ["recovery", "missing_target"],
+      "expectedPath": "docs/runbooks/routed-payment-recovery.md",
+      "expectedHeading": "Missing original execution target"
+    },
+    {
+      "id": "global-integrity-result",
+      "query": "Does a global integrity pass with zero violations prove this selected payment settled?",
+      "tags": ["integrity", "missing_evidence"],
+      "expectedPath": "docs/runbooks/reconciliation-integrity-and-traces.md",
+      "expectedHeading": "Integrity interpretation"
+    },
+    {
+      "id": "expired-trace",
+      "query": "The trace is expired and not collected. Does that mean the payment failed?",
+      "tags": ["traces", "missing_evidence"],
+      "expectedPath": "docs/runbooks/reconciliation-integrity-and-traces.md",
+      "expectedHeading": "Trace interpretation"
+    },
+    {
+      "id": "projection-quarantine",
+      "query": "Duplicate event delivery and a quarantined outbox item made the worklist projection lag.",
+      "tags": ["outbox", "projection"],
+      "expectedPath": "docs/runbooks/projections-and-anomaly-analytics.md",
+      "expectedHeading": "Outbox and projection lag"
+    },
+    {
+      "id": "baseline-beats-model",
+      "query": "Which anomaly detector is the default after the held-out IsolationForest comparison?",
+      "tags": ["baseline", "model"],
+      "expectedPath": "docs/runbooks/projections-and-anomaly-analytics.md",
+      "expectedHeading": "Baseline and experimental model"
+    }
+  ]
+}

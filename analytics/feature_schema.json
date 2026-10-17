@@ -1,0 +1,95 @@
+{
+  "version": "tx.features.v1",
+  "minimumSamples": 20,
+  "orderedFields": [
+    "timeoutRate",
+    "failureRate",
+    "p95LatencyMs",
+    "oldestRecoveryAgeMs",
+    "recoveryAttemptsPerPayment",
+    "healthAvailabilityRate"
+  ],
+  "schema": {
+    "type": "object",
+    "properties": {
+      "timeoutRate": {
+        "anyOf": [
+          {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "failureRate": {
+        "anyOf": [
+          {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "p95LatencyMs": {
+        "anyOf": [
+          {
+            "type": "number",
+            "minimum": 0
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "oldestRecoveryAgeMs": {
+        "anyOf": [
+          {
+            "type": "number",
+            "minimum": 0
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "recoveryAttemptsPerPayment": {
+        "anyOf": [
+          {
+            "type": "number",
+            "minimum": 0
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "healthAvailabilityRate": {
+        "anyOf": [
+          {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "timeoutRate",
+      "failureRate",
+      "p95LatencyMs",
+      "oldestRecoveryAgeMs",
+      "recoveryAttemptsPerPayment",
+      "healthAvailabilityRate"
+    ],
+    "additionalProperties": false
+  }
+}

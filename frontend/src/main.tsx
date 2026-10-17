@@ -9,8 +9,11 @@ import { encodeQRSvg } from "./qr";
 import type { Account, MerchantReceiveInfo, MerchantView, Payment, Recipient, User, View } from "./types";
 import { ConsoleShell } from "./console";
 import "./styles.css";
+import "./design/ops.css";
 
 export { parsePaise } from "./money";
+
+type OfflineOwner = Pick<User, "id" | "role">;
 
 // ---------------------------------------------------------------------------
 // Root App — role-based routing
@@ -20,25 +23,55 @@ function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem("transactx.token"));
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [user, setUser] = useState<User | null>(null);
+  const [offlineUser, setOfflineUser] = useState<OfflineOwner | null>(null);
+  const [offlineMode, setOfflineMode] = useState(false);
   const [roleLoading, setRoleLoading] = useState(false);
 
   // When a token arrives, fetch the user's role from the server.
   useEffect(() => {
-    if (!token) { setUser(null); return; }
+    if (!token) { setUser(null); setOfflineUser(null); setOfflineMode(false); return; }
     let active = true;
-    setRoleLoading(true);
-    api.me(token).then((profile) => { if (active) { setUser(profile); setRoleLoading(false); } })
-      .catch(() => { if (active) { sessionStorage.removeItem("transactx.token"); setToken(null); setUser(null); setRoleLoading(false); } });
-    return () => { active = false; };
+    let generation = 0;
+    const verify = () => {
+      const current = ++generation;
+      setRoleLoading(true);
+      api.me(token).then((profile) => {
+        if (!active || current !== generation) return;
+        sessionStorage.setItem("transactx.profile", JSON.stringify({ token, profile: { id: profile.id, role: profile.role } }));
+        setUser(profile);
+        setOfflineUser(null);
+        setOfflineMode(false);
+        setRoleLoading(false);
+      }).catch((caught) => {
+        if (!active || current !== generation) return;
+        if (caught instanceof ApiError && (caught.status === 0 || caught.status >= 500)) {
+          const cached = readCachedProfile(token);
+          setOfflineUser(cached);
+          setOfflineMode(true);
+        } else {
+          sessionStorage.removeItem("transactx.token");
+          sessionStorage.removeItem("transactx.profile");
+          setToken(null);
+          setUser(null);
+          setOfflineUser(null);
+          setOfflineMode(false);
+        }
+        setRoleLoading(false);
+      });
+    };
+    verify();
+    window.addEventListener("online", verify);
+    return () => { active = false; window.removeEventListener("online", verify); };
   }, [token]);
 
   function authenticated(nextToken: string) { sessionStorage.setItem("transactx.token", nextToken); setToken(nextToken); }
-  function logout() { sessionStorage.removeItem("transactx.token"); setToken(null); setUser(null); }
+  function logout() { sessionStorage.removeItem("transactx.token"); sessionStorage.removeItem("transactx.profile"); setToken(null); setUser(null); setOfflineUser(null); setOfflineMode(false); }
 
   if (!token) return <AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} />;
+  if (offlineMode) return <OfflineRecoveryShell user={offlineUser} onLogout={logout} onRetry={() => window.dispatchEvent(new Event("online"))} />;
   if (roleLoading || !user) return <LoadingShell />;
 
-  if (user.role === "OPS_ADMIN") return <ConsoleShell token={token} user={user} onLogout={logout} />;
+  if (user.role === "OPS_ADMIN" || user.role === "OPS_VIEWER") return <ConsoleShell token={token} user={user} onLogout={logout} />;
   if (user.role === "MERCHANT") return <MerchantShell token={token} user={user} onLogout={logout} />;
   if (user.role === "CUSTOMER") return <CustomerShell token={token} onLogout={logout} />;
   // Unknown roles — access denied screen
@@ -52,7 +85,56 @@ function App() {
       <Button onClick={logout}>Log out</Button>
     </main>
   );
-}// ---------------------------------------------------------------------------
+}
+
+function readCachedProfile(token: string): OfflineOwner | null {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem("transactx.profile") ?? "null") as { token?: string; profile?: OfflineOwner } | null;
+    if (cached?.token !== token || cached.profile?.role !== "CUSTOMER" || typeof cached.profile.id !== "string") return null;
+    return cached.profile;
+  } catch {
+    return null;
+  }
+}
+
+function OfflineRecoveryShell({ user, onLogout, onRetry }: { user: OfflineOwner | null; onLogout: () => void; onRetry: () => void }) {
+  const [intents, setIntents] = useState<OfflineIntent[]>([]);
+  const [queueError, setQueueError] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    const queue = new OfflineIntentQueue(undefined, user.id);
+    const states: OfflineIntent["state"][] = ["QUEUED", "SYNCING", "RETRYABLE", "FAILED"];
+    Promise.all(states.map((state) => queue.listByState(state))).then((groups) => {
+      if (active) setIntents(groups.flat().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
+    }).catch(() => { if (active) setQueueError(true); });
+    return () => { active = false; void queue.close(); };
+  }, [user]);
+
+  return (
+    <main className="offline-recovery">
+      <div className="brand-lockup"><BrandMark /><span>TransactX</span></div>
+      <p className="eyebrow">Connection unavailable</p>
+      <h1>You're offline</h1>
+      <p>Payment status and account details cannot be verified until the API is reachable. Saved intents will be checked after your session is verified again.</p>
+      {user && (
+        <section className="offline-queue-panel" aria-label="Saved local intents">
+          <h2>Offline payment intents</h2>
+          {queueError ? <p>Local payment intents could not be read on this device.</p> :
+            intents.length === 0 ? <p>No unsynced payment intents are stored for this account.</p> :
+              <ul>{intents.map((intent) => <li key={intent.clientRequestId}>{intent.payload.recipient} · <Amount paise={intent.payload.amountPaise} /> · {intent.state.toLowerCase()}</li>)}</ul>}
+        </section>
+      )}
+      <div className="offline-recovery-actions">
+        <Button onClick={onRetry}>Try again</Button>
+        <Button variant="secondary" onClick={onLogout}>Log out</Button>
+      </div>
+    </main>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Auth page
 // ---------------------------------------------------------------------------
 
@@ -2312,3 +2394,11 @@ function paymentError(caught: unknown) { if (!(caught instanceof ApiError)) retu
 function isToday(dateStr: string): boolean { const d = new Date(dateStr); const now = new Date(); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate(); }
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    void navigator.serviceWorker.register("/sw.js").catch(() => {
+      // The online app remains usable when offline support cannot be installed.
+    });
+  });
+}

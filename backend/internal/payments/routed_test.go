@@ -10,8 +10,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/bank"
 	"github.com/transactx/backend/internal/bankservice"
+	"github.com/transactx/backend/internal/recipients"
 )
 
 type successfulBankAdapter struct{}
@@ -97,14 +99,25 @@ func TestRoutedPaymentPersistsBothBanksAndOperationTracking(t *testing.T) {
 	setBalances(t, data, 1000, 0)
 	secondBankID := uuid.New()
 	defer func() {
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id = $1)`, data.userID)
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM idempotency_records WHERE user_id = $1`, data.userID)
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payments WHERE initiated_by_user_id = $1`, data.userID)
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM accounts WHERE id IN ($1, $2)`, data.sourceID, data.receiverID)
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM users WHERE id IN ($1, $2)`, data.userID, data.receiverUserID)
-		_, _ = data.pool.Exec(context.Background(), `DELETE FROM banks WHERE id IN ($1, $2)`, data.bankID, secondBankID)
+		ctx := context.Background()
+		tx, err := data.pool.Begin(ctx)
+		if err == nil {
+			defer tx.Rollback(ctx)
+			_, _ = tx.Exec(ctx, `SET LOCAL session_replication_role = 'replica'`)
+			_, _ = tx.Exec(ctx, `DELETE FROM payment_state_transitions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+			_, _ = tx.Exec(ctx, `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+			_, _ = tx.Exec(ctx, `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id = $1)`, data.userID)
+			_, _ = tx.Exec(ctx, `DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+			_, _ = tx.Exec(ctx, `DELETE FROM idempotency_records WHERE user_id = $1`, data.userID)
+			_, _ = tx.Exec(ctx, `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+			_, _ = tx.Exec(ctx, `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1))`)
+			_, _ = tx.Exec(ctx, `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`)
+			_, _ = tx.Exec(ctx, `DELETE FROM payments WHERE initiated_by_user_id = $1`, data.userID)
+			_, _ = tx.Exec(ctx, `DELETE FROM accounts WHERE id IN ($1, $2)`, data.sourceID, data.receiverID)
+			_, _ = tx.Exec(ctx, `DELETE FROM users WHERE id IN ($1, $2)`, data.userID, data.receiverUserID)
+			_, _ = tx.Exec(ctx, `DELETE FROM banks WHERE id IN ($1, $2)`, data.bankID, secondBankID)
+			_ = tx.Commit(ctx)
+		}
 		data.pool.Close()
 	}()
 	if _, err := data.pool.Exec(context.Background(), `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Destination Bank', 'ACTIVE')`, secondBankID, "DEST-"+secondBankID.String()[:20]); err != nil {
@@ -389,3 +402,51 @@ func TestRoutedPendingOperationWithDefiniteFailureDoesNotRepeatOperation(t *test
 		t.Fatalf("hold calls = %d, want exactly one original monetary call", source.calls)
 	}
 }
+
+func TestAdaptiveRouting_ServiceResume_ResolvesRouteTargets(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	data := newRepositoryTestData(t)
+	setBalances(t, data, 1000, 0)
+	defer func() {
+		_, _ = data.pool.Exec(context.Background(), `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id = $1)`, data.userID)
+		data.close(t)
+	}()
+
+	source := &failedStatusBankAdapter{}
+	adapters := map[uuid.UUID]bank.BankAdapter{
+		data.bankID: source,
+	}
+	routeTargets := map[uuid.UUID]string{
+		data.bankID: "RAIL-A",
+	}
+
+	service := NewServiceWithAdaptiveRouting(
+		accounts.NewRepository(data.pool),
+		recipients.NewRepository(data.pool),
+		data.repository,
+		adapters,
+		routeTargets,
+		nil,
+	)
+
+	payment, _, err := data.repository.CreateRoutedIdempotent(context.Background(), settlementPayment(data, 100), "adaptive-resume-key", "adaptive-resume-hash", data.bankID, data.bankID, source, successfulBankAdapter{})
+	if err != nil || payment.State != StatePendingReconciliation {
+		t.Fatalf("initial pending payment = %+v, err = %v", payment, err)
+	}
+
+	resumeRes, err := service.Resume(context.Background(), payment.ID)
+	if err != nil {
+		t.Fatalf("service.Resume failed: %v", err)
+	}
+	if resumeRes.Status != ResumeStatusFailed {
+		t.Fatalf("expected ResumeStatusFailed, got %s (reason: %s)", resumeRes.Status, resumeRes.Reason)
+	}
+
+	recovered, err := data.repository.Get(context.Background(), payment.ID)
+	if err != nil || recovered.State != StateFailed {
+		t.Fatalf("failed payment = %+v, err = %v", recovered, err)
+	}
+}
+

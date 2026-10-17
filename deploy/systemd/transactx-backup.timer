@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily TransactX encrypted backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=transactx-backup.service
+
+[Install]
+WantedBy=timers.target

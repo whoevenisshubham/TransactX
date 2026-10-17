@@ -16,12 +16,13 @@ import (
 )
 
 type Service struct {
-	db        *pgxpool.Pool
-	bankID    string
-	schema    string
-	mu        sync.RWMutex
-	available bool
-	latency   time.Duration
+	db           *pgxpool.Pool
+	bankID       string
+	schema       string
+	serviceToken string
+	mu           sync.RWMutex
+	available    bool
+	latency      time.Duration
 }
 
 func NewService(db *pgxpool.Pool) *Service { return NewParticipantService(db, "BANK-A", "bank_a") }
@@ -78,6 +79,20 @@ func (service *Service) SetLatency(latency time.Duration) {
 		latency = 0
 	}
 	service.latency = latency
+}
+
+// SetServiceToken sets the participant service token for authenticating private internal requests.
+func (service *Service) SetServiceToken(token string) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.serviceToken = token
+}
+
+// ServiceToken returns the configured participant service token.
+func (service *Service) ServiceToken() string {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.serviceToken
 }
 
 func (service *Service) GetHealth(context.Context) (bank.HealthResult, error) {
@@ -372,6 +387,44 @@ func (service *Service) GetOperationStatus(ctx context.Context, request bank.Ope
 	return bank.OperationResult{PaymentID: paymentID, OperationID: operationID, BankReference: reference, Status: operationStatus(status)}, nil
 }
 
+// GetOperationPresence authoritatively queries the participant's operations table.
+// If the operation is not found (pgx.ErrNoRows), presence is reported as "absent".
+// Errors and timeouts are NEVER mapped to absence.
+func (service *Service) GetOperationPresence(ctx context.Context, paymentID, operationID uuid.UUID) (bank.OperationPresenceResult, error) {
+	if err := service.before(ctx); err != nil {
+		return bank.OperationPresenceResult{}, err
+	}
+	if operationID == uuid.Nil || paymentID == uuid.Nil {
+		return bank.OperationPresenceResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "payment ID and operation ID are required for presence check"}
+	}
+	var rowPaymentID uuid.UUID
+	var status string
+	err := service.db.QueryRow(ctx, fmt.Sprintf(`SELECT payment_id, status FROM %s WHERE operation_id = $1`, service.table("operations")), operationID).Scan(&rowPaymentID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return bank.OperationPresenceResult{
+			PaymentID:   paymentID,
+			OperationID: operationID,
+			Presence:    bank.PresenceAbsent,
+			ObservedAt:  time.Now().UTC(),
+			Status:      nil,
+		}, nil
+	}
+	if err != nil {
+		return bank.OperationPresenceResult{}, err
+	}
+	if rowPaymentID != paymentID {
+		return bank.OperationPresenceResult{}, &bank.AdapterError{Code: bank.ErrCodePermanentFailure, Message: "operation payment does not match"}
+	}
+	opStatus := operationStatus(status)
+	return bank.OperationPresenceResult{
+		PaymentID:   paymentID,
+		OperationID: operationID,
+		Presence:    bank.PresencePresent,
+		ObservedAt:  time.Now().UTC(),
+		Status:      &opStatus,
+	}, nil
+}
+
 func (service *Service) GetLedgerSnapshot(ctx context.Context, scope bank.LedgerScope) (bank.LedgerSnapshot, error) {
 	rows, err := service.db.Query(ctx, fmt.Sprintf(`SELECT operation_id, payment_id, account_id, entry_type, amount_paise, currency, occurred_at FROM %s WHERE occurred_at >= $1 AND occurred_at < $2 ORDER BY occurred_at, id`, service.table("ledger_entries")), scope.From, scope.To)
 	if err != nil {
@@ -508,3 +561,4 @@ func (service *Service) bankReference(operationID uuid.UUID) string {
 }
 
 var _ bank.BankAdapter = (*Service)(nil)
+var _ bank.OperationPresenceReader = (*Service)(nil)

@@ -345,3 +345,71 @@ does not require the aligned bucket start itself to be inside the scope. This
 allows a proof returned for an arbitrary closed scope to be posted back
 unchanged without weakening participant, scope, generation, root, version, or
 record binding.
+
+## ADR-032: Shared recovery serialization and state continuation
+
+Status: **IMPLEMENTED**
+
+All payment continuation paths (initial execution duplicate requests, caller retries,
+and background worker recovery) converge on `Service.Resume`. Per-payment session advisory
+locking runs on dedicated connections with guaranteed cleanup to prevent pool contamination.
+Re-reads state after lock acquisition, resolves original persisted route, validates central
+ledger for COMMITTED state without duplicate transactions, treats terminal states as NO_OP,
+and enforces bounded concurrency with a minimum connection pool reserve. In addition, banking
+participant operations can only be safely replayed when authoritative absence is affirmatively
+proven via `OperationPresenceReader`, with the participant rejecting racing originals with 409 Conflict.
+
+## ADR-033: Durable recovery scheduling, leases, and attempts
+
+Status: **IMPLEMENTED**
+
+Introduces durable queue and attempt audit tables via Migration 000022 (`recovery_jobs`,
+`recovery_attempts`, `worker_heartbeats`). Distributed workers claim due jobs in short
+transactions using `FOR UPDATE SKIP LOCKED`, incrementing monotonic lease epochs and creating
+per-lease attempt rows. Completion uses conditional Compare-And-Swap (CAS) requiring an active lease
+and matching epoch, rejecting late results from superseded workers. Running jobs with expired leases
+are reclaimed or swept as INTERRUPTED. Backoff follows exponential progression with injectable jitter,
+and attempt exhaustion caps at 20 attempts before parking safely in `needs_attention` without altering
+monetary records. Stale discovery acts as a bounded safety net and never un-parks attention jobs.
+
+## ADR-039: Public Demo RBAC and Gated Operational Controls
+
+Status: **IMPLEMENTED**
+
+Restricts self-registration to CUSTOMER and MERCHANT roles, preventing privilege escalation. Introduces OPS_VIEWER as a read-only operations role with access to operational telemetry (GET /api/ops/*) while denying mutations (403 Forbidden). Adds explicit configuration control flags (ALLOW_REGISTRATION, CHAOS_ENABLED, RECOVERY_CONTROL_ENABLED) that fail-safe closed in production and are reported via GET /api/ops/runtime. Mandates inter-service participant tokens for Bank A and Bank B in production, and records all administrative operational mutations in append-only operational_audit_logs.
+
+## ADR-034: Transactional Outbox Facts and Atomic Event Production
+
+Status: **IMPLEMENTED**
+
+Introduces payment event versioning (`payments.event_version`), immutable outbox events (`outbox_events`), and delivery state (`outbox_deliveries`) via Migration 000024. PostgreSQL triggers on `payments` atomically assign monotonically increasing event versions and insert typed outbox events (`payment.created.v1`, `payment.state_changed.v1`) and deliveries for `ops-worklist-v1` within the source transaction. Triggers on `recovery_attempts` and `recovery_jobs` emit recovery lifecycle facts (`recovery.attempt_started.v1`, `recovery.attempt_finished.v1`, `recovery.attention_required.v1`). Source rollbacks discard all outbox effects, updates on `outbox_events` are strictly denied by an immutability trigger, and customer private data is excluded from payloads.
+
+## ADR-035: Worklist Projection, Consumer Inbox, and Safe Offline Rebuild
+
+Status: **IMPLEMENTED**
+
+Introduces idempotent consumer inbox (`consumer_inbox`) and derived worklist projection (`ops_payment_worklist`) via Migration 000025. Projections consume transactional outbox deliveries under shared transaction advisory locks (`WorklistMaintenanceLockKey = 78891001`), deduplicating events via `consumer_inbox` and enforcing nondecreasing `event_version` guards to prevent out-of-order regressions. Malformed or unsupported schema versions are quarantined without dropping data or stalling the pipeline. A dedicated offline maintenance CLI (`cmd/rebuild-worklist`) acquires exclusive transaction advisory locks, supports a non-destructive `--preview` diff mode, validates snapshot counts in temporary staging tables, performs atomic truncate-and-swap projection reconstruction, and logs full audit entries in `operational_audit_logs`.
+
+## ADR-040: OpenTelemetry Distributed Tracing, Bounded Storage, and Span Links
+
+Status: **IMPLEMENTED**
+
+Instruments all platform processes (`transactx-api`, `transactx-worker`, `transactx-bank-a`, `transactx-bank-b`) with the OpenTelemetry Go SDK and standard W3C Trace Context propagation. Features a safe, non-blocking asynchronous exporter (`BoundedPostgresExporter`) backed by the `trace_spans` table (Migration 000026) with a strictly bounded 1,000-span queue that drops on overload to guarantee zero financial or transaction impact. Implements strict attribute cardinality limits (max 20 attributes, 256 char string cap, credentials/tokens/PII blacklisted) and automated 24-hour / 20,000-span TTL cleanup. Employs OpenTelemetry span links (`trace.Link`) for background recovery attempts to preserve causal provenance across process restarts without manufacturing synthetic parent spans. Exposes an operational read-only trace API (`GET /api/ops/traces/{traceID}`) for `OPS_ADMIN` and `OPS_VIEWER` roles returning bounded snapshots up to 200 spans.
+
+## ADR-037: Durable Operational Aggregate Windows and Analytics
+
+Status: **IMPLEMENTED**
+
+Implements durable five-minute completed operational aggregate windows (`operational_aggregate_windows` and `operational_aggregate_cursors` via Migration 000028) for bank and execution target operational monitoring. Enforces strict temporal cutoff where payment state is evaluated as of `transitioned_at <= window_to` using `payment_state_transitions` to eliminate retrospective leakage. Standardizes on frozen feature schema `tx.features.v1` (`timeoutRate`, `failureRate`, `p95LatencyMs`, `oldestRecoveryAgeMs`, `recoveryAttemptsPerPayment`, `healthAvailabilityRate`) and enforces a 20-sample minimum threshold (`MinimumSampleCount = 20`) below which `insufficient_data` is returned. Employs an idempotent background worker loop advancing every 30 seconds, a native Go statistical baseline alerting on abnormal failure and timeout rates, and exposes operational REST APIs (`GET /api/ops/analytics/windows`, `GET /api/ops/metrics/summary`, and `GET /api/ops/runtime`).
+
+## ADR-036: Read-Only Payment Investigator, Runbook Corpus, and Worker Claim Execution
+
+Status: **IMPLEMENTED**
+
+Implements a deterministic read-only operational investigator package (`internal/investigator`) backed by Migration 000027 (`investigation_jobs`, `runbook_corpus_chunks`, `investigation_usage_reservations`). Operates in zero-cost `evidence_only` mode by default, fetching authoritative payment evidence via `operations.EvidenceReader` and retrieving grounded citations from local PostgreSQL full-text search over seeded operational runbooks (`docs/runbooks/`). Enforces active concurrency bounds (max 1 active job per actor, max 2 globally) and a sliding rate limit (3 requests/minute/actor). Requires an `Idempotency-Key` on creation, replaying existing jobs on duplicate submissions and rejecting payload modifications with `409 Conflict`. Background workers claim queued jobs via `FOR UPDATE SKIP LOCKED` and execute reports with Compare-And-Swap (CAS) lease protection. Mounts operational REST APIs (`POST /api/ops/investigations` returning 202 Accepted and `GET /api/ops/investigations/{investigationID}` returning 200 OK with report and tool timeline) conforming strictly to `v2.schema.json` and `tx.investigation.v1`.
+
+## ADR-038: Crash Safety, Fault Boundaries, and Event Restart Invariants
+
+Status: **IMPLEMENTED**
+
+Establishes and verifies empirical proof for crash safety, fault recovery, presence-supported replay, and event restart invariants across 20 deterministic scenarios via `internal/experiments/crash_matrix.go` and `cmd/experiments`. Demonstrates that all recovery boundaries (REC-01 through REC-14: pre-hold, mid-hold, post-hold, mid-credit, pre-confirm, pre-ledger, client race, lease expiry, DB connection drop, pool exhaustion, removed route, presence-absent replay, presence-present avoidance, and attempt exhaustion parking) and outbox event streaming invariants (EVT-01 through EVT-06: atomic production, dispatcher lease steal, projection inbox deduplication, version regression prevention, poison pill quarantine, and atomic offline projection rebuild) preserve complete financial and system integrity. Verifies zero balance anomalies, exact double-entry debit/credit conservation ($\sum \text{debits} = \sum \text{credits}$), single ledger transaction per payment, and strict participant operation idempotency under chaos on live PostgreSQL 18. Emits reproducible structured JSON and CSV test artifacts with cryptographic SHA-256 verification.

@@ -8,6 +8,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/transactx/backend/internal/telemetry"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 type sequenceCursorStore struct {
@@ -76,6 +79,36 @@ func TestOperationalStreamSendsReadyAndDurableInvalidation(t *testing.T) {
 	}
 	if !strings.Contains(body, "event: invalidate") || !strings.Contains(body, `"topics":["activity","health"]`) {
 		t.Fatalf("missing deterministic changed topics: %s", body)
+	}
+}
+
+func TestOperationalStream_WithTelemetryMiddleware_PreservesFlusherAndStreams(t *testing.T) {
+	store := &sequenceCursorStore{cursors: []map[string]string{
+		{"health": "1", "routing": "4", "activity": "1:4"},
+	}}
+	handler := &Handler{
+		eventCursor:             store,
+		streamPollInterval:      time.Millisecond,
+		streamHeartbeatInterval: time.Hour,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+	defer cancel()
+
+	wrapped := telemetry.HTTPMiddleware(sdktrace.NewTracerProvider().Tracer("test"), telemetry.NewMetrics())(http.HandlerFunc(handler.operationalEvents))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ops/events/stream", nil).WithContext(ctx)
+	res := httptest.NewRecorder()
+	wrapped.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 OK (got body: %s)", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	if res.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("content type = %q, want text/event-stream", res.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(body, "event: ready") {
+		t.Fatalf("missing ready refetch hint: %s", body)
 	}
 }
 
