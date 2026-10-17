@@ -8,6 +8,7 @@ const sources = [
   'docs/architecture.md', 'docs/next-gen/DELIVERY_ARCHITECTURE.md', 'docs/next-gen/DELIVERY_REPORT.md',
   'docs/next-gen/state/M1_INTEGRATION_REQUIREMENTS.md',
   'docs/next-gen/state/candidate902-acceptance-m1.json',
+  'docs/next-gen/state/final-completion-acceptance.json',
   'docs/next-gen/state/production-browser-final-m1.json',
   'docs/next-gen/state/native-crash-restore-final-m1.json',
   'docs/next-gen/state/cross-bank-native-recovery-m1.json',

@@ -1,0 +1,292 @@
+{
+  "testedSourceSha": "bf1808dd656e8d457cce65d1d4cc29ba930428c7",
+  "testedWorkingTree": "clean",
+  "date": "2026-10-17",
+  "environment": {
+    "go": "go version go1.27.1 windows/amd64",
+    "node": "v22.20.0",
+    "postgres": "psql (PostgreSQL) 18.6"
+  },
+  "spend": 0,
+  "providerCalls": 0,
+  "backend": [
+    {
+      "phase": "final-go-tests",
+      "exitCode": 0,
+      "seconds": 181.07,
+      "logSha256": "dada95f21e46bdbf63cb408bd6d249b93996cf43a5e665e65aaa470af5797f23",
+      "failures": [],
+      "skippedTests": [
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_FullMatrix"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_CB01_CB02_Focused"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_CB07_SeamFailures"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_CB07_FullRestoreEndToEnd"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestPostgresConcurrencyStormEvidence"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrashMatrix_FullRecoveryAndEventMatrix"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/investigator",
+          "test": "TestPostgresInvestigationStoreCanonicalSchemaConformance"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/reconciliation",
+          "test": "TestDurableCommitmentSurvivesPostgresRestart"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/reconciliation",
+          "test": "TestReconciliationScaleEvidence"
+        }
+      ],
+      "packageNoTestFilesAreNotAcceptanceProof": true
+    },
+    {
+      "phase": "final-go-race",
+      "exitCode": 0,
+      "seconds": 307.04,
+      "logSha256": "fff804c4f31218603e593db8288437e4718a85ff49e67d8f9fb732002036cdf5",
+      "failures": [],
+      "skippedTests": [
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_FullMatrix"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_CB01_CB02_Focused"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_CB07_SeamFailures"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrossBankRecovery_CB07_FullRestoreEndToEnd"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestPostgresConcurrencyStormEvidence"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/experiments",
+          "test": "TestCrashMatrix_FullRecoveryAndEventMatrix"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/investigator",
+          "test": "TestPostgresInvestigationStoreCanonicalSchemaConformance"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/reconciliation",
+          "test": "TestDurableCommitmentSurvivesPostgresRestart"
+        },
+        {
+          "package": "github.com/transactx/backend/internal/reconciliation",
+          "test": "TestReconciliationScaleEvidence"
+        }
+      ],
+      "packageNoTestFilesAreNotAcceptanceProof": true
+    },
+    {
+      "phase": "final-canonical-store",
+      "exitCode": 0,
+      "seconds": 11.06,
+      "logSha256": "3f1dd55bf9c6f477e6fa95dabc9924aa0d37c2c11a2c999319d3ec025f34e662",
+      "failures": [],
+      "skippedTests": [],
+      "packageNoTestFilesAreNotAcceptanceProof": true
+    },
+    {
+      "phase": "final-go-vet",
+      "exitCode": 0,
+      "seconds": 8.0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failures": [],
+      "skippedTests": [],
+      "packageNoTestFilesAreNotAcceptanceProof": true
+    },
+    {
+      "phase": "final-go-build",
+      "exitCode": 0,
+      "seconds": 6.29,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failures": [],
+      "skippedTests": [],
+      "packageNoTestFilesAreNotAcceptanceProof": true
+    },
+    {
+      "phase": "final-recovery-lifecycle",
+      "exitCode": 0,
+      "seconds": 37.77,
+      "logSha256": "b35373d7769a6385de6aeb32e6a858d9d044aceeeec6509de215d76c9e4d429f",
+      "failures": [],
+      "skippedTests": [],
+      "packageNoTestFilesAreNotAcceptanceProof": true
+    }
+  ],
+  "frontend": [
+    {
+      "phase": "frontend-install",
+      "exitCode": 0,
+      "seconds": 26.0,
+      "logSha256": "eeb04ddc0d46720dc56f7e2951954224784750bc7c8c05e5bf75deb1b956ccbc"
+    },
+    {
+      "phase": "frontend-tests",
+      "exitCode": 0,
+      "seconds": 2.42,
+      "logSha256": "dc052f62f3a1720b0b38b78f734624419c3f7bc230a95cd8cb16c1af73eac4aa"
+    },
+    {
+      "phase": "frontend-money",
+      "exitCode": 0,
+      "seconds": 0.98,
+      "logSha256": "2d1c6cf267e84b0b581a43a52749dba80142108db5673fa6ebdbed6f092a14f9"
+    },
+    {
+      "phase": "frontend-types",
+      "exitCode": 0,
+      "seconds": 3.02,
+      "logSha256": "6bfa60793ea663e8b4db3d3cb5f1eae79773583be652745118b87fd6b66245ac"
+    },
+    {
+      "phase": "frontend-build",
+      "exitCode": 0,
+      "seconds": 2.66,
+      "logSha256": "3a5c1855e57281bb9c74992337bcab5d5f3d224a1c676903b8531f6c10c6c0f9"
+    }
+  ],
+  "recoveryReport": [
+    {
+      "artifact": "artifacts/v2/cross_bank_recovery/cross_bank_recovery.json",
+      "sourceSha": "bf1808dd656e8d457cce65d1d4cc29ba930428c7",
+      "dirty": false,
+      "workingTree": "clean",
+      "passed": 7,
+      "total": 7,
+      "sha256": "619b2a61271248dd1b463bd6e7f47531a51aa2bbe4c080379343618ee6360f58",
+      "scope": "In-process/seeded harness, real HTTP participants and unencrypted dump/restore; no native process-kill claim."
+    },
+    {
+      "artifact": "artifacts/v2/crash_matrix/run-1792260391-windows/crash_matrix.json",
+      "sourceSha": "bf1808dd656e8d457cce65d1d4cc29ba930428c7",
+      "dirty": false,
+      "workingTree": "clean",
+      "passed": 20,
+      "total": 20,
+      "sha256": "05b430a0749988be13bbf558222eed0801d5f502e5b8c41e4e80a45f11d0cbc7",
+      "scope": "In-process controlled adapters; no native process-kill claim."
+    }
+  ],
+  "focusedCredentialRegression": {
+    "source": "5308425",
+    "scenarios": 41,
+    "passed": 41,
+    "scope": "Offline stubs; literal special-character credentials and harmless nonexecution markers. Temporary LF mirror only; checkout line endings preserved."
+  },
+  "reusedLiveEvidence": [
+    {
+      "artifact": "docs/next-gen/state/production-browser-final-m1.json",
+      "artifactSha256": "dab8d42ad59fa04c84da39a833a37c93ac68229f3cf5b119752fa69e0339fdb9",
+      "baselineCommit": "060d051",
+      "equalRuntimePaths": [
+        "frontend/src",
+        "frontend/package.json",
+        "frontend/package-lock.json",
+        "frontend/browser",
+        "frontend/playwright.live.config.ts"
+      ],
+      "scope": "Retain original measured scenarios only; not the full seeded crash matrix or hosted deployment."
+    },
+    {
+      "artifact": "docs/next-gen/state/native-crash-restore-final-m1.json",
+      "artifactSha256": "8e1a6d4c7ac48730e0f9cfc3cc76fa9bee4028f6337115e1e04d9ebc1afc662d",
+      "baselineCommit": "4d8f2af",
+      "equalRuntimePaths": [
+        "backend/internal/payments",
+        "backend/internal/recovery",
+        "backend/internal/bank",
+        "backend/internal/bankservice",
+        "backend/internal/projections",
+        "backend/internal/outbox",
+        "backend/cmd/api",
+        "backend/cmd/worker",
+        "backend/internal/http/middleware.go",
+        "backend/go.mod",
+        "backend/go.sum",
+        "backend/migrations"
+      ],
+      "scope": "Retain original measured scenarios only; not the full seeded crash matrix or hosted deployment."
+    },
+    {
+      "artifact": "docs/next-gen/state/cross-bank-native-recovery-m1.json",
+      "artifactSha256": "9efaf2bcf053dccf1ad36010f048a0dfcb536ee04fc2673ab896f851c1484473",
+      "baselineCommit": "af210f9",
+      "equalRuntimePaths": [
+        "backend/internal/payments",
+        "backend/internal/recovery",
+        "backend/internal/bank",
+        "backend/internal/bankservice",
+        "backend/internal/projections",
+        "backend/internal/outbox",
+        "backend/cmd/api",
+        "backend/cmd/worker",
+        "backend/go.mod",
+        "backend/go.sum",
+        "backend/migrations"
+      ],
+      "scope": "Retain original measured scenarios only; not the full seeded crash matrix or hosted deployment."
+    }
+  ],
+  "sourceRelevanceNotes": [
+    "Investigator runtime, approved corpus, payment/recovery/outbox/projector/worker composition, migrations and Go dependencies are unchanged from the native proofs.",
+    "Telemetry exporter changed only through the integrated optional test consumer barrier; default nil-barrier runtime path was inspected.",
+    "Calibration eligibility changed; focused and final PostgreSQL tests exercise the new sole attestation and error paths. Frontend/HTTP DTO contracts are unchanged."
+  ],
+  "explicitSkips": {
+    "requiredElsewhere": [
+      "Five recovery lifecycle tests skipped by broad suites run under the dedicated race lifecycle, which completed with no skips.",
+      "Canonical schema conformance skipped by broad suites ran separately with both explicit M3 environment settings. Fresh/upgrade store and corpus lifecycle also passed in broad suites."
+    ],
+    "notRerun": [
+      "TestPostgresConcurrencyStormEvidence (opt-in measurements)",
+      "TestReconciliationScaleEvidence (opt-in research output)",
+      "TestDurableCommitmentSurvivesPostgresRestart (opt-in dedicated server-restart script)"
+    ],
+    "limitations": "These opt-in skips are not claimed as passes or new benchmark/restart evidence."
+  },
+  "delivery": {
+    "powerShellAndBashPreflight": "Passed at clean tested source; 8 commands, 6 corpus inputs, 13 original delivery inputs. Final evidence staging adds this record and is checked separately.",
+    "archive": "not_created: actual public VITE_API_BASE_URL missing",
+    "deployment": "not_deployed: no authorized native Linux host/access or configured public origins",
+    "installationAndAuthenticatedHostedSmoke": "pending configured host; no guard relaxed"
+  },
+  "historicalIncident": {
+    "status": "unresolved: reported 158 missing source transitions",
+    "sourceDatasetAccessed": false,
+    "sourceDatasetMutated": false,
+    "cleanDatabaseTestsProveHistoricalRecovery": false,
+    "ownerDecision": "Provide provenance-verified pre-incident recovery material and authorize separate isolated forensic comparison before any source remediation; keep affected dataset preserved and excluded meanwhile."
+  },
+  "disposableLifecycle": {
+    "targetDatabase": "transactx_disposable_ci_1792260358_1947",
+    "catalogRemovalVerified": true,
+    "race": true,
+    "skips": 0
+  }
+}
