@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 base_url="${DATABASE_URL:-}"
-test_pattern='^TestCrossBankRecovery_'
+test_pattern='^(TestCrossBankRecovery_|TestCrashMatrix_)'
 migrations_dir="$REPO_ROOT/backend/migrations"
 test_pkg='./internal/experiments'
 allow_incomplete=false
@@ -32,7 +32,7 @@ while (($#)); do
       echo "Usage: $0 [options]"
       echo "Options:"
       echo "  --base-url <url>        Base maintenance connection URL (defaults to DATABASE_URL or postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable)"
-      echo "  --test-pattern <pat>    Go test run regex (defaults to '^TestCrossBankRecovery_')"
+      echo "  --test-pattern <pat>    Go test run regex (defaults to '^(TestCrossBankRecovery_|TestCrashMatrix_)')"
       echo "  --migrations-dir <dir>  Path to migrations directory (defaults to backend/migrations)"
       echo "  --test-pkg <pkg>        Go test package path (defaults to './internal/experiments')"
       exit 0
@@ -332,8 +332,8 @@ cat << EOF > "$contract_file"
 EOF
 echo "[orchestrator] Established lifecycle ownership contract marker at '$contract_file'."
 
-# 8. Execute designated cross-bank integration tests
-echo "[orchestrator] Executing cross-bank tests (pattern: $test_pattern)..."
+# 8. Execute designated disposable integration tests
+echo "[orchestrator] Executing dedicated disposable integration tests (pattern: $test_pattern)..."
 set +e
 (
   cd "$REPO_ROOT/backend"

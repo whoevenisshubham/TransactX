@@ -38,7 +38,7 @@ func findTestRepoRoot() string {
 	return cwd
 }
 
-func handleTestCleanup(t *testing.T, harness *CrossBankRecoveryHarness) {
+func handleTestCleanup(t *testing.T, harness *CrossBankRecoveryHarness, prevalidatedContract ...*OrchestratorLifecycleContract) {
 	if harness == nil {
 		return
 	}
@@ -47,9 +47,17 @@ func handleTestCleanup(t *testing.T, harness *CrossBankRecoveryHarness) {
 		return
 	}
 	currentDB := harness.CurrentDB()
-	contract, contractErr := ResolveOrchestratorContract(currentDB)
-	if contractErr != nil {
-		t.Logf("orchestrator contract check: %v", contractErr)
+	var contract *OrchestratorLifecycleContract
+	if len(prevalidatedContract) > 0 && prevalidatedContract[0] != nil {
+		contract = prevalidatedContract[0]
+	} else if harness.LifecycleContract() != nil {
+		contract = harness.LifecycleContract()
+	} else {
+		var contractErr error
+		contract, contractErr = ResolveOrchestratorContract(currentDB)
+		if contractErr != nil {
+			t.Logf("orchestrator contract check: %v", contractErr)
+		}
 	}
 	expectedToken := os.Getenv(EnvDisposableInvocationToken)
 	shouldFail, isDelegated, diag := EvaluateTestCleanupOutcome(closeErr, contract, currentDB, expectedToken)
@@ -66,6 +74,10 @@ func TestCrossBankRecovery_FullMatrix(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping database-backed cross-bank recovery matrix test")
 	}
 
+	if os.Getenv(EnvDisposableDBOrchestrated) != "1" {
+		t.Skip("skipping database-backed cross-bank recovery matrix test outside orchestrated disposable lifecycle (run via backend/scripts/run-cross-bank-disposable.sh)")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -75,16 +87,17 @@ func TestCrossBankRecovery_FullMatrix(t *testing.T) {
 	}
 	defer pool.Close()
 
-	currentDB, err := VerifyPoolIsDisposable(ctx, pool)
+	currentDB, contract, err := AuthorizeDestructiveLifecycle(ctx, pool)
 	if err != nil {
-		t.Skipf("skipping database-backed cross-bank recovery test: database %q is not disposable: %v (run via backend/scripts/run-cross-bank-disposable.sh)", currentDB, err)
+		t.Fatalf("cross-bank recovery lifecycle authorization failed for database %q: %v", currentDB, err)
 	}
 
 	harness, err := NewCrossBankRecoveryHarness(pool, dbURL)
 	if err != nil {
 		t.Fatalf("init cross-bank recovery harness: %v", err)
 	}
-	defer handleTestCleanup(t, harness)
+	harness.SetLifecycleContract(contract)
+	defer handleTestCleanup(t, harness, contract)
 
 	report, err := harness.RunAll(ctx)
 	if err != nil {
@@ -160,6 +173,10 @@ func TestCrossBankRecovery_CB01_CB02_Focused(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping database-backed cross-bank test")
 	}
 
+	if os.Getenv(EnvDisposableDBOrchestrated) != "1" {
+		t.Skip("skipping database-backed cross-bank recovery test outside orchestrated disposable lifecycle (run via backend/scripts/run-cross-bank-disposable.sh)")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
@@ -169,16 +186,17 @@ func TestCrossBankRecovery_CB01_CB02_Focused(t *testing.T) {
 	}
 	defer pool.Close()
 
-	currentDB, err := VerifyPoolIsDisposable(ctx, pool)
+	currentDB, contract, err := AuthorizeDestructiveLifecycle(ctx, pool)
 	if err != nil {
-		t.Skipf("skipping database-backed cross-bank recovery test: database %q is not disposable: %v (run via backend/scripts/run-cross-bank-disposable.sh)", currentDB, err)
+		t.Fatalf("cross-bank recovery lifecycle authorization failed for database %q: %v", currentDB, err)
 	}
 
 	harness, err := NewCrossBankRecoveryHarness(pool, dbURL)
 	if err != nil {
 		t.Fatalf("init cross-bank recovery harness: %v", err)
 	}
-	defer handleTestCleanup(t, harness)
+	harness.SetLifecycleContract(contract)
+	defer handleTestCleanup(t, harness, contract)
 
 	t.Run("CB-01_SeededRecoveryAfterJournalBeforeDispatch", func(t *testing.T) {
 		res := harness.RunCB01_SeededRecoveryAfterJournalBeforeDispatch(ctx)
@@ -441,6 +459,10 @@ func TestCrossBankRecovery_CB07_SeamFailures(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping database-backed CB-07 seam tests")
 	}
 
+	if os.Getenv(EnvDisposableDBOrchestrated) != "1" {
+		t.Skip("skipping database-backed CB-07 seam tests outside orchestrated disposable lifecycle (run via backend/scripts/run-cross-bank-disposable.sh)")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -450,16 +472,17 @@ func TestCrossBankRecovery_CB07_SeamFailures(t *testing.T) {
 	}
 	defer pool.Close()
 
-	currentDB, err := VerifyPoolIsDisposable(ctx, pool)
+	currentDB, contract, err := AuthorizeDestructiveLifecycle(ctx, pool)
 	if err != nil {
-		t.Skipf("skipping database-backed cross-bank recovery test: database %q is not disposable: %v (run via backend/scripts/run-cross-bank-disposable.sh)", currentDB, err)
+		t.Fatalf("cross-bank recovery lifecycle authorization failed for database %q: %v", currentDB, err)
 	}
 
 	harness, err := NewCrossBankRecoveryHarness(pool, dbURL)
 	if err != nil {
 		t.Fatalf("init harness: %v", err)
 	}
-	defer handleTestCleanup(t, harness)
+	harness.SetLifecycleContract(contract)
+	defer handleTestCleanup(t, harness, contract)
 
 	t.Run("BackupCommandFailure", func(t *testing.T) {
 		harness.SetBackupRestoreRunner(&mockBackupRestoreRunner{
@@ -621,6 +644,10 @@ func TestCrossBankRecovery_CB07_FullRestoreEndToEnd(t *testing.T) {
 		t.Skip("DATABASE_URL not set; skipping database-backed CB-07 full restore test")
 	}
 
+	if os.Getenv(EnvDisposableDBOrchestrated) != "1" {
+		t.Skip("skipping database-backed CB-07 full restore test outside orchestrated disposable lifecycle (run via backend/scripts/run-cross-bank-disposable.sh)")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -630,16 +657,17 @@ func TestCrossBankRecovery_CB07_FullRestoreEndToEnd(t *testing.T) {
 	}
 	defer pool.Close()
 
-	currentDB, err := VerifyPoolIsDisposable(ctx, pool)
+	currentDB, contract, err := AuthorizeDestructiveLifecycle(ctx, pool)
 	if err != nil {
-		t.Skipf("skipping database-backed cross-bank recovery test: database %q is not disposable: %v (run via backend/scripts/run-cross-bank-disposable.sh)", currentDB, err)
+		t.Fatalf("cross-bank recovery lifecycle authorization failed for database %q: %v", currentDB, err)
 	}
 
 	harness, err := NewCrossBankRecoveryHarness(pool, dbURL)
 	if err != nil {
 		t.Fatalf("init harness: %v", err)
 	}
-	defer handleTestCleanup(t, harness)
+	harness.SetLifecycleContract(contract)
+	defer handleTestCleanup(t, harness, contract)
 
 	res := harness.RunCB07_RestoreFromDisposableBackupPendingPayment(ctx)
 	if !res.Passed {
@@ -1160,4 +1188,180 @@ func TestCrossBankRecovery_EvaluateTestCleanupOutcome(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Database-independent tests verifying that pre-execution lifecycle authorization prevents
+// fixture creation and destructive scenario execution when contracts or tokens are invalid.
+func TestCrossBankRecovery_PreExecutionLifecycleAuthorization(t *testing.T) {
+	origOrchestrated := os.Getenv(EnvDisposableDBOrchestrated)
+	origToken := os.Getenv(EnvDisposableInvocationToken)
+	origContractFile := os.Getenv(EnvDisposableContractFile)
+	origContractJSON := os.Getenv(EnvDisposableOrchestratorContract)
+	defer func() {
+		os.Setenv(EnvDisposableDBOrchestrated, origOrchestrated)
+		os.Setenv(EnvDisposableInvocationToken, origToken)
+		os.Setenv(EnvDisposableContractFile, origContractFile)
+		os.Setenv(EnvDisposableOrchestratorContract, origContractJSON)
+	}()
+
+	targetDB := "transactx_disposable_ci_98765"
+	validToken := "tx_token_valid_98765"
+	freshTime := time.Now().UTC().Format(time.RFC3339)
+
+	writeContract := func(t *testing.T, content string) string {
+		t.Helper()
+		tmpDir := t.TempDir()
+		fPath := filepath.Join(tmpDir, "contract.json")
+		if err := os.WriteFile(fPath, []byte(content), 0600); err != nil {
+			t.Fatalf("failed to write test contract: %v", err)
+		}
+		return fPath
+	}
+
+	t.Run("broad_suite_without_orchestration_skips_before_fixture_creation", func(t *testing.T) {
+		os.Unsetenv(EnvDisposableDBOrchestrated)
+		os.Unsetenv(EnvDisposableInvocationToken)
+		os.Unsetenv(EnvDisposableContractFile)
+
+		contract, err := ValidateDestructiveLifecycleContract(targetDB)
+		if !errors.Is(err, ErrUnorchestratedLifecycle) {
+			t.Errorf("expected ErrUnorchestratedLifecycle, got contract=%+v, err=%v", contract, err)
+		}
+
+		ctx := context.Background()
+		db, contract2, err2 := AuthorizeDestructiveLifecycle(ctx, nil)
+		if !errors.Is(err2, ErrUnorchestratedLifecycle) {
+			t.Errorf("expected AuthorizeDestructiveLifecycle to return ErrUnorchestratedLifecycle on un-orchestrated run, got db=%q, contract=%+v, err=%v", db, contract2, err2)
+		}
+	})
+
+	t.Run("marker_set_without_token_fails_before_scenarios", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Unsetenv(EnvDisposableInvocationToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"%s","orchestratorPid":123,"createdAt":"%s"}`,
+			OrchestratorContractVersion, targetDB, validToken, freshTime))
+		os.Setenv(EnvDisposableContractFile, f)
+
+		_, err := ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "invocation token missing") {
+			t.Errorf("expected invocation token missing error, got %v", err)
+		}
+	})
+
+	t.Run("marker_set_without_contract_file_fails_before_scenarios", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, validToken)
+		os.Unsetenv(EnvDisposableContractFile)
+		os.Unsetenv(EnvDisposableOrchestratorContract)
+
+		_, err := ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "contract missing") {
+			t.Errorf("expected contract missing error, got %v", err)
+		}
+	})
+
+	t.Run("contract_for_another_database_fails_before_scenarios", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"transactx_disposable_ci_other","invocationToken":"%s","orchestratorPid":123,"createdAt":"%s"}`,
+			OrchestratorContractVersion, validToken, freshTime))
+		os.Setenv(EnvDisposableContractFile, f)
+
+		_, err := ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "mismatch") {
+			t.Errorf("expected database mismatch error, got %v", err)
+		}
+	})
+
+	t.Run("stale_contract_fails_before_scenarios", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, validToken)
+		staleTime := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"%s","orchestratorPid":123,"createdAt":"%s"}`,
+			OrchestratorContractVersion, targetDB, validToken, staleTime))
+		os.Setenv(EnvDisposableContractFile, f)
+
+		_, err := ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "stale") {
+			t.Errorf("expected stale contract error, got %v", err)
+		}
+	})
+
+	t.Run("malformed_contract_fails_before_scenarios", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, `{"version": "incomplete json`)
+		os.Setenv(EnvDisposableContractFile, f)
+
+		_, err := ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "malformed") {
+			t.Errorf("expected malformed contract error, got %v", err)
+		}
+	})
+
+	t.Run("prior_invocation_token_rejected_before_scenarios", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, "tx_token_current_run")
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"tx_token_prior_run","orchestratorPid":123,"createdAt":"%s"}`,
+			OrchestratorContractVersion, targetDB, freshTime))
+		os.Setenv(EnvDisposableContractFile, f)
+
+		_, err := ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "does not match expected invocation token") {
+			t.Errorf("expected invocation token mismatch error, got %v", err)
+		}
+	})
+
+	t.Run("non_disposable_database_rejected_before_scenarios", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"transactx","invocationToken":"%s","orchestratorPid":123,"createdAt":"%s"}`,
+			OrchestratorContractVersion, validToken, freshTime))
+		os.Setenv(EnvDisposableContractFile, f)
+
+		_, err := ValidateDestructiveLifecycleContract("transactx")
+		if err == nil || !strings.Contains(err.Error(), "refusing") {
+			t.Errorf("expected non-disposable database error for transactx, got %v", err)
+		}
+	})
+
+	t.Run("valid_matching_contract_authorizes_scenario", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"%s","orchestratorPid":12345,"createdAt":"%s"}`,
+			OrchestratorContractVersion, targetDB, validToken, freshTime))
+		os.Setenv(EnvDisposableContractFile, f)
+
+		contract, err := ValidateDestructiveLifecycleContract(targetDB)
+		if err != nil {
+			t.Fatalf("expected valid contract to be authorized, got: %v", err)
+		}
+		if contract.Database != targetDB {
+			t.Errorf("expected database %q, got %q", targetDB, contract.Database)
+		}
+		if contract.InvocationToken != validToken {
+			t.Errorf("expected token %q, got %q", validToken, contract.InvocationToken)
+		}
+
+		// Verify reusing validated contract for cleanup delegation
+		shouldFail, isDelegated, diag := EvaluateTestCleanupOutcome(ErrImmutableHistoryBlockedCleanup, contract, targetDB, validToken)
+		if shouldFail || !isDelegated {
+			t.Errorf("expected cleanup delegation to succeed with validated contract, got shouldFail=%t, isDelegated=%t, diag=%s",
+				shouldFail, isDelegated, diag)
+		}
+	})
+
+	t.Run("marker_set_with_nil_pool_fails_closed", func(t *testing.T) {
+		os.Setenv(EnvDisposableDBOrchestrated, "1")
+		os.Setenv(EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"%s","orchestratorPid":12345,"createdAt":"%s"}`,
+			OrchestratorContractVersion, targetDB, validToken, freshTime))
+		os.Setenv(EnvDisposableContractFile, f)
+
+		ctx := context.Background()
+		_, _, err := AuthorizeDestructiveLifecycle(ctx, nil)
+		if err == nil || !strings.Contains(err.Error(), "pool is required") {
+			t.Errorf("expected AuthorizeDestructiveLifecycle to fail closed on nil pool when orchestrated, got %v", err)
+		}
+	})
 }

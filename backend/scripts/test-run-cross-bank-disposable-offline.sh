@@ -144,6 +144,31 @@ if [[ "${MOCK_GO_TEST_IMMUTABLE_HISTORY:-0}" == "1" ]]; then
   exit 0
 fi
 
+if [[ "${MOCK_GO_TEST_ENFORCE_PRE_EXECUTION_CONTRACT:-0}" == "1" ]]; then
+  if [[ "${TRANSACTX_DISPOSABLE_DB_ORCHESTRATED:-0}" != "1" ]]; then
+    echo "SKIP: broad suite safely skips without orchestration marker before fixture creation"
+    exit 0
+  fi
+  if [[ "${MOCK_GO_SIMULATE_MISSING_CONTRACT:-0}" == "1" ]] || [[ -z "$norm_contract" ]] || [[ ! -f "$norm_contract" ]]; then
+    echo "FAIL: lifecycle contract authorization failed before fixture creation: contract file missing" >&2
+    exit 1
+  fi
+  if [[ "${MOCK_GO_SIMULATE_MISSING_TOKEN:-0}" == "1" ]] || [[ -z "${TRANSACTX_DISPOSABLE_INVOCATION_TOKEN:-}" ]]; then
+    echo "FAIL: lifecycle contract authorization failed before fixture creation: invocation token missing" >&2
+    exit 1
+  fi
+  if [[ "${MOCK_GO_SIMULATE_DB_MISMATCH:-0}" == "1" ]] || ! grep -q "\"database\":[[:space:]]*\"$PGDATABASE\"" "$norm_contract"; then
+    echo "FAIL: lifecycle contract authorization failed before fixture creation: database mismatch" >&2
+    exit 1
+  fi
+  if [[ "${MOCK_GO_SIMULATE_TOKEN_MISMATCH:-0}" == "1" ]] || ! grep -q "\"invocationToken\":[[:space:]]*\"$TRANSACTX_DISPOSABLE_INVOCATION_TOKEN\"" "$norm_contract"; then
+    echo "FAIL: lifecycle contract authorization failed before fixture creation: invocation token mismatch" >&2
+    exit 1
+  fi
+  echo "PASS: pre-execution lifecycle contract validated successfully before scenarios"
+  exit 0
+fi
+
 echo "PASS"
 exit 0
 EOF
@@ -633,6 +658,107 @@ else
   echo "  [FAIL] Teardown failure not reported or dropdb not called" >&2
   cat "$LOG_FILE" >&2
   cat "$TEST_TMP/err.log" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# ============================================================
+# Checkpoint 8H-22: Crash Matrix Dedicated Lifecycle Tests
+# ============================================================
+
+# Scenario 21: Dedicated lifecycle orchestrator defaults to pattern selecting both cross-bank and crash-matrix tests
+run_scenario 21 "Dedicated lifecycle orchestrator selects both cross-bank and crash-matrix test suites" 0 \
+  env MOCK_GO_TEST_FAIL=0 MOCK_DROPDB_FAIL=0
+if grep -q 'go test.*-run \^(TestCrossBankRecovery_|TestCrashMatrix_)' "$LOG_FILE"; then
+  echo "  [PASS] Verified default test run pattern includes both cross-bank and crash-matrix suites"
+else
+  echo "  [FAIL] Test pattern does not include both cross-bank and crash-matrix suites in log" >&2
+  cat "$LOG_FILE" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# Scenario 22: Crash matrix test failure (exit code 1) followed by successful teardown preserves exit code 1
+run_scenario 22 "Crash matrix test failure followed by successful teardown preserves exit code 1" 1 \
+  env MOCK_GO_TEST_FAIL=1 MOCK_GO_TEST_EXIT_CODE=1 MOCK_DROPDB_FAIL=0
+if grep -q '^dropdb' "$LOG_FILE"; then
+  echo "  [PASS] Teardown was executed and crash matrix test exit 1 preserved"
+else
+  echo "  [FAIL] Teardown dropdb was NOT called after crash matrix test failure" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# Scenario 23: Crash matrix test failure (exit code 42) combined with failed teardown preserves exit 42 and reports violation
+run_scenario 23 "Crash matrix test failure (exit 42) combined with failed teardown preserves exit 42 and reports violation" 42 \
+  env MOCK_GO_TEST_FAIL=1 MOCK_GO_TEST_EXIT_CODE=42 MOCK_DROPDB_FAIL=1
+if grep -q '^dropdb' "$LOG_FILE" && grep -q 'Teardown contract violation' "$TEST_TMP/err.log"; then
+  echo "  [PASS] Nonzero crash matrix test exit 42 preserved and teardown failure reported"
+else
+  echo "  [FAIL] Exit 42 not preserved or teardown failure was not reported" >&2
+  cat "$LOG_FILE" >&2
+  cat "$TEST_TMP/err.log" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# Scenario 24: Unexpected cleanup error during crash matrix execution fails closed with exit 1
+run_scenario 24 "Unexpected cleanup error during crash matrix execution fails closed with exit 1" 1 \
+  env MOCK_GO_TEST_UNEXPECTED_CLEANUP=1 MOCK_DROPDB_FAIL=0
+if grep -q '^dropdb' "$LOG_FILE" && grep -q 'UNEXPECTED_CLEANUP_ERROR' "$TEST_TMP/err.log"; then
+  echo "  [PASS] Unexpected cleanup error caused test failure (exit 1) and teardown executed"
+else
+  echo "  [FAIL] Unexpected cleanup error did not fail or teardown not called" >&2
+  cat "$LOG_FILE" >&2
+  cat "$TEST_TMP/err.log" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# ============================================================
+# Checkpoint 8H-23: Pre-Execution Lifecycle Authorization Tests
+# ============================================================
+
+# Scenario 25: Missing lifecycle contract file fails closed before fixture creation (exit 1)
+run_scenario 25 "Missing lifecycle contract file fails closed before fixture creation" 1 \
+  env MOCK_GO_TEST_ENFORCE_PRE_EXECUTION_CONTRACT=1 MOCK_GO_SIMULATE_MISSING_CONTRACT=1 MOCK_DROPDB_FAIL=0
+if grep -q '^dropdb' "$LOG_FILE" && grep -q 'contract file missing' "$TEST_TMP/err.log"; then
+  echo "  [PASS] Missing contract failed closed before scenario execution (exit 1) and teardown executed"
+else
+  echo "  [FAIL] Missing contract did not fail closed or teardown not called" >&2
+  cat "$LOG_FILE" >&2
+  cat "$TEST_TMP/err.log" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# Scenario 26: Contract database mismatch fails closed before fixture creation (exit 1)
+run_scenario 26 "Contract database mismatch fails closed before fixture creation" 1 \
+  env MOCK_GO_TEST_ENFORCE_PRE_EXECUTION_CONTRACT=1 MOCK_GO_SIMULATE_DB_MISMATCH=1 MOCK_DROPDB_FAIL=0
+if grep -q '^dropdb' "$LOG_FILE" && grep -q 'database mismatch' "$TEST_TMP/err.log"; then
+  echo "  [PASS] Database mismatch failed closed before scenario execution (exit 1) and teardown executed"
+else
+  echo "  [FAIL] Database mismatch did not fail closed or teardown not called" >&2
+  cat "$LOG_FILE" >&2
+  cat "$TEST_TMP/err.log" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# Scenario 27: Invocation token mismatch fails closed before fixture creation (exit 1)
+run_scenario 27 "Invocation token mismatch fails closed before fixture creation" 1 \
+  env MOCK_GO_TEST_ENFORCE_PRE_EXECUTION_CONTRACT=1 MOCK_GO_SIMULATE_TOKEN_MISMATCH=1 MOCK_DROPDB_FAIL=0
+if grep -q '^dropdb' "$LOG_FILE" && grep -q 'invocation token mismatch' "$TEST_TMP/err.log"; then
+  echo "  [PASS] Token mismatch failed closed before scenario execution (exit 1) and teardown executed"
+else
+  echo "  [FAIL] Token mismatch did not fail closed or teardown not called" >&2
+  cat "$LOG_FILE" >&2
+  cat "$TEST_TMP/err.log" >&2
+  FAILED_TESTS=$((FAILED_TESTS + 1))
+fi
+
+# Scenario 28: Valid matching contract permits designated lifecycle scenario execution (exit 0)
+run_scenario 28 "Valid matching contract permits designated lifecycle scenario execution" 0 \
+  env MOCK_GO_TEST_ENFORCE_PRE_EXECUTION_CONTRACT=1 MOCK_DROPDB_FAIL=0
+if grep -q '^dropdb' "$LOG_FILE" && grep -q 'validated successfully before scenarios' "$TEST_TMP/out.log"; then
+  echo "  [PASS] Valid contract authorized scenario execution and teardown executed cleanly (exit 0)"
+else
+  echo "  [FAIL] Valid contract did not authorize scenario execution or teardown not called" >&2
+  cat "$LOG_FILE" >&2
+  cat "$TEST_TMP/out.log" >&2
   FAILED_TESTS=$((FAILED_TESTS + 1))
 fi
 

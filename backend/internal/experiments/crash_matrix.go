@@ -356,8 +356,33 @@ type CrashMatrixHarness struct {
 	testBankBID    uuid.UUID
 	accSenderID    uuid.UUID
 	accRecvID      uuid.UUID
+	currentDB      string
 	adapterA       *ControllablePresenceAdapter
 	adapterB       *ControllablePresenceAdapter
+	contract       *OrchestratorLifecycleContract
+}
+
+// CurrentDB returns the verified disposable database name bound to this harness.
+func (h *CrashMatrixHarness) CurrentDB() string {
+	if h == nil {
+		return ""
+	}
+	return h.currentDB
+}
+
+// LifecycleContract returns the verified orchestrator contract bound to this harness, if authorized.
+func (h *CrashMatrixHarness) LifecycleContract() *OrchestratorLifecycleContract {
+	if h == nil {
+		return nil
+	}
+	return h.contract
+}
+
+// SetLifecycleContract binds a pre-validated orchestrator lifecycle contract to this harness.
+func (h *CrashMatrixHarness) SetLifecycleContract(c *OrchestratorLifecycleContract) {
+	if h != nil {
+		h.contract = c
+	}
 }
 
 func deterministicOpID(paymentID uuid.UUID, name string) uuid.UUID {
@@ -374,8 +399,18 @@ func NewCrashMatrixHarness(pool *pgxpool.Pool, seed int64) (*CrashMatrixHarness,
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if _, err := VerifyPoolIsDisposable(ctx, pool); err != nil {
+	currentDB, err := VerifyPoolIsDisposable(ctx, pool)
+	if err != nil {
 		return nil, fmt.Errorf("refusing crash matrix harness on non-disposable database: %w", err)
+	}
+
+	var contract *OrchestratorLifecycleContract
+	if os.Getenv(EnvDisposableDBOrchestrated) == "1" {
+		c, err := ValidateDestructiveLifecycleContract(currentDB)
+		if err != nil {
+			return nil, fmt.Errorf("refusing crash matrix harness: lifecycle contract authorization failed: %w", err)
+		}
+		contract = c
 	}
 
 	meta := CaptureEnvironmentMetadata(seed, 20, map[string]string{
@@ -383,11 +418,13 @@ func NewCrashMatrixHarness(pool *pgxpool.Pool, seed int64) (*CrashMatrixHarness,
 	})
 
 	h := &CrashMatrixHarness{
-		pool:     pool,
-		seed:     seed,
-		envMeta:  meta,
-		adapterA: NewControllablePresenceAdapter("BANK-A"),
-		adapterB: NewControllablePresenceAdapter("BANK-B"),
+		pool:      pool,
+		seed:      seed,
+		envMeta:   meta,
+		currentDB: currentDB,
+		contract:  contract,
+		adapterA:  NewControllablePresenceAdapter("BANK-A"),
+		adapterB:  NewControllablePresenceAdapter("BANK-B"),
 	}
 
 	return h, nil
@@ -409,6 +446,19 @@ func (h *CrashMatrixHarness) SeedFixtures(ctx context.Context) error {
 	}
 	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
 		return fmt.Errorf("refusing SeedFixtures on non-disposable database: %w", err)
+	}
+	if os.Getenv(EnvDisposableDBOrchestrated) == "1" {
+		if h.contract != nil {
+			if err := h.contract.Validate(h.currentDB, os.Getenv(EnvDisposableInvocationToken)); err != nil {
+				return fmt.Errorf("refusing SeedFixtures: invalid lifecycle contract: %w", err)
+			}
+		} else {
+			contract, err := ValidateDestructiveLifecycleContract(h.currentDB)
+			if err != nil {
+				return fmt.Errorf("refusing SeedFixtures: lifecycle authorization failed: %w", err)
+			}
+			h.contract = contract
+		}
 	}
 	h.testUserID = uuid.New()
 	h.testRecvUserID = uuid.New()
@@ -454,40 +504,57 @@ func (h *CrashMatrixHarness) SeedFixtures(ctx context.Context) error {
 }
 
 // Cleanup safely removes harness-scoped test fixtures without touching immutable transition tables or disabling triggers.
+// If payments have immutable state transitions, row deletion is safely blocked by foreign-key constraints and
+// ErrImmutableHistoryBlockedCleanup is returned so that external disposable-database teardown can be verified.
 func (h *CrashMatrixHarness) Cleanup(ctx context.Context) error {
-	if h.pool == nil || h.testUserID == uuid.Nil {
+	if h == nil || h.pool == nil || h.testUserID == uuid.Nil {
 		return nil
 	}
 	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
 		return fmt.Errorf("refusing Cleanup on non-disposable database: %w", err)
 	}
 
-	var cleanupErrs []error
-	execScoped := func(q string, args ...any) {
-		if _, err := h.pool.Exec(ctx, q, args...); err != nil {
-			cleanupErrs = append(cleanupErrs, err)
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin cleanup transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	steps := []struct {
+		table string
+		query string
+		args  []any
+	}{
+		{"ledger_entries", `DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		{"ledger_transactions", `DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		{"payment_bank_operations", `DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		{"recovery_attempts", `DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		{"recovery_jobs", `DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		{"outbox_deliveries", `DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, []any{h.testUserID, h.testRecvUserID}},
+		{"outbox_events", `DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		{"ops_payment_worklist", `DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		{"idempotency_records", `DELETE FROM idempotency_records WHERE user_id IN ($1, $2)`, []any{h.testUserID, h.testRecvUserID}},
+		{"payment_route_decisions", `DELETE FROM payment_route_decisions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, []any{h.testUserID, h.testRecvUserID}},
+		// Never touch payment_state_transitions; foreign-key constraints on payments will prevent deletion if transitions exist.
+		{"payments", `DELETE FROM payments WHERE initiated_by_user_id IN ($1, $2)`, []any{h.testUserID, h.testRecvUserID}},
+		{"accounts", `DELETE FROM accounts WHERE user_id IN ($1, $2)`, []any{h.testUserID, h.testRecvUserID}},
+		{"banks", `DELETE FROM banks WHERE id IN ($1, $2)`, []any{h.testBankAID, h.testBankBID}},
+		{"users", `DELETE FROM users WHERE id IN ($1, $2)`, []any{h.testUserID, h.testRecvUserID}},
+	}
+
+	for _, step := range steps {
+		if _, err := tx.Exec(ctx, step.query, step.args...); err != nil {
+			if step.table == "payments" && IsImmutableHistoryCleanupError(err) {
+				return fmt.Errorf("%w: cleanup table %s: %w", ErrImmutableHistoryBlockedCleanup, step.table, err)
+			}
+			return fmt.Errorf("cleanup table %s: %w", step.table, err)
 		}
 	}
 
-	execScoped(`DELETE FROM ledger_entries WHERE ledger_transaction_id IN (SELECT lt.id FROM ledger_transactions lt JOIN payments p ON p.id = lt.payment_id WHERE p.initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM ledger_transactions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM payment_bank_operations WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM recovery_attempts WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM recovery_jobs WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM outbox_deliveries WHERE event_id IN (SELECT id FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2)))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM outbox_events WHERE aggregate_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM ops_payment_worklist WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM idempotency_records WHERE user_id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM payment_route_decisions WHERE payment_id IN (SELECT id FROM payments WHERE initiated_by_user_id IN ($1, $2))`, h.testUserID, h.testRecvUserID)
-	// Never delete from payment_state_transitions; only clean payments that have no transition FK constraints
-	execScoped(`DELETE FROM payments WHERE initiated_by_user_id IN ($1, $2) AND id NOT IN (SELECT payment_id FROM payment_state_transitions)`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM accounts WHERE user_id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
-	execScoped(`DELETE FROM banks WHERE id IN ($1, $2)`, h.testBankAID, h.testBankBID)
-	execScoped(`DELETE FROM users WHERE id IN ($1, $2)`, h.testUserID, h.testRecvUserID)
-
-	if len(cleanupErrs) > 0 {
-		return fmt.Errorf("cleanup encountered %d errors: %v", len(cleanupErrs), cleanupErrs[0])
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit cleanup transaction: %w", err)
 	}
+
 	h.testUserID = uuid.Nil
 	h.testRecvUserID = uuid.Nil
 	return nil
@@ -597,18 +664,9 @@ func (h *CrashMatrixHarness) RunAll(ctx context.Context) (report *CrashMatrixRep
 	if err = h.SeedFixtures(ctx); err != nil {
 		return nil, err
 	}
-	defer func() {
-		if cErr := h.Cleanup(ctx); cErr != nil {
-			if err != nil {
-				err = fmt.Errorf("%w; cleanup error: %v", err, cErr)
-			} else {
-				err = fmt.Errorf("crash matrix cleanup failed: %w", cErr)
-			}
-			if report != nil {
-				report.AllInvariantsSatisfied = false
-			}
-		}
-	}()
+	// Note: In-process cleanup is not executed in RunAll defer because scenarios generate immutable transition
+	// records in payment_state_transitions. Harness lifecycle cleanup is deferred to Close()
+	// and verified against the orchestrator ownership contract via EvaluateTestCleanupOutcome.
 
 	var scenarios []CrashScenarioResult
 	now := time.Now().UTC()

@@ -172,6 +172,7 @@ type CrossBankRecoveryHarness struct {
 	testBankA    uuid.UUID
 	testBankB    uuid.UUID
 	backupRunner BackupRestoreRunner
+	contract     *OrchestratorLifecycleContract
 	mu           sync.Mutex
 }
 
@@ -181,6 +182,26 @@ func (h *CrossBankRecoveryHarness) CurrentDB() string {
 		return ""
 	}
 	return h.currentDB
+}
+
+// LifecycleContract returns the verified orchestrator contract bound to this harness, if authorized.
+func (h *CrossBankRecoveryHarness) LifecycleContract() *OrchestratorLifecycleContract {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.contract
+}
+
+// SetLifecycleContract binds a pre-validated orchestrator lifecycle contract to this harness.
+func (h *CrossBankRecoveryHarness) SetLifecycleContract(c *OrchestratorLifecycleContract) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.contract = c
 }
 
 // SetBackupRestoreRunner allows injecting a custom or mock runner for regression testing.
@@ -468,6 +489,60 @@ func ResolveOrchestratorContract(targetDB string) (*OrchestratorLifecycleContrac
 	return &contract, nil
 }
 
+// ErrUnorchestratedLifecycle indicates that external lifecycle orchestration is not active.
+// When encountered in broad test suites, tests must safely skip before creating fixtures.
+var ErrUnorchestratedLifecycle = errors.New("destructive scenarios require dedicated disposable lifecycle orchestration (TRANSACTX_DISPOSABLE_DB_ORCHESTRATED=1)")
+
+// ValidateDestructiveLifecycleContract validates that targetDB is an authorized disposable database
+// and that an active, verified lifecycle contract exists binding the current invocation to targetDB.
+//
+// Rules:
+// 1. If TRANSACTX_DISPOSABLE_DB_ORCHESTRATED is not "1", returns ErrUnorchestratedLifecycle.
+// 2. Validates targetDB name using ValidateDisposableDBName.
+// 3. Resolves and validates the contract file and invocation token via ResolveOrchestratorContract.
+// 4. Fails closed with an error if any check fails (missing contract, stale contract, mismatched DB, mismatched token).
+func ValidateDestructiveLifecycleContract(targetDB string) (*OrchestratorLifecycleContract, error) {
+	if os.Getenv(EnvDisposableDBOrchestrated) != "1" {
+		return nil, ErrUnorchestratedLifecycle
+	}
+	if err := ValidateDisposableDBName(targetDB); err != nil {
+		return nil, fmt.Errorf("refusing destructive lifecycle on database %q: %w", targetDB, err)
+	}
+	contract, err := ResolveOrchestratorContract(targetDB)
+	if err != nil {
+		return nil, fmt.Errorf("lifecycle contract authorization failed for target database %q: %w", targetDB, err)
+	}
+	return contract, nil
+}
+
+// AuthorizeDestructiveLifecycle performs pre-flight lifecycle authorization before any fixtures
+// are seeded or destructive scenarios are executed.
+//
+// Steps:
+// 1. If TRANSACTX_DISPOSABLE_DB_ORCHESTRATED is not "1", returns ("", nil, ErrUnorchestratedLifecycle)
+//    allowing broad test suites to skip cleanly before mutating anything.
+// 2. If pool is nil, returns an error (fail closed).
+// 3. Queries current_database() from pool and verifies it via VerifyPoolIsDisposable.
+// 4. Resolves and validates the lifecycle contract against currentDB via ValidateDestructiveLifecycleContract.
+// 5. Returns currentDB and the validated contract for reuse during teardown/cleanup delegation.
+func AuthorizeDestructiveLifecycle(ctx context.Context, pool *pgxpool.Pool) (string, *OrchestratorLifecycleContract, error) {
+	if os.Getenv(EnvDisposableDBOrchestrated) != "1" {
+		return "", nil, ErrUnorchestratedLifecycle
+	}
+	if pool == nil {
+		return "", nil, errors.New("database pool is required for disposable lifecycle authorization")
+	}
+	currentDB, err := VerifyPoolIsDisposable(ctx, pool)
+	if err != nil {
+		return currentDB, nil, fmt.Errorf("refusing destructive execution on non-disposable database %q: %w", currentDB, err)
+	}
+	contract, err := ValidateDestructiveLifecycleContract(currentDB)
+	if err != nil {
+		return currentDB, nil, err
+	}
+	return currentDB, contract, nil
+}
+
 // EvaluateTestCleanupOutcome evaluates the cleanup error against the verified orchestrator contract,
 // target database, and invocation token.
 //
@@ -519,6 +594,15 @@ func NewCrossBankRecoveryHarness(pool *pgxpool.Pool, dbURL string) (*CrossBankRe
 		return nil, fmt.Errorf("cross-bank recovery harness rejected unsafe database: %w", err)
 	}
 
+	var contract *OrchestratorLifecycleContract
+	if os.Getenv(EnvDisposableDBOrchestrated) == "1" {
+		c, err := ValidateDestructiveLifecycleContract(currentDB)
+		if err != nil {
+			return nil, fmt.Errorf("cross-bank recovery harness rejected unverified lifecycle: %w", err)
+		}
+		contract = c
+	}
+
 	// Ensure bank records exist in public.banks
 	var bankAID, bankBID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT id FROM banks WHERE code = 'BANK-A'`).Scan(&bankAID); err != nil {
@@ -538,6 +622,7 @@ func NewCrossBankRecoveryHarness(pool *pgxpool.Pool, dbURL string) (*CrossBankRe
 		pool:      pool,
 		dbURL:     dbURL,
 		currentDB: currentDB,
+		contract:  contract,
 		bankAURL:  "http://127.0.0.1:8081",
 		bankBURL:  "http://127.0.0.1:8082",
 		testBankA: bankAID,
@@ -654,6 +739,19 @@ func (h *CrossBankRecoveryHarness) SeedFixture(ctx context.Context, prefix strin
 	}
 	if _, err := VerifyPoolIsDisposable(ctx, h.pool); err != nil {
 		return nil, fmt.Errorf("seed fixture refused on unsafe database: %w", err)
+	}
+	if os.Getenv(EnvDisposableDBOrchestrated) == "1" {
+		if h.contract != nil {
+			if err := h.contract.Validate(h.currentDB, os.Getenv(EnvDisposableInvocationToken)); err != nil {
+				return nil, fmt.Errorf("seed fixture refused: lifecycle contract validation failed: %w", err)
+			}
+		} else {
+			contract, err := ValidateDestructiveLifecycleContract(h.currentDB)
+			if err != nil {
+				return nil, fmt.Errorf("seed fixture refused: lifecycle authorization failed: %w", err)
+			}
+			h.contract = contract
+		}
 	}
 	senderUID := uuid.New()
 	recvUID := uuid.New()

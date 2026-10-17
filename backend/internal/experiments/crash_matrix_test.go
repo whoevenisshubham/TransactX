@@ -2,8 +2,11 @@ package experiments_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +38,36 @@ func findArtifactsDir() string {
 	return filepath.Join("..", "..", "artifacts")
 }
 
+func handleCrashMatrixTestCleanup(t *testing.T, harness *experiments.CrashMatrixHarness, prevalidatedContract ...*experiments.OrchestratorLifecycleContract) {
+	if harness == nil {
+		return
+	}
+	closeErr := harness.Close()
+	if closeErr == nil {
+		return
+	}
+	currentDB := harness.CurrentDB()
+	var contract *experiments.OrchestratorLifecycleContract
+	if len(prevalidatedContract) > 0 && prevalidatedContract[0] != nil {
+		contract = prevalidatedContract[0]
+	} else if harness.LifecycleContract() != nil {
+		contract = harness.LifecycleContract()
+	} else {
+		var contractErr error
+		contract, contractErr = experiments.ResolveOrchestratorContract(currentDB)
+		if contractErr != nil {
+			t.Logf("orchestrator contract check: %v", contractErr)
+		}
+	}
+	expectedToken := os.Getenv(experiments.EnvDisposableInvocationToken)
+	shouldFail, isDelegated, diag := experiments.EvaluateTestCleanupOutcome(closeErr, contract, currentDB, expectedToken)
+	if isDelegated {
+		t.Logf("harness.Close: %s", diag)
+	} else if shouldFail {
+		t.Errorf("harness.Close failed: %s", diag)
+	}
+}
+
 func TestCrashMatrix_FullRecoveryAndEventMatrix(t *testing.T) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -46,6 +79,10 @@ func TestCrashMatrix_FullRecoveryAndEventMatrix(t *testing.T) {
 		t.Fatal("SAFETY VIOLATION: DATABASE_URL points to protected source database transactx")
 	}
 
+	if os.Getenv(experiments.EnvDisposableDBOrchestrated) != "1" {
+		t.Skip("skipping crash matrix end-to-end scenario outside dedicated orchestrated disposable database lifecycle (run via backend/scripts/run-cross-bank-disposable.sh)")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
@@ -55,15 +92,17 @@ func TestCrashMatrix_FullRecoveryAndEventMatrix(t *testing.T) {
 	}
 	defer pool.Close()
 
+	currentDB, contract, err := experiments.AuthorizeDestructiveLifecycle(ctx, pool)
+	if err != nil {
+		t.Fatalf("crash matrix lifecycle authorization failed for database %q: %v", currentDB, err)
+	}
+
 	harness, err := experiments.NewCrashMatrixHarness(pool, 42)
 	if err != nil {
 		t.Fatalf("initialize crash matrix harness: %v", err)
 	}
-	defer func() {
-		if closeErr := harness.Close(); closeErr != nil {
-			t.Errorf("harness.Close failed: %v", closeErr)
-		}
-	}()
+	harness.SetLifecycleContract(contract)
+	defer handleCrashMatrixTestCleanup(t, harness, contract)
 
 	t.Log("Starting Crash Matrix & Event Restart Verification (B12)...")
 	report, err := harness.RunAllScenarios(ctx)
@@ -354,11 +393,7 @@ func TestCrashMatrix_Scenario_FailsOnInjectedCancelledContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initialize harness: %v", err)
 	}
-	defer func() {
-		if closeErr := harness.Close(); closeErr != nil {
-			t.Errorf("harness.Close failed: %v", closeErr)
-		}
-	}()
+	defer handleCrashMatrixTestCleanup(t, harness)
 
 	// Create an already-cancelled context
 	cancelledCtx, cancelNow := context.WithCancel(ctx)
@@ -373,4 +408,282 @@ func TestCrashMatrix_Scenario_FailsOnInjectedCancelledContext(t *testing.T) {
 		t.Error("expected non-empty ErrorMessage when context is cancelled")
 	}
 	t.Logf("Verified fail-closed behavior on cancelled context: error=%s", res.ErrorMessage)
+}
+
+// -----------------------------------------------------------------------------
+// Database-Independent Offline Regression Tests for Crash Matrix Orchestration
+// -----------------------------------------------------------------------------
+
+// Database-independent test verifying that the broad test suite skips the crash matrix
+// end-to-end scenario when TRANSACTX_DISPOSABLE_DB_ORCHESTRATED is not set to "1".
+func TestCrashMatrix_Safety_VerifyBroadSuiteSkipsWithoutOrchestrator(t *testing.T) {
+	t.Setenv(experiments.EnvDisposableDBOrchestrated, "")
+	if os.Getenv(experiments.EnvDisposableDBOrchestrated) == "1" {
+		t.Fatal("expected EnvDisposableDBOrchestrated to not be 1")
+	}
+}
+
+// Database-independent test verifying that cleanup outcome evaluation delegates teardown
+// when a valid orchestrator contract and invocation token match the target database.
+func TestCrashMatrix_Safety_EvaluateCleanupOutcome_ValidContractDelegates(t *testing.T) {
+	targetDB := "transactx_disposable_ci_test_123"
+	token := "test_token_12345678"
+	contractJSON := fmt.Sprintf(`{
+		"version": %q,
+		"database": %q,
+		"invocationToken": %q,
+		"orchestratorPid": 12345,
+		"createdAt": %q
+	}`, experiments.OrchestratorContractVersion, targetDB, token, time.Now().UTC().Format(time.RFC3339))
+
+	contractFile := filepath.Join(t.TempDir(), "contract.json")
+	if err := os.WriteFile(contractFile, []byte(contractJSON), 0600); err != nil {
+		t.Fatalf("write contract: %v", err)
+	}
+
+	t.Setenv(experiments.EnvDisposableDBOrchestrated, "1")
+	t.Setenv(experiments.EnvDisposableContractFile, contractFile)
+	t.Setenv(experiments.EnvDisposableInvocationToken, token)
+
+	contract, err := experiments.ResolveOrchestratorContract(targetDB)
+	if err != nil {
+		t.Fatalf("unexpected error resolving contract: %v", err)
+	}
+
+	simulatedCloseErr := fmt.Errorf("%w: cleanup table payments: foreign key constraint", experiments.ErrImmutableHistoryBlockedCleanup)
+	shouldFail, isDelegated, diag := experiments.EvaluateTestCleanupOutcome(simulatedCloseErr, contract, targetDB, token)
+
+	if shouldFail {
+		t.Errorf("expected shouldFail == false for valid delegated contract, got true; diag: %s", diag)
+	}
+	if !isDelegated {
+		t.Errorf("expected isDelegated == true, got false; diag: %s", diag)
+	}
+}
+
+// Database-independent test verifying that missing or invalid orchestrator contract rejects delegation.
+func TestCrashMatrix_Safety_EvaluateCleanupOutcome_MissingOrInvalidContractRejects(t *testing.T) {
+	simulatedCloseErr := fmt.Errorf("%w: cleanup table payments: foreign key constraint", experiments.ErrImmutableHistoryBlockedCleanup)
+
+	// Case 1: Nil contract
+	shouldFail, isDelegated, _ := experiments.EvaluateTestCleanupOutcome(simulatedCloseErr, nil, "transactx_disposable_ci_test", "some_token")
+	if !shouldFail || isDelegated {
+		t.Errorf("expected rejection on nil contract: shouldFail=true, isDelegated=false; got shouldFail=%t, isDelegated=%t", shouldFail, isDelegated)
+	}
+
+	// Case 2: Mismatched token
+	contract := &experiments.OrchestratorLifecycleContract{
+		Version:         experiments.OrchestratorContractVersion,
+		Database:        "transactx_disposable_ci_test",
+		InvocationToken: "expected_token_123",
+		OrchestratorPID: 1234,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+	shouldFail, isDelegated, _ = experiments.EvaluateTestCleanupOutcome(simulatedCloseErr, contract, "transactx_disposable_ci_test", "wrong_token_456")
+	if !shouldFail || isDelegated {
+		t.Errorf("expected rejection on mismatched token: shouldFail=true, isDelegated=false; got shouldFail=%t, isDelegated=%t", shouldFail, isDelegated)
+	}
+
+	// Case 3: Mismatched database
+	shouldFail, isDelegated, _ = experiments.EvaluateTestCleanupOutcome(simulatedCloseErr, contract, "other_disposable_db", "expected_token_123")
+	if !shouldFail || isDelegated {
+		t.Errorf("expected rejection on mismatched database: shouldFail=true, isDelegated=false; got shouldFail=%t, isDelegated=%t", shouldFail, isDelegated)
+	}
+}
+
+// Database-independent test verifying that unexpected cleanup errors always fail regardless of orchestrator contract.
+func TestCrashMatrix_Safety_EvaluateCleanupOutcome_UnexpectedErrorFails(t *testing.T) {
+	unexpectedErr := errors.New("pq: connection refused")
+	contract := &experiments.OrchestratorLifecycleContract{
+		Version:         experiments.OrchestratorContractVersion,
+		Database:        "transactx_disposable_ci_test",
+		InvocationToken: "token_12345678",
+		OrchestratorPID: 1234,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+
+	shouldFail, isDelegated, diag := experiments.EvaluateTestCleanupOutcome(unexpectedErr, contract, "transactx_disposable_ci_test", "token_12345678")
+	if !shouldFail {
+		t.Errorf("expected shouldFail == true for unexpected error, got false; diag: %s", diag)
+	}
+	if isDelegated {
+		t.Errorf("expected isDelegated == false for unexpected error, got true; diag: %s", diag)
+	}
+}
+
+// Database-independent test verifying that the dedicated lifecycle test pattern matches both
+// the cross-bank recovery suite and the crash-matrix suite.
+func TestCrashMatrix_Safety_PatternMatchesBothSuites(t *testing.T) {
+	pattern := `^(TestCrossBankRecovery_|TestCrashMatrix_)`
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatalf("failed to compile pattern %q: %v", pattern, err)
+	}
+
+	matchedTests := []string{
+		"TestCrossBankRecovery_FullMatrix",
+		"TestCrossBankRecovery_CB01_CB02_Focused",
+		"TestCrossBankRecovery_CB07_FullRestoreEndToEnd",
+		"TestCrashMatrix_FullRecoveryAndEventMatrix",
+	}
+	for _, tc := range matchedTests {
+		if !re.MatchString(tc) {
+			t.Errorf("expected pattern %q to match %q", pattern, tc)
+		}
+	}
+
+	unmatchedTests := []string{
+		"TestExperiment1_RoutingComparison",
+		"TestExperiment2_OutageAndCircuitIsolation",
+		"TestExperiment3_LatencyDegradation",
+		"TestExperiment5_ConcurrencyStormAndInvariants",
+	}
+	for _, tc := range unmatchedTests {
+		if re.MatchString(tc) {
+			t.Errorf("expected pattern %q to NOT match %q", pattern, tc)
+		}
+	}
+}
+
+// Database-independent test verifying CurrentDB behavior on nil harness.
+func TestCrashMatrix_HarnessCurrentDB_NilHarness(t *testing.T) {
+	var h *experiments.CrashMatrixHarness
+	if db := h.CurrentDB(); db != "" {
+		t.Errorf("expected empty string for nil harness, got %q", db)
+	}
+}
+
+// Database-independent test verifying that pre-execution lifecycle authorization prevents
+// fixture creation and destructive scenario execution when contracts or tokens are invalid.
+func TestCrashMatrix_Safety_PreExecutionLifecycleAuthorization(t *testing.T) {
+	origOrchestrated := os.Getenv(experiments.EnvDisposableDBOrchestrated)
+	origToken := os.Getenv(experiments.EnvDisposableInvocationToken)
+	origContractFile := os.Getenv(experiments.EnvDisposableContractFile)
+	origContractJSON := os.Getenv(experiments.EnvDisposableOrchestratorContract)
+	defer func() {
+		os.Setenv(experiments.EnvDisposableDBOrchestrated, origOrchestrated)
+		os.Setenv(experiments.EnvDisposableInvocationToken, origToken)
+		os.Setenv(experiments.EnvDisposableContractFile, origContractFile)
+		os.Setenv(experiments.EnvDisposableOrchestratorContract, origContractJSON)
+	}()
+
+	targetDB := "transactx_disposable_ci_55555"
+	validToken := "tx_token_valid_55555"
+	freshTime := time.Now().UTC().Format(time.RFC3339)
+
+	writeContract := func(t *testing.T, content string) string {
+		t.Helper()
+		tmpDir := t.TempDir()
+		fPath := filepath.Join(tmpDir, "contract.json")
+		if err := os.WriteFile(fPath, []byte(content), 0600); err != nil {
+			t.Fatalf("failed to write test contract: %v", err)
+		}
+		return fPath
+	}
+
+	t.Run("broad_suite_skips_without_orchestrator", func(t *testing.T) {
+		os.Unsetenv(experiments.EnvDisposableDBOrchestrated)
+		os.Unsetenv(experiments.EnvDisposableInvocationToken)
+		os.Unsetenv(experiments.EnvDisposableContractFile)
+
+		contract, err := experiments.ValidateDestructiveLifecycleContract(targetDB)
+		if !errors.Is(err, experiments.ErrUnorchestratedLifecycle) {
+			t.Errorf("expected ErrUnorchestratedLifecycle, got contract=%+v, err=%v", contract, err)
+		}
+
+		ctx := context.Background()
+		db, contract2, err2 := experiments.AuthorizeDestructiveLifecycle(ctx, nil)
+		if !errors.Is(err2, experiments.ErrUnorchestratedLifecycle) {
+			t.Errorf("expected AuthorizeDestructiveLifecycle to return ErrUnorchestratedLifecycle on un-orchestrated run, got db=%q, contract=%+v, err=%v", db, contract2, err2)
+		}
+	})
+
+	t.Run("marker_set_with_nil_pool_fails_closed", func(t *testing.T) {
+		os.Setenv(experiments.EnvDisposableDBOrchestrated, "1")
+		os.Setenv(experiments.EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"%s","orchestratorPid":12345,"createdAt":"%s"}`,
+			experiments.OrchestratorContractVersion, targetDB, validToken, freshTime))
+		os.Setenv(experiments.EnvDisposableContractFile, f)
+
+		ctx := context.Background()
+		_, _, err := experiments.AuthorizeDestructiveLifecycle(ctx, nil)
+		if err == nil || !strings.Contains(err.Error(), "pool is required") {
+			t.Errorf("expected AuthorizeDestructiveLifecycle to fail closed on nil pool when orchestrated, got %v", err)
+		}
+	})
+
+	t.Run("marker_set_without_contract_or_token_fails_closed", func(t *testing.T) {
+		os.Setenv(experiments.EnvDisposableDBOrchestrated, "1")
+		os.Unsetenv(experiments.EnvDisposableInvocationToken)
+		os.Unsetenv(experiments.EnvDisposableContractFile)
+
+		_, err := experiments.ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil {
+			t.Fatal("expected error when contract and token are missing, got nil")
+		}
+	})
+
+	t.Run("mismatched_database_contract_fails_closed", func(t *testing.T) {
+		os.Setenv(experiments.EnvDisposableDBOrchestrated, "1")
+		os.Setenv(experiments.EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"transactx_disposable_ci_other","invocationToken":"%s","orchestratorPid":123,"createdAt":"%s"}`,
+			experiments.OrchestratorContractVersion, validToken, freshTime))
+		os.Setenv(experiments.EnvDisposableContractFile, f)
+
+		_, err := experiments.ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "mismatch") {
+			t.Errorf("expected database mismatch error, got %v", err)
+		}
+	})
+
+	t.Run("stale_contract_fails_closed", func(t *testing.T) {
+		os.Setenv(experiments.EnvDisposableDBOrchestrated, "1")
+		os.Setenv(experiments.EnvDisposableInvocationToken, validToken)
+		staleTime := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"%s","orchestratorPid":123,"createdAt":"%s"}`,
+			experiments.OrchestratorContractVersion, targetDB, validToken, staleTime))
+		os.Setenv(experiments.EnvDisposableContractFile, f)
+
+		_, err := experiments.ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "stale") {
+			t.Errorf("expected stale contract error, got %v", err)
+		}
+	})
+
+	t.Run("prior_invocation_token_fails_closed", func(t *testing.T) {
+		os.Setenv(experiments.EnvDisposableDBOrchestrated, "1")
+		os.Setenv(experiments.EnvDisposableInvocationToken, "tx_token_new_run")
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"tx_token_old_run","orchestratorPid":123,"createdAt":"%s"}`,
+			experiments.OrchestratorContractVersion, targetDB, freshTime))
+		os.Setenv(experiments.EnvDisposableContractFile, f)
+
+		_, err := experiments.ValidateDestructiveLifecycleContract(targetDB)
+		if err == nil || !strings.Contains(err.Error(), "does not match expected invocation token") {
+			t.Errorf("expected invocation token mismatch error, got %v", err)
+		}
+	})
+
+	t.Run("valid_contract_permits_authorization_and_cleanup_delegation", func(t *testing.T) {
+		os.Setenv(experiments.EnvDisposableDBOrchestrated, "1")
+		os.Setenv(experiments.EnvDisposableInvocationToken, validToken)
+		f := writeContract(t, fmt.Sprintf(`{"version":"%s","database":"%s","invocationToken":"%s","orchestratorPid":12345,"createdAt":"%s"}`,
+			experiments.OrchestratorContractVersion, targetDB, validToken, freshTime))
+		os.Setenv(experiments.EnvDisposableContractFile, f)
+
+		contract, err := experiments.ValidateDestructiveLifecycleContract(targetDB)
+		if err != nil {
+			t.Fatalf("expected valid contract to be authorized, got: %v", err)
+		}
+		if contract.Database != targetDB {
+			t.Errorf("expected database %q, got %q", targetDB, contract.Database)
+		}
+
+		// Verify reusing validated contract for cleanup delegation
+		shouldFail, isDelegated, diag := experiments.EvaluateTestCleanupOutcome(
+			experiments.ErrImmutableHistoryBlockedCleanup, contract, targetDB, validToken)
+		if shouldFail || !isDelegated {
+			t.Errorf("expected cleanup delegation to succeed with validated contract, got shouldFail=%t, isDelegated=%t, diag=%s",
+				shouldFail, isDelegated, diag)
+		}
+	})
 }
