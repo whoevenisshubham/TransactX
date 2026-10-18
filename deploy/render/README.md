@@ -98,6 +98,14 @@ as a Blueprint, or create a Docker Web Service manually:
   `TX_DEMO_PASSWORD` or development-mode settings to the running service.
 - Review the summary: every resource must show Free / $0 before creation.
 
+For a hard zero-spending preference, do not attach a payment method or enable
+paid features. Render documents that without a payment method, exhausted
+bandwidth disables free services and exhausted build minutes disable new builds,
+rather than billing overages. With a payment method, even a Free service can
+incur overage charges. If signup unexpectedly requires billing or a paid plan,
+stop and report it; do not work around provider checks or upgrade automatically.
+Source: https://render.com/docs/free and https://render.com/docs/faq .
+
 Runtime protections are fixed in the demo gateway, even if the shell contains
 unsafe development flags. Bank ports 18081/18082 and API 18080 bind loopback.
 Only the gateway's `PORT` is public. Do not proxy bank endpoints publicly.
