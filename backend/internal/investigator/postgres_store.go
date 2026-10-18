@@ -17,9 +17,14 @@ import (
 // durable InvestigationStore contract. M2 still owns its canonical migration
 // and runtime composition; storetest.Run is the adapter acceptance gate.
 type PostgresInvestigationStore struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	pool          *pgxpool.Pool
+	now           func() time.Time
+	utcDailyUsage bool
 }
+
+// UseUTCDailyUsageWindow is enabled only for the reviewed Gemini free path.
+// Existing paid-provider aggregate reservations retain their original semantics.
+func (s *PostgresInvestigationStore) UseUTCDailyUsageWindow() { s.utcDailyUsage = true }
 
 // NewPostgresInvestigationStore creates an InvestigationStore backed by PostgreSQL.
 func NewPostgresInvestigationStore(pool *pgxpool.Pool, now func() time.Time) (*PostgresInvestigationStore, error) {
@@ -430,12 +435,17 @@ func (s *PostgresInvestigationStore) ReserveUsage(ctx context.Context, job Job, 
 
 	// Calculate currently committed/reserved budget
 	var consumedIn, consumedOut, consumedCostMicrousd int64
+	var cutoff any
+	if s.utcDailyUsage {
+		now := s.now().UTC()
+		cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	}
 	err = tx.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_input ELSE actual_input END), 0),
 			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_output ELSE actual_output END), 0),
 			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_cost_microusd ELSE actual_cost_microusd END), 0)
-		FROM investigation_usage_reservations`).Scan(&consumedIn, &consumedOut, &consumedCostMicrousd)
+		FROM investigation_usage_reservations WHERE ($1::timestamptz IS NULL OR created_at >= $1)`, cutoff).Scan(&consumedIn, &consumedOut, &consumedCostMicrousd)
 	if err != nil {
 		return "", fmt.Errorf("calculate consumed usage: %w", err)
 	}

@@ -75,7 +75,15 @@ func NewService(config ServiceConfig, store InvestigationStore, dependencies Too
 	if config.Mode != ModeEvidenceOnly && config.Mode != ModeLLM {
 		return nil, errors.New("invalid investigator mode")
 	}
-	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.CostLimitMicrousd < 0 || (config.Provider.RequiresCostReservation() && config.CostLimitMicrousd == 0) || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
+	guardedFree := false
+	if provider, ok := config.Provider.(*GeminiProvider); ok {
+		postgres, canonical := store.(*PostgresInvestigationStore)
+		guardedFree = canonical && postgres.utcDailyUsage && provider.zeroSpendReady()
+		if !guardedFree || config.CostLimitMicrousd != 0 || config.MaxProviderRounds != 1 {
+			return nil, errors.New("Gemini requires reviewed zero-spend durable daily admission and one report round")
+		}
+	}
+	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.CostLimitMicrousd < 0 || (config.Provider.RequiresCostReservation() && config.CostLimitMicrousd == 0 && !guardedFree) || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
 		return nil, errors.New("invalid provider generation configuration")
 	}
 	if config.Now == nil {
