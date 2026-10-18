@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TransactX</title>
+    <meta name="theme-color" content="#F7F9FC" />
+    <meta name="description" content="Explore payments, recovery and the evidence behind every outcome in the TransactX simulated payment network." />
+    <script>
+      (() => {
+        let preference = 'system';
+        try { preference = localStorage.getItem('transactx.theme') || 'system'; } catch {}
+        const theme = preference === 'light' || preference === 'dark' ? preference : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

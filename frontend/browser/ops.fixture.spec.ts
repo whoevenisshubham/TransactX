@@ -130,7 +130,7 @@ test("worklist cursor, filters, history and unavailable response stay explicit",
   await page.route("http://localhost:8080/api/ops/worklist**", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     const params = new URL(route.request().url()).searchParams;
-    if (params.get("bankCode") === "ERROR") return fulfillFixture(route, { code: "UNAVAILABLE", message: "Projection unavailable" }, 503);
+    if (params.get("bankCode") === "ERROR") return route.fulfill({ status: 503, headers: { "access-control-allow-origin": "http://127.0.0.1:4173" }, contentType: "application/json", body: JSON.stringify({ requestId: "fixture", error: { code: "UNAVAILABLE", message: "Projection unavailable" } }) });
     const data = worklistFixture().data;
     if (params.has("cursor") || params.get("state") === "FAILED") data.items = [];
     else data.nextCursor = "page2";

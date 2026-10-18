@@ -6,6 +6,7 @@ import { WorklistPage } from "./ops/WorklistPage";
 import { PaymentEvidencePage } from "./ops/PaymentEvidencePage";
 import { AnalyticsPage } from "./ops/AnalyticsPage";
 import { InvestigationPage } from "./ops/InvestigationPage";
+import { ThemeSelect } from "./theme";
 import type {
   ActivityEvent,
   ChaosScenario,
@@ -175,12 +176,13 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
   }
 
   return (
-    <div className="product-shell console-shell" data-theme="network-console">
+    <div className="product-shell console-shell">
       <ConsoleSidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} />
       <main className="main-content">
         <ConsoleMobileHeader user={user} onLogout={onLogout} />
         <div className="content-wrap">
           <div className="console-card-header" style={{ justifyContent: "flex-end", marginBottom: ".6rem" }}>
+            <ThemeSelect />
             {simulationMode && <span className="console-pill console-pill-warning">SIMULATION MODE</span>}
             <span className={`console-pill ${streamStatus === "connected" ? "console-pill-success" : streamStatus === "connecting" ? "console-pill-warning" : "console-pill-error"}`}>
               LIVE HINTS {streamStatus.toUpperCase()}
@@ -239,6 +241,7 @@ function ConsoleSidebar({
         </>}
       </nav>
       <div className="sidebar-bottom">
+        <ThemeSelect />
         <div className="user-chip">
           <Avatar name={user.name} />
           <span>

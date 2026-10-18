@@ -37,6 +37,7 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
   return <section aria-label="Payment investigation">
     <h2>Investigate this payment</h2>
     <p>Questions stay scoped to this payment. Reports explain collected evidence; they cannot change settlement.</p>
+    <div className="ops-question-chips" role="group" aria-label="Investigation starters">{["Why is this payment pending?", "What evidence is missing?", "What did each bank report?"].map((suggestion) => <button type="button" key={suggestion} onClick={() => setQuestion(suggestion)}>{suggestion}</button>)}</div>
     <label className="field">Question
       <textarea value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} rows={3} placeholder="What evidence explains the current pending state?" />
     </label>
@@ -51,7 +52,13 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
 
 function EvidenceCitation({ id, available }: { id: string; available: boolean }) {
   return available
-    ? <button type="button" className="ops-citation" onClick={() => document.getElementById(`evidence-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}>View evidence {id}</button>
+    ? <button type="button" className="ops-citation" onClick={() => {
+      const target = document.getElementById(`evidence-${id}`);
+      if (!target) return;
+      target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" });
+    }}>View evidence {id}</button>
     : <span className="ops-muted">Evidence {id} is not in this snapshot</span>;
 }
 
