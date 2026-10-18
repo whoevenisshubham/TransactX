@@ -26,7 +26,7 @@ type loginRequest struct {
 
 func (h *Handler) authOptions(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("Cache-Control", "no-store")
-	writeData(writer, http.StatusOK, request, map[string]any{"demoEnabled": h.publicDemoAuth, "registrationEnabled": h.allowRegistration, "googleEnabled": false})
+	writeData(writer, http.StatusOK, request, map[string]any{"demoEnabled": h.publicDemoAuth, "registrationEnabled": h.allowRegistration, "googleEnabled": h.auth != nil && h.auth.Google() != nil})
 }
 
 func (h *Handler) demoLogin(writer http.ResponseWriter, request *http.Request) {

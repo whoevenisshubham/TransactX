@@ -118,7 +118,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	isLogin := r.URL.Path == "/api/auth/login" || r.URL.Path == "/api/auth/demo"
+	isLogin := r.URL.Path == "/api/auth/login" || r.URL.Path == "/api/auth/demo" ||
+		r.URL.Path == "/api/auth/oidc/google/start" || r.URL.Path == "/api/auth/oidc/google/callback" || r.URL.Path == "/api/auth/oidc/exchange"
 	if !g.all.Allow(now) || (r.Method == http.MethodPost && !g.writes.Allow(now)) ||
 		(isLogin && !g.login.Allow(now)) {
 		failure(w, 429, "RATE_LIMITED", "Demo request limit reached. Retry later.")

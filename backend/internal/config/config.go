@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/transactx/backend/internal/auth"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,13 +15,14 @@ import (
 
 // ExecutionTargetConfig defines an explicit execution target and its associated health and execution endpoints.
 // Fields:
-//   candidateID: unique candidate route identity (e.g. "direct", "rail-b")
-//   executionTargetID: switch-level execution route/rail identity (e.g. "RAIL-A", "RAIL-B")
-//   sourceBank: logical source bank code (e.g. "BANK-A")
-//   destinationBank: logical destination bank code (e.g. "BANK-B")
-//   endpoint: required health probe endpoint associated with ExecutionTargetID
-//   sourceEndpoint: optional source execution endpoint (falls back to source bank default adapter)
-//   destinationEndpoint: optional destination execution endpoint (falls back to destination bank default adapter)
+//
+//	candidateID: unique candidate route identity (e.g. "direct", "rail-b")
+//	executionTargetID: switch-level execution route/rail identity (e.g. "RAIL-A", "RAIL-B")
+//	sourceBank: logical source bank code (e.g. "BANK-A")
+//	destinationBank: logical destination bank code (e.g. "BANK-B")
+//	endpoint: required health probe endpoint associated with ExecutionTargetID
+//	sourceEndpoint: optional source execution endpoint (falls back to source bank default adapter)
+//	destinationEndpoint: optional destination execution endpoint (falls back to destination bank default adapter)
 type ExecutionTargetConfig struct {
 	CandidateID         string `json:"candidateId"`
 	ExecutionTargetID   string `json:"executionTargetId"`
@@ -102,6 +105,8 @@ type Config struct {
 	BuildSHA                  string
 	AllowRegistration         bool
 	PublicDemoAuth            bool
+	GoogleOAuthEnabled        bool
+	GoogleOAuth               auth.GoogleConfig
 	ChaosEnabled              bool
 	RecoveryControlEnabled    bool
 	BankAServiceToken         string
@@ -284,6 +289,19 @@ func Load() (Config, error) {
 	if publicDemoAuth && (!simulationMode || allowRegistration) {
 		return Config{}, errors.New("TX_PUBLIC_DEMO_AUTH requires simulation mode and disabled public registration")
 	}
+	googleEnabled, err := strconv.ParseBool(getEnv("GOOGLE_OAUTH_ENABLED", "false"))
+	if err != nil {
+		return Config{}, errors.New("GOOGLE_OAUTH_ENABLED must be true or false")
+	}
+	googleConfig := auth.GoogleConfig{ClientID: os.Getenv("GOOGLE_OAUTH_CLIENT_ID"), ClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"), RedirectURI: os.Getenv("GOOGLE_OAUTH_REDIRECT_URI"), FrontendOrigin: os.Getenv("OAUTH_FRONTEND_ORIGIN")}
+	if googleEnabled {
+		if !simulationMode || !participantProvisioning || allowRegistration {
+			return Config{}, errors.New("Google demo sign-in requires simulation, participant provisioning and disabled public registration")
+		}
+		if err := googleConfig.Validate(); err != nil {
+			return Config{}, err
+		}
+	}
 	chaosEnabled, err := strconv.ParseBool(getEnv("TX_CHAOS_ENABLED", defaultControlBool))
 	if err != nil {
 		return Config{}, fmt.Errorf("TX_CHAOS_ENABLED must be true or false: %w", err)
@@ -340,6 +358,8 @@ func Load() (Config, error) {
 		BuildSHA:                  buildSHA,
 		AllowRegistration:         allowRegistration,
 		PublicDemoAuth:            publicDemoAuth,
+		GoogleOAuthEnabled:        googleEnabled,
+		GoogleOAuth:               googleConfig,
 		ChaosEnabled:              chaosEnabled,
 		RecoveryControlEnabled:    recoveryControlEnabled,
 		BankAServiceToken:         bankAServiceToken,
@@ -347,6 +367,9 @@ func Load() (Config, error) {
 	}
 	if !developmentMode && len([]byte(cfg.JWTSecret)) < 32 {
 		return Config{}, errors.New("JWT_SECRET must contain at least 32 bytes outside development mode")
+	}
+	if googleEnabled && !slices.Contains(cfg.CORSAllowedOrigins, googleConfig.FrontendOrigin) {
+		return Config{}, errors.New("OAuth frontend must be in exact CORS_ALLOWED_ORIGINS")
 	}
 	if !developmentMode {
 		if cfg.BankAURL != "" && cfg.BankAServiceToken == "" {

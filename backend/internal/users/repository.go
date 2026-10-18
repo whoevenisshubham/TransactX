@@ -16,11 +16,11 @@ type Repository struct{ db *pgxpool.Pool }
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
 func (repository *Repository) GetByCredential(ctx context.Context, credential string) (User, error) {
-	return scanUser(repository.db.QueryRow(ctx, `SELECT id, name, phone, upi_id, password_hash, role FROM users WHERE phone = $1 OR upi_id = $1`, credential))
+	return scanUser(repository.db.QueryRow(ctx, `SELECT id, name, COALESCE(phone,''), upi_id, COALESCE(password_hash,''), role FROM users WHERE phone = $1 OR upi_id = $1`, credential))
 }
 
 func (repository *Repository) GetByID(ctx context.Context, id uuid.UUID) (User, error) {
-	return scanUser(repository.db.QueryRow(ctx, `SELECT id, name, phone, upi_id, password_hash, role FROM users WHERE id = $1`, id))
+	return scanUser(repository.db.QueryRow(ctx, `SELECT id, name, COALESCE(phone,''), upi_id, COALESCE(password_hash,''), role FROM users WHERE id = $1`, id))
 }
 
 func scanUser(row pgx.Row) (User, error) {

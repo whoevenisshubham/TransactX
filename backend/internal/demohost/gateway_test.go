@@ -110,7 +110,7 @@ func TestLoginConcurrencyProtectsPasswordHashMemory(t *testing.T) {
 func TestDemoLoginSharesPasswordAdmissionBucket(t *testing.T) {
 	g, count := gateway(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	g.login = NewBudget(1, 0)
-	for index, path := range []string{"/api/auth/demo", "/api/auth/login", "/api/auth/demo"} {
+	for index, path := range []string{"/api/auth/demo", "/api/auth/login", "/api/auth/demo", "/api/auth/oidc/google/start", "/api/auth/oidc/google/callback", "/api/auth/oidc/exchange"} {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", path, strings.NewReader(`{"persona":"operator"}`))
 		r.Header.Set("X-Forwarded-For", "rotating-client")

@@ -3,6 +3,7 @@ import { api } from "../api";
 import { Badge, BrandMark, Button, Field, Icon, InlineError } from "../components";
 import { PublicHeader } from "./LandingPage";
 import { authClient, type AuthOptions } from "./authClient";
+import { beginGoogleSignIn } from "./googleAuth";
 
 export function AuthPage({
   mode,
@@ -15,6 +16,14 @@ export function AuthPage({
 }) {
   const [options, setOptions] = useState<AuthOptions | null>(null);
   const [optionsError, setOptionsError] = useState("");
+  const [googleBusy,setGoogleBusy] = useState(false);
+  const [googleError,setGoogleError] = useState("");
+  async function googleSignIn() {
+    if(googleBusy)return;
+    setGoogleBusy(true);setGoogleError("");
+    try { await beginGoogleSignIn(); }
+    catch { setGoogleBusy(false);setGoogleError("Secure sign-in could not start. Allow this tab's session storage or use a shared demo."); }
+  }
   useEffect(() => {
     const controller = new AbortController();
     authClient.options(controller.signal).then(setOptions).catch((failure) => {
@@ -34,7 +43,7 @@ export function AuthPage({
         <div className="auth-form-context"><Badge tone="neutral">Private account access</Badge><a href="/demo">Try shared demos <Icon name="arrow" /></a></div>
         {options?.registrationEnabled && <div className="auth-tabs" role="tablist" aria-label="Sign in or register"><button type="button" role="tab" aria-selected={!registering} className={!registering ? "is-active" : ""} onClick={() => onModeChange("login")}>Sign in</button><button type="button" role="tab" aria-selected={registering} className={registering ? "is-active" : ""} onClick={() => onModeChange("register")}>Create account</button></div>}
         {registering ? <RegisterForm onAuthenticated={onAuthenticated} /> : <LoginForm onAuthenticated={onAuthenticated} />}
-        <div className="auth-provider"><span>or use a provider</span><p>Google sign-in is not configured for this build. Password sign-in and shared demos remain available.</p></div>
+        <div className="auth-provider"><span>or use a provider</span>{options?.googleEnabled ? <><Button variant="secondary" onClick={()=>void googleSignIn()} disabled={googleBusy}>{googleBusy?"Opening Google…":"Continue with Google"}</Button><p>Private customer sign-in. Shared merchant and operator demos are separate.</p></> : <p>Google sign-in is not configured for this build. Password sign-in and shared demos remain available.</p>}{googleError&&<InlineError message={googleError}/>}</div>
         {optionsError && <p className="auth-options-error" role="status">{optionsError} Password sign-in can still be attempted.</p>}
         <p className="auth-legal">Use synthetic information only. Shared demo activity is visible to other visitors. <a href="/privacy">Privacy & demo data</a></p>
       </div>

@@ -312,3 +312,4 @@ button, .button { border-radius: 9px; }
 @media (max-width: 600px) { .console-shell .console-spec-item { align-items: start; flex-direction: column; } }
 .customer-bank-identity { margin: 16px 0 0; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
 .public-header .button { flex-shrink: 0; white-space: nowrap; }
+.google-callback { max-width: 760px; padding-block: 72px; min-height: 70vh; }.google-callback h1 { font-size: clamp(30px,4vw,44px); line-height: 1.15; letter-spacing: -1px; }.google-callback > p:not(.eyebrow) { color: var(--muted); line-height: 1.8; }.google-callback > .button { display: inline-flex; margin: 20px 12px 0 0; }.auth-provider .button { width: 100%; margin-top: 16px; }

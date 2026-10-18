@@ -64,6 +64,24 @@ func main() {
 	common := []string{"APP_DEVELOPMENT=false", "TX_SIMULATION_MODE=true", "TX_ALLOW_REGISTRATION=false", "TX_CHAOS_ENABLED=false", "TX_RECOVERY_CONTROL_ENABLED=false", "TX_PARTICIPANT_PROVISIONING=false", "TX_DB_MAX_CONNS=4", "TX_PAYMENT_CONCURRENCY=1", "TX_RECOVERY_CONCURRENCY=1", "BANK_A_ADDR=127.0.0.1:18081", "BANK_B_ADDR=127.0.0.1:18082", "BANK_A_URL=http://127.0.0.1:18081", "BANK_B_URL=http://127.0.0.1:18082", "APP_ADDR=127.0.0.1:18080"}
 	// Do not inherit an unrelated bank DSN from a developer's shell.
 	common = append(common, "BANK_A_DATABASE_URL="+os.Getenv("DATABASE_URL"), "BANK_B_DATABASE_URL="+os.Getenv("DATABASE_URL"))
+	googleSetting := os.Getenv("GOOGLE_OAUTH_ENABLED")
+	if googleSetting == "" {
+		googleSetting = "false"
+	}
+	googleEnabled, err := strconv.ParseBool(googleSetting)
+	if err != nil {
+		logger.Error("GOOGLE_OAUTH_ENABLED must be true or false")
+		os.Exit(1)
+	}
+	if googleEnabled {
+		// Registration remains disabled. Only the quota-bound OIDC path may
+		// atomically provision a zero-balance central/participant customer.
+		for i, value := range common {
+			if value == "TX_PARTICIPANT_PROVISIONING=false" {
+				common[i] = "TX_PARTICIPANT_PROVISIONING=true"
+			}
+		}
+	}
 	if sha := os.Getenv("RENDER_GIT_COMMIT"); sha != "" {
 		common = append(common, "TX_BUILD_SHA="+sha)
 	}

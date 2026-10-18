@@ -102,6 +102,11 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 	if cfg.ParticipantProvisioning {
 		authService.WithParticipantProvisioner(auth.NewSimulationParticipantAccountProvisioner())
 	}
+	if cfg.GoogleOAuthEnabled {
+		if err := authService.EnableGoogle(cfg.GoogleOAuth); err != nil {
+			return nil, fmt.Errorf("configure Google sign-in: %w", err)
+		}
+	}
 	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
 	chaosRepo := chaos.NewRepository(db)
 	chaosController := chaos.NewController(chaosRepo)

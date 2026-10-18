@@ -54,6 +54,7 @@ type Handler struct {
 	corsAllowedOrigins      []string
 	allowRegistration       bool
 	publicDemoAuth          bool
+	oidcSlots               chan struct{}
 	chaosEnabled            bool
 	recoveryControlEnabled  bool
 	auditStore              audit.Store
@@ -201,6 +202,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		corsAllowedOrigins:     append([]string(nil), options.CORSAllowedOrigins...),
 		allowRegistration:      options.AllowRegistration,
 		publicDemoAuth:         options.PublicDemoAuth && options.SimulationMode && !options.AllowRegistration,
+		oidcSlots:              make(chan struct{}, 1),
 		chaosEnabled:           options.ChaosEnabled,
 		recoveryControlEnabled: options.RecoveryControlEnabled,
 		auditStore:             options.AuditStore,
@@ -310,6 +312,9 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.HandleFunc("POST /api/auth/login", handler.login)
 	mux.HandleFunc("POST /api/auth/demo", handler.demoLogin)
 	mux.HandleFunc("GET /api/auth/options", handler.authOptions)
+	mux.HandleFunc("GET /api/auth/oidc/google/start", handler.googleStart)
+	mux.HandleFunc("GET /api/auth/oidc/google/callback", handler.googleCallback)
+	mux.HandleFunc("POST /api/auth/oidc/exchange", handler.googleExchange)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))
 	mux.Handle("GET /api/accounts", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.accounts))))
 	mux.Handle("GET /api/accounts/{accountID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.account))))
