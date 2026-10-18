@@ -29,6 +29,14 @@ type ErrorResponse = { requestId?: string; error?: { code?: string; message?: st
 
 function safeErrorMessage(code: string | undefined, fallback: string): string {
   switch (code) {
+    case "DEMO_STARTING":
+      return "The demo backend is waking up or temporarily unavailable. Please try again in about a minute.";
+    case "RATE_LIMITED":
+      return "The demo is busy or its request limit was reached. Please wait a moment and try again.";
+    case "DEMO_RESTRICTED":
+      return "This action is disabled in the public demo.";
+    case "BODY_TOO_LARGE":
+      return "The request exceeds the public demo size limit.";
     case "INVALID_CREDENTIALS":
       return "Your username or password is incorrect.";
     case "INVALID_REQUEST":
@@ -74,7 +82,7 @@ export async function apiRequestWithStatus<T>(path: string, options: RequestInit
   const body = (await response.json().catch(() => ({}))) as ApiResponse<T> | ErrorResponse;
   if (!response.ok) {
     const error = body as ErrorResponse;
-    const code = error.error?.code ?? "REQUEST_FAILED";
+    const code = error.error?.code ?? (response.status === 503 ? "DEMO_STARTING" : response.status === 429 ? "RATE_LIMITED" : "REQUEST_FAILED");
     const message = safeErrorMessage(code, "The request could not be completed.");
     throw new ApiError(message, code, response.status);
   }
