@@ -6,6 +6,10 @@ import { WorklistPage } from "./ops/WorklistPage";
 import { PaymentEvidencePage } from "./ops/PaymentEvidencePage";
 import { AnalyticsPage } from "./ops/AnalyticsPage";
 import { InvestigationPage } from "./ops/InvestigationPage";
+import { deriveOperationalTargets } from "./ops/adminTargets";
+export { deriveOperationalTargets } from "./ops/adminTargets";
+import { AdminOverviewPage } from "./ops/AdminOverviewPage";
+import { AdminHealthPage } from "./ops/AdminHealthPage";
 import { ThemeSelect } from "./theme";
 import type {
   ActivityEvent,
@@ -67,21 +71,6 @@ export const SUPPORTED_CHAOS_TYPES: readonly ChaosFaultType[] = [
   "TRANSIENT_DROP",
   "TEMPORARY_PARTITION",
 ] as const;
-
-export function deriveOperationalTargets(
-  circuitMap: Record<string, CircuitTargetSnapshot> | null | undefined
-): string[] {
-  if (!circuitMap || typeof circuitMap !== "object") return [];
-  const targets = new Set<string>();
-  for (const [key, snapshot] of Object.entries(circuitMap)) {
-    const k = key.trim();
-    if (k) targets.add(k);
-    if (snapshot?.executionTargetId?.trim()) {
-      targets.add(snapshot.executionTargetId.trim());
-    }
-  }
-  return Array.from(targets).sort();
-}
 
 export function buildChaosPayload(
   scenarioId: string,
@@ -190,12 +179,12 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
             </span>
           </div>
           <details className="operator-guide"><summary>Start here · Follow a payment in three steps</summary><ol><li>Open the worklist. Use Completed to find a settled payment, or inspect one awaiting confirmation.</li><li>Open its journey. Compare central state, bank observations and recovery records; check their source times.</li><li>Ask an investigation question. Follow citations to the evidence and keep missing observations distinct from failure.</li></ol><p>Event stream connectivity is a refresh hint, not a bank-health verdict.</p></details>
-          {view === "c-overview" && user.role === "OPS_ADMIN" && <ConsoleOverviewView token={token} onNavigate={navigate} liveRevision={liveRevision} />}
+          {view === "c-overview" && user.role === "OPS_ADMIN" && <AdminOverviewPage token={token} onNavigate={navigate} liveRevision={liveRevision} />}
           {view === "c-worklist" && <WorklistPage token={token} liveRevision={liveRevision} onNavigate={navigatePath} />}
           {view === "c-payment-evidence" && <PaymentEvidencePage key={`${routeRevision}:${window.location.pathname}`} paymentId={window.location.pathname.split("/")[3] ?? ""} token={token} isAdmin={user.role === "OPS_ADMIN"} liveRevision={liveRevision} onNavigate={navigatePath} />}
           {view === "c-analytics" && <AnalyticsPage token={token} liveRevision={liveRevision} />}
           {view === "c-investigation" && <InvestigationPage key={`${routeRevision}:${window.location.pathname}`} id={window.location.pathname.split("/")[3] ?? ""} token={token} onNavigate={navigatePath} />}
-          {view === "c-health" && user.role === "OPS_ADMIN" && <ConsoleHealthView token={token} liveRevision={liveRevision} />}
+          {view === "c-health" && user.role === "OPS_ADMIN" && <AdminHealthPage token={token} liveRevision={liveRevision} />}
           {view === "c-routing" && user.role === "OPS_ADMIN" && <ConsoleRoutingView token={token} liveRevision={liveRevision} />}
           {view === "c-reconciliation" && user.role === "OPS_ADMIN" && <ConsoleReconciliationView token={token} liveRevision={liveRevision} />}
           {view === "c-merkle" && user.role === "OPS_ADMIN" && <ConsoleMerkleView token={token} />}
@@ -298,551 +287,6 @@ function ConsoleMobileHeader({ user, onLogout, onMenu }: { user: User; onLogout:
 // 1. Overview View
 // ---------------------------------------------------------------------------
 
-function ConsoleOverviewView({ token, onNavigate, liveRevision }: { token: string; onNavigate: (v: ConsoleView) => void; liveRevision: number }) {
-  const [circuits, setCircuits] = useState<Record<string, CircuitTargetSnapshot>>({});
-  const [chaosScenarios, setChaosScenarios] = useState<ChaosScenario[]>([]);
-  const [healthMap, setHealthMap] = useState<Record<string, HealthSnapshot | null>>({});
-  const [apiOnline, setApiOnline] = useState(true);
-  const [dbOnline, setDbOnline] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  function loadOverview() {
-    setLoading(true);
-    setError("");
-    Promise.all([
-      api.opsCircuits(token).catch(() => ({})),
-      api.opsChaosScenarios(token, true).catch(() => []),
-      api.opsGlobalHealth().catch(() => ({ status: "error", service: "api" })),
-      api.opsDbHealth().catch(() => ({ status: "error" })),
-    ])
-      .then(async ([circuitMap, activeChaos, globalHealth, dbHealth]) => {
-        setCircuits(circuitMap);
-        setChaosScenarios(activeChaos);
-        setApiOnline(globalHealth.status === "ok");
-        setDbOnline(dbHealth.status === "ok");
-
-        const targetIds = deriveOperationalTargets(circuitMap);
-        if (targetIds.length > 0) {
-          const snapshots = await Promise.all(
-            targetIds.map((tid) => api.opsHealthSnapshot(tid, token).catch(() => null))
-          );
-          const map: Record<string, HealthSnapshot | null> = {};
-          targetIds.forEach((tid, i) => {
-            map[tid] = snapshots[i];
-          });
-          setHealthMap(map);
-        } else {
-          setHealthMap({});
-        }
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load operational snapshot.");
-      })
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => {
-    loadOverview();
-  }, [token, liveRevision]);
-
-  const targetKeys = deriveOperationalTargets(circuits);
-  const openCircuits = targetKeys.filter((k) => circuits[k]?.state === "OPEN");
-
-  return (
-    <>
-      <PageHeader
-        eyebrow="Operations Console"
-        title="Network Overview"
-        description="Authoritative status of participant targets, adaptive circuits, and resilience controllers."
-        action={
-          <Button variant="secondary" onClick={loadOverview}>
-            <ConsoleIcon name="refresh" size={14} />
-            Refresh State
-          </Button>
-        }
-      />
-
-      {error && <InlineError message={error} />}
-
-      {loading ? (
-        <ConsoleSkeleton />
-      ) : (
-        <>
-          <section className="console-grid-4">
-            <div className="console-card">
-              <div className="console-card-header">
-                <span className="console-card-kicker">Core System Readiness</span>
-                <span className={`console-pill ${apiOnline && dbOnline ? "console-pill-success" : "console-pill-error"}`}>
-                  {apiOnline && dbOnline ? "ONLINE" : "DEGRADED"}
-                </span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: ".35rem", margin: ".35rem 0" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: ".82rem" }}>
-                  <span style={{ color: "var(--muted)" }}>API Engine</span>
-                  <span className={`console-pill ${apiOnline ? "console-pill-success" : "console-pill-error"}`}>
-                    {apiOnline ? "READY" : "UNAVAILABLE"}
-                  </span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: ".82rem" }}>
-                  <span style={{ color: "var(--muted)" }}>Database Ledger</span>
-                  <span className={`console-pill ${dbOnline ? "console-pill-success" : "console-pill-error"}`}>
-                    {dbOnline ? "READY" : "UNAVAILABLE"}
-                  </span>
-                </div>
-              </div>
-              <span className="console-meta-text">Authoritative: GET /health & /health/db</span>
-            </div>
-
-            <div className="console-card">
-              <div className="console-card-header">
-                <span className="console-card-kicker">Execution Targets</span>
-                <span className={`console-pill ${openCircuits.length === 0 ? "console-pill-success" : "console-pill-warning"}`}>
-                  {openCircuits.length === 0 ? "ALL ELIGIBLE" : `${openCircuits.length} INELIGIBLE`}
-                </span>
-              </div>
-              <span className="console-val-large">{targetKeys.length} Configured</span>
-              <span className="console-meta-text">
-                {openCircuits.length === 0 ? "All circuit breakers closed" : `${openCircuits.join(", ")} circuit open`}
-              </span>
-            </div>
-
-            <div className="console-card">
-              <div className="console-card-header">
-                <span className="console-card-kicker">Active Faults</span>
-                <span className={`console-pill ${chaosScenarios.length > 0 ? "console-pill-warning" : "console-pill-neutral"}`}>
-                  {chaosScenarios.length > 0 ? "CHAOS ENGAGED" : "NOMINAL"}
-                </span>
-              </div>
-              <span className="console-val-large">{chaosScenarios.length}</span>
-              <span className="console-meta-text">Injected faults currently active</span>
-            </div>
-
-            <div className="console-card">
-              <div className="console-card-header">
-                <span className="console-card-kicker">Reconciliation Engine</span>
-                <span className="console-pill console-pill-success">OPERATIONAL</span>
-              </div>
-              <span className="console-val-large" style={{ fontSize: "1.1rem" }}>Maintained commitments</span>
-              <span className="console-meta-text">Reconciliation, tree navigation, proofs, and integrity checks available</span>
-            </div>
-          </section>
-
-          <section className="section-block">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Circuit Breakers</p>
-                <h2>Active Execution Targets</h2>
-              </div>
-              <button type="button" className="text-link" onClick={() => onNavigate("c-routing")}>
-                View details & events →
-              </button>
-            </div>
-            {targetKeys.length === 0 ? (
-              <p className="console-meta-text">No execution targets configured on circuit breaker.</p>
-            ) : (
-              <div className="console-table-wrap">
-                <table className="console-table">
-                  <thead>
-                    <tr>
-                      <th>Target ID</th>
-                      <th>Circuit State</th>
-                      <th>Failures (Window)</th>
-                      <th>Timeouts</th>
-                      <th>Probes</th>
-                      <th>Restoration</th>
-                      <th>Last Evaluated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {targetKeys.map((k) => {
-                      const c = circuits[k];
-                      return (
-                        <tr key={k}>
-                          <td className="mono" style={{ fontWeight: 600 }}>{c.executionTargetId}</td>
-                          <td>
-                            <span
-                              className={`console-pill ${
-                                c.state === "CLOSED" ? "console-pill-success" : c.state === "OPEN" ? "console-pill-error" : "console-pill-warning"
-                              }`}
-                            >
-                              {c.state}
-                            </span>
-                          </td>
-                          <td className="mono">{c.failureCount}</td>
-                          <td className="mono">{c.timeoutCount}</td>
-                          <td className="mono">{c.activeProbes} / {c.successfulProbes}</td>
-                          <td className="mono">
-                            {c.state === "CLOSED" ? "100%" : `${(c.restorationProgress * 100).toFixed(0)}% (Step ${c.restorationStep})`}
-                          </td>
-                          <td className="mono">{formatIso(c.lastEvaluatedAt)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <section className="section-block">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Target Health</p>
-                <h2>Operational Telemetry Summary</h2>
-              </div>
-              <button type="button" className="text-link" onClick={() => onNavigate("c-health")}>
-                Manage health probes →
-              </button>
-            </div>
-            {targetKeys.length === 0 ? (
-              <div className="console-card">
-                <p className="console-meta-text">No execution targets configured on circuit breaker.</p>
-              </div>
-            ) : (
-              <div className="console-grid-2">
-                {targetKeys.map((k) => (
-                  <ParticipantHealthCard key={k} targetId={k} snapshot={healthMap[k] ?? null} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="section-block">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Architecture Matrix</p>
-                <h2>Subsystem Deployment State</h2>
-              </div>
-            </div>
-            <div className="console-table-wrap">
-              <table className="console-table">
-                <thead>
-                  <tr>
-                    <th>Subsystem</th>
-                    <th>Milestone</th>
-                    <th>Authoritative Seam</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Adaptive Routing Engine</td>
-                    <td className="mono">M2</td>
-                    <td className="mono">internal/payments/routing.go</td>
-                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
-                  </tr>
-                  <tr>
-                    <td>Target Circuit Breakers</td>
-                    <td className="mono">M2</td>
-                    <td className="mono">GET /api/ops/circuit</td>
-                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
-                  </tr>
-                  <tr>
-                    <td>Fault Injection Controller</td>
-                    <td className="mono">M2</td>
-                    <td className="mono">GET /api/ops/chaos/scenarios</td>
-                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
-                  </tr>
-                  <tr>
-                    <td>Canonical Hash Commitment</td>
-                    <td className="mono">M3-1</td>
-                    <td className="mono">GET /api/ops/reconciliation/tree/root</td>
-                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
-                  </tr>
-                  <tr>
-                    <td>Merkle Leaf Buckets</td>
-                    <td className="mono">M3-2</td>
-                    <td className="mono">GET /api/ops/reconciliation/tree/children</td>
-                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
-                  </tr>
-                  <tr>
-                    <td>Reconciliation Orchestration</td>
-                    <td className="mono">M3-5</td>
-                    <td className="mono">POST /api/ops/reconciliation/runs</td>
-                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
-                  </tr>
-                  <tr>
-                    <td>Ledger Invariant Engine</td>
-                    <td className="mono">M3-7</td>
-                    <td className="mono">POST /api/ops/integrity/check</td>
-                    <td><span className="console-pill console-pill-success">OPERATIONAL</span></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-    </>
-  );
-}
-
-function ParticipantHealthCard({ targetId, snapshot }: { targetId: string; snapshot: HealthSnapshot | null }) {
-  if (!snapshot) {
-    return (
-      <div className="console-card">
-        <div className="console-card-header">
-          <span className="console-card-kicker">{targetId}</span>
-          <span className="console-pill console-pill-neutral">NO SAMPLES</span>
-        </div>
-        <p className="console-meta-text">No health samples recorded in current rolling window.</p>
-      </div>
-    );
-  }
-
-  const scorePct = (snapshot.score * 100).toFixed(1);
-  const availPct = (snapshot.availabilityScore * 100).toFixed(1);
-  const succPct = (snapshot.successScore * 100).toFixed(1);
-
-  return (
-    <div className="console-card">
-      <div className="console-card-header">
-        <span className="console-card-kicker">{snapshot.targetId}</span>
-        <span className={`console-pill ${snapshot.score >= 0.8 ? "console-pill-success" : snapshot.score >= 0.5 ? "console-pill-warning" : "console-pill-error"}`}>
-          SCORE {scorePct}%
-        </span>
-      </div>
-      <div className="console-grid-2" style={{ marginBottom: 0, gap: ".5rem" }}>
-        <div>
-          <span className="console-meta-text">Availability:</span>{" "}
-          <strong className="mono" style={{ color: "var(--ink)" }}>{availPct}%</strong>
-        </div>
-        <div>
-          <span className="console-meta-text">Success:</span>{" "}
-          <strong className="mono" style={{ color: "var(--ink)" }}>{succPct}%</strong>
-        </div>
-      </div>
-      <div className="console-grid-2" style={{ marginBottom: 0, gap: ".5rem" }}>
-        <div>
-          <span className="console-meta-text">Latency Penalty:</span>{" "}
-          <span className="mono" style={{ color: "var(--muted)" }}>{snapshot.latencyPenalty.toFixed(3)}</span>
-        </div>
-        <div>
-          <span className="console-meta-text">Timeout Penalty:</span>{" "}
-          <span className="mono" style={{ color: "var(--muted)" }}>{snapshot.timeoutPenalty.toFixed(3)}</span>
-        </div>
-      </div>
-      <span className="console-meta-text" style={{ borderTop: "1px solid var(--line)", paddingTop: ".5rem", marginTop: ".25rem" }}>
-        Samples: <strong className="mono">{snapshot.sampleCount}</strong> · Computed: <span className="mono">{formatIso(snapshot.computedAt)}</span>
-      </span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 2. Bank Health View
-// ---------------------------------------------------------------------------
-
-function ConsoleHealthView({ token, liveRevision }: { token: string; liveRevision: number }) {
-  const [targetId, setTargetId] = useState("");
-  const [targetKeys, setTargetKeys] = useState<string[]>([]);
-  const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
-  const [probing, setProbing] = useState(false);
-  const [lastProbe, setLastProbe] = useState<HealthSample | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  function loadTargetsAndSnapshot(currentTarget?: string) {
-    setLoading(true);
-    setError("");
-    api.opsCircuits(token)
-      .then((circuitMap) => {
-        const derived = deriveOperationalTargets(circuitMap);
-        setTargetKeys(derived);
-        const nextTarget = currentTarget && derived.includes(currentTarget)
-          ? currentTarget
-          : derived[0] ?? "";
-        setTargetId(nextTarget);
-        if (nextTarget) {
-          return api.opsHealthSnapshot(nextTarget, token).then(setSnapshot);
-        } else {
-          setSnapshot(null);
-        }
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Health data unavailable.");
-        setSnapshot(null);
-      })
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => {
-    loadTargetsAndSnapshot(targetId || undefined);
-  }, [token, liveRevision]);
-
-  function switchTarget(t: string) {
-    setTargetId(t);
-    setLoading(true);
-    setError("");
-    api.opsHealthSnapshot(t, token)
-      .then(setSnapshot)
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : `Health data unavailable for ${t}.`);
-        setSnapshot(null);
-      })
-      .finally(() => setLoading(false));
-  }
-
-  function handleProbe() {
-    if (!targetId) return;
-    setProbing(true);
-    setError("");
-    api.opsHealthSample(targetId, token)
-      .then((sample) => {
-        setLastProbe(sample);
-        return api.opsHealthSnapshot(targetId, token).then(setSnapshot);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to record health probe.");
-      })
-      .finally(() => setProbing(false));
-  }
-
-  return (
-    <>
-      <PageHeader
-        eyebrow="Target Telemetry"
-        title="Bank Health Diagnostics"
-        description="Real-time participant availability and latency scoring evaluated over rolling observation windows."
-        action={
-          <Button onClick={handleProbe} disabled={probing || !targetId}>
-            <ConsoleIcon name="pulse" size={15} />
-            {probing ? "Probing Target…" : targetId ? `Trigger ${targetId} Probe` : "Probe Unavailable"}
-          </Button>
-        }
-      />
-
-      {targetKeys.length === 0 ? (
-        <div className="console-card" style={{ marginBottom: "1.25rem" }}>
-          <span className="console-card-kicker">Target Telemetry</span>
-          <p className="console-meta-text">No operational targets registered. Health probes require registered execution targets.</p>
-        </div>
-      ) : (
-        <div className="console-tabs">
-          {targetKeys.map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={`console-tab ${targetId === k ? "is-active" : ""}`}
-              onClick={() => switchTarget(k)}
-            >
-              Target: {k}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {error && <InlineError message={error} />}
-
-      {lastProbe && (
-        <div className="console-card" style={{ borderColor: "var(--accent)" }}>
-          <div className="console-card-header">
-            <span className="console-card-kicker">Latest Health Sample Probe</span>
-            <span className={`console-pill ${lastProbe.Outcome === "SUCCESS" ? "console-pill-success" : "console-pill-error"}`}>
-              {lastProbe.Outcome}
-            </span>
-          </div>
-          <div className="console-grid-4" style={{ marginBottom: 0 }}>
-            <div>
-              <span className="console-meta-text">Target:</span>{" "}
-              <strong className="mono">{lastProbe.TargetID}</strong>
-            </div>
-            <div>
-              <span className="console-meta-text">Available:</span>{" "}
-              <strong className="mono">{lastProbe.Available ? "YES" : "NO"}</strong>
-            </div>
-            <div>
-              <span className="console-meta-text">Latency:</span>{" "}
-              <strong className="mono">{(lastProbe.Latency / 1_000_000).toFixed(2)} ms</strong>
-            </div>
-            <div>
-              <span className="console-meta-text">Sampled:</span>{" "}
-              <span className="mono">{formatIso(lastProbe.SampledAt)}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {loading ? (
-        <ConsoleSkeleton />
-      ) : !snapshot ? (
-        <div className="console-card">
-          <div className="console-card-header">
-            <span className="console-card-kicker">{targetId}</span>
-            <span className="console-pill console-pill-neutral">NO DATA</span>
-          </div>
-          <p className="console-meta-text">No health samples recorded yet for {targetId}. Use the probe button above to record a sample.</p>
-        </div>
-      ) : (
-        <>
-          <section className="console-grid-4">
-            <div className="console-card">
-              <span className="console-card-kicker">Composite Health Score</span>
-              <span className="console-val-large" style={{ color: snapshot.score >= 0.8 ? "var(--success)" : snapshot.score >= 0.5 ? "var(--warning)" : "var(--error)" }}>
-                {(snapshot.score * 100).toFixed(1)}%
-              </span>
-              <span className="console-meta-text">Weighted operational score</span>
-            </div>
-
-            <div className="console-card">
-              <span className="console-card-kicker">Availability Score</span>
-              <span className="console-val-large">{(snapshot.availabilityScore * 100).toFixed(1)}%</span>
-              <span className="console-meta-text">35% formula weight</span>
-            </div>
-
-            <div className="console-card">
-              <span className="console-card-kicker">Success Score</span>
-              <span className="console-val-large">{(snapshot.successScore * 100).toFixed(1)}%</span>
-              <span className="console-meta-text">35% formula weight</span>
-            </div>
-
-            <div className="console-card">
-              <span className="console-card-kicker">Window Sample Count</span>
-              <span className="console-val-large">{snapshot.sampleCount}</span>
-              <span className="console-meta-text">Samples in 15m window</span>
-            </div>
-          </section>
-
-          <section className="console-card">
-            <span className="console-card-kicker">Telemetry Window Metadata</span>
-            <div className="console-spec-list">
-              <div className="console-spec-item">
-                <span className="console-spec-label">Target Identifier</span>
-                <span className="console-spec-val">{snapshot.targetId}</span>
-              </div>
-              <div className="console-spec-item">
-                <span className="console-spec-label">Latency Penalty Applied</span>
-                <span className="console-spec-val">{snapshot.latencyPenalty.toFixed(4)}</span>
-              </div>
-              <div className="console-spec-item">
-                <span className="console-spec-label">Timeout Penalty Applied</span>
-                <span className="console-spec-val">{snapshot.timeoutPenalty.toFixed(4)}</span>
-              </div>
-              <div className="console-spec-item">
-                <span className="console-spec-label">Observation Window Started</span>
-                <span className="console-spec-val">{formatIso(snapshot.windowStartedAt)}</span>
-              </div>
-              <div className="console-spec-item">
-                <span className="console-spec-label">Computed At</span>
-                <span className="console-spec-val">{formatIso(snapshot.computedAt)}</span>
-              </div>
-            </div>
-          </section>
-
-          <p className="console-meta-text" style={{ marginTop: "1rem" }}>
-            Note: Displaying authoritative rolling observation window state. Historical time-series telemetry storage is not maintained by the backend.
-          </p>
-        </>
-      )}
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 3. Routing & Circuits View
-// ---------------------------------------------------------------------------
-
 function ConsoleRoutingView({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [distribution, setDistribution] = useState<{ targetId: string; payments: number }[]>([]);
   const [distributionError, setDistributionError] = useState("");
@@ -851,6 +295,9 @@ function ConsoleRoutingView({ token, liveRevision }: { token: string; liveRevisi
   const [events, setEvents] = useState<CircuitTransitionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState("");
+  const eventGeneration = useRef(0);
+  const eventTarget = useRef("");
   const [error, setError] = useState("");
 
   function loadDistribution() {
@@ -878,11 +325,14 @@ function ConsoleRoutingView({ token, liveRevision }: { token: string; liveRevisi
   }
 
   function loadEvents(target: string) {
-    setEventsLoading(true);
+    const generation = ++eventGeneration.current;
+    if (eventTarget.current !== target) setEvents([]);
+    eventTarget.current = target;
+    setEventsLoading(true); setEventsError("");
     api.opsCircuitEvents(target, token)
-      .then(setEvents)
-      .catch(() => setEvents([]))
-      .finally(() => setEventsLoading(false));
+      .then(values => { if (generation === eventGeneration.current) setEvents(values); })
+      .catch(failure => { if (generation === eventGeneration.current) setEventsError(failure instanceof Error ? failure.message : "Circuit history unavailable."); })
+      .finally(() => { if (generation === eventGeneration.current) setEventsLoading(false); });
   }
 
   useEffect(() => {
@@ -1005,14 +455,15 @@ function ConsoleRoutingView({ token, liveRevision }: { token: string; liveRevisi
                 Refresh log
               </button>
             </div>
+            {eventsError && <InlineError message={eventsError} />}
             {eventsLoading ? (
               <ConsoleSkeleton />
             ) : events.length === 0 ? (
               <div className="console-card">
-                <p className="console-meta-text">No state transition events logged for {selectedTarget} yet.</p>
+                <p className="console-meta-text">{eventsError ? "Circuit history is unavailable; an empty display does not establish that no transitions occurred." : `No state transition events were returned for ${selectedTarget}.`}</p>
               </div>
             ) : (
-              <div className="console-table-wrap">
+              <div className="console-table-wrap" tabIndex={0} role="region" aria-label="Operational evidence table">
                 <table className="console-table">
                   <thead>
                     <tr>
@@ -1077,10 +528,12 @@ function ConsoleReconciliationView({ token, liveRevision }: { token: string; liv
     catch (err) { setError(err instanceof Error ? err.message : "Could not load reconciliation history."); }
   }
   useEffect(() => { void refresh(); }, [token, liveRevision]);
+  const discrepancyGeneration = useRef(0);
   async function choose(run: any) {
-    setSelected(run);
-    try { const page = await api.opsReconciliationDiscrepancies(run.id, token); setDiscrepancies(page.items ?? []); setError(""); }
-    catch (err) { setError(err instanceof Error ? err.message : "Could not load discrepancy evidence."); }
+    const current = ++discrepancyGeneration.current;
+    setSelected(run); setDiscrepancies([]);
+    try { const page = await api.opsReconciliationDiscrepancies(run.id, token); if (current === discrepancyGeneration.current) { setDiscrepancies(page.items ?? []); setError(""); } }
+    catch (err) { if (current === discrepancyGeneration.current) setError(err instanceof Error ? err.message : "Could not load discrepancy evidence."); }
   }
   async function execute(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
@@ -1100,9 +553,9 @@ function ConsoleReconciliationView({ token, liveRevision }: { token: string; liv
       <div className="console-card">
         <h3>Run reconciliation</h3>
         <form className="admin-form" onSubmit={execute}>
-          <div className="form-group"><label>Participant ID</label><input value={participantId} onChange={e => setParticipantId(e.target.value)} required /></div>
-          <div className="form-group"><label>Scope From (ISO8601)</label><input value={scopeFrom} onChange={e => setScopeFrom(e.target.value)} required /></div>
-          <div className="form-group"><label>Scope To (ISO8601)</label><input value={scopeTo} onChange={e => setScopeTo(e.target.value)} required /></div>
+          <div className="form-group"><label htmlFor="operator-participant-id-1">Participant ID</label><input id="operator-participant-id-1" value={participantId} onChange={e => setParticipantId(e.target.value)} required /></div>
+          <div className="form-group"><label htmlFor="operator-scope-from-iso8601-2">Scope From (ISO8601)</label><input id="operator-scope-from-iso8601-2" value={scopeFrom} onChange={e => setScopeFrom(e.target.value)} required /></div>
+          <div className="form-group"><label htmlFor="operator-scope-to-iso8601-3">Scope To (ISO8601)</label><input id="operator-scope-to-iso8601-3" value={scopeTo} onChange={e => setScopeTo(e.target.value)} required /></div>
           <Button type="submit" disabled={busy}>{busy ? "Running..." : "Run reconciliation"}</Button>
         </form>
       </div>
@@ -1111,7 +564,7 @@ function ConsoleReconciliationView({ token, liveRevision }: { token: string; liv
         <h3>Recorded runs</h3>
         <Button variant="secondary" onClick={refresh}>Refresh</Button>
         {runs.length === 0 && <p>No reconciliation runs recorded.</p>}
-        {runs.length > 0 && <div className="console-table-wrap"><table className="console-table">
+        {runs.length > 0 && <div className="console-table-wrap" tabIndex={0} role="region" aria-label="Operational evidence table"><table className="console-table">
           <thead><tr><th>Started</th><th>Participant</th><th>Status</th><th>Discrepancies</th><th>Detail</th></tr></thead>
           <tbody>{runs.map(run => <tr key={run.id}>
             <td>{run.startedAt}</td><td>{run.participantId}</td><td>{run.status}</td><td>{run.discrepancyCount}</td>
@@ -1159,17 +612,20 @@ function ConsoleMerkleView({ token }: { token: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [root, setRoot] = useState<import("./types").MerkleTreeRoot | null>(null);
+  const [rootContext, setRootContext] = useState<{ participantId:string; scopeFrom:string; scopeTo:string } | null>(null);
+  const treeGeneration = useRef(0);
   const [childrenMap, setChildrenMap] = useState<Record<string, import("./types").MerkleTreeChild[]>>({});
 
   async function fetchRoot(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setRoot(null);
+    const requestGeneration = ++treeGeneration.current;
+    setRoot(null); setRootContext(null);
     setChildrenMap({});
     try {
       const res = await api.opsReconciliationTreeRoot(participantId, scopeFrom, scopeTo, token);
-      setRoot(res);
+      if (requestGeneration === treeGeneration.current) { setRoot(res); setRootContext({ participantId, scopeFrom, scopeTo }); }
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
       else setError("Failed to fetch Merkle root");
@@ -1180,12 +636,13 @@ function ConsoleMerkleView({ token }: { token: string }) {
 
   async function fetchChildren(generation: string, path: string) {
     const key = `${generation}:${path}`;
-    if (childrenMap[key]) return; // already fetched
+    if (childrenMap[key] || !rootContext) return;
+    const requestGeneration = treeGeneration.current;
     try {
-      const res = await api.opsReconciliationTreeChildren(participantId, scopeFrom, scopeTo, generation, path, token);
-      setChildrenMap(prev => ({ ...prev, [key]: res }));
+      const res = await api.opsReconciliationTreeChildren(rootContext.participantId, rootContext.scopeFrom, rootContext.scopeTo, generation, path, token);
+      if (requestGeneration === treeGeneration.current) setChildrenMap(prev => ({ ...prev, [key]: res }));
     } catch (err) {
-      console.error("Failed to fetch children", err);
+      if (requestGeneration === treeGeneration.current) setError(err instanceof Error ? err.message : "Child proof evidence is unavailable.");
     }
   }
 
@@ -1200,16 +657,16 @@ function ConsoleMerkleView({ token }: { token: string }) {
         <h3>Inspect Tree Root</h3>
         <form className="admin-form" onSubmit={fetchRoot}>
           <div className="form-group">
-            <label>Participant ID</label>
-            <input value={participantId} onChange={(e) => setParticipantId(e.target.value)} required />
+            <label htmlFor="operator-participant-id-4">Participant ID</label>
+            <input id="operator-participant-id-4" value={participantId} onChange={(e) => setParticipantId(e.target.value)} required />
           </div>
           <div className="form-group">
-            <label>Scope From (ISO8601)</label>
-            <input value={scopeFrom} onChange={(e) => setScopeFrom(e.target.value)} required />
+            <label htmlFor="operator-scope-from-iso8601-5">Scope From (ISO8601)</label>
+            <input id="operator-scope-from-iso8601-5" value={scopeFrom} onChange={(e) => setScopeFrom(e.target.value)} required />
           </div>
           <div className="form-group">
-            <label>Scope To (ISO8601)</label>
-            <input value={scopeTo} onChange={(e) => setScopeTo(e.target.value)} required />
+            <label htmlFor="operator-scope-to-iso8601-6">Scope To (ISO8601)</label>
+            <input id="operator-scope-to-iso8601-6" value={scopeTo} onChange={(e) => setScopeTo(e.target.value)} required />
           </div>
           <div className="form-actions">
             <Button type="submit" disabled={loading}>Fetch Root</Button>
@@ -1398,20 +855,20 @@ function ConsoleIntegrityView({ token, liveRevision }: { token: string; liveRevi
         <h3>Fetch Integrity Proof</h3>
         <form className="admin-form" onSubmit={fetchProof}>
           <div className="form-group">
-            <label>Operation ID</label>
-            <input value={operationId} onChange={(e) => setOperationId(e.target.value)} required />
+            <label htmlFor="operator-operation-id-7">Operation ID</label>
+            <input id="operator-operation-id-7" value={operationId} onChange={(e) => setOperationId(e.target.value)} required />
           </div>
           <div className="form-group">
-            <label>Participant ID</label>
-            <input value={participantId} onChange={(e) => setParticipantId(e.target.value)} required />
+            <label htmlFor="operator-participant-id-8">Participant ID</label>
+            <input id="operator-participant-id-8" value={participantId} onChange={(e) => setParticipantId(e.target.value)} required />
           </div>
           <div className="form-group">
-            <label>Scope From (ISO8601)</label>
-            <input value={scopeFrom} onChange={(e) => setScopeFrom(e.target.value)} required />
+            <label htmlFor="operator-scope-from-iso8601-9">Scope From (ISO8601)</label>
+            <input id="operator-scope-from-iso8601-9" value={scopeFrom} onChange={(e) => setScopeFrom(e.target.value)} required />
           </div>
           <div className="form-group">
-            <label>Scope To (ISO8601)</label>
-            <input value={scopeTo} onChange={(e) => setScopeTo(e.target.value)} required />
+            <label htmlFor="operator-scope-to-iso8601-10">Scope To (ISO8601)</label>
+            <input id="operator-scope-to-iso8601-10" value={scopeTo} onChange={(e) => setScopeTo(e.target.value)} required />
           </div>
           <div className="form-actions">
             <Button type="submit" disabled={loading}>Fetch Proof</Button>
@@ -1422,7 +879,7 @@ function ConsoleIntegrityView({ token, liveRevision }: { token: string; liveRevi
 
       {proof && (
         <div className="console-card">
-          <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+          <div className="integrity-proof-header">
             <h3>Integrity Proof Result</h3>
             <Button variant="secondary" onClick={handleVerify} disabled={verifying}>
               {verifying ? "Verifying..." : "Verify Proof Against Trusted State"}
@@ -1433,7 +890,7 @@ function ConsoleIntegrityView({ token, liveRevision }: { token: string; liveRevi
           {verifyResult && (
             <div className="console-notice-box" style={{marginBottom: "1.5rem", padding: "1rem", borderColor: verifyResult.valid ? "var(--success)" : "var(--error)", color: verifyResult.valid ? "var(--success)" : "var(--error)"}}>
               <h4 style={{margin: "0 0 0.5rem 0"}}>{verifyResult.valid ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED"}</h4>
-              <p style={{margin: 0, fontSize: "0.85rem"}}>
+              <p className="integrity-reconstructed-root" style={{margin: 0, fontSize: "0.85rem"}}>
                 Reconstructed Root: <span style={{fontFamily: "monospace"}}>{verifyResult.reconstructedRoot}</span>
               </p>
             </div>
@@ -1761,10 +1218,10 @@ function ConsoleChaosView({ token, liveRevision }: { token: string; liveRevision
             </div>
             {activeList.length === 0 ? (
               <div className="console-card">
-                <p className="console-meta-text">No active chaos scenarios. The system is operating in nominal conditions.</p>
+                <p className="console-meta-text">No active controlled-fault scenarios reported. This list does not establish bank health.</p>
               </div>
             ) : (
-              <div className="console-table-wrap">
+              <div className="console-table-wrap" tabIndex={0} role="region" aria-label="Operational evidence table">
                 <table className="console-table">
                   <thead>
                     <tr>
@@ -1815,7 +1272,7 @@ function ConsoleChaosView({ token, liveRevision }: { token: string; liveRevision
                   <h2>Historical Scenarios</h2>
                 </div>
               </div>
-              <div className="console-table-wrap">
+              <div className="console-table-wrap" tabIndex={0} role="region" aria-label="Operational evidence table">
                 <table className="console-table">
                   <thead>
                     <tr>
@@ -1902,7 +1359,7 @@ function ConsoleActivityView({ token, liveRevision }: { token: string; liveRevis
         </div>
       ) : (
         <section className="section-block">
-          <div className="console-table-wrap">
+          <div className="console-table-wrap" tabIndex={0} role="region" aria-label="Operational evidence table">
             <table className="console-table">
               <thead>
                 <tr>
