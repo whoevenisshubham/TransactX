@@ -19,7 +19,7 @@ The owner reports no backup or credentials, so it cannot currently be run.
 
 ## 1. Choose Neon Free
 
-Create a new Free project near Render Frankfurt. Keep the default `neondb`
+Create a new Free project near Render Singapore. Keep the default `neondb`
 or update the explicit expected name consistently. Use **Direct connection**,
 not the `-pooler` hostname: migration/session advisory locks require a stable
 session. Require TLS; prefer `sslmode=verify-full` and test certificate trust.
@@ -87,7 +87,7 @@ as a Blueprint, or create a Docker Web Service manually:
 
 - Branch: the reviewed `codex/render-neon-demo` head (later its merge target).
 - Dockerfile: `deploy/render/Dockerfile`; build context: repository root.
-- Instance: **Free**, region Frankfurt, one instance; no disk, worker service,
+- Instance: **Free**, region Singapore, one instance; no disk, worker service,
   cron, managed Render database, paid add-on or paid trial dependency.
 - Health path: `/healthz` (gateway liveness only; not database readiness).
 - Set `DATABASE_URL`: direct Neon URI; `TX_DEMO_EXPECTED_DATABASE`: `neondb`.

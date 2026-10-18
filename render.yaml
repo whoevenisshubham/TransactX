@@ -5,7 +5,7 @@ services:
     name: transactx-demo-api
     runtime: docker
     plan: free
-    region: frankfurt
+    region: singapore
     dockerfilePath: ./deploy/render/Dockerfile
     dockerContext: .
     healthCheckPath: /healthz
