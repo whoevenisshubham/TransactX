@@ -212,6 +212,21 @@ button, .button { border-radius: 9px; }
 .journey-reference button { min-height: 32px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); padding: 6px 10px; }
 .ops-question-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
 .ops-question-chips button { padding: 7px 10px; font-size: 12px; text-align: left; border: 1px solid var(--line); color: var(--accent-strong); background: var(--surface-soft); }
+.demo-page { padding-top: 56px; padding-bottom: 64px; }
+.demo-page > h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 600; line-height: 1.1; letter-spacing: -2px; margin-bottom: 20px; }.demo-page h1 span { color: var(--muted); }
+.demo-lead { max-width: 600px; color: var(--muted); font-size: 15px; line-height: 1.7; margin-bottom: 24px; }
+.demo-notice { display: flex; align-items: center; gap: 16px; background: var(--accent-pale); padding: 16px 20px; border-radius: 10px; margin-bottom: 28px; }.demo-notice > span { color: var(--accent); font-size: 28px; }.demo-notice p { color: var(--accent-strong); margin: 0; font-size: 13px; max-width: 820px; }
+.demo-role { margin: 0; }.demo-role.is-recommended { border-color: var(--accent); }.demo-role h2 { font-size: 26px; margin-bottom: 12px; }.demo-role .button { margin-top: auto; min-height: 44px; font-size: 13px; width: 100%; }.demo-progress { min-height: 22px; margin: 20px 0; color: var(--muted); font-size: 13px; }
+.demo-secondary { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding-top: 24px; border-top: 1px solid var(--line); }.demo-secondary p { font-size: 13px; color: var(--muted); margin: 0; }.demo-secondary .button { font-size: 13px; }.demo-secondary a { margin-left: auto; font-size: 13px; text-decoration: none; }
+.privacy-page { max-width: 840px; padding-top: 48px; padding-bottom: 64px; }.privacy-page section { margin: 32px 0; }.privacy-page h2 { font-size: 21px; margin-bottom: 12px; }.privacy-page section p { color: var(--muted); font-size: 15px; }
+.experience-auth { min-height: calc(100vh - 92px); max-width: 1248px; margin: auto; padding: 32px 48px 64px; gap: 64px; grid-template-columns: 1fr 1fr; }
+.experience-auth .auth-intro { min-height: 600px; padding: 48px 36px 28px; border: 1px solid var(--line); border-radius: 16px; }
+.experience-auth .auth-intro-copy { margin: 48px 0 auto; }.experience-auth .auth-intro-copy h2 { font-size: clamp(32px, 3.8vw, 48px); letter-spacing: -2px; line-height: 1.1; margin-bottom: 24px; }.experience-auth .auth-intro-copy h2 span { color: var(--accent); }.experience-auth .auth-intro-copy > p:last-child { font-size: 15px; }
+.experience-auth .auth-panel { min-height: 0; padding: 0; background: transparent; }.experience-auth .auth-form-wrap { width: 100%; max-width: 420px; }
+.auth-form-context { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 32px; }.auth-form-context a { display: flex; align-items: center; gap: 8px; font-size: 12px; text-decoration: none; }.auth-form-context .badge { font-size: 11px; }
+.experience-auth .auth-form :is(h1, h2) { font-size: 28px; font-weight: 600; margin-bottom: 12px; }.experience-auth .auth-form { gap: 18px; }.experience-auth .auth-form .button { margin-top: 0; min-height: 46px; }.experience-auth .field > span { letter-spacing: 0; text-transform: none; font-size: 13px; font-weight: 500; color: var(--ink); }.experience-auth .field input { height: 46px; border-radius: 8px; }
+.auth-evidence-note { display: flex; gap: 16px; padding: 24px 0; border-top: 1px solid var(--line); margin-top: 48px; }.auth-note-icon { color: var(--accent); font-size: 28px; }.auth-evidence-note p { color: var(--muted); font-size: 13px; margin: 0; }.auth-evidence-note strong { display: block; color: var(--ink); font-weight: 600; margin-bottom: 6px; }.experience-auth .intro-foot { font-size: 12px; flex-wrap: wrap; }
+.password-visibility { width: fit-content; margin-top: -6px; padding: 6px 0; border: 0; background: transparent; font-size: 12px; color: var(--accent); }.auth-provider { margin-top: 24px; text-align: center; border-top: 1px solid var(--line); padding-top: 20px; }.auth-provider > span { font-size: 12px; color: var(--muted); }.auth-provider p { margin: 12px 0 24px; color: var(--muted); font-size: 12px; }.experience-auth .auth-legal { color: var(--muted); font-size: 12px; }.auth-options-error { padding: 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 12px; }
 .console-pill-success { background: var(--success-bg); border-color: var(--success); color: var(--success); }
 .console-pill-warning { background: var(--warning-bg); border-color: var(--warning); color: var(--warning); }
 .console-pill-error { background: var(--error-bg); border-color: var(--error); color: var(--error); }
@@ -219,6 +234,7 @@ button, .button { border-radius: 9px; }
 
 @media (max-width: 1199px) { .landing-hero { gap: 32px; }.journey-layout { grid-template-columns: minmax(0, 1fr); }.journey-rail { position: static; }.architecture-note { flex-wrap: wrap; }.architecture-note a { margin-left: 50px; }.role-card { padding: 22px; } }
 @media (max-width: 959px) {
+  .experience-auth { padding: 24px 28px 48px; gap: 36px; }.experience-auth .auth-intro { padding: 32px 24px; }.experience-auth .auth-intro-copy h2 { font-size: 36px; }
   .public-container, .public-header { padding-left: 28px; padding-right: 28px; }
   .public-header nav { gap: 16px; }.public-nav-link { display: none; }
   .landing-hero { padding-top: 40px; padding-bottom: 56px; gap: 36px; }.hero-copy h1 { font-size: 44px; letter-spacing: -2px; }
@@ -229,6 +245,7 @@ button, .button { border-radius: 9px; }
   .capability-grid { grid-template-columns: repeat(2, 1fr); gap: 24px 36px; }.public-footer { flex-wrap: wrap; }.public-footer nav { margin-left: 0; }
 }
 @media (max-width: 700px) {
+  .experience-auth { display: block; padding: 32px 20px 48px; }.experience-auth .auth-intro { display: none; }.experience-auth .auth-form-wrap { margin: auto; }.auth-form-context { margin-bottom: 24px; }.demo-page { padding-top: 32px; padding-bottom: 48px; }.demo-page > h1 { font-size: 38px; letter-spacing: -1.6px; }.demo-secondary { align-items: start; flex-direction: column; }.demo-secondary a { margin: 0; }.privacy-page { padding-top: 32px; }.privacy-page h1 { font-size: 32px; }
   .public-container, .public-header { padding-left: 20px; padding-right: 20px; }.public-header { min-height: 80px; padding-top: 18px; padding-bottom: 18px; gap: 12px; }
   .public-header .brand-lockup { font-size: 20px; }.public-header nav { gap: 8px; }.public-header .button { padding: 8px 10px; font-size: 12px; }.public-header .button .icon { display: none; }.theme-select select { font-size: 12px; padding-left: 8px; padding-right: 4px; }
   .landing-hero { grid-template-columns: 1fr; padding-top: 32px; padding-bottom: 48px; gap: 36px; }.hero-copy h1 { font-size: clamp(40px, 10.4vw, 60px); letter-spacing: -2px; margin-bottom: 20px; }.hero-copy .eyebrow { font-size: 10px; margin-bottom: 22px; letter-spacing: 1.2px; }.hero-description { font-size: 15px; line-height: 1.7; max-width: 410px; }.hero-actions { gap: 20px; }.hero-secondary { font-size: 12px; }

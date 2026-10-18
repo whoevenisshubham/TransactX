@@ -10,6 +10,8 @@ import type { Account, MerchantReceiveInfo, MerchantView, Payment, Recipient, Us
 import { ConsoleShell } from "./console";
 import { LandingPage } from "./public/LandingPage";
 import { AuthPage } from "./public/AuthPage";
+import { DemoPage } from "./public/DemoPage";
+import { PrivacyPage } from "./public/PrivacyPage";
 import { ThemeSelect } from "./theme";
 import "./styles.css";
 import "./design/ops.css";
@@ -41,6 +43,9 @@ function App() {
       setRoleLoading(true);
       api.me(token).then((profile) => {
         if (!active || current !== generation) return;
+        const path = window.location.pathname;
+        const allowedPath = profile.role === "CUSTOMER" ? path === "/" || /^\/(pay|transactions)(\/|$)/.test(path) : profile.role === "MERCHANT" ? /^\/merchant(\/|$)/.test(path) : /^\/console(\/|$)/.test(path);
+        if (!allowedPath) window.history.replaceState({}, "", profile.role === "CUSTOMER" ? "/" : profile.role === "MERCHANT" ? "/merchant" : "/console/worklist");
         sessionStorage.setItem("transactx.profile", JSON.stringify({ token, profile: { id: profile.id, role: profile.role } }));
         setUser(profile);
         setOfflineUser(null);
@@ -69,9 +74,11 @@ function App() {
   }, [token]);
 
   function authenticated(nextToken: string) { sessionStorage.setItem("transactx.token", nextToken); setToken(nextToken); }
-  function logout() { sessionStorage.removeItem("transactx.token"); sessionStorage.removeItem("transactx.profile"); setToken(null); setUser(null); setOfflineUser(null); setOfflineMode(false); }
+  function logout() { sessionStorage.removeItem("transactx.token"); sessionStorage.removeItem("transactx.profile"); window.history.replaceState({}, "", "/login"); setToken(null); setUser(null); setOfflineUser(null); setOfflineMode(false); }
 
+  if (window.location.pathname === "/privacy") return <PrivacyPage />;
   if (!token && window.location.pathname === "/") return <LandingPage />;
+  if (!token && window.location.pathname === "/demo") return <DemoPage onAuthenticated={authenticated} />;
   if (!token) return <AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} />;
   if (offlineMode) return <OfflineRecoveryShell user={offlineUser} onLogout={logout} onRetry={() => window.dispatchEvent(new Event("online"))} />;
   if (roleLoading || !user) return <LoadingShell />;

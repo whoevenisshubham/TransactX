@@ -1,7 +1,8 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge, BrandMark, Button, Field, Icon, InlineError } from "../components";
-import { ThemeSelect } from "../theme";
+import { PublicHeader } from "./LandingPage";
+import { authClient, type AuthOptions } from "./authClient";
 
 export function AuthPage({
   mode,
@@ -12,76 +13,39 @@ export function AuthPage({
   onModeChange: (mode: "login" | "register") => void;
   onAuthenticated: (token: string) => void;
 }) {
-  return (
-    <main className="auth-layout">
-      <section className="auth-intro">
-        <div className="brand-lockup">
-          <BrandMark />
-          <span>TransactX</span>
-        </div>
-        <div className="auth-intro-copy">
-          <p className="eyebrow">A calmer way to move money</p>
-          <h1>Payments with a clear line of sight.</h1>
-          <p>Send money, follow every confirmation, and keep your financial activity precise.</p>
-        </div>
-        <div className="intro-foot">
-          <span className="network-pulse" />
-          <span>Secure account access</span>
-          <span className="intro-separator">•</span>
-          <span>INR payments</span>
-          <span className="intro-separator">•</span>
-          <span>Simulated payment network</span>
-        </div>
-      </section>
-      <section className="auth-panel">
-        <div className="auth-panel-top">
-          <ThemeSelect />
-          <span className="mobile-brand">
-            <BrandMark />
-            TransactX
-          </span>
-          <span className="auth-context">
-            <Badge tone="neutral">Customer account</Badge>
-          </span>
-        </div>
-        <div className="auth-form-wrap">
-          <div className="auth-tabs" role="tablist" aria-label="Sign in or register">
-            <button
-              type="button"
-              className={mode === "login" ? "is-active" : ""}
-              onClick={() => onModeChange("login")}
-              role="tab"
-              aria-selected={mode === "login"}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              className={mode === "register" ? "is-active" : ""}
-              onClick={() => onModeChange("register")}
-              role="tab"
-              aria-selected={mode === "register"}
-            >
-              Create account
-            </button>
-          </div>
-          {mode === "login" ? (
-            <LoginForm onAuthenticated={onAuthenticated} />
-          ) : (
-            <RegisterForm onAuthenticated={onAuthenticated} />
-          )}
-        </div>
-        <p className="auth-legal">
-          By continuing, you agree to use TransactX as a simulated payment network.
-        </p>
-      </section>
-    </main>
-  );
+  const [options, setOptions] = useState<AuthOptions | null>(null);
+  const [optionsError, setOptionsError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    authClient.options(controller.signal).then(setOptions).catch((failure) => {
+      if (!controller.signal.aborted) setOptionsError(failure instanceof Error ? failure.message : "Sign-in options are unavailable.");
+    });
+    return () => controller.abort();
+  }, []);
+  const registering = mode === "register" && options?.registrationEnabled === true;
+  return <div className="public-site"><PublicHeader /><main className="auth-layout experience-auth">
+    <section className="auth-intro">
+      <div className="auth-intro-copy"><p className="eyebrow">Clear at every step</p><h2>Your payments.<br /><span>The complete picture.</span></h2><p>See what happened, what is known, and what needs another look.</p></div>
+      <div className="auth-evidence-note"><span className="auth-note-icon" aria-hidden="true">↳</span><p><strong>Built around evidence.</strong> A bank timeout is never treated as proof of failure. Every outcome stays tied to the original payment.</p></div>
+      <div className="intro-foot"><span className="network-pulse" /><span>Simulated payment network · No real money</span></div>
+    </section>
+    <section className="auth-panel" aria-label="Account access">
+      <div className="auth-form-wrap">
+        <div className="auth-form-context"><Badge tone="neutral">Private account access</Badge><a href="/demo">Try shared demos <Icon name="arrow" /></a></div>
+        {options?.registrationEnabled && <div className="auth-tabs" role="tablist" aria-label="Sign in or register"><button type="button" role="tab" aria-selected={!registering} className={!registering ? "is-active" : ""} onClick={() => onModeChange("login")}>Sign in</button><button type="button" role="tab" aria-selected={registering} className={registering ? "is-active" : ""} onClick={() => onModeChange("register")}>Create account</button></div>}
+        {registering ? <RegisterForm onAuthenticated={onAuthenticated} /> : <LoginForm onAuthenticated={onAuthenticated} />}
+        <div className="auth-provider"><span>or use a provider</span><p>Google sign-in is not configured for this build. Password sign-in and shared demos remain available.</p></div>
+        {optionsError && <p className="auth-options-error" role="status">{optionsError} Password sign-in can still be attempted.</p>}
+        <p className="auth-legal">Use synthetic information only. Shared demo activity is visible to other visitors. <a href="/privacy">Privacy & demo data</a></p>
+      </div>
+    </section>
+  </main></div>;
 }
 
 function LoginForm({ onAuthenticated }: { onAuthenticated: (token: string) => void }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -104,7 +68,7 @@ function LoginForm({ onAuthenticated }: { onAuthenticated: (token: string) => vo
     <form className="auth-form" onSubmit={submit}>
       <div className="form-heading">
         <p className="eyebrow">Welcome back</p>
-        <h2>Sign in to continue</h2>
+        <h1>Sign in to continue</h1>
         <p>Access your balance and payment activity.</p>
       </div>
       <Field
@@ -119,10 +83,11 @@ function LoginForm({ onAuthenticated }: { onAuthenticated: (token: string) => vo
         label="Password"
         value={password}
         onChange={setPassword}
-        type="password"
+        type={showPassword ? "text" : "password"}
         autoComplete="current-password"
         required
       />
+      <button type="button" className="password-visibility" aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)}>{showPassword ? "Hide password" : "Show password"}</button>
       {error && <InlineError message={error} />}
       <Button type="submit" disabled={busy || !identifier.trim() || !password}>
         {busy ? "Signing in…" : "Sign in"}
@@ -174,7 +139,7 @@ function RegisterForm({ onAuthenticated }: { onAuthenticated: (token: string) =>
     <form className="auth-form auth-form-register" onSubmit={submit}>
       <div className="form-heading">
         <p className="eyebrow">Start with TransactX</p>
-        <h2>Create your account</h2>
+        <h1>Create your account</h1>
         <p>A simple account for clear, deliberate payments.</p>
       </div>
       <div className="form-grid">

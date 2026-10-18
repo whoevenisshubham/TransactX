@@ -29,8 +29,12 @@ type ErrorResponse = { requestId?: string; error?: { code?: string; message?: st
 
 function safeErrorMessage(code: string | undefined, fallback: string): string {
   switch (code) {
+    case "DEMO_DISABLED":
+      return "Shared demo access is disabled on this backend. Use password sign-in or try another deployment.";
+    case "DEMO_UNAVAILABLE":
+      return "The shared demo account is unavailable. Please try again later.";
     case "DEMO_STARTING":
-      return "The demo backend is waking up or temporarily unavailable. Please try again in about a minute.";
+      return "The demo backend is waking up or temporarily unavailable. Try again shortly.";
     case "RATE_LIMITED":
       return "The demo is busy or its request limit was reached. Please wait a moment and try again.";
     case "DEMO_RESTRICTED":

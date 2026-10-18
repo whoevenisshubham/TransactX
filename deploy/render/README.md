@@ -7,6 +7,16 @@ participant ownership, locking, outbox semantics or authorization with mocks.
 
 ## What is / is not done
 
+Experience V3 adds optional shared demo sign-in through `POST /api/auth/demo`.
+Set `TX_PUBLIC_DEMO_AUTH=true` only on the initialized synthetic demo database;
+it defaults to false. It requires simulation mode and disabled registration,
+checks the initializer's budget namespace and exact stored persona roles, and
+uses the same gateway admission limits as password login. It exposes no seed
+password and grants no administrator persona. Existing populated demo databases
+must **not** be reinitialized to enable this flag. Deploy the compatible backend
+before the frontend. Google sign-in is separately configured and is not enabled
+by this flag.
+
 Files and local checks can be prepared without cloud accounts. A successful
 local test does not establish Render image compatibility, Neon privileges,
 public TLS, provider availability, or live browser acceptance. No cloud account

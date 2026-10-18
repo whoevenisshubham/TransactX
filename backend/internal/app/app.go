@@ -409,6 +409,7 @@ func (e *Environment) NewHTTPHandler() http.Handler {
 		CORSAllowedOrigins:     e.Config.CORSAllowedOrigins,
 		ParticipantSources:     e.ParticipantSources,
 		AllowRegistration:      e.Config.AllowRegistration,
+		PublicDemoAuth:         e.Config.PublicDemoAuth,
 		ChaosEnabled:           e.Config.ChaosEnabled,
 		RecoveryControlEnabled: e.Config.RecoveryControlEnabled,
 		AuditStore:             audit.NewPostgresStore(e.DB),

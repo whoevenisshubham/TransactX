@@ -101,6 +101,7 @@ type Config struct {
 	WorkerLabel               string
 	BuildSHA                  string
 	AllowRegistration         bool
+	PublicDemoAuth            bool
 	ChaosEnabled              bool
 	RecoveryControlEnabled    bool
 	BankAServiceToken         string
@@ -276,6 +277,13 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("TX_ALLOW_REGISTRATION must be true or false: %w", err)
 	}
+	publicDemoAuth, err := strconv.ParseBool(getEnv("TX_PUBLIC_DEMO_AUTH", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("TX_PUBLIC_DEMO_AUTH must be true or false: %w", err)
+	}
+	if publicDemoAuth && (!simulationMode || allowRegistration) {
+		return Config{}, errors.New("TX_PUBLIC_DEMO_AUTH requires simulation mode and disabled public registration")
+	}
 	chaosEnabled, err := strconv.ParseBool(getEnv("TX_CHAOS_ENABLED", defaultControlBool))
 	if err != nil {
 		return Config{}, fmt.Errorf("TX_CHAOS_ENABLED must be true or false: %w", err)
@@ -331,6 +339,7 @@ func Load() (Config, error) {
 		WorkerLabel:               workerLabel,
 		BuildSHA:                  buildSHA,
 		AllowRegistration:         allowRegistration,
+		PublicDemoAuth:            publicDemoAuth,
 		ChaosEnabled:              chaosEnabled,
 		RecoveryControlEnabled:    recoveryControlEnabled,
 		BankAServiceToken:         bankAServiceToken,
