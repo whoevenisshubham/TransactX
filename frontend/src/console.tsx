@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 import { Avatar, BrandMark, Button, InlineError, PageHeader, Skeleton } from "./components";
 import { subscribeOperationalEvents, type StreamStatus } from "./operationalEvents";
@@ -115,6 +115,7 @@ export function buildChaosPayload(
 // ---------------------------------------------------------------------------
 
 export function ConsoleShell({ token, user, onLogout }: { token: string; user: User; onLogout: () => void }) {
+  const navigationDialog = useRef<HTMLDialogElement>(null);
   const [view, setView] = useState<ConsoleView>(() => permittedConsoleView(readConsoleView(), user.role));
   const [routeRevision, setRouteRevision] = useState(0);
   const [liveRevision, setLiveRevision] = useState(0);
@@ -155,6 +156,7 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
   }, [token]);
 
   function navigate(nextView: ConsoleView) {
+    navigationDialog.current?.close();
     nextView = permittedConsoleView(nextView, user.role);
     const path = consoleViewPath(nextView);
     window.history.pushState({}, "", path);
@@ -179,15 +181,15 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
     <div className="product-shell console-shell">
       <ConsoleSidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} />
       <main className="main-content">
-        <ConsoleMobileHeader user={user} onLogout={onLogout} />
+        <ConsoleMobileHeader user={user} onLogout={onLogout} onMenu={() => navigationDialog.current?.showModal()} />
         <div className="content-wrap">
-          <div className="console-card-header" style={{ justifyContent: "flex-end", marginBottom: ".6rem" }}>
-            <ThemeSelect />
+          <div className="operator-status-bar"><span className="operator-breadcrumb">Operations / {view === "c-payment-evidence" ? "Payment journey" : view === "c-investigation" ? "Saved investigation" : view.replace("c-", "")}</span>
             {simulationMode && <span className="console-pill console-pill-warning">SIMULATION MODE</span>}
             <span className={`console-pill ${streamStatus === "connected" ? "console-pill-success" : streamStatus === "connecting" ? "console-pill-warning" : "console-pill-error"}`}>
-              LIVE HINTS {streamStatus.toUpperCase()}
+              EVENT STREAM {streamStatus.toUpperCase()}
             </span>
           </div>
+          <details className="operator-guide"><summary>Start here · Follow a payment in three steps</summary><ol><li>Open the worklist. Use Completed to find a settled payment, or inspect one awaiting confirmation.</li><li>Open its journey. Compare central state, bank observations and recovery records; check their source times.</li><li>Ask an investigation question. Follow citations to the evidence and keep missing observations distinct from failure.</li></ol><p>Event stream connectivity is a refresh hint, not a bank-health verdict.</p></details>
           {view === "c-overview" && user.role === "OPS_ADMIN" && <ConsoleOverviewView token={token} onNavigate={navigate} liveRevision={liveRevision} />}
           {view === "c-worklist" && <WorklistPage token={token} liveRevision={liveRevision} onNavigate={navigatePath} />}
           {view === "c-payment-evidence" && <PaymentEvidencePage key={`${routeRevision}:${window.location.pathname}`} paymentId={window.location.pathname.split("/")[3] ?? ""} token={token} isAdmin={user.role === "OPS_ADMIN"} liveRevision={liveRevision} onNavigate={navigatePath} />}
@@ -202,7 +204,7 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
           {view === "c-activity" && user.role === "OPS_ADMIN" && <ConsoleActivityView token={token} liveRevision={liveRevision} />}
         </div>
       </main>
-      <ConsoleMobileNav view={view} onNavigate={navigate} viewer={user.role === "OPS_VIEWER"} />
+      <dialog ref={navigationDialog} className="operator-navigation-dialog" aria-label="Operations navigation"><Button variant="quiet" className="operator-close-menu" onClick={() => navigationDialog.current?.close()}>Close navigation</Button><ConsoleSidebar view={view} user={user} onNavigate={navigate} onLogout={() => { navigationDialog.current?.close(); onLogout(); }} /></dialog>
     </div>
   );
 }
@@ -223,23 +225,15 @@ function ConsoleSidebar({
       <div className="brand-lockup">
         <BrandMark />
         <span>TransactX</span>
-        <span className="console-badge-role">{user.role}</span>
+        <span className="console-badge-role">{user.role === "OPS_VIEWER" ? "Read-only viewer" : "Private operator"}</span>
       </div>
       <div className="sidebar-rule" />
-      <nav aria-label="Console navigation">
-        {user.role === "OPS_ADMIN" && <ConsoleNavItem view="c-overview" active={view === "c-overview"} label="Overview" icon="overview" onClick={onNavigate} />}
-        <ConsoleNavItem view="c-worklist" active={view === "c-worklist" || view === "c-payment-evidence"} label="Worklist" icon="activity" onClick={onNavigate} />
-        <ConsoleNavItem view="c-analytics" active={view === "c-analytics"} label="Analytics" icon="pulse" onClick={onNavigate} />
-        {user.role === "OPS_ADMIN" && <>
-        <ConsoleNavItem view="c-health" active={view === "c-health"} label="Bank Health" icon="health" onClick={onNavigate} />
-        <ConsoleNavItem view="c-routing" active={view === "c-routing"} label="Routing" icon="routing" onClick={onNavigate} />
-        <ConsoleNavItem view="c-reconciliation" active={view === "c-reconciliation"} label="Reconciliation" icon="reconciliation" onClick={onNavigate} />
-        <ConsoleNavItem view="c-merkle" active={view === "c-merkle"} label="Merkle" icon="merkle" onClick={onNavigate} />
-        <ConsoleNavItem view="c-integrity" active={view === "c-integrity"} label="Integrity" icon="integrity" onClick={onNavigate} />
-        <ConsoleNavItem view="c-chaos" active={view === "c-chaos"} label="Chaos" icon="chaos" onClick={onNavigate} />
-        <ConsoleNavItem view="c-activity" active={view === "c-activity"} label="Activity" icon="activity" onClick={onNavigate} />
-        </>}
-      </nav>
+      <nav aria-label="Console navigation">{[
+        { title: "Monitor", admin: true, links: [{ view:"c-overview",label:"Overview",icon:"overview" },{ view:"c-health",label:"Bank health",icon:"health" },{ view:"c-routing",label:"Routing",icon:"routing" }] },
+        { title: "Investigate", admin: false, links: [{ view:"c-worklist",label:"Worklist",icon:"activity" },{ view:"c-analytics",label:"Analytics",icon:"pulse" }] },
+        { title: "Verify", admin: true, links: [{ view:"c-reconciliation",label:"Reconciliation",icon:"reconciliation" },{ view:"c-merkle",label:"Merkle proofs",icon:"merkle" },{ view:"c-integrity",label:"Integrity",icon:"integrity" }] },
+        { title: "System", admin: true, links: [{ view:"c-activity",label:"Activity",icon:"activity" },{ view:"c-chaos",label:"Controlled faults",icon:"chaos" }] },
+      ].filter(group => !group.admin || user.role === "OPS_ADMIN").map(group => <div className="operator-nav-group" key={group.title}><span>{group.title}</span>{group.links.map(link => <ConsoleNavItem key={link.view} view={link.view as ConsoleView} active={view === link.view || link.view === "c-worklist" && ["c-payment-evidence","c-investigation"].includes(view)} label={link.label} icon={link.icon as ConsoleIconName} onClick={onNavigate} />)}</div>)}</nav>
       <div className="sidebar-bottom">
         <ThemeSelect />
         <div className="user-chip">
@@ -283,67 +277,20 @@ function ConsoleNavItem({
   );
 }
 
-function ConsoleMobileHeader({ user, onLogout }: { user: User; onLogout: () => void }) {
+function ConsoleMobileHeader({ user, onLogout, onMenu }: { user: User; onLogout: () => void; onMenu: () => void }) {
   return (
     <header className="mobile-header console-mobile-header">
+      <button type="button" className="operator-menu-button" aria-label="Open operations navigation" onClick={onMenu}>☰</button>
       <div className="mobile-brand">
         <BrandMark />
         <span>TransactX</span>
-        <span className="console-badge-role">{user.role}</span>
+        <span className="console-badge-role">{user.role === "OPS_VIEWER" ? "Read-only viewer" : "Private operator"}</span>
       </div>
+      <ThemeSelect />
       <button type="button" className="mobile-user" onClick={onLogout} aria-label={`Log out ${user.name}`}>
         <Avatar name={user.name} size="sm" />
       </button>
     </header>
-  );
-}
-
-function ConsoleMobileNav({ view, onNavigate, viewer }: { view: ConsoleView; onNavigate: (v: ConsoleView) => void; viewer: boolean }) {
-  return (
-    <nav className="mobile-nav console-mobile-nav" aria-label="Mobile network console navigation">
-      {!viewer && <button type="button" className={`mobile-nav-item ${view === "c-overview" ? "is-active" : ""}`} aria-current={view === "c-overview" ? "page" : undefined} onClick={() => onNavigate("c-overview")}>
-        <ConsoleIcon name="overview" size={15} />
-        <span>Overview</span>
-      </button>}
-      <button type="button" className={`mobile-nav-item ${view === "c-worklist" || view === "c-payment-evidence" ? "is-active" : ""}`} aria-current={view === "c-worklist" || view === "c-payment-evidence" ? "page" : undefined} onClick={() => onNavigate("c-worklist")}>
-        <ConsoleIcon name="activity" size={15} />
-        <span>Worklist</span>
-      </button>
-      <button type="button" className={`mobile-nav-item ${view === "c-analytics" ? "is-active" : ""}`} aria-current={view === "c-analytics" ? "page" : undefined} onClick={() => onNavigate("c-analytics")}>
-        <ConsoleIcon name="pulse" size={15} />
-        <span>Analytics</span>
-      </button>
-      {!viewer && <>
-      <button type="button" className={`mobile-nav-item ${view === "c-health" ? "is-active" : ""}`} aria-current={view === "c-health" ? "page" : undefined} onClick={() => onNavigate("c-health")}>
-        <ConsoleIcon name="health" size={15} />
-        <span>Health</span>
-      </button>
-      <button type="button" className={`mobile-nav-item ${view === "c-routing" ? "is-active" : ""}`} aria-current={view === "c-routing" ? "page" : undefined} onClick={() => onNavigate("c-routing")}>
-        <ConsoleIcon name="routing" size={15} />
-        <span>Routing</span>
-      </button>
-      <button type="button" className={`mobile-nav-item ${view === "c-reconciliation" ? "is-active" : ""}`} aria-current={view === "c-reconciliation" ? "page" : undefined} onClick={() => onNavigate("c-reconciliation")}>
-        <ConsoleIcon name="reconciliation" size={15} />
-        <span>Recon</span>
-      </button>
-      <button type="button" className={`mobile-nav-item ${view === "c-merkle" ? "is-active" : ""}`} aria-current={view === "c-merkle" ? "page" : undefined} onClick={() => onNavigate("c-merkle")}>
-        <ConsoleIcon name="merkle" size={15} />
-        <span>Merkle</span>
-      </button>
-      <button type="button" className={`mobile-nav-item ${view === "c-integrity" ? "is-active" : ""}`} aria-current={view === "c-integrity" ? "page" : undefined} onClick={() => onNavigate("c-integrity")}>
-        <ConsoleIcon name="integrity" size={15} />
-        <span>Integrity</span>
-      </button>
-      <button type="button" className={`mobile-nav-item ${view === "c-chaos" ? "is-active" : ""}`} aria-current={view === "c-chaos" ? "page" : undefined} onClick={() => onNavigate("c-chaos")}>
-        <ConsoleIcon name="chaos" size={15} />
-        <span>Chaos</span>
-      </button>
-      <button type="button" className={`mobile-nav-item ${view === "c-activity" ? "is-active" : ""}`} aria-current={view === "c-activity" ? "page" : undefined} onClick={() => onNavigate("c-activity")}>
-        <ConsoleIcon name="activity" size={15} />
-        <span>Activity</span>
-      </button>
-      </>}
-    </nav>
   );
 }
 

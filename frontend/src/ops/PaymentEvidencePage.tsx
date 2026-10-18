@@ -105,6 +105,12 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
         navigator.clipboard.writeText(paymentId).then(() => setCopyStatus("Reference copied"), () => setCopyStatus("Copy unavailable. Select the reference to copy it."));
       }}>Copy</button><span role="status">{copyStatus}</span></div>
       <div className="journey-meta"><p className="ops-muted">Collected {time(evidence.collectedAt)}</p><details><summary>Snapshot identity</summary><span className="ops-mono">{evidence.snapshotId}</span></details></div>
+      <a className="button button-secondary journey-jump" href="#payment-investigation" onClick={event => {
+        event.preventDefault();
+        const panel = document.getElementById("payment-investigation");
+        panel?.focus({ preventScroll: true });
+        panel?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      }}>Ask about this payment ↓</a>
       <div className="journey-layout"><div className="journey-body">
       <div className="ops-evidence-grid">
         <Card variant="bordered" id={`evidence-${evidence.payment.evidenceId}`}><h2>Central payment</h2>
@@ -174,7 +180,7 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
         {exportedAt && <p role="status">Export received {time(exportedAt)}. The downloaded file contains the server response.</p>}
         {exportError && <InlineError message={exportError} />}
       </section>
-      </div><aside className="journey-rail" aria-label="Investigation workspace">
+      </div><aside className="journey-rail" id="payment-investigation" tabIndex={-1} aria-label="Investigation workspace">
         <p className="eyebrow">Read-only investigation</p>
         <InvestigationPanel paymentId={paymentId} snapshotId={evidence.snapshotId} evidenceIds={[evidence.payment.evidenceId, ...evidence.operations.map((operation) => operation.evidenceId), ...evidence.transitions.map((transition) => transition.evidenceId)]} token={token} onNavigate={onNavigate} />
       </aside></div>
