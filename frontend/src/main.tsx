@@ -18,6 +18,7 @@ export { parsePaise } from "./money";
 const CustomerShell = lazy(() => import("./customer/CustomerShell").then(module => ({ default: module.CustomerShell })));
 const MerchantShell = lazy(() => import("./merchant/MerchantShell").then(module => ({ default: module.MerchantShell })));
 const ConsoleShell = lazy(() => import("./console").then(module => ({ default: module.ConsoleShell })));
+const ShowcasePage = lazy(() => import("./showcase/ShowcasePage").then(module => ({ default: module.ShowcasePage })));
 
 type OfflineOwner = Pick<User, "id" | "role">;
 
@@ -35,6 +36,7 @@ function App() {
 
   // When a token arrives, fetch the user's role from the server.
   useEffect(() => {
+    if (window.location.pathname === "/showcase") return;
     if (!token) { setUser(null); setOfflineUser(null); setOfflineMode(false); return; }
     let active = true;
     let generation = 0;
@@ -77,6 +79,7 @@ function App() {
   function authenticated(nextToken: string) { sessionStorage.setItem("transactx.token", nextToken); setToken(nextToken); }
   function logout() { sessionStorage.removeItem("transactx.token"); sessionStorage.removeItem("transactx.profile"); window.history.replaceState({}, "", "/login"); setToken(null); setUser(null); setOfflineUser(null); setOfflineMode(false); }
 
+  if (window.location.pathname === "/showcase") return <Suspense fallback={<LoadingShell />}><ShowcasePage /></Suspense>;
   if (window.location.pathname === "/privacy") return <PrivacyPage />;
   if (!token && window.location.pathname === "/") return <LandingPage />;
   if (!token && window.location.pathname === "/demo") return <DemoPage onAuthenticated={authenticated} />;
