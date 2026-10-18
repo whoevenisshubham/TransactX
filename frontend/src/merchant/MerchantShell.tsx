@@ -311,7 +311,7 @@ function MerchantReceiveView({ token }: { token: string }) {
             <span className="note-index">03</span>
             <div>
               <strong>Account verification</strong>
-              <p>Active merchant account. Associated account number: <strong className="mono-code">{info.accountNumber}</strong>.</p>
+              <p>Active merchant account. Associated account number: <strong className="mono-code">{info.accountNumber}</strong></p>
             </div>
           </div>
         </div>

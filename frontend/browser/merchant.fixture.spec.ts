@@ -5,7 +5,9 @@ import type { Payment } from "../src/types";
 
 const payment: Payment = { id: "11111111-1111-4111-8111-111111111111", amountPaise: 12500, currency: "INR", note: "Illustrative fixture lunch", origin: "BANK", state: "COMPLETED", createdAt: "2026-10-18T08:00:00Z", completedAt: "2026-10-18T08:00:01Z", senderName: "Alice Fixture", senderPaymentIdentifier: "alice@fixture", receiverName: "Demo Store Fixture", receiverPaymentIdentifier: "store@fixture", direction: "RECEIVED", sourceBankCode: "BANK-A", destinationBankCode: "BANK-B" };
 
-for (const theme of ["light", "dark"] as const) for (const width of [1440, 390]) {
+const widths = process.env.TX_QA_WIDTHS ? process.env.TX_QA_WIDTHS.split(",").map(Number) : [1440, 390];
+if (widths.some(width => !Number.isInteger(width) || width < 320 || width > 1920)) throw new Error("Invalid QA width");
+for (const theme of ["light", "dark"] as const) for (const width of widths) {
   test(`merchant dashboard, receive, incoming, settlement and search in ${theme} at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
     await page.emulateMedia({ colorScheme: theme });

@@ -2,7 +2,9 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { installFixtureApi, fulfillFixture, fixture, worklistFixture, paymentId } from "./support/opsFixtures";
 
-for (const theme of ["light", "dark"] as const) for (const width of [1440, 390]) {
+const widths = process.env.TX_QA_WIDTHS ? process.env.TX_QA_WIDTHS.split(",").map(Number) : [1440, 390];
+if (widths.some(width => !Number.isInteger(width) || width < 320 || width > 1920)) throw new Error("Invalid QA width");
+for (const theme of ["light", "dark"] as const) for (const width of widths) {
   test(`operator worklist, journey, report and window charts in ${theme} at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
