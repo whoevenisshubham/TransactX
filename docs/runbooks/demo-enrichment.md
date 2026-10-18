@@ -10,7 +10,10 @@ endpoints and databases without the original demo capacity trigger are rejected.
 
 The owner supplies a private direct `DATABASE_URL`, exact expected database and
 Neon endpoint, owner-verified project ID, actual HTTPS API origin and reviewed
-tool source SHA. The project label records owner acknowledgement; a hostname
+tool source SHA. VCS build metadata (or the current Git checkout for `go run`)
+must match that SHA; apply also requires a clean source. Build the installed
+client from the reviewed Git source with VCS metadata. The project label records
+owner acknowledgement; a hostname
 alone does not prove Neon project ownership. The command verifies the connected
 database, original capacity guard and API demo identities/payment results against
 that database. No credential is passed on a command line or printed.
