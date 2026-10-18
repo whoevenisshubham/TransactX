@@ -17,7 +17,7 @@ for (const theme of ["light", "dark"] as const) for (const width of [1440, 390])
       if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
       let data: unknown;
       if (path === "/api/me") data = { id: "alice-fixture", name: "Alice Fixture", role: "CUSTOMER", paymentIdentifier: "alice@fixture" };
-      else if (path === "/api/accounts") data = [{ accountNumber: "TX-FIXTURE-0001", balancePaise: 985250, status: "ACTIVE" }];
+      else if (path === "/api/accounts") data = [{ accountNumber: "TX-FIXTURE-0001", balancePaise: 985250, status: "ACTIVE", bankName: "Bank A Fixture", bankCode: "BANK-A" }];
       else if (path.startsWith("/api/recipients/")) data = { name: "Demo Store Fixture", paymentIdentifier: "store@fixture", status: "ACTIVE" };
       else if (path === "/api/payments" && request.method() === "POST") {
         submitted++;
@@ -37,6 +37,7 @@ for (const theme of ["light", "dark"] as const) for (const width of [1440, 390])
     }
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Good day, Alice" })).toBeVisible();
+    await expect(page.getByText("Bank A Fixture · BANK-A", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Hide balance" }).click();
     await expect(page.getByLabel("Balance hidden")).toBeVisible();
     await page.getByRole("button", { name: "Show balance" }).click();

@@ -310,3 +310,4 @@ button, .button { border-radius: 9px; }
 
 .console-shell .console-spec-item { gap: 12px; }.console-shell .console-spec-val { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .console-shell .console-spec-item { align-items: start; flex-direction: column; } }
+.customer-bank-identity { margin: 16px 0 0; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }

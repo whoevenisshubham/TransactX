@@ -17,6 +17,49 @@ type Repository struct{ db *pgxpool.Pool }
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
+// CustomerAccount is the read-only customer projection. It excludes internal
+// account, participant and bank identities and uses the stored bank catalogue.
+type CustomerAccount struct {
+	AccountNumber string `json:"accountNumber"`
+	BalancePaise  int64  `json:"balancePaise"`
+	Status        string `json:"status"`
+	BankCode      string `json:"bankCode"`
+	BankName      string `json:"bankName"`
+}
+
+const customerAccountQuery = `SELECT a.account_number, a.balance_paise, a.status, b.code, b.name
+	FROM accounts a JOIN banks b ON b.id = a.bank_id WHERE a.user_id = $1`
+
+func (repository *Repository) ListPublicOwned(ctx context.Context, userID uuid.UUID) ([]CustomerAccount, error) {
+	rows, err := repository.db.Query(ctx, customerAccountQuery+` ORDER BY a.created_at ASC, a.id ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]CustomerAccount, 0)
+	for rows.Next() {
+		account, err := scanCustomerAccount(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, account)
+	}
+	return result, rows.Err()
+}
+
+func (repository *Repository) GetPublicOwned(ctx context.Context, userID, accountID uuid.UUID) (CustomerAccount, error) {
+	return scanCustomerAccount(repository.db.QueryRow(ctx, customerAccountQuery+` AND a.id = $2`, userID, accountID))
+}
+
+func scanCustomerAccount(row pgx.Row) (CustomerAccount, error) {
+	var account CustomerAccount
+	err := row.Scan(&account.AccountNumber, &account.BalancePaise, &account.Status, &account.BankCode, &account.BankName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CustomerAccount{}, ErrNotFound
+	}
+	return account, err
+}
+
 const accountColumns = `id, user_id, bank_id, bank_account_id, account_number, balance_paise, opening_balance_paise, version, status, created_at, updated_at`
 
 func (repository *Repository) Debit(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, amountPaise int64) error {
