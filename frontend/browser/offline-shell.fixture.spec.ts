@@ -24,6 +24,12 @@ test("production shell reloads fully offline and retains the owner's saved inten
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Pay", exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), { timeout: 15000 }).toBe(true);
+  const cached = await page.evaluate(async () => {
+    const names = (await caches.keys()).filter(name => name.startsWith("transactx-static-shell-"));
+    return (await Promise.all(names.map(async name => (await (await caches.open(name)).keys()).map(request => new URL(request.url).pathname)))).flat();
+  });
+  for (const asset of ["CustomerShell-", "MerchantShell-", "console-", ".woff2"]) expect(cached.some(path => path.includes(asset))).toBe(true);
+  expect(cached.some(path => path.startsWith("/api/") || path.startsWith("/auth/"))).toBe(false);
   await page.getByRole("button", { name: "Pay", exact: true }).click();
   await page.getByLabel("Recipient TransactX payment ID").fill("receiver@fixture");
   await page.getByRole("button", { name: "Find", exact: true }).click();

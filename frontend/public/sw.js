@@ -1,4 +1,4 @@
-const SHELL_CACHE = "transactx-static-shell-v1";
+const SHELL_CACHE = "transactx-static-shell-__STATIC_REVISION__";
 
 async function storeDecoded(cache, key, response) {
   // Cache Storage holds decoded bytes; retaining the wire encoding makes
@@ -24,8 +24,10 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const response = await fetch(new Request("/", { cache: "reload" }));
     if (!response.ok) throw new Error("Static shell is unavailable");
-    const html = await response.clone().text();
-    const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^\"]+)"/g)].map((match) => match[1]);
+    const manifest = await fetch(new Request("/offline-assets.json", { cache: "reload" }));
+    if (!manifest.ok) throw new Error("Static asset manifest is unavailable");
+    const assets = await manifest.json();
+    if (!Array.isArray(assets) || assets.length > 200 || assets.some(asset => typeof asset !== "string" || !/^\/assets\/[a-zA-Z0-9_./-]+$/.test(asset) || asset.includes(".."))) throw new Error("Invalid static asset manifest");
     const cache = await caches.open(SHELL_CACHE);
     await storeDecoded(cache, "/", response);
     await Promise.all(assets.map(async (asset) => {
@@ -33,7 +35,8 @@ self.addEventListener("install", (event) => {
       if (!resource.ok) throw new Error(`Static asset unavailable: ${asset}`);
       await storeDecoded(cache, asset, resource);
     }));
-    await self.skipWaiting();
+    // An update waits for existing tabs to close. Never take over a payment in
+    // progress or reload its JavaScript to activate a new visual release.
   })());
 });
 
@@ -49,6 +52,7 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) return;
   if (request.mode === "navigate") {
     event.respondWith(fetch(request).then(async (response) => {
       if (response.ok) await storeDecoded(await caches.open(SHELL_CACHE), "/", response);
