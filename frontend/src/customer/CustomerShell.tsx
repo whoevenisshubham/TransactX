@@ -7,6 +7,7 @@ import { OfflineReplayWorker } from "../offlineReplay";
 import type { Account, Payment, Recipient, User, View } from "../types";
 import { ThemeSelect } from "../theme";
 import { LoadingShell, DetailsSkeleton } from "../shared/ShellStates";
+import { CopyValue } from "../shared/CopyValue";
 import { firstName } from "../shared/presentation";
 
 export function CustomerShell({ token, onLogout }: { token: string; onLogout: () => void }) {
@@ -330,11 +331,6 @@ function HomeView({
     <section className="customer-activity-card"><div className="section-heading"><div><p className="eyebrow">Your latest activity</p><h2>Recent transactions</h2></div><button type="button" className="text-link" onClick={() => onNavigate("transactions")}>Open activity <Icon name="arrow" size={16} /></button></div><div className="activity-scope"><span>Latest {payments.length} loaded records · showing up to 5</span><span>{confirming} awaiting confirmation in this page</span></div>{payments.length === 0 ? <EmptyState title="No transactions yet" description="Your payments will appear here after your first transfer." action={<Button variant="secondary" onClick={() => onNavigate("pay")}>Send money</Button>} /> : <div className="payment-list">{payments.slice(0,5).map(payment => <PaymentRow key={payment.id} payment={payment} onClick={() => onNavigate("details",payment.id)} />)}</div>}</section>
     <section className="customer-guidance"><span className="role-icon"><Icon name="check" /></span><div><h2>Review first. Send once.</h2><p>Verify the recipient and exact amount before sending. If a confirmation is missing, check the original payment before starting another.</p></div><button type="button" className="text-link" onClick={() => onNavigate("pay")}>Start a payment <Icon name="arrow" /></button></section>
   </>;
-}
-
-function CopyValue({ value, label }: { value: string; label: string }) {
-  const [status, setStatus] = useState("");
-  return <span className="copy-value"><button type="button" className="button button-secondary button-sm" onClick={() => navigator.clipboard.writeText(value).then(() => setStatus("Copied"), () => setStatus("Copy unavailable. Select the value to copy."))}>{label}</button><span role="status">{status}</span></span>;
 }
 
 function PayView({

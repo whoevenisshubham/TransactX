@@ -5,6 +5,9 @@ import { encodeQRSvg } from "../qr";
 import type { Account, MerchantReceiveInfo, MerchantView, Payment, User } from "../types";
 import { ThemeSelect } from "../theme";
 import { LoadingShell, DetailsSkeleton } from "../shared/ShellStates";
+import { CopyValue } from "../shared/CopyValue";
+import { downloadQR } from "./downloadQR";
+import { formatPaiseDecimal } from "../design/OpsPrimitives";
 import { firstName } from "../shared/presentation";
 
 export function MerchantShell({ token, user, onLogout }: { token: string; user: User; onLogout: () => void }) {
@@ -54,6 +57,7 @@ export function MerchantShell({ token, user, onLogout }: { token: string; user: 
       <main className="main-content">
         <MerchantMobileHeader user={user} onLogout={onLogout} />
         <div className="content-wrap">
+          <div className="workspace-topbar"><span>Merchant / {view === "m-home" ? "Dashboard" : view === "m-receive" ? "Receive" : view === "m-incoming" ? "Incoming" : view === "m-settlement" ? "Settlement" : "Search"}</span><span>Simulated payment network</span></div>
           {view === "m-home" && <MerchantDashboardView user={user} account={account} payments={payments} onNavigate={navigate} onRefresh={refreshPayments} />}
           {view === "m-receive" && <MerchantReceiveView token={token} />}
           {view === "m-incoming" && <MerchantIncomingView payments={payments} onRefresh={refreshPayments} />}
@@ -179,6 +183,7 @@ function MerchantMobileHeader({ user, onLogout }: { user: User; onLogout: () => 
         <span>TransactX</span>
         <span className="merchant-badge-mobile">Merchant</span>
       </div>
+      <ThemeSelect />
       <button type="button" className="mobile-user" onClick={onLogout} aria-label={`Log out ${user.name}`}>
         <Avatar name={user.name} size="sm" />
       </button>
@@ -191,117 +196,24 @@ function MerchantMobileHeader({ user, onLogout }: { user: User; onLogout: () => 
 // ---------------------------------------------------------------------------
 
 function MerchantDashboardView({ user, account, payments, onNavigate, onRefresh }: { user: User; account?: Account; payments: Payment[]; onNavigate: (v: MerchantView) => void; onRefresh: () => void }) {
-  const received = payments.filter((p) => p.direction === "RECEIVED");
-  const completedToday = received.filter((p) => p.state === "COMPLETED" && isToday(p.createdAt));
-
-  return (
-    <>
-      <PageHeader
-        eyebrow="Merchant Operations"
-        title={`Welcome, ${firstName(user.name)}`}
-        description="Monitor account balance and recent incoming payment activity."
-        action={
-          <Button onClick={() => onNavigate("m-receive")}>
-            <MerchantIcon name="qr" size={16} />
-            Receive payment
-          </Button>
-        }
-      />
-      <section className="overview-grid">
-        <div className="balance-panel">
-          <div className="section-kicker">Available balance</div>
-          <Amount paise={account?.balancePaise ?? 0} prominent />
-          <div className="balance-foot">
-            <span className="account-number-mono">{account?.accountNumber ?? "Account unavailable"}</span>
-            <span className="account-status">
-              <span className={`status-dot ${account?.status === "ACTIVE" ? "status-success-dot" : "status-warning-dot"}`} />
-              {account?.status === "ACTIVE" ? "Active" : account?.status ?? "Unavailable"}
-            </span>
-          </div>
-        </div>
-        <div className="account-note merchant-stat-panel">
-          <span className="note-index">01</span>
-          <div>
-            <strong>Recent completed activity</strong>
-            {completedToday.length === 0 ? (
-              <p>No completed payments in today's recent feed.</p>
-            ) : (
-              <p>
-                <strong style={{ color: "var(--accent)", fontSize: "1.35rem", display: "inline-block", marginRight: "0.35rem" }}>
-                  {completedToday.length}
-                </strong>
-                completed payment{completedToday.length !== 1 ? "s" : ""} in recent feed today.
-              </p>
-            )}
-            <button type="button" className="text-link" onClick={() => onNavigate("m-incoming")}>
-              View incoming feed <Icon name="arrow" size={15} />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="section-block">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Incoming activity</p>
-            <h2>Recent received payments</h2>
-          </div>
-          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-            <button type="button" className="text-link" onClick={onRefresh}>Refresh</button>
-            {received.length > 0 && (
-              <button type="button" className="text-link" onClick={() => onNavigate("m-incoming")}>
-                View all ({received.length}) <Icon name="arrow" size={15} />
-              </button>
-            )}
-          </div>
-        </div>
-        {received.length === 0 ? (
-          <EmptyState
-            title="No payments received yet"
-            description="Payments sent to your merchant payment ID will appear here once processed."
-            action={<Button variant="secondary" onClick={() => onNavigate("m-receive")}>Show receive QR</Button>}
-          />
-        ) : (
-          <div className="payment-list">
-            {received.slice(0, 5).map((p) => (
-              <MerchantPaymentRow key={p.id} payment={p} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="account-summary">
-        <div>
-          <p className="eyebrow">Merchant credentials</p>
-          <h2>Your merchant identity</h2>
-        </div>
-        <div className="summary-detail">
-          <span>Payment identifier</span>
-          <strong className="mono-code">{user.paymentIdentifier}</strong>
-        </div>
-        <div className="summary-detail">
-          <span>Account number</span>
-          <strong className="mono-code">{account?.accountNumber ?? "—"}</strong>
-        </div>
-        <div className="summary-detail">
-          <span>Account status</span>
-          <strong>{account?.status ?? "—"}</strong>
-        </div>
-      </section>
-    </>
-  );
+  const received = payments.filter(payment => payment.direction === "RECEIVED");
+  const completed = received.filter(payment => payment.state === "COMPLETED");
+  const pending = received.filter(payment => !["COMPLETED", "FAILED", "REVERSED"].includes(payment.state));
+  const total = completed.reduce((sum,payment) => sum + BigInt(payment.amountPaise), 0n).toString();
+  return <>
+    <PageHeader eyebrow="Merchant workspace" title={`Welcome, ${firstName(user.name)}`} description="A clear view of every incoming payment." action={<Button onClick={() => onNavigate("m-receive")}><Icon name="qr" />Receive payment</Button>} />
+    <section className="merchant-summary-grid" aria-label="Merchant account and loaded activity"><article className="merchant-balance-summary"><p className="section-kicker">Available balance</p>{account ? <Amount paise={account.balancePaise} prominent /> : <p>Unavailable</p>}<p className="merchant-summary-foot">{account?.status === "ACTIVE" ? "Active account" : account?.status ?? "Unavailable"} · Simulated INR</p><span className="merchant-account-number">{account?.accountNumber ?? "Account unavailable"}</span></article><article><p className="section-kicker">Completed receipts</p><strong className="merchant-metric">{formatPaiseDecimal(total)}</strong><p className="merchant-summary-foot">{completed.length} completed {completed.length === 1 ? "payment" : "payments"} in this page</p><button type="button" className="text-link" onClick={() => onNavigate("m-incoming")}>View incoming <Icon name="arrow" /></button></article><article><p className="section-kicker">Awaiting confirmation</p><strong className="merchant-metric">{pending.length.toString().padStart(2,"0")}</strong><p className="merchant-summary-foot">In this page · outcomes still being checked</p><button type="button" className="text-link" onClick={() => onNavigate("m-settlement")}>Check settlement <Icon name="arrow" /></button></article></section>
+    <section className="merchant-feed-card"><div className="section-heading"><div><p className="eyebrow">Incoming activity</p><h2>Recent received payments</h2></div><button type="button" className="text-link" onClick={onRefresh}>Refresh <Icon name="activity" /></button></div><p className="merchant-scope">Based on the latest {payments.length} loaded account records. Showing up to 5 incoming payments.</p>{received.length === 0 ? <EmptyState title="No payments received yet" description="Share your payment ID or QR to receive a simulated payment." action={<Button variant="secondary" onClick={() => onNavigate("m-receive")}>Show receive QR</Button>} /> : received.slice(0,5).map(payment => <MerchantPaymentRow key={payment.id} payment={payment} />)}</section>
+    <section className="merchant-identity-strip"><span className="role-icon"><Icon name="qr" /></span><div><span className="section-kicker">Your merchant payment ID</span><strong>{user.paymentIdentifier}</strong></div><CopyValue value={user.paymentIdentifier} label="Copy merchant ID" /><button type="button" className="text-link" onClick={() => onNavigate("m-receive")}>Open receive QR <Icon name="arrow" /></button></section>
+  </>;
 }
-
-// ---------------------------------------------------------------------------
-// Merchant Receive / QR View
-// ---------------------------------------------------------------------------
 
 function MerchantReceiveView({ token }: { token: string }) {
   const [info, setInfo] = useState<MerchantReceiveInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [qrSvg, setQrSvg] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -322,20 +234,12 @@ function MerchantReceiveView({ token }: { token: string }) {
     return () => { active = false; };
   }, [token]);
 
-  function handleCopy() {
-    if (!info?.paymentIdentifier) return;
-    if (navigator.clipboard) {
-      void navigator.clipboard.writeText(info.paymentIdentifier);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }
-
   if (loading) return <DetailsSkeleton />;
   if (error || !info) {
     return (
       <div className="center-state">
         <InlineError message={error || "Receive information unavailable."} />
+        <Button variant="secondary" onClick={() => window.location.reload()}>Try again</Button>
       </div>
     );
   }
@@ -359,16 +263,18 @@ function MerchantReceiveView({ token }: { token: string }) {
       />
       <div className="merchant-receive-layout">
         <div className="merchant-qr-card">
+          <span className="merchant-network-label">TransactX · Simulated payments</span>
           <div className="merchant-qr-label">
             <span className="eyebrow">Scan to pay</span>
             <p className="merchant-qr-hint">
-              Ask your customer to scan this QR code using their TransactX app.
+              Share this identifier with a TransactX customer. This is not a UPI or bank-app QR.
             </p>
           </div>
           {qrSvg ? (
             <div
               className="merchant-qr-frame"
-              aria-label={`QR code for payment to ${info.paymentIdentifier}`}
+              role="img"
+              aria-label={`QR code containing payment ID ${info.paymentIdentifier}`}
               dangerouslySetInnerHTML={{ __html: qrSvg }}
             />
           ) : (
@@ -381,24 +287,9 @@ function MerchantReceiveView({ token }: { token: string }) {
             <span className="eyebrow">Payment ID</span>
             <strong className="merchant-pid">{info.paymentIdentifier}</strong>
           </div>
-          <button
-            type="button"
-            className={`button button-secondary button-sm merchant-copy-btn ${copied ? "is-copied" : ""}`}
-            onClick={handleCopy}
-            aria-live="polite"
-          >
-            {copied ? (
-              <>
-                <Icon name="check" size={14} />
-                <span>Copied to clipboard</span>
-              </>
-            ) : (
-              <>
-                <span>Copy payment ID</span>
-                <Icon name="arrow" size={14} />
-              </>
-            )}
-          </button>
+          <CopyValue value={info.paymentIdentifier} label="Copy payment ID" />
+          <div className="merchant-qr-downloads">{(["svg", "png"] as const).map(format => <Button variant="secondary" disabled={!qrSvg} key={format} onClick={() => { setDownloadError(""); void downloadQR(qrSvg,format).catch(() => setDownloadError("Download unavailable. Please try again.")); }}>Download {format.toUpperCase()}</Button>)}</div>
+          {downloadError && <InlineError message={downloadError} />}
         </div>
 
         <div className="merchant-receive-instructions">
@@ -406,14 +297,14 @@ function MerchantReceiveView({ token }: { token: string }) {
             <span className="note-index">01</span>
             <div>
               <strong>Verified recipient</strong>
-              <p>Customers can scan your QR code or enter your payment identifier in their TransactX app. Your merchant identity is verified automatically before payment confirmation.</p>
+              <p>A QR scanner can read your payment ID. The customer can enter that ID in TransactX and review the resolved recipient before confirming.</p>
             </div>
           </div>
           <div className="merchant-receive-note">
             <span className="note-index">02</span>
             <div>
-              <strong>Server-authoritative settlement</strong>
-              <p>Transactions are coordinated across participant bank ledgers. Once processed, the outcome will appear in your incoming payments feed once confirmed.</p>
+              <strong>Follow the outcome</strong>
+              <p>Only a completed payment is confirmed. A pending confirmation can still settle; check its original receipt before asking for another payment.</p>
             </div>
           </div>
           <div className="merchant-receive-note">
@@ -434,14 +325,16 @@ function MerchantReceiveView({ token }: { token: string }) {
 // ---------------------------------------------------------------------------
 
 function MerchantIncomingView({ payments, onRefresh }: { payments: Payment[]; onRefresh: () => void }) {
+  const [filter, setFilter] = useState("ALL");
   const received = payments.filter((p) => p.direction === "RECEIVED");
+  const filtered = received.filter(payment => filter === "ALL" || payment.state === filter);
 
   return (
     <>
       <PageHeader
         eyebrow="Incoming Feed"
         title="Payments received"
-        description="Chronological feed of incoming payments sent to your merchant account."
+        description="Incoming payments in the latest 50 loaded account records. Refresh to fetch current observations."
         action={
           <Button variant="secondary" onClick={onRefresh}>
             <Icon name="activity" size={16} />
@@ -452,19 +345,16 @@ function MerchantIncomingView({ payments, onRefresh }: { payments: Payment[]; on
       {received.length === 0 ? (
         <EmptyState
           title="No incoming payments"
-          description="Incoming payments from customers will appear here in real time as they are processed."
+          description="Incoming payments will appear after they are recorded. Refresh to check for new activity."
         />
       ) : (
         <section className="transactions-section">
           <div className="transactions-toolbar">
             <span>{received.length} {received.length === 1 ? "payment" : "payments"} in recent feed</span>
-            <span className="toolbar-note">Most recent first · Click row to expand details</span>
+            <span className="toolbar-note">Most recent first · Open a receipt for details</span>
           </div>
-          <div className="payment-list payment-list-large">
-            {received.map((p) => (
-              <MerchantPaymentRow key={p.id} payment={p} expanded />
-            ))}
-          </div>
+          <label className="merchant-status-filter">Payment status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="ALL">All outcomes</option>{[...new Set(received.map(payment => payment.state))].map(state => <option key={state} value={state}>{state.replaceAll("_", " ")}</option>)}</select></label>
+          <div className="ops-table-scroll"><table className="ops-table merchant-receipt-table"><caption>{filtered.length} matching incoming payments in this loaded page</caption><thead><tr><th scope="col">Customer</th><th scope="col">Amount</th><th scope="col">Outcome</th><th scope="col">Initiated</th><th scope="col">Details</th></tr></thead><tbody>{filtered.map(payment => <tr key={payment.id}><td data-label="Customer"><span className="receipt-customer"><strong>{payment.senderName}</strong><small>{payment.senderPaymentIdentifier}</small></span></td><td data-label="Amount"><Amount paise={payment.amountPaise} /></td><td data-label="Outcome"><StatusBadge state={payment.state} /></td><td data-label="Recorded">{formatDate(payment.createdAt)}</td><td data-label="Details"><details><summary>View receipt</summary><div className="merchant-table-receipt"><span>{payment.note || "No note"}</span><span>{payment.sourceBankCode ?? "Unknown bank"} → {payment.destinationBankCode ?? "Unknown bank"}</span><span className="merchant-account-number">{payment.id}</span><CopyValue value={payment.id} label="Copy reference" /></div></details></td></tr>)}</tbody></table></div>
         </section>
       )}
     </>
@@ -487,7 +377,7 @@ function MerchantSettlementView({ payments, onRefresh }: { payments: Payment[]; 
       <PageHeader
         eyebrow="Settlement"
         title="Settlement status"
-        description="Track the settlement state of payments received."
+        description="Outcomes in the latest 50 loaded records. These are payment states, not a separate payout schedule."
         action={
           <Button variant="secondary" onClick={onRefresh}>
             <Icon name="activity" size={16} />
@@ -585,7 +475,7 @@ function MerchantSearchView({ payments }: { payments: Payment[] }) {
     const matchQuery = query.trim() === "" ||
       p.senderName.toLowerCase().includes(query.toLowerCase()) ||
       p.senderPaymentIdentifier.toLowerCase().includes(query.toLowerCase()) ||
-      (p.note ?? "").toLowerCase().includes(query.toLowerCase());
+      (p.note ?? "").toLowerCase().includes(query.toLowerCase()) || p.id.toLowerCase().includes(query.toLowerCase());
     const matchState = stateFilter === "all" || p.state === stateFilter;
     return matchQuery && matchState;
   });
@@ -602,7 +492,7 @@ function MerchantSearchView({ payments }: { payments: Payment[] }) {
       <PageHeader
         eyebrow="Search"
         title="Transaction search"
-        description="Filter and locate incoming payments in your recent feed by customer name, identifier, or note."
+        description="Search incoming payments within the latest 50 loaded account records by customer, reference, payment ID or note."
       />
       <div className="merchant-search-toolbar">
         <label className="field merchant-search-field">
@@ -678,61 +568,8 @@ function MerchantSearchView({ payments }: { payments: Payment[] }) {
 
 function MerchantPaymentRow({ payment, expanded = false }: { payment: Payment; expanded?: boolean }) {
   const [isExpanded, setIsExpanded] = useState(expanded);
-
-  const stateText = payment.state === "COMPLETED" ? "Completed"
-    : payment.state === "FAILED" ? "Not completed"
-    : payment.state === "REVERSED" ? "Reversed"
-    : ["PROCESSING", "PENDING_RECONCILIATION", "BANK_SETTLED_CENTRAL_PENDING"].includes(payment.state) ? "Confirming…"
-    : payment.state.replace(/_/g, " ").toLowerCase();
-
-  return (
-    <div
-      className={`merchant-payment-row ${isExpanded ? "merchant-payment-is-expanded" : ""}`}
-      onClick={() => setIsExpanded((prev) => !prev)}
-      role="button"
-      tabIndex={0}
-      aria-expanded={isExpanded}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setIsExpanded((prev) => !prev);
-        }
-      }}
-    >
-      <Avatar name={payment.senderName} />
-      <span className="payment-main">
-        <strong>{payment.senderName}</strong>
-        <small>{payment.senderPaymentIdentifier} · {formatDate(payment.createdAt)}</small>
-        {payment.note && <small className="merchant-payment-note">"{payment.note}"</small>}
-      </span>
-      <span className="payment-amount payment-received">
-        <Amount paise={payment.amountPaise} sign="+ " />
-        <small><StatusBadge state={payment.state} /></small>
-      </span>
-      {isExpanded && (
-        <div className="merchant-payment-expanded">
-          <span className="merchant-state-pill" data-state={payment.state}>
-            <span className={`status-dot status-${payment.state === "COMPLETED" ? "success" : ["FAILED", "REVERSED"].includes(payment.state) ? "error" : "warning"}-dot`} />
-            {stateText}
-          </span>
-          {payment.completedAt && (
-            <small className="merchant-completed-at">Settled {formatDate(payment.completedAt)}</small>
-          )}
-          {payment.failureReason && (
-            <small className="merchant-failure-note">Reason: {payment.failureReason}</small>
-          )}
-          <span className="merchant-ref">Ref: {payment.id.slice(0, 8)}</span>
-        </div>
-      )}
-    </div>
-  );
+  return <details className="merchant-payment-row merchant-receipt" open={isExpanded} onToggle={event => setIsExpanded(event.currentTarget.open)}><summary><Avatar name={payment.senderName} /><span className="payment-main"><strong>{payment.senderName}</strong><small>{payment.senderPaymentIdentifier} · {formatDate(payment.createdAt)}</small></span><span className="payment-amount"><Amount paise={payment.amountPaise} /><StatusBadge state={payment.state} /></span><Icon name="chevron" /></summary><div className="merchant-payment-expanded"><div><span className="section-kicker">Payment reference</span><span className="merchant-full-reference">{payment.id}</span><CopyValue value={payment.id} label="Copy reference" /></div><div><span className="section-kicker">Recorded route</span><span>{payment.sourceBankCode ?? "Unknown bank"} → {payment.destinationBankCode ?? "Unknown bank"}</span></div><div><span className="section-kicker">Settlement</span><span>{payment.completedAt ? formatDate(payment.completedAt) : ["FAILED", "REVERSED"].includes(payment.state) ? "No completed settlement recorded" : "Not yet confirmed"}</span></div>{payment.note && <div><span className="section-kicker">Note</span><span>{payment.note}</span></div>}{payment.failureReason && <p className="inline-error">{payment.failureReason}</p>}</div></details>;
 }
-
-// (QR encoding is handled by src/qr.ts using the `qrcode` npm package)
-
-// ---------------------------------------------------------------------------
-// Routing helpers for merchant views
-// ---------------------------------------------------------------------------
 
 function readMerchantView(): MerchantView {
   const p = window.location.pathname;
@@ -756,6 +593,3 @@ function merchantViewPath(view: MerchantView): string {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-function isToday(dateStr: string): boolean { const d = new Date(dateStr); const now = new Date(); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate(); }
-
