@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,27 @@ func TestGeminiApprovalAndDecoder(t *testing.T) {
 		if _, err := decodeGeminiResponse([]byte(bad), approval.Model, 8000, 1200); err == nil {
 			t.Fatal("malformed provider result accepted")
 		}
+	}
+}
+
+func TestGeminiApprovalFileBounds(t *testing.T) {
+	approval := fixtureGeminiApproval("fixture-key")
+	raw, err := json.Marshal(approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "approval.json")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadGeminiApproval(path, "fixture-key", approval.Model); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(raw, []byte(strings.Repeat(" ", 5000)+"ignored trailing data")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadGeminiApproval(path, "fixture-key", approval.Model); !errors.Is(err, ErrFreeTierUnverified) {
+		t.Fatal("oversized approval/trailing data accepted")
 	}
 }
 

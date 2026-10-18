@@ -1,6 +1,7 @@
 package investigator
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -32,7 +33,11 @@ func ReadGeminiApproval(path, key, model string) (GeminiApproval, error) {
 		return GeminiApproval{}, ErrFreeTierUnverified
 	}
 	defer file.Close()
-	decoder := json.NewDecoder(io.LimitReader(file, 4097))
+	raw, err := io.ReadAll(io.LimitReader(file, 4097))
+	if err != nil || len(raw) > 4096 {
+		return GeminiApproval{}, ErrFreeTierUnverified
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var approval GeminiApproval
 	if decoder.Decode(&approval) != nil || decoder.Decode(&struct{}{}) != io.EOF || !approval.valid(key, model, time.Now()) {
