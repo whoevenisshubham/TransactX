@@ -278,6 +278,16 @@ func TestGeminiDurableAdmissionAndGrounding(t *testing.T) {
 	t.Run("expired policy makes no provider request", func(t *testing.T) {
 		before := calls.Load()
 		provider.approval.ValidUntil = time.Now().Add(-time.Second)
+		store, err := NewPostgresInvestigationStore(pool, time.Now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.UseUTCDailyUsageWindow()
+		config := DefaultServiceConfig()
+		config.Mode, config.Provider, config.MaxProviderRounds = ModeLLM, provider, 1
+		if _, err := NewService(config, store, ToolDependencies{Evidence: &countingEvidenceReader{bundle: fixture.Evidence}, Runbooks: activeTestCorpus(t)}); err != nil {
+			t.Fatalf("expiry between provider construction and service composition blocked boot: %v", err)
+		}
 		if _, err := provider.Generate(ctx, request); !errors.Is(err, ErrFreeTierUnverified) || calls.Load() != before {
 			t.Fatal("expired approval called provider")
 		}

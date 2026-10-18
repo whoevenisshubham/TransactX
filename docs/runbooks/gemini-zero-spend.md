@@ -27,6 +27,42 @@ mean the owner actually inspected billing/quota; the script does not verify
 Google's account state. Default approval lasts 24 hours; the backend rejects any
 approval longer than seven days and checks expiry before token counting and
 generation. Expired approval produces an explicit evidence-only fallback.
+Missing credentials, an unreadable file or expired approval do not prevent API,
+password login, payment or worker composition. They do prevent provider calls.
+
+## Render secret file and renewal
+
+Keep `TX_GEMINI_ENABLED=false` throughout preparation. After inspecting the actual
+key's project billing and model quota, run from the repository root, using private
+absolute paths outside Git (replace these example paths and project/model):
+
+```powershell
+node deploy/scripts/prepare-gemini-approval.mjs --key-file=C:/PRIVATE/gemini-key.txt --output=C:/PRIVATE/gemini-approval.json --project=REVIEWED_PROJECT --model=gemini-3.5-flash-lite --confirm-billing-disabled --confirm-free-model
+```
+
+In the existing Render API service, open **Environment → Secret Files → Add
+Secret File**, name it `gemini-approval.json`, and paste that private file's
+contents into the dashboard. Set `TX_GEMINI_APPROVAL_FILE` to
+`/etc/secrets/gemini-approval.json`. This mount works for the Docker service;
+a Windows path does not. Retain `GEMINI_API_KEY` as a server-only environment
+secret and set `GEMINI_MODEL` to exactly the reviewed model. Configure the same
+file and settings for a separately hosted worker, if one is used. Secret file
+changes trigger a deployment: preserve the working source/config rollback point
+and wait for authorized release verification before changing the live service.
+See [Render secret files](https://render.com/docs/configure-environment-variables#secret-files).
+
+**Maintenance commitment before enabling:** the generated approval expires after
+24 hours. Recheck billing and free quota, generate a new private approval filename
+(the script refuses overwrite), replace the Render secret file, and redeploy
+before expiry. The seven-day validator ceiling is not a renewal mechanism.
+Approvals are read at startup, with expiry checked before every outbound attempt;
+replacing a local file does not hot-reload a running provider. Never renew by
+editing timestamps or automatically attesting unchecked billing. If this review
+and redeploy cadence is unsuitable, leave Gemini disabled and use evidence-only
+investigation. Expiry, including a cold restart after expiry, leaves core services
+available and generated reports explicitly marked with the fallback reason.
+Actual Render readability and real provider grounding still require configured
+deployment acceptance; local tests do not establish either.
 
 Server-only settings:
 

@@ -310,9 +310,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, errors.New("TX_GEMINI_ENABLED must be true or false")
 	}
-	if geminiEnabled && (os.Getenv("GEMINI_API_KEY") == "" || os.Getenv("GEMINI_MODEL") == "" || os.Getenv("TX_GEMINI_APPROVAL_FILE") == "") {
-		return Config{}, errors.New("Gemini requires a server key, explicit reviewed model and private approval file")
-	}
 	chaosEnabled, err := strconv.ParseBool(getEnv("TX_CHAOS_ENABLED", defaultControlBool))
 	if err != nil {
 		return Config{}, fmt.Errorf("TX_CHAOS_ENABLED must be true or false: %w", err)

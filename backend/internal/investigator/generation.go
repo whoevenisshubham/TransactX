@@ -10,6 +10,12 @@ import (
 var ErrProviderUsageUncertain = errors.New("provider usage is uncertain")
 
 func (service *Service) runGenerated(ctx context.Context, job Job) (Job, error) {
+	if service.config.UnavailableReason != "" {
+		if job.UsageReservationID != "" {
+			return service.failGenerated(job, service.config.UnavailableReason, ErrFreeTierUnverified)
+		}
+		return service.failWithEvidenceFallback(job, service.config.UnavailableReason, ErrFreeTierUnverified)
+	}
 	if service.config.Provider == nil {
 		if job.UsageReservationID != "" {
 			return service.failGenerated(job, "provider_disabled", errors.New("provider is disabled"))

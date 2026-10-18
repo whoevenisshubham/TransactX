@@ -339,24 +339,7 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		Trace:     &opsTraceReader{traceStore: telemetry.NewTraceStore(db, logger)},
 		Analytics: &opsAnalyticsReader{repo: analyticsRepo},
 	}
-	invCfg := investigator.DefaultServiceConfig()
-	if cfg.GeminiEnabled {
-		approval, err := investigator.ReadGeminiApproval(cfg.GeminiApprovalFile, cfg.GeminiAPIKey, cfg.GeminiModel)
-		if err != nil {
-			return nil, fmt.Errorf("Gemini project policy: %w", err)
-		}
-		provider, err := investigator.NewGeminiProvider(investigator.GeminiProviderConfig{APIKey: cfg.GeminiAPIKey, Model: cfg.GeminiModel, Approval: approval, DB: db})
-		if err != nil {
-			return nil, fmt.Errorf("Gemini provider: %w", err)
-		}
-		investigatorStore.UseUTCDailyUsageWindow()
-		if err := investigatorStore.SetUsageLimits(ctx, investigator.UsageAllowance{InputTokens: 80000, OutputTokens: 12000, CostMicrousd: 0}); err != nil {
-			return nil, fmt.Errorf("Gemini daily limits: %w", err)
-		}
-		invCfg.Mode = investigator.ModeLLM
-		invCfg.Provider = provider
-		invCfg.MaxProviderRounds = 1
-	}
+	invCfg := optionalGemini(ctx, cfg, db, investigatorStore, logger)
 	investigatorSvc, err := investigator.NewService(invCfg, investigatorStore, investigatorDeps)
 	if err != nil {
 		return nil, fmt.Errorf("initialize investigator service: %w", err)

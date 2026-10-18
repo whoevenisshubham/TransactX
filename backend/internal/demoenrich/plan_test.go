@@ -36,6 +36,21 @@ func TestEnrichmentTargetAndAcknowledgement(t *testing.T) {
 	if c.Validate() != nil {
 		t.Fatal("valid read-only target rejected")
 	}
+	neon := c
+	neon.ExpectedDatabase = "neondb"
+	neon.DatabaseURL = "postgres://fixture:fixture@ep-fixture.neon.tech/neondb?sslmode=verify-full"
+	if neon.Validate() != nil {
+		t.Fatal("acknowledged existing neondb rejected")
+	}
+	neon.Apply = true
+	neon.Ack = "ENRICH SYNTHETIC DEMO fixture-project/neondb"
+	if neon.Validate() != nil {
+		t.Fatal("exact neondb apply acknowledgement rejected")
+	}
+	neon.ExpectedHost = "ep-wrong.neon.tech"
+	if neon.Validate() == nil {
+		t.Fatal("neondb host guard bypassed")
+	}
 	c.Apply = true
 	if c.Validate() == nil {
 		t.Fatal("apply accepted without ACK")

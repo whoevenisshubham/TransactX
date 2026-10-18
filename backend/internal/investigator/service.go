@@ -29,6 +29,7 @@ type ServiceConfig struct {
 	OutputTokenLimit  int
 	CostLimitMicrousd int64
 	MaxProviderRounds int
+	UnavailableReason string
 	Now               func() time.Time
 }
 
@@ -76,14 +77,19 @@ func NewService(config ServiceConfig, store InvestigationStore, dependencies Too
 		return nil, errors.New("invalid investigator mode")
 	}
 	guardedFree := false
+	unavailable := config.Mode == ModeLLM && config.Provider == nil && config.CostLimitMicrousd == 0 && config.MaxProviderRounds == 1 && (config.UnavailableReason == "provider_free_tier_unverified" || config.UnavailableReason == "provider_unavailable")
+	if config.UnavailableReason != "" && !unavailable {
+		return nil, errors.New("invalid unavailable-provider fallback")
+	}
 	if provider, ok := config.Provider.(*GeminiProvider); ok {
 		postgres, canonical := store.(*PostgresInvestigationStore)
-		guardedFree = canonical && postgres.utcDailyUsage && provider.zeroSpendReady()
+		// Expiry is checked at each outbound call, never as core boot readiness.
+		guardedFree = canonical && postgres.utcDailyUsage && provider.admission.pool != nil && provider.approval.valid(provider.key, provider.model, provider.approval.ReviewedAt)
 		if !guardedFree || config.CostLimitMicrousd != 0 || config.MaxProviderRounds != 1 {
 			return nil, errors.New("Gemini requires reviewed zero-spend durable daily admission and one report round")
 		}
 	}
-	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.CostLimitMicrousd < 0 || (config.Provider.RequiresCostReservation() && config.CostLimitMicrousd == 0 && !guardedFree) || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
+	if config.Mode == ModeLLM && ((!unavailable && config.Provider == nil) || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.CostLimitMicrousd < 0 || (config.Provider != nil && config.Provider.RequiresCostReservation() && config.CostLimitMicrousd == 0 && !guardedFree) || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
 		return nil, errors.New("invalid provider generation configuration")
 	}
 	if config.Now == nil {

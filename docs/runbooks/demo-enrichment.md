@@ -3,8 +3,13 @@
 `backend/cmd/demo-enrich` is a dry-run-first client for the existing initialized
 Neon demo. It never launches services, reseeds a populated database, mints funds
 or writes financial SQL. The historical missing-transition dataset is not an
-eligible target. Local/default/source databases, transaction poolers, mismatched
+eligible target. Local/protected-source databases, transaction poolers, mismatched
 endpoints and databases without the original demo capacity trigger are rejected.
+The existing acknowledged Neon database `neondb` is supported without renaming
+or recreating it. Its name is not sufficient authorization: exact host, database
+and owner-reviewed project acknowledgement plus the installed demo capacity
+function/trigger must all match. Other accepted database names contain `demo`;
+the protected source name `transactx` and administrative `postgres` remain rejected.
 
 ## Review the target first
 

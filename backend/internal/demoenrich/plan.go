@@ -32,7 +32,7 @@ func (c Config) Validate() error {
 	if err != nil || db == nil || db.User == nil || !strings.HasSuffix(db.Hostname(), ".neon.tech") || strings.Contains(db.Hostname(), "-pooler") || db.Hostname() != c.ExpectedHost || strings.TrimPrefix(db.Path, "/") != c.ExpectedDatabase || (db.Query().Get("sslmode") != "require" && db.Query().Get("sslmode") != "verify-full") {
 		return errors.New("requires the exact acknowledged direct Neon demo endpoint/database with TLS")
 	}
-	if !strings.Contains(strings.ToLower(c.ExpectedDatabase), "demo") || c.ExpectedDatabase == "postgres" || c.ExpectedProject == "" {
+	if (c.ExpectedDatabase != "neondb" && !strings.Contains(strings.ToLower(c.ExpectedDatabase), "demo")) || c.ExpectedDatabase == "postgres" || c.ExpectedProject == "" {
 		return errors.New("protected/default/local source databases are not enrichment targets")
 	}
 	origin, err := url.Parse(c.APIOrigin)
