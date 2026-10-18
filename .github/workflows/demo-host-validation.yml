@@ -1,0 +1,59 @@
+name: Demo host validation
+on:
+  pull_request:
+    paths:
+      - 'backend/internal/demohost/**'
+      - 'backend/cmd/demo-*/**'
+      - 'deploy/render/**'
+      - 'render.yaml'
+      - '.dockerignore'
+      - '.github/workflows/demo-host-validation.yml'
+permissions:
+  contents: read
+jobs:
+  disposable-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: transactx_disposable_demo_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd 'pg_isready -U postgres -d transactx_disposable_demo_ci'
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/transactx_disposable_demo_ci?sslmode=disable
+      TX_DEMO_SEED_TEST_DATABASE: postgres://postgres:disposable-ci-only@127.0.0.1:5432/transactx_disposable_demo_ci?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Apply canonical migrations to CI-only database
+        working-directory: backend
+        run: go run ./cmd/migrate up
+      - name: Protection, native process and empty-only seed checks
+        working-directory: backend
+        run: go test -race -count=1 -v ./internal/demohost ./cmd/demo-host ./cmd/demo-seed
+      - name: Build actual Linux container
+        run: docker build -f deploy/render/Dockerfile -t transactx-demo-ci .
+      - name: Start container against CI-only PostgreSQL
+        run: |
+          docker run -d --name transactx-demo-ci --network host --memory=512m \
+            -e DATABASE_URL -e TX_DEMO_EXPECTED_DATABASE=transactx_disposable_demo_ci \
+            -e JWT_SECRET=disposable-ci-only-jwt-at-least-32-characters \
+            -e BANK_A_SERVICE_TOKEN=disposable-ci-only-bank-a-at-least-32-characters \
+            -e BANK_B_SERVICE_TOKEN=disposable-ci-only-bank-b-at-least-32-characters \
+            -e CORS_ALLOWED_ORIGINS=https://demo.example.org \
+            -e TX_BUILD_SHA="$GITHUB_SHA" transactx-demo-ci
+      - name: Real payment, investigation, automatic projection and idle/wake
+        run: python3 deploy/render/smoke-demo.py
+      - name: Stop container
+        if: always()
+        run: docker rm -f transactx-demo-ci || true
