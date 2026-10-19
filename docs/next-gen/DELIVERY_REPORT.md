@@ -1,10 +1,48 @@
 # TransactX v2 delivery acceptance
 
-Status: local acceptance advanced; release promotion and complete archive pending.
-This report governs combined delivery. The root M2 release report and older
-integration matrices preserve their lane/run scopes; they do not certify the release.
+Status: Experience V3 is deployed on the existing free demo; final release
+promotion and native archive/installation acceptance remain pending.
+The historical native results below retain their original source/run scopes;
+they do not certify the newer V3 deployment.
 
-## Source and architecture
+## Experience V3 acceptance — 19 October 2026
+
+Deployed backend and Vercel production frontend: `cafae17a0366fc5b4991bc6e1ea123053d5d3576`.
+API: https://transactx-demo-api.onrender.com; frontend:
+https://transactx-frontend.vercel.app. Render deployment:
+`dep-dbas8gk9v7es739op080`; Vercel: `dpl_2NbJJjtUhHCWY5ncn9mgZ5wxif1o`.
+Rollback application source: `426436d780b70eaf83042df91bf8f44fcf65ba99`.
+Later maintenance CLI/test/documentation commits do not change those deployed IDs.
+Private evidence and the single checkpoint stay outside Git.
+
+| Gate | Status and exact scope |
+| --- | --- |
+| Full public/customer/merchant/operator redesign | PASS: prior rendered fixture route/theme/mobile/keyboard/200%/axe and build evidence retained; fixtures are not live acceptance |
+| Real representative role flows | PASS on deployed V3: customer payment/receipt, merchant activity/QR, operator journey, real worker-completed saved evidence report and all five citations |
+| Authorization / HTTPS / CORS | PASS: foreign payment 404, merchant ops 403, viewer admin 403, exact frontend origin allowed and foreign origin rejected; OAuth callback no-store/no-referrer |
+| Google first and returning sign-in | PASS: owner completed real External/Testing consent/login; independent SQL proves one identity, stable customer/accounts, no duplicates and zero balances. Not published to all Google users |
+| Canonical PostgreSQL / corpus | PASS: migration checksums through33, fresh/legacy-upgrade CI, durable conformance/corpus lifecycle; cloud only additive31–33, no reset/reseed |
+| Durable provider controls | PASS in disposable PostgreSQL/transport tests: request/token reservations, concurrency, disable latch, no retry, configuration binding and evidence fallback; not live generation proof |
+| Live Gemini | FAILED / disabled: original count probe failed; separately authorized diagnostic returned404/NOT_FOUND, two durable count attempts total, zero generation. Current official legacy-access notice supports testing the already-allowlisted3.5 model only after separate authorization |
+| Synthetic activity / financial checks / projection | PASS: 12 API-created enrichment entries plus representative payment, original identities retained; checked balance/ledger/participant invariants; automatic worklist projection observed |
+| Encrypted rollback restore | PASS, limited scope: real cloud pre-upgrade dump encrypted, decrypted and restored into fresh local PostgreSQL. Not off-device or current V3 worker-continuation proof |
+| Original password login | BLOCKED: original private password unavailable; no reset authorized or performed |
+| Hosted browser offline account-isolated replay | BLOCKED: available browser control lacks network emulation; historical source-matched local proof below is not current hosted V3 proof |
+| Hosted SSE transport reconnect | PASS, limited scope: actual frontend subscription bundled for Node against real HTTPS API; gateway expiry produced disconnect/gap, second connect/ready and200 recovery reads in122.4s. Browser offline/visual transition remains unclaimed |
+| Native V3 crash / restored worker continuation / installation | BLOCKED: recorded local native-launch approval rejection and no authorized Linux installation target; no alternate launcher or seeded-state substitute |
+| Independent off-device backup | BLOCKED: no owner-controlled independent destination supplied |
+| Cleanup | BLOCKED: recorded automatic cleanup rejection preserved; no deletion/relocation retry |
+| Source promotion / final archive / release tag | PENDING required gates. PR27/28 preserve stacked ancestry, no duplicate PR or force push. Default already release/transactx-v2; current deployed V3 is not yet promoted there |
+
+Current-source `fec5320` has all six GitHub checks successful. Subsequent test/doc
+edits receive focused verification, not another unchanged broad audit. Build
+prerequisite validation finds all eight required commands, the actual API origin,
+17 delivery inputs (including current provider/enrichment setup guides) and six approved corpus inputs; it creates no archive and is
+not an installation/runtime proof. The complete native archive remains pending
+its required acceptance gates. Spending is zero; Gemini remains off, with no
+paid fallback, billing changes or financial/historical-data repairs.
+
+## Historical native source and architecture
 
 The finishing branch `codex/v2-final-completion` preserves integration `86e12e4`,
 M1 `bc7c167`, M2 `e61ebd0` and M3 `15efc94` through normal history. Functional
