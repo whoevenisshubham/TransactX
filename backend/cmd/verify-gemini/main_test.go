@@ -1,6 +1,50 @@
 package main
 
-import "testing"
+import (
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestTransportAuditRetainsStatusWithoutCredentialsOrBodies(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "receipt.jsonl")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	const private = "fixture-secret-never-record"
+	body := `{"error":{"status":"INVALID_ARGUMENT","message":"` + private + `"}}`
+	a := auditTransport{receipt: f, next: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
+	req, _ := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/models/fixture:countTokens?private="+private, strings.NewReader(private))
+	req.Header.Set("x-goog-api-key", private)
+	res, err := a.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	got, err := io.ReadAll(res.Body)
+	if err != nil || string(got) != body {
+		t.Fatal("observer changed provider response")
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if strings.Contains(text, private) || !strings.Contains(text, `"httpStatus":400`) || !strings.Contains(text, `"providerStatus":"INVALID_ARGUMENT"`) {
+		t.Fatal("unsafe or missing diagnostic")
+	}
+}
 
 func TestVerificationRejectsForeignOrUnacknowledgedTargets(t *testing.T) {
 	const host = "ep-confirmed.neon.tech"

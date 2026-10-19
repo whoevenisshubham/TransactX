@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,62 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/transactx/backend/internal/investigator"
 )
+
+// Only transport metadata enters the private receipt: never headers, prompts,
+// provider bodies, URLs/query strings or arbitrary provider error messages.
+type auditTransport struct {
+	next    http.RoundTripper
+	receipt *os.File
+}
+
+func (a *auditTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if a.receipt == nil {
+		return nil, errors.New("private transport audit unavailable")
+	}
+	res, err := a.next.RoundTrip(req)
+	event := map[string]any{"stage": "provider_http", "operation": "unknown"}
+	for _, kind := range []string{"countTokens", "generateContent"} {
+		if strings.HasSuffix(req.URL.Path, ":"+kind) {
+			event["operation"] = kind
+		}
+	}
+	if err != nil {
+		event["failure"] = "network"
+	} else {
+		event["httpStatus"] = res.StatusCode
+		if res.StatusCode >= 400 {
+			raw, readErr := io.ReadAll(io.LimitReader(res.Body, 4096))
+			res.Body = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(bytes.NewReader(raw), res.Body), res.Body}
+			var body struct {
+				Error struct {
+					Status string `json:"status"`
+				} `json:"error"`
+			}
+			if readErr == nil && json.Unmarshal(raw, &body) == nil {
+				switch body.Error.Status {
+				case "INVALID_ARGUMENT", "UNAUTHENTICATED", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED", "NOT_FOUND", "UNAVAILABLE", "INTERNAL":
+					event["providerStatus"] = body.Error.Status
+				}
+			}
+		}
+	}
+	if writeErr := json.NewEncoder(a.receipt).Encode(event); writeErr != nil {
+		if res != nil {
+			res.Body.Close()
+		}
+		return nil, errors.New("private transport audit failed")
+	}
+	if syncErr := a.receipt.Sync(); syncErr != nil {
+		if res != nil {
+			res.Body.Close()
+		}
+		return nil, errors.New("private transport audit sync failed")
+	}
+	return res, err
+}
 
 type apiEvidence struct {
 	origin, token string
@@ -125,7 +182,10 @@ func run() error {
 	if err = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE id::text=$1 AND upi_id='viewer@transactx' AND role='OPS_VIEWER')", actor.ID).Scan(&matches); err != nil || !matches {
 		return errors.New("API actor does not match confirmed database")
 	}
-	provider, err := investigator.NewGeminiProvider(investigator.GeminiProviderConfig{APIKey: key, Model: model, Provider: "google", ProjectID: project, Review: review, DB: pool})
+	audit := &auditTransport{next: http.DefaultTransport}
+	providerClient := *client
+	providerClient.Transport = audit
+	provider, err := investigator.NewGeminiProvider(investigator.GeminiProviderConfig{APIKey: key, Model: model, Provider: "google", ProjectID: project, Review: review, DB: pool, Client: &providerClient})
 	if err != nil {
 		return errors.New("provider review rejected")
 	}
@@ -153,6 +213,7 @@ func run() error {
 		return errors.New("receipt exists or is unavailable; do not automatically retry")
 	}
 	defer f.Close()
+	audit.receipt = f
 	enc := json.NewEncoder(f)
 	if err = enc.Encode(map[string]any{"stage": "admitted", "model": model, "payment": *payment, "observedAt": time.Now().UTC()}); err != nil {
 		return err

@@ -64,9 +64,15 @@ After canonical migration verification through 33, the existing Free Render
 service deployed its current `cafae17` image with Google enabled. Auth options
 report Google/demo enabled and public registration disabled; ordinary demo
 authentication and account reads still work. The actual frontend flow reached
-Google's account chooser with the correct privacy link. Owner account selection,
-consent, first/returning login and independent zero-balance checks remain pending.
-Reaching an account chooser is not successful authentication. Gemini stays off.
+Google's account chooser with the correct privacy link. The owner subsequently
+completed consent, opened the private zero-balance dashboard, logged out and
+signed in again. Independent checked SQL confirmed exactly one Google identity,
+the same customer/account IDs on return, zero central/opening/participant
+balances, and no local phone or password. Account counts rose once from four to
+five in both central and participant stores and stayed five on return. This is
+owner-observed live authentication plus database evidence; no fixture screenshot
+is presented as its proof. Broader public Google access is still unpublished.
+Gemini stays off.
 
 ## Owner setup and live verification
 

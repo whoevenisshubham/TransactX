@@ -19,9 +19,11 @@ source `cafae17` was deployed on 19 October 2026. Customer receipts, merchant
 activity, automatic operator projection and a saved evidence-summary report
 with working citations were checked against the real HTTPS API. The screenshots
 in this README use intercepted synthetic test responses; they are UI examples.
-Google sign-in is configured for the owner's External/Testing audience; real
-first/returning consent verification is pending. Gemini generation remains
-disabled pending verified free quota. This deployment is not full release acceptance.
+Google first and returning sign-in passed for the owner's External/Testing
+account, with independently checked zero balances and stable identity. Public
+Google access is not published. Gemini remains disabled: the reviewed Free model
+has quota, but its first live token-count request failed before generation.
+This deployment is not full release acceptance.
 
 ## Try a role
 

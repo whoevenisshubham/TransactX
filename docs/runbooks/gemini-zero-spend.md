@@ -36,12 +36,20 @@ Use private absolute paths outside Git. The helper binds provider/project/model
 and the key fingerprint, records the review date without an expiry, refuses
 overwrite and prints no key. It never contacts Google, verifies billing/quota,
 activates generation or changes account settings. Its confirmation flags mean
-that the owner actually performed those checks. The owner has confirmed the
-existing project's Free tier and disabled billing. On 19 October 2026, model
-discovery with its existing key returned both allowlisted models, but usable
-free quota remained unverified. No generation or free-quota attestation was
-made; generation remains off. Discovery and published free-tier pricing do not
-prove this project's usable quota.
+that the owner actually performed those checks. The owner confirmed the existing
+project's Free tier and disabled billing. On 19 October 2026, actual AI Studio
+**Rate Limit > All models** showed Gemini 2.5 Flash Lite text-generation limits
+of 10 RPM, 250K TPM and 20 RPD for that project. Model discovery also returned
+the model. A configuration-bound review was prepared from this actual evidence,
+not discovery alone. These quotas are an observation, not a permanent guarantee.
+
+The first acknowledged canonical verification job persisted `provider_unavailable`
+at `countTokens`, with one failed durable admission and zero `generateContent`
+attempts. Its saved result is evidence-summary fallback, not generated-report
+acceptance. Production generation stays off. No automatic retry or counter reset
+was performed. The verification tool now records bounded HTTP status/provider
+error category without keys, URLs, prompts or response bodies; a further live
+probe requires the owner's additional attempt authorization.
 
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does

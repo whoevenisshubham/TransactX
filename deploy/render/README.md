@@ -18,9 +18,12 @@ receipt deep link, automatic projection, a worker-completed saved evidence
 summary and its five unique citation targets, role denials and exact-origin CORS.
 The bounded enrichment manifest also completed with checked financial invariants.
 Google is enabled for the owner's External/Testing audience after consent
-configuration and migration verification; actual first/returning login is pending.
-Gemini remains disabled. These results do not prove real Google consent,
-generated reports, native crash recovery or full release acceptance.
+configuration and migration verification. The owner completed first/returning
+login; independent database checks confirmed stable customer identity and zero
+central/participant balances. General Google access is not published. Gemini
+remains disabled after its first token-count probe failed before generation.
+These results do not prove generated reports, native crash recovery or full
+release acceptance.
 
 Preserve backend rollback source `426436d` and its prior Render deployment,
 the previous Vercel production deployment and private configuration. An encrypted
