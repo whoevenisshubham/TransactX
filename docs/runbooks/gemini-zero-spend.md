@@ -3,6 +3,20 @@
 Generation is disabled by default. Evidence summaries stay available without
 Gemini. No paid fallback, billing/plan changes or automatic provider retries.
 
+## Current demo configuration — 19 October 2026
+
+After the bounded canonical/persisted-citation verification and compatible hosted
+checks passed, the owner explicitly confirmed activation on the existing Free
+Render service. It now uses the existing private key, exact reviewed3.5 model,
+Google project and bound one-time review with `TX_GEMINI_ENABLED=true`.
+Configuration deployment `dep-dbb536g473hc73clm290` runs source `433011c`.
+Saved settings/private-review equality, core authenticated reads and the durable
+disable state were checked. Provider attempts stayed8: activation did not send
+another generation or reset counters. Normal hosted-worker generation is not
+newly certified by this configuration change. Earlier disabled/failure statuses
+below describe their historical steps. Defaults and immediate-disable procedures
+remain unchanged; no periodic renewal or billing changes were introduced.
+
 ## Owner review and limits
 
 Inspect the actual key's project in AI Studio/Google Cloud: billing must be
