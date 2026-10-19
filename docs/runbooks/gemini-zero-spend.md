@@ -36,8 +36,12 @@ Use private absolute paths outside Git. The helper binds provider/project/model
 and the key fingerprint, records the review date without an expiry, refuses
 overwrite and prints no key. It never contacts Google, verifies billing/quota,
 activates generation or changes account settings. Its confirmation flags mean
-that the owner actually performed those checks. No actual owner review has been
-supplied for this implementation; generation remains off.
+that the owner actually performed those checks. The owner has confirmed the
+existing project's Free tier and disabled billing. On 19 October 2026, model
+discovery with its existing key returned both allowlisted models, but usable
+free quota remained unverified. No generation or free-quota attestation was
+made; generation remains off. Discovery and published free-tier pricing do not
+prove this project's usable quota.
 
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does

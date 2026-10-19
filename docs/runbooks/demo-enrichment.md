@@ -84,8 +84,14 @@ missing ledger evidence cannot pass. A mismatch is a pending investigation, not
 permission to alter financial records. Script/unit SQL validation is not proof
 that a real run or native recovery worked.
 
-No live enrichment has run for Experience V3. The actual private demo target,
-owner acknowledgement/access and reviewed deployed source are still required.
+On 19 October 2026, the owner-confirmed existing synthetic `neondb` passed the
+target/capacity dry-run. The clean `cafae17` tool then completed all twelve v1
+manifest payments (1,530 paise) against the deployed `cafae17` API. Its final
+checked financial verification passed, leaving 37 daily payment slots. Private
+receipts retain the original identities and observed outcomes outside Git.
+Those counts describe that run, not current capacity. A future invocation must
+repeat the target/capacity checks and inspect the same original manifest keys;
+this result does not authorize a new manifest, reseeding or history changes.
 Up to four saved investigations remain a separate integration step after these
 payments: confirm the deployed investigator mode/quota first, use ordinary
 operator APIs and stable report request keys, and retain actual report provenance.

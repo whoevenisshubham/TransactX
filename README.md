@@ -14,11 +14,13 @@ workspaces. **Synthetic money only:** no real banks, UPI/NPCI or real transfers.
 
 ![TransactX landing page in the light theme](docs/images/experience-landing.png)
 
-**Experience V3 is under review.** These are actual rendered V3 screens with
-intercepted synthetic test responses, not evidence of deployed API/provider
-acceptance. The live deployment may still show the preceding release.
-Google sign-in and Gemini generation remain disabled until owner configuration
-and real integration verification pass.
+**Experience V3 is live on the shared synthetic demo.** Backend and frontend
+source `cafae17` was deployed on 19 October 2026. Customer receipts, merchant
+activity, automatic operator projection and a saved evidence-summary report
+with working citations were checked against the real HTTPS API. The screenshots
+in this README use intercepted synthetic test responses; they are UI examples.
+Google sign-in and Gemini generation remain disabled pending their separate
+configuration and live verification. This deployment is not full release acceptance.
 
 ## Try a role
 
@@ -125,7 +127,7 @@ public deployment, native crashes, real Google consent or provider entitlement.
 
 | Evidence | Scope and limitation |
 | --- | --- |
-| [Auth/provider PostgreSQL CI](.github/workflows/auth-provider-postgres.yml) | Disposable PostgreSQL 18, fresh migrations, legacy upgrade, OIDC/Gemini persistence and expired-approval composition; required tests must pass rather than skip |
+| [Auth/provider PostgreSQL CI](.github/workflows/auth-provider-postgres.yml) | Disposable PostgreSQL 18, fresh migrations, legacy upgrade, OIDC/Gemini persistence and optional-provider startup composition; required tests must pass rather than skip |
 | [Release validation](.github/workflows/release-validation.yml) | Backend/race/frontend gates and explicitly isolated lifecycle checks |
 | [Browser fixtures](frontend/browser) | Rendered UI, roles, failure states, offline isolation and accessibility; intercepted responses are labelled test evidence |
 | [Reconciliation experiments](docs/reconciliation-experiments.md) | Historical controlled measurements at their recorded source, not current production SLAs |
@@ -133,7 +135,7 @@ public deployment, native crashes, real Google consent or provider entitlement.
 
 Local V3 verification on 18 October 2026 covered signed OIDC claims/key rotation,
 durable account provisioning, grounded Gemini transport fixtures, canonical
-PostgreSQL upgrade conformance and missing/expired approval startup composition.
+PostgreSQL upgrade conformance and optional-provider startup composition.
 No external provider request was made for those tests. Cold composition is
 distinct from native process kill/restart acceptance.
 
