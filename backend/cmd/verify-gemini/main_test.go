@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,65 @@ import (
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func TestGenerationAuditRecordsStructureWithoutModelText(t *testing.T) {
+	const private = "secret-prompt-or-response-never-record"
+	for _, finish := range []string{"STOP", "MAX_TOKENS", private} {
+		t.Run(finish, func(t *testing.T) {
+			f, err := os.Create(filepath.Join(t.TempDir(), "receipt.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			body, err := json.Marshal(map[string]any{"responseId": private, "modelVersion": "gemini-3.5-flash-lite", "candidates": []any{map[string]any{"finishReason": finish, "content": map[string]any{"parts": []any{map[string]any{"text": `{"unexpected":"` + private + `"}`}}}}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			a := auditTransport{receipt: f, model: "gemini-3.5-flash-lite", next: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
+			})}
+			req, _ := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent", nil)
+			res, err := a.RoundTrip(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			got, err := io.ReadAll(res.Body)
+			if err != nil || string(got) != string(body) {
+				t.Fatal("observer changed response")
+			}
+			raw, err := os.ReadFile(f.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(raw), private) {
+				t.Fatal("provider text escaped structural diagnostic")
+			}
+			var event struct {
+				Envelope map[string]any `json:"envelope"`
+			}
+			if json.Unmarshal(raw, &event) != nil {
+				t.Fatal("invalid receipt")
+			}
+			expected := finish
+			if finish == private {
+				expected = "OTHER"
+			}
+			if event.Envelope["finishReason"] != expected || event.Envelope["modelMatchesConfigured"] != true || event.Envelope["reportJSONValid"] != true || event.Envelope["canonicalJSONDecodes"] != false {
+				t.Fatal("missing structural rejection diagnostics")
+			}
+		})
+	}
+}
+
+func TestGenerationSummaryRejectsUncertainOrOversizedEnvelope(t *testing.T) {
+	if generationSummary([]byte(`{"candidates":`), "gemini-3.5-flash-lite", nil)["envelopeJSONValid"] != false {
+		t.Fatal("malformed JSON reported valid")
+	}
+	if generationSummary(make([]byte, (1<<20)+1), "gemini-3.5-flash-lite", nil)["completeWithinBound"] != false {
+		t.Fatal("oversized response summarized")
+	}
+}
 
 func TestDiagnosticIdentityRequiresExplicitAuthorization(t *testing.T) {
 	original, err := verificationKey("", "gemini-2.5-flash-lite")

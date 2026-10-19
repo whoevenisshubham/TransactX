@@ -55,7 +55,8 @@ count attempts in total and zero generation attempts. Both original jobs and
 receipts remain intact. The endpoint/model resource construction matches the
 official token-count API; the exact provider-side reason is not established.
 Model discovery and visible quota do not prove that this key can invoke it.
-Production stays disabled; no further probe is authorized.
+Production stays disabled. A later, separately authorized model-change result
+is recorded below; the two original jobs/attempts were never replaced or refunded.
 
 ### Investigation of the 404 (19 October 2026)
 
@@ -104,6 +105,34 @@ configuration-bound review is required before a deliberate model change; an old
 2.5 review must never be reused as a 3.5 review. An explicitly authorized bounded
 3.5 check would test the changed legacy-access hypothesis, not repeat the same
 2.5 request. Production activation still requires a real grounded saved report.
+
+### Authorized 3.5 result (19 October 2026)
+
+The owner authorized the prepared single canonical 3.5 verification. It ran once
+under its separate fixed identity and exclusive private receipt. `countTokens`
+and `generateContent` both returned HTTP200. Independent checked PostgreSQL
+queries record completed counting with 4,979 input tokens and the generation
+attempt with 4,979 input /584 output tokens plus a response ID. Four global
+admissions are charged in total, including both earlier legacy failures. No
+counter, job, reservation, receipt or lease was reset/refunded.
+
+Invocation access for the same key/project with 3.5 is now demonstrated, without
+billing or key changes. However, canonical decoding returned `provider_malformed`;
+the job is failed with a persisted evidence-only report. This is not a successful
+grounded generated report. Token totals alone do not establish a token-limit
+finish, model-version mismatch or JSON decoding cause. The original receipt
+contains HTTP metadata, not a retained response body/finish reason. Actual
+project UI says logging is disabled and requires billing; leave it disabled.
+
+The maintenance observer now records bounded structural diagnostics for a future
+authorized generation: envelope validity, response-ID presence, model-match
+boolean, candidate/text/thought counts, allowlisted finish enum and report JSON /
+strict canonical-decode booleans. No response text, ID, arbitrary model/provider
+string, prompt, key, URL or report is logged by that observer. Response bytes and
+all production validation/limits are preserved. Offline tests check these
+redactions and byte-preserving behavior. These diagnostics cannot reconstruct
+the past result. No further request is authorized or automatically attempted;
+production remains off pending diagnosis and real report acceptance.
 
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does

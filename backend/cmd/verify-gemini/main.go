@@ -27,6 +27,7 @@ import (
 type auditTransport struct {
 	next    http.RoundTripper
 	receipt *os.File
+	model   string
 }
 
 func (a *auditTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -44,12 +45,20 @@ func (a *auditTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		event["failure"] = "network"
 	} else {
 		event["httpStatus"] = res.StatusCode
-		if res.StatusCode >= 400 {
-			raw, readErr := io.ReadAll(io.LimitReader(res.Body, 4096))
+		generation := res.StatusCode >= 200 && res.StatusCode < 300 && event["operation"] == "generateContent"
+		if res.StatusCode >= 400 || generation {
+			bound := int64(4096)
+			if generation {
+				bound = 1<<20 + 1 // Same response bound as the canonical provider.
+			}
+			raw, readErr := io.ReadAll(io.LimitReader(res.Body, bound))
 			res.Body = struct {
 				io.Reader
 				io.Closer
 			}{io.MultiReader(bytes.NewReader(raw), res.Body), res.Body}
+			if generation {
+				event["envelope"] = generationSummary(raw, a.model, readErr)
+			}
 			var body struct {
 				Error struct {
 					Status string `json:"status"`
@@ -76,6 +85,66 @@ func (a *auditTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, errors.New("private transport audit sync failed")
 	}
 	return res, err
+}
+
+// Diagnostics are booleans/counts and allowlisted enums only, never model text,
+// response IDs, arbitrary provider strings or report contents. This observer
+// neither relaxes validation nor changes the response delivered to the provider.
+func generationSummary(raw []byte, model string, readErr error) map[string]any {
+	out := map[string]any{"completeWithinBound": readErr == nil && len(raw) <= 1<<20}
+	if readErr != nil || len(raw) > 1<<20 {
+		return out
+	}
+	var body struct {
+		ID         string `json:"responseId"`
+		Model      string `json:"modelVersion"`
+		Candidates []struct {
+			Finish  string `json:"finishReason"`
+			Content struct {
+				Parts []struct {
+					Text    string `json:"text"`
+					Thought bool   `json:"thought"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	out["envelopeJSONValid"] = json.Unmarshal(raw, &body) == nil
+	if out["envelopeJSONValid"] != true {
+		return out
+	}
+	out["hasResponseId"] = body.ID != "" && len(body.ID) <= 256
+	out["modelMatchesConfigured"] = model != "" && (body.Model == model || strings.HasPrefix(body.Model, model+"-"))
+	out["candidateCount"] = len(body.Candidates)
+	if len(body.Candidates) != 1 {
+		return out
+	}
+	candidate := body.Candidates[0]
+	finish := "OTHER"
+	switch candidate.Finish {
+	case "STOP", "MAX_TOKENS", "SAFETY", "RECITATION":
+		finish = candidate.Finish
+	}
+	out["finishReason"] = finish
+	texts, thoughts, text := 0, 0, ""
+	for _, part := range candidate.Content.Parts {
+		if part.Thought {
+			thoughts++
+			continue
+		}
+		if part.Text != "" {
+			texts++
+			text = part.Text
+		}
+	}
+	out["textParts"], out["thoughtParts"] = texts, thoughts
+	if texts == 1 {
+		out["reportJSONValid"] = json.Valid([]byte(text))
+		decoder := json.NewDecoder(strings.NewReader(text))
+		decoder.DisallowUnknownFields()
+		var report investigator.InvestigationReport
+		out["canonicalJSONDecodes"] = decoder.Decode(&report) == nil && errors.Is(decoder.Decode(&struct{}{}), io.EOF)
+	}
+	return out
 }
 
 type apiEvidence struct {
@@ -187,7 +256,7 @@ func run() error {
 	if err = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE id::text=$1 AND upi_id='viewer@transactx' AND role='OPS_VIEWER')", actor.ID).Scan(&matches); err != nil || !matches {
 		return errors.New("API actor does not match confirmed database")
 	}
-	audit := &auditTransport{next: http.DefaultTransport}
+	audit := &auditTransport{next: http.DefaultTransport, model: model}
 	providerClient := *client
 	providerClient.Transport = audit
 	provider, err := investigator.NewGeminiProvider(investigator.GeminiProviderConfig{APIKey: key, Model: model, Provider: "google", ProjectID: project, Review: review, DB: pool, Client: &providerClient})

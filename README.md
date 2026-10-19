@@ -21,9 +21,10 @@ with working citations were checked against the real HTTPS API. The screenshots
 in this README use intercepted synthetic test responses; they are UI examples.
 Google first and returning sign-in passed for the owner's External/Testing
 account, with independently checked zero balances and stable identity. Public
-Google access is not published. Gemini remains disabled: the reviewed Free model
-has quota, but the owner-authorized diagnostic token-count request returned
-`404 NOT_FOUND` before generation. Evidence-summary mode remains available.
+Google access is not published. Gemini remains disabled: legacy 2.5 requests
+returned `404 NOT_FOUND`; the separately authorized 3.5 check returned HTTP200
+for counting and generation, but the generated report failed canonical validation.
+Evidence-summary mode remains available; generated-report acceptance is pending.
 This deployment is not full release acceptance.
 
 ## Try a role
