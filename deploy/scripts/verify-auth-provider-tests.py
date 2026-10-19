@@ -6,6 +6,7 @@ required = {
     ("auth", "TestGoogleDurableFlowsAndProvisioning"),
     ("http", "TestGoogleHTTPBindingDenialAndOrigins"),
     ("investigator", "TestGeminiDurableAdmissionAndGrounding"),
+    ("investigator", "TestGeminiAtomicVerificationAdmission"),
     ("investigator", "TestGeminiFailuresAndDisableRetainEvidence"),
     ("investigator", "TestPostgresInvestigationStoreUpgradedDatabaseConformance"),
     ("app", "TestGeminiColdCompositionWithOwnerReview"),

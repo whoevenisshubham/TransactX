@@ -317,7 +317,7 @@ func run() error {
 	if err = store.SetUsageLimits(ctx, investigator.UsageAllowance{InputTokens: 80000, OutputTokens: 12000, CostMicrousd: 0}); err != nil {
 		return errors.New("durable token budget unavailable")
 	}
-	job, created, err := service.Start(ctx, investigator.TrustedScope{ActorID: actor.ID, Role: actor.Role, SelectedPaymentID: *payment}, *payment, "Explain the central state briefly with one collected evidence citation. Keep the report concise.", requestKey)
+	job, created, err := service.StartClaimed(ctx, investigator.TrustedScope{ActorID: actor.ID, Role: actor.Role, SelectedPaymentID: *payment}, *payment, "Explain the central state briefly with one collected evidence citation. Keep the report concise.", requestKey, "owner-gemini-verification")
 	if err != nil {
 		return errors.New("canonical investigation admission failed")
 	}
@@ -330,7 +330,7 @@ func run() error {
 	if err = f.Sync(); err != nil {
 		return err
 	}
-	completed, runErr := service.Run(ctx, job.ID, "owner-gemini-verification")
+	completed, runErr := service.RunClaimed(ctx, investigator.TrustedScope{ActorID: actor.ID, Role: actor.Role, SelectedPaymentID: *payment}, job.ID, "owner-gemini-verification")
 	if err = enc.Encode(map[string]any{"stage": "observed", "job": completed, "runSucceeded": runErr == nil}); err != nil {
 		return err
 	}
@@ -373,6 +373,11 @@ func verificationKey(ack, model string) (string, error) {
 			return "", errors.New("reviewed model-change verification requires exact 3.5 model")
 		}
 		return "gemini-owner-model35-verification-v3", nil
+	case "OWNER AUTHORIZED ONE ENCRYPTED GEMINI 3.5 VERIFICATION":
+		if model != "gemini-3.5-flash-lite" {
+			return "", errors.New("instrumented verification requires exact reviewed 3.5 model")
+		}
+		return "gemini-owner-instrumented35-claimed-v4", nil
 	default:
 		return "", errors.New("additional probe requires explicit owner authorization")
 	}

@@ -29,6 +29,57 @@ func fixtureGeminiReview(key string) GeminiReview {
 	return GeminiReview{Provider: "google", ProjectID: "fixture-project", Model: "gemini-3.5-flash-lite", KeySHA256: hex.EncodeToString(sum[:]), BillingDisabled: true, FreeTierAvailable: true, ReviewedAt: time.Now().Add(-time.Minute)}
 }
 
+func TestGeminiAtomicVerificationAdmission(t *testing.T) {
+	dsn := os.Getenv("GEMINI_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("requires disposable PostgreSQL")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || u.Hostname() != "127.0.0.1" || !strings.HasPrefix(u.Path, "/txv3_oidc_") {
+		t.Fatal("explicit disposable loopback database required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	store, err := NewPostgresInvestigationStore(pool, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := "gemini-atomic-" + uuid.NewString()
+	payment := loadFixture(t, "healthy.json").TrustedPaymentId
+	request := NewJob{Scope: TrustedScope{ActorID: actor, Role: "OPS_VIEWER", SelectedPaymentID: payment}, PaymentID: payment, Question: "state", IdempotencyKey: "atomic", RequestHash: "fixture", Mode: ModeLLM, CreatedAt: time.Now().UTC(), DeadlineAt: time.Now().UTC().Add(time.Minute)}
+	job, created, err := store.CreateClaimed(ctx, request, "private-verifier", 30*time.Second)
+	if err != nil || !created {
+		t.Fatalf("admit: %v", err)
+	}
+	defer func() {
+		if _, err := pool.Exec(ctx, "DELETE FROM investigation_jobs WHERE id=$1", job.ID); err != nil {
+			t.Error(err)
+		}
+	}()
+	if job.Status != StatusRunning || job.LeaseOwner != "private-verifier" || job.LeaseEpoch != 1 {
+		t.Fatal("admission was exposed unleased")
+	}
+	other, _ := NewPostgresInvestigationStore(pool, time.Now)
+	if _, err := other.Claim(ctx, job.ID, "deployed-worker", 30*time.Second); !errors.Is(err, ErrJobNotClaimable) {
+		t.Fatalf("foreign worker won private lease: %v", err)
+	}
+	again, created, err := other.CreateClaimed(ctx, request, "foreign", time.Minute)
+	if err != nil || created || again.LeaseOwner != job.LeaseOwner || !again.LeaseExpiresAt.Equal(job.LeaseExpiresAt) {
+		t.Fatal("duplicate changed ownership or extended lease")
+	}
+	request.IdempotencyKey = "other"
+	if _, _, err := other.CreateClaimed(ctx, request, "foreign", time.Minute); !errors.Is(err, ErrActorLimitExceeded) {
+		t.Fatal("actor limit bypassed")
+	}
+	if err := store.SaveCheckpoint(ctx, job); err != nil {
+		t.Fatalf("canonical checkpoint fencing rejected own atomic lease: %v", err)
+	}
+}
+
 func TestGeminiReviewAndDecoder(t *testing.T) {
 	approval := fixtureGeminiReview("fixture-key")
 	if !approval.valid("fixture-key", "google", approval.ProjectID, approval.Model, time.Now()) {
@@ -214,11 +265,24 @@ func TestGeminiDurableAdmissionAndGrounding(t *testing.T) {
 			if index == 1 {
 				exec(`UPDATE investigation_usage_reservations SET created_at=CURRENT_TIMESTAMP-INTERVAL '2 days' WHERE job_id IN(SELECT id FROM investigation_jobs WHERE actor_id='gemini-fixture')`)
 			}
-			job, _, err := service.Start(ctx, scope, fixture.TrustedPaymentId, "state", key)
+			var job Job
+			if index == 0 {
+				job, _, err = service.StartClaimed(ctx, scope, fixture.TrustedPaymentId, "state", key, "fixture-worker")
+			} else {
+				job, _, err = service.Start(ctx, scope, fixture.TrustedPaymentId, "state", key)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			completed, err := service.Run(ctx, job.ID, "fixture-worker")
+			var completed Job
+			if index == 0 {
+				if _, claimErr := service.RunClaimed(ctx, scope, job.ID, "foreign-worker"); !errors.Is(claimErr, ErrJobNotClaimable) {
+					t.Fatal("foreign maintenance owner accepted")
+				}
+				completed, err = service.RunClaimed(ctx, scope, job.ID, "fixture-worker")
+			} else {
+				completed, err = service.Run(ctx, job.ID, "fixture-worker")
+			}
 			if err != nil || completed.Status != StatusCompleted || completed.Report == nil || completed.Report.Mode != ModeLLM {
 				t.Fatalf("canonical Gemini service: status=%s error=%s err=%v", completed.Status, completed.ErrorCode, err)
 			}
