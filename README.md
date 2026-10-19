@@ -164,8 +164,9 @@ identity or financial history with a downgrade.
   exact callback and frontend origin, reviewed consent/audience. New Google
   customers start at zero and cannot select privileged roles or link by email.
 - [Gemini zero-spend setup](docs/runbooks/gemini-zero-spend.md): actual key-project
-  billing/quota review, Render-readable secret approval file and renewal before
-  the default 24-hour expiry. Leave disabled if that cadence is unsuitable.
+  one-time configuration-bound billing/quota review, persistent caps and an
+  immediate shared disable switch. No periodic renewal; the app cannot guarantee
+  provider billing state or permanent free-tier availability.
 - [Demo enrichment](docs/runbooks/demo-enrichment.md): read-only dry-run first,
   exact acknowledged Neon target, installed capacity guards and ordinary payment
   APIs. The existing `neondb` is supported without renaming or resetting it.

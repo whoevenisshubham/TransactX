@@ -40,6 +40,11 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Apply canonical migrations
         run: go run ./cmd/migrate up
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: One-time review helper checks
+        run: node --test ../deploy/scripts/prepare-gemini-review.test.mjs
       # Packages share only this disposable namespace: no parallel fixture cleanup.
       # All provider transport is test-local; no Google secrets or API calls.
       - name: Required PostgreSQL tests with race detection

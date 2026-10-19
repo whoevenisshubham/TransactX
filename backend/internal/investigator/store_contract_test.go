@@ -337,7 +337,7 @@ func TestPostgresInvestigationStoreUpgradedDatabaseConformance(t *testing.T) {
 		t.Fatalf("latest schema not fully applied: %v", err)
 	}
 	var latest bool
-	if err := pool.QueryRow(ctx, `SELECT to_regclass('auth_external_identities') IS NOT NULL AND to_regclass('gemini_free_attempts') IS NOT NULL AND (SELECT is_nullable='YES' FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='password_hash')`).Scan(&latest); err != nil || !latest {
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('auth_external_identities') IS NOT NULL AND to_regclass('gemini_free_attempts') IS NOT NULL AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='gemini_free_admission' AND column_name='disabled' AND is_nullable='NO') AND (SELECT is_nullable='YES' FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='password_hash')`).Scan(&latest); err != nil || !latest {
 		t.Fatalf("latest auth/provider schema missing: %v", err)
 	}
 

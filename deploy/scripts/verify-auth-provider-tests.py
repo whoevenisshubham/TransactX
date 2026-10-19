@@ -6,8 +6,9 @@ required = {
     ("auth", "TestGoogleDurableFlowsAndProvisioning"),
     ("http", "TestGoogleHTTPBindingDenialAndOrigins"),
     ("investigator", "TestGeminiDurableAdmissionAndGrounding"),
+    ("investigator", "TestGeminiFailuresAndDisableRetainEvidence"),
     ("investigator", "TestPostgresInvestigationStoreUpgradedDatabaseConformance"),
-    ("app", "TestGeminiColdCompositionAfterExpiredApproval"),
+    ("app", "TestGeminiColdCompositionWithOwnerReview"),
 }
 outcomes = {}
 with open(sys.argv[1], encoding="utf-8-sig") as stream:

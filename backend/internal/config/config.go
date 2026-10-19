@@ -110,7 +110,9 @@ type Config struct {
 	GeminiEnabled             bool
 	GeminiAPIKey              string
 	GeminiModel               string
-	GeminiApprovalFile        string
+	GeminiProvider            string
+	GeminiProjectID           string
+	GeminiOwnerReview         string
 	ChaosEnabled              bool
 	RecoveryControlEnabled    bool
 	BankAServiceToken         string
@@ -371,7 +373,9 @@ func Load() (Config, error) {
 		GeminiEnabled:             geminiEnabled,
 		GeminiAPIKey:              os.Getenv("GEMINI_API_KEY"),
 		GeminiModel:               os.Getenv("GEMINI_MODEL"),
-		GeminiApprovalFile:        os.Getenv("TX_GEMINI_APPROVAL_FILE"),
+		GeminiProvider:            os.Getenv("GEMINI_PROVIDER"),
+		GeminiProjectID:           os.Getenv("GEMINI_PROJECT_ID"),
+		GeminiOwnerReview:         os.Getenv("TX_GEMINI_OWNER_REVIEW"),
 		ChaosEnabled:              chaosEnabled,
 		RecoveryControlEnabled:    recoveryControlEnabled,
 		BankAServiceToken:         bankAServiceToken,

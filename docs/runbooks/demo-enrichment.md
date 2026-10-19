@@ -13,6 +13,19 @@ the protected source name `transactx` and administrative `postgres` remain rejec
 
 ## Review the target first
 
+In the [Neon Console](https://console.neon.tech), open the existing demo project:
+**Settings > General** shows the permanent **Project ID** (not the display name).
+Select its existing database branch, then **Postgres database > Computes** to
+find the primary read-write compute's **Endpoint ID** (`ep-...`). Open **Connect**,
+select `neondb`, turn connection pooling off, and copy only the full direct
+hostname (`ep-....neon.tech`), not the password or connection URI. Confirm that
+this project/branch is the initialized synthetic public demo. The private URI
+already supplied is reused and cross-checked against these independent values;
+no project/database creation, reset, rename or history repair is needed.
+[Project settings](https://neon.com/docs/manage/projects#general-project-settings),
+[compute/endpoint details](https://neon.com/docs/manage/computes#view-a-compute).
+
+
 The owner supplies a private direct `DATABASE_URL`, exact expected database and
 Neon endpoint, owner-verified project ID, actual HTTPS API origin and reviewed
 tool source SHA. VCS build metadata (or the current Git checkout for `go run`)

@@ -17,13 +17,13 @@ func optionalGemini(ctx context.Context, cfg config.Config, db *pgxpool.Pool, st
 	result.Mode = investigator.ModeLLM
 	result.MaxProviderRounds = 1
 	result.UnavailableReason = "provider_free_tier_unverified"
-	approval, err := investigator.ReadGeminiApproval(cfg.GeminiApprovalFile, cfg.GeminiAPIKey, cfg.GeminiModel)
+	review, err := investigator.ReadGeminiReview(cfg.GeminiOwnerReview, cfg.GeminiAPIKey, cfg.GeminiProvider, cfg.GeminiProjectID, cfg.GeminiModel)
 	if err != nil {
 		logger.Warn("Gemini unavailable; evidence-summary fallback active", "reason", result.UnavailableReason)
 		return result
 	}
 	result.UnavailableReason = "provider_unavailable"
-	provider, err := investigator.NewGeminiProvider(investigator.GeminiProviderConfig{APIKey: cfg.GeminiAPIKey, Model: cfg.GeminiModel, Approval: approval, DB: db})
+	provider, err := investigator.NewGeminiProvider(investigator.GeminiProviderConfig{APIKey: cfg.GeminiAPIKey, Model: cfg.GeminiModel, Provider: cfg.GeminiProvider, ProjectID: cfg.GeminiProjectID, Review: review, DB: db})
 	if err != nil {
 		logger.Warn("Gemini unavailable; evidence-summary fallback active", "reason", result.UnavailableReason)
 		return result

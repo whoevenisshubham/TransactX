@@ -1,82 +1,92 @@
-# Gemini: reviewed free-project path
+# Gemini: one-time reviewed free-project configuration
 
-Provider generation is disabled by default. The existing evidence-only
-investigator stays available. The adapter is separate from OpenAI parsing and
-does not select a paid fallback, use web/search tools or automatically retry.
+Generation is disabled by default. Evidence summaries stay available without
+Gemini. No paid fallback, billing/plan changes or automatic provider retries.
 
-## Owner review before enabling
+## Owner review and limits
 
-Review the **actual API key's project** in AI Studio/Cloud: billing must be
-disabled, and the chosen text model must have usable free quota in that project.
-A consumer subscription, a key's existence or a local free-tier flag is not proof
-of this. Free-project data may be used by Google to improve products; only send
-the demo's synthetic evidence, never personal information. Keep billing disabled
-and disable this integration before changing project billing/key access.
+Inspect the actual key's project in AI Studio/Google Cloud: billing must be
+disabled and the selected model must have usable free quota. A key, subscription
+or application flag is not proof. The app cannot independently verify Google's
+billing state, prove a key belongs to the named project, or guarantee permanent
+free-tier availability. Project identity is an owner assertion bound to that
+exact key fingerprint. Keep billing disabled; never upgrade to make a test pass.
+Only send synthetic evidence, not personal/real financial information. Google's
+free-project data handling may permit use to improve its products.
 
-Current documentation lists free text tiers for `gemini-3.5-flash-lite` and
-`gemini-2.5-flash-lite`; access to 2.5 is restricted to prior users. These are the
-adapter's exact allowlist, not an assertion of this owner's current entitlement.
-There is no default model. Recheck the actual project and current documentation
-before choosing. No provider request has been made for this implementation.
+**No calendar expiry or periodic renewal.** Unchanged configuration remains
+reviewed after months of sleep/redeployment. Revalidate when key, project,
+provider, model or billing configuration changes; disable generation before
+changing it. External billing changes cannot be detected automatically. No
+renewal job or automatic attestation to unchecked account state is installed.
 
-After review, prepare a private approval using `prepare-gemini-approval.mjs`.
-It reads a private raw key file, binds its SHA-256 fingerprint to the project and
-model, and writes a new private file outside the checkout. It refuses overwrite,
-prints no key and makes no network/billing changes. The two confirmation flags
-mean the owner actually inspected billing/quota; the script does not verify
-Google's account state. Default approval lasts 24 hours; the backend rejects any
-approval longer than seven days and checks expiry before token counting and
-generation. Expired approval produces an explicit evidence-only fallback.
-Missing credentials, an unreadable file or expired approval do not prevent API,
-password login, payment or worker composition. They do prevent provider calls.
+Quota exhaustion, expired/revoked keys, model retirement, network/timeout and
+provider failure persist a visibly labelled evidence-summary fallback. They do
+not block login, payments, recovery or API/worker startup.
 
-## Render secret file and renewal
+## One-time preparation and Render configuration
 
-Keep `TX_GEMINI_ENABLED=false` throughout preparation. After inspecting the actual
-key's project billing and model quota, run from the repository root, using private
-absolute paths outside Git (replace these example paths and project/model):
+Keep TX_GEMINI_ENABLED=false during preparation. After actual owner review:
 
 ```powershell
-node deploy/scripts/prepare-gemini-approval.mjs --key-file=C:/PRIVATE/gemini-key.txt --output=C:/PRIVATE/gemini-approval.json --project=REVIEWED_PROJECT --model=gemini-3.5-flash-lite --confirm-billing-disabled --confirm-free-model
+node deploy/scripts/prepare-gemini-review.mjs --key-file=C:/PRIVATE/gemini-key.txt --output=C:/PRIVATE/gemini-review.json --provider=google --project=REVIEWED_PROJECT --model=REVIEWED_ALLOWLISTED_MODEL --confirm-billing-disabled --confirm-free-model
 ```
 
-In the existing Render API service, open **Environment → Secret Files → Add
-Secret File**, name it `gemini-approval.json`, and paste that private file's
-contents into the dashboard. Set `TX_GEMINI_APPROVAL_FILE` to
-`/etc/secrets/gemini-approval.json`. This mount works for the Docker service;
-a Windows path does not. Retain `GEMINI_API_KEY` as a server-only environment
-secret and set `GEMINI_MODEL` to exactly the reviewed model. Configure the same
-file and settings for a separately hosted worker, if one is used. Secret file
-changes trigger a deployment: preserve the working source/config rollback point
-and wait for authorized release verification before changing the live service.
-See [Render secret files](https://render.com/docs/configure-environment-variables#secret-files).
+Use private absolute paths outside Git. The helper binds provider/project/model
+and the key fingerprint, records the review date without an expiry, refuses
+overwrite and prints no key. It never contacts Google, verifies billing/quota,
+activates generation or changes account settings. Its confirmation flags mean
+that the owner actually performed those checks. No actual owner review has been
+supplied for this implementation; generation remains off.
 
-**Maintenance commitment before enabling:** the generated approval expires after
-24 hours. Recheck billing and free quota, generate a new private approval filename
-(the script refuses overwrite), replace the Render secret file, and redeploy
-before expiry. The seven-day validator ceiling is not a renewal mechanism.
-Approvals are read at startup, with expiry checked before every outbound attempt;
-replacing a local file does not hot-reload a running provider. Never renew by
-editing timestamps or automatically attesting unchecked billing. If this review
-and redeploy cadence is unsuitable, leave Gemini disabled and use evidence-only
-investigation. Expiry, including a cold restart after expiry, leaves core services
-available and generated reports explicitly marked with the fallback reason.
-Actual Render readability and real provider grounding still require configured
-deployment acceptance; local tests do not establish either.
+The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
+There is no default model or automatic alias/fallback. An allowlisted name does
+not establish this project's current model access or free quota.
 
-Server-only settings:
+In the existing Render service, open **Environment > Environment Variables**.
+Retain its private GEMINI_API_KEY. Add the settings below and paste the generated
+JSON as one server-only TX_GEMINI_OWNER_REVIEW value. This is not a file path:
+there is no secret-file mount or recurring file replacement. Apply the same
+settings to a separately hosted worker if used; the demo supervisor inherits
+server configuration for its child processes. Preserve the working source/config
+rollback and existing release/review gates before deploying changed settings.
+[Render environment variables](https://render.com/docs/configure-environment-variables#setting-environment-variables).
 
-| Setting | Purpose |
+| Server-only setting | Purpose |
 | --- | --- |
-| `TX_GEMINI_ENABLED=false` | Keep off until owner review and release approval |
-| `GEMINI_API_KEY` | Existing private server key; never VITE/browser configuration |
-| `GEMINI_MODEL` | Exact reviewed allowlisted model |
-| `TX_GEMINI_APPROVAL_FILE` | Absolute private approval JSON path |
+| TX_GEMINI_ENABLED=false | Default off; true only after verified configuration and authorized integration |
+| GEMINI_API_KEY | Existing private server key; never chat, Git or VITE_* |
+| GEMINI_PROVIDER | Exactly google |
+| GEMINI_PROJECT_ID | Owner-verified actual key project ID |
+| GEMINI_MODEL | Exact reviewed allowlisted model |
+| TX_GEMINI_OWNER_REVIEW | Helper JSON bound to provider/project/model/key, owner confirmations and review date |
 
-Apply forward migration `000032_gemini_free_admission` first. The downgrade
-refuses to erase attempt history. API and worker share the same PostgreSQL
-admission. Preserve source/config rollback and never reset production counters
-to make a demo run pass.
+Apply migrations through 000033_gemini_disable_switch first. Migration32 retains
+durable attempts;33 adds the shared emergency stop. TX_GEMINI_APPROVAL_FILE is
+no longer read. Old expiring files are not automatically converted into new
+confirmations. Missing/mismatched review fails closed to evidence summaries
+without preventing core startup. Configuration loads on deployment/startup.
+
+## Immediate shared disable
+
+After checking the existing synthetic demo target, use its Neon SQL Editor
+with owner access to stop **new admissions** without a deploy:
+
+```sql
+UPDATE gemini_free_admission SET disabled=TRUE WHERE singleton RETURNING disabled;
+```
+
+Expect one row with true. Every countTokens/generateContent admission locks and
+checks this row before charging/sending. It applies across API/worker processes,
+survives sleep/redeployment and does not reset counters or financial records.
+Already admitted/in-flight operations are not retroactively canceled; every
+HTTP operation retains its ten-second timeout. Startup never clears this latch.
+TX_GEMINI_ENABLED=false remains the normal startup/deployment switch.
+
+To resume, complete any required configuration/billing revalidation, deploy
+matching configuration if changed, then deliberately set disabled=FALSE using
+the same target-checked owner SQL procedure. Never clear attempt/token counters
+or busy leases to resume early. No public administrative endpoint is introduced.
 
 ## Hard bounds and provenance
 
@@ -102,7 +112,7 @@ redirect following is disabled. Bounded JSON uses the existing report schema,
 payment-scoped evidence and retrieved runbooks. Existing deterministic grounding
 replaces model-controlled financial prose, validates citations and persists the
 report. No model-selected mutation tool is exposed. Refusal, malformed output,
-quota, expired review and unavailable generation retain evidence with a reason.
+quota, mismatched review and unavailable generation retain evidence with a reason.
 
 Persisted attempt data records kind/model/status, actual response ID and nullable
 token usage. Thinking is included when reported. No currency charge is invented

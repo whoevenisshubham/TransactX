@@ -11,12 +11,23 @@ import (
 
 type geminiAdmission struct{ pool *pgxpool.Pool }
 
+var ErrGeminiDisabled = errors.New("Gemini generation disabled by owner")
+
 func (a geminiAdmission) reserve(ctx context.Context, owner uuid.UUID, kind, model string) (uuid.UUID, error) {
 	tx, err := a.pool.Begin(ctx)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	defer tx.Rollback(ctx)
+	// Lock with the emergency-stop update: a completed disable blocks all later
+	// admissions across API/worker restarts, without refunding prior attempts.
+	var disabled bool
+	if err := tx.QueryRow(ctx, `SELECT disabled FROM gemini_free_admission WHERE singleton FOR UPDATE`).Scan(&disabled); err != nil {
+		return uuid.Nil, err
+	}
+	if disabled {
+		return uuid.Nil, ErrGeminiDisabled
+	}
 	var acquired bool
 	err = tx.QueryRow(ctx, `UPDATE gemini_free_admission SET lease_owner=$1,busy_until=CURRENT_TIMESTAMP+INTERVAL '60 seconds' WHERE singleton AND (busy_until<=CURRENT_TIMESTAMP OR lease_owner=$1) RETURNING TRUE`, owner).Scan(&acquired)
 	if errors.Is(err, pgx.ErrNoRows) {

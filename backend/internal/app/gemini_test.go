@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +22,7 @@ import (
 )
 
 // Fresh composition models a cold boot, not a native process kill/restart proof.
-func TestGeminiColdCompositionAfterExpiredApproval(t *testing.T) {
+func TestGeminiColdCompositionWithOwnerReview(t *testing.T) {
 	dsn := os.Getenv("APP_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("APP_TEST_DATABASE_URL is not set")
@@ -40,15 +39,29 @@ func TestGeminiColdCompositionAfterExpiredApproval(t *testing.T) {
 	t.Setenv("DATABASE_URL", dsn)
 	t.Setenv("TX_GEMINI_ENABLED", "true")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	path := filepath.Join(t.TempDir(), "expired.json")
 	digest := sha256.Sum256([]byte("fixture-key"))
-	raw, _ := json.Marshal(investigator.GeminiApproval{ProjectID: "fixture", KeySHA256: hex.EncodeToString(digest[:]), Model: "gemini-3.5-flash-lite", BillingDisabled: true, FreeTierAvailable: true, ReviewedAt: time.Now().Add(-48 * time.Hour), ValidUntil: time.Now().Add(-24 * time.Hour)})
-	if err := os.WriteFile(path, raw, 0600); err != nil {
+	raw, err := json.Marshal(investigator.GeminiReview{Provider: "google", ProjectID: "fixture", KeySHA256: hex.EncodeToString(digest[:]), Model: "gemini-3.5-flash-lite", BillingDisabled: true, FreeTierAvailable: true, ReviewedAt: time.Now().Add(-210 * 24 * time.Hour)})
+	if err != nil {
 		t.Fatal(err)
 	}
-	for _, scenario := range []struct{ name, review, key string }{{"missing-file", "", "fixture-key"}, {"expired-file", path, "fixture-key"}, {"missing-credentials", path, ""}} {
+	for _, scenario := range []struct {
+		name, review, key string
+		enabled, ready    bool
+	}{
+		{"missing-review", "", "fixture-key", true, false},
+		{"missing-key", string(raw), "", true, false},
+		{"changed-key", string(raw), "rotated-key", true, false},
+		{"seven-month-review-cold-start", string(raw), "fixture-key", true, true},
+		{"seven-month-review-restart", string(raw), "fixture-key", true, true},
+		{"disabled", string(raw), "fixture-key", false, false},
+	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			t.Setenv("TX_GEMINI_APPROVAL_FILE", scenario.review)
+			t.Setenv("TX_GEMINI_OWNER_REVIEW", scenario.review)
+			t.Setenv("GEMINI_PROVIDER", "google")
+			t.Setenv("GEMINI_PROJECT_ID", "fixture")
+			if !scenario.enabled {
+				t.Setenv("TX_GEMINI_ENABLED", "false")
+			}
 			t.Setenv("GEMINI_API_KEY", scenario.key)
 			t.Setenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 			cfg, err := config.Load()
@@ -71,8 +84,8 @@ func TestGeminiColdCompositionAfterExpiredApproval(t *testing.T) {
 				t.Fatal("core availability blocked by provider review")
 			}
 			// A real stored password user can log in and reach authenticated payment reads.
-			identifier := "expiry-" + uuid.NewString() + "@fixture"
-			user, err := env.AuthService.Register(context.Background(), auth.RegisterInput{Name: "Expiry fixture", Phone: uuid.NewString()[:24], PaymentIdentifier: identifier, Password: "fixture-password-123"})
+			identifier := "review-" + uuid.NewString() + "@fixture"
+			user, err := env.AuthService.Register(context.Background(), auth.RegisterInput{Name: "Review fixture", Phone: uuid.NewString()[:24], PaymentIdentifier: identifier, Password: "fixture-password-123"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,9 +115,22 @@ func TestGeminiColdCompositionAfterExpiredApproval(t *testing.T) {
 				t.Fatal(err)
 			}
 			fallback := optionalGemini(context.Background(), cfg, pool, store, logger)
-			if fallback.UnavailableReason != "provider_free_tier_unverified" || fallback.Provider != nil {
-				t.Fatal("expired/missing approval did not fail closed")
+			if scenario.ready {
+				if fallback.Provider == nil || fallback.UnavailableReason != "" {
+					t.Fatal("old unchanged review blocked provider composition")
+				}
+			} else if scenario.enabled {
+				if fallback.UnavailableReason != "provider_free_tier_unverified" || fallback.Provider != nil {
+					t.Fatal("unreviewed configuration did not fail closed")
+				}
+			} else if fallback.Provider != nil || fallback.Mode != investigator.ModeEvidenceOnly {
+				t.Fatal("disable flag did not select evidence-only mode")
 			}
+			var attempts int
+			if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM gemini_free_attempts`).Scan(&attempts); err != nil || attempts != 0 {
+				t.Fatal("cold composition made a provider attempt")
+			}
+
 		})
 	}
 }

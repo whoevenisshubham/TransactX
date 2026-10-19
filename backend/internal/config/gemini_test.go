@@ -17,7 +17,9 @@ func TestGeminiRequiresSeparatePrivateProjectReview(t *testing.T) {
 	if _, err := Load(); err != nil {
 		t.Fatal("runtime must handle unavailable project review with evidence fallback")
 	}
-	t.Setenv("TX_GEMINI_APPROVAL_FILE", "/private/review.json")
+	t.Setenv("GEMINI_PROVIDER", "google")
+	t.Setenv("GEMINI_PROJECT_ID", "fixture-project")
+	t.Setenv("TX_GEMINI_OWNER_REVIEW", "unverified-fixture")
 	if cfg, err := Load(); err != nil || !cfg.GeminiEnabled {
 		t.Fatal("complete configuration rejected before runtime policy validation")
 	}

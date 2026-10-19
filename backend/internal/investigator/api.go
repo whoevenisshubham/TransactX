@@ -119,7 +119,7 @@ func PublicInvestigation(job Job) InvestigationResponse {
 func publicInvestigationErrorMessage(code string) string {
 	switch code {
 	case "provider_free_tier_unverified":
-		return "The Gemini free-project review is missing or expired; deterministic evidence is retained when present."
+		return "The Gemini free-project review is missing or does not match the configured provider; deterministic evidence is retained when present."
 	case "budget_exhausted":
 		return "Generation budget was unavailable; deterministic evidence is retained when present."
 	case "provider_disabled", "provider_timeout", "provider_rate_limited", "provider_refused", "provider_malformed", "provider_round_limit", "provider_unavailable", "provider_usage_uncertain", "usage_commit_failed":

@@ -83,8 +83,8 @@ func NewService(config ServiceConfig, store InvestigationStore, dependencies Too
 	}
 	if provider, ok := config.Provider.(*GeminiProvider); ok {
 		postgres, canonical := store.(*PostgresInvestigationStore)
-		// Expiry is checked at each outbound call, never as core boot readiness.
-		guardedFree = canonical && postgres.utcDailyUsage && provider.admission.pool != nil && provider.approval.valid(provider.key, provider.model, provider.approval.ReviewedAt)
+		// Configuration binding is checked before provider use; elapsed time is not an expiry.
+		guardedFree = canonical && postgres.utcDailyUsage && provider.admission.pool != nil && provider.reviewedConfigurationReady()
 		if !guardedFree || config.CostLimitMicrousd != 0 || config.MaxProviderRounds != 1 {
 			return nil, errors.New("Gemini requires reviewed zero-spend durable daily admission and one report round")
 		}

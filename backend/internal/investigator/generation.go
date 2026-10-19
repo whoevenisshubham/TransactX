@@ -266,6 +266,8 @@ func (service *Service) failGenerated(job Job, code string, cause error) (Job, e
 
 func providerErrorCode(err error) string {
 	switch {
+	case errors.Is(err, ErrGeminiDisabled):
+		return "provider_disabled"
 	case errors.Is(err, ErrFreeTierUnverified):
 		return "provider_free_tier_unverified"
 	case errors.Is(err, ErrProviderRefusal):

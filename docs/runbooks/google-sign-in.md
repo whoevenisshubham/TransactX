@@ -53,11 +53,30 @@ does not reset durable counters or permit ambiguous code reuse.
 
 ## Owner setup and live verification (pending)
 
-Use Google Auth Platform branding, support/contact details, the actual homepage
-and privacy URL, and a Web OAuth client with the exact callback above. Request
-only `openid email`. A Testing audience only permits configured test users;
-public access needs the appropriate published audience and any Google-required
-verification. No paid Google service is needed for this sign-in design.
+1. Sign in to [Google Auth Platform](https://console.cloud.google.com/auth/overview)
+   and select your owner-controlled project. Do not enable billing or paid APIs.
+2. Open **Branding**. App name: **TransactX**; support/developer contact: your
+   monitored email. Homepage: `https://transactx-frontend.vercel.app`;
+   privacy: `https://transactx-frontend.vercel.app/privacy`. Verify the privacy
+   page is actually deployed before publishing consent. Follow any required
+   Google domain/ownership checks; do not invent verified ownership.
+3. Open **Audience**. For initial verification use **External / Testing**, adding
+   your intended Google test account under **Test users**. Public sign-in requires
+   the appropriate published audience and any Google-required verification.
+4. Under **Data Access**, request only `openid` and
+   `https://www.googleapis.com/auth/userinfo.email` (email). No profile, Drive,
+   payment permissions or paid services are needed.
+5. Open [Clients](https://console.cloud.google.com/auth/clients), **Create client**,
+   type **Web application**, name **TransactX Web**. Authorized redirect URI:
+   `https://transactx-demo-api.onrender.com/api/auth/oidc/google/callback`.
+   Leave JavaScript origins empty: this is server authorization-code flow, not
+   a browser Google SDK. The separate server OAUTH_FRONTEND_ORIGIN is
+   `https://transactx-frontend.vercel.app`.
+6. Download the client JSON into a private folder outside Git. Share only its
+   absolute file path and the audience/test-user status; never paste its secret.
+   Keep GOOGLE_OAUTH_ENABLED=false until configuration/deployment verification.
+
+[Google's setup instructions](https://developers.google.com/identity/openid-connect/openid-connect#appsetup).
 
 Store values in private environment files/Render secret configuration. Share
 configuration file paths and consent/audience status, never secret values in chat

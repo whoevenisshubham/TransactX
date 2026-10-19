@@ -15,27 +15,27 @@ import (
 )
 
 type GeminiProviderConfig struct {
-	APIKey, Model string
-	Approval      GeminiApproval
-	DB            *pgxpool.Pool
-	Client        *http.Client
+	APIKey, Model, Provider, ProjectID string
+	Review                             GeminiReview
+	DB                                 *pgxpool.Pool
+	Client                             *http.Client
 }
 type GeminiProvider struct {
-	key, model string
-	approval   GeminiApproval
-	admission  geminiAdmission
-	client     *http.Client
-	assets     PromptAssets
+	key, model, provider, projectID string
+	review                          GeminiReview
+	admission                       geminiAdmission
+	client                          *http.Client
+	assets                          PromptAssets
 }
 
 func NewGeminiProvider(c GeminiProviderConfig) (*GeminiProvider, error) {
-	if c.DB == nil || !c.Approval.valid(c.APIKey, c.Model, time.Now()) {
+	if c.DB == nil || !c.Review.valid(c.APIKey, c.Provider, c.ProjectID, c.Model, time.Now()) {
 		return nil, ErrFreeTierUnverified
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var canonical bool
-	if err := c.DB.QueryRow(ctx, `SELECT singleton FROM gemini_free_admission WHERE singleton`).Scan(&canonical); err != nil || !canonical {
+	if err := c.DB.QueryRow(ctx, `SELECT singleton AND disabled IS NOT NULL FROM gemini_free_admission WHERE singleton`).Scan(&canonical); err != nil || !canonical {
 		return nil, errors.New("Gemini canonical admission migration is required")
 	}
 	assets, err := LoadPromptAssets()
@@ -46,17 +46,17 @@ func NewGeminiProvider(c GeminiProviderConfig) (*GeminiProvider, error) {
 	if c.Client != nil {
 		client.Transport = c.Client.Transport
 	}
-	return &GeminiProvider{key: c.APIKey, model: c.Model, approval: c.Approval, admission: geminiAdmission{c.DB}, client: client, assets: assets}, nil
+	return &GeminiProvider{key: c.APIKey, model: c.Model, provider: c.Provider, projectID: c.ProjectID, review: c.Review, admission: geminiAdmission{c.DB}, client: client, assets: assets}, nil
 }
 
 // This stays true. Zero cost is accepted only through the explicit reviewed,
-// expiring free-project policy plus durable admission, never a fake dollar budget.
+// configuration-bound free-project review plus durable admission, never a fake dollar budget.
 func (p *GeminiProvider) RequiresCostReservation() bool { return true }
-func (p *GeminiProvider) zeroSpendReady() bool {
-	return p.admission.pool != nil && p.approval.valid(p.key, p.model, time.Now())
+func (p *GeminiProvider) reviewedConfigurationReady() bool {
+	return p.admission.pool != nil && p.review.valid(p.key, p.provider, p.projectID, p.model, time.Now())
 }
 func (p *GeminiProvider) Generate(ctx context.Context, r GenerationRequest) (result GenerationResult, retErr error) {
-	if !p.zeroSpendReady() {
+	if !p.reviewedConfigurationReady() {
 		return result, ErrFreeTierUnverified
 	}
 	if r.PromptVersion != p.assets.Version || r.Evidence.PaymentId == "" || strings.TrimSpace(r.Question) == "" || r.InputTokenLimit < 1 || r.InputTokenLimit > 8000 || r.OutputTokenLimit < 1 || r.OutputTokenLimit > 1200 || len(r.Continuation) > 0 || len(r.ToolOutputs) > 0 {
@@ -116,7 +116,7 @@ func (p *GeminiProvider) Generate(ctx context.Context, r GenerationRequest) (res
 	if *count.TotalTokens > int64(r.InputTokenLimit) {
 		return result, ErrProviderMalformed
 	}
-	if !p.zeroSpendReady() {
+	if !p.reviewedConfigurationReady() {
 		return result, ErrFreeTierUnverified
 	}
 	body, err := json.Marshal(content)
@@ -159,6 +159,9 @@ func (p *GeminiProvider) call(ctx context.Context, owner uuid.UUID, kind string,
 	if err != nil {
 		if p.admission.finish(id, "uncertain", "", Usage{}) != nil {
 			return nil, id, false, ErrProviderUsageUncertain
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, id, false, context.DeadlineExceeded
 		}
 		return nil, id, false, ErrProviderUnavailable
 	}
