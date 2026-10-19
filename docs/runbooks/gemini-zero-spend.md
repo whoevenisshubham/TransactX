@@ -198,8 +198,17 @@ output enum capability. It excludes evidence IDs and null entities for published
 typed assertions. The shared schema/prompt is not mutated. All exact pair/value
 grounding remains mandatory; rejected reports are never rewritten or accepted.
 A regression reproduces evidence-ID-as-entity rejection; request tests verify
-the scoped bindings/enum and absence of cross-request schema mutation. This
-request correction has local acceptance only; no further generation was sent.
+the scoped bindings/enum and absence of cross-request schema mutation.
+
+The owner subsequently authorized one corrected-request verification. Its fixed
+identity `gemini-owner-corrected35-citations-v5` preserves all earlier jobs and
+requires the exact reviewed 3.5 model. Count and generation both returned200;
+`STOP`,5,655input/502output tokens. Complete canonical schema and semantic
+grounding passed, followed by an independent scoped PostgreSQL re-read validating
+persisted report citations. Job `2ed1aec5-d7a4-4c7d-a01d-9eb29a6461d4` is completed
+in LLM mode. The exact bounded response is encrypted outside Git alongside its
+matching evidence snapshot. No incorrect IDs were rewritten. Production remains
+disabled until compatible deployment and hosted integration gates pass.
 
 Before the actual provider sequence, an initial queued verification was claimed
 by the normal deployed worker and failed `provider_disabled` with zero provider
@@ -213,11 +222,11 @@ denial, idempotency, unchanged lease and active limits, ordinary store conforman
 and guarded generated execution. The required CI gate now includes that atomic
 admission test, so it cannot silently skip.
 
-The resulting total is6charged HTTP attempts, not six attempts in this owner
-authorization. No provider retries, counter refunds, lease resets or financial
-SQL were used. Grounded generated-report acceptance remains pending; production
-is off. A future corrected-request check must be separately authorized, use the
-same bounds/encrypted capture and keep the failed reports and provenance intact.
+The total after that corrected check is8charged HTTP attempts across the separate
+authorizations. No provider retries, counter refunds, lease resets or financial
+SQL were used. Bounded grounded-report acceptance passed; enabled hosted-worker
+acceptance remains pending. Any further provider check requires separate explicit
+authorization, the same bounds/capture and preservation of all prior evidence.
 
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does

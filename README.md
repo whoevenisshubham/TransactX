@@ -21,11 +21,12 @@ with working citations were checked against the real HTTPS API. The screenshots
 in this README use intercepted synthetic test responses; they are UI examples.
 Google first and returning sign-in passed for the owner's External/Testing
 account, with independently checked zero balances and stable identity. Public
-Google access is not published. Gemini remains disabled: legacy 2.5 requests
-returned `404 NOT_FOUND`; the instrumented 3.5 response completed within its cap
-and decoded correctly, but confused an evidence ID with an entity ID. Grounding
-correctly rejected it. The request correction is locally tested, awaiting live acceptance.
-Evidence-summary mode remains available; generated-report acceptance is pending.
+Google access is not published. Gemini remains disabled pending compatible
+deployment and hosted integration. The corrected 3.5 request passed one authorized
+live check: complete canonical validation and an independent persisted-citation
+read, with 5,655 input / 502 output tokens and `STOP`. Earlier failures remain
+recorded; no response IDs were repaired or grounding rules weakened.
+Evidence-summary mode remains available.
 This deployment is not full release acceptance.
 
 ## Try a role

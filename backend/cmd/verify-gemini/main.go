@@ -378,6 +378,11 @@ func verificationKey(ack, model string) (string, error) {
 			return "", errors.New("instrumented verification requires exact reviewed 3.5 model")
 		}
 		return "gemini-owner-instrumented35-claimed-v4", nil
+	case "OWNER AUTHORIZED ONE CORRECTED GEMINI 3.5 VERIFICATION":
+		if model != "gemini-3.5-flash-lite" {
+			return "", errors.New("corrected citation request verification requires exact reviewed 3.5 model")
+		}
+		return "gemini-owner-corrected35-citations-v5", nil
 	default:
 		return "", errors.New("additional probe requires explicit owner authorization")
 	}

@@ -140,6 +140,13 @@ func TestDiagnosticIdentityRequiresExplicitAuthorization(t *testing.T) {
 	if _, err := verificationKey("OWNER AUTHORIZED ONE ENCRYPTED GEMINI 3.5 VERIFICATION", "gemini-2.5-flash-lite"); err == nil {
 		t.Fatal("instrumented acknowledgement accepted wrong model")
 	}
+	corrected, err := verificationKey("OWNER AUTHORIZED ONE CORRECTED GEMINI 3.5 VERIFICATION", "gemini-3.5-flash-lite")
+	if err != nil || corrected == instrumented || corrected == model35 || corrected == diagnostic || corrected == original {
+		t.Fatal("corrected request identity must preserve all prior jobs")
+	}
+	if _, err := verificationKey("OWNER AUTHORIZED ONE CORRECTED GEMINI 3.5 VERIFICATION", "gemini-2.5-flash-lite"); err == nil {
+		t.Fatal("corrected request acknowledgement accepted wrong model")
+	}
 }
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
