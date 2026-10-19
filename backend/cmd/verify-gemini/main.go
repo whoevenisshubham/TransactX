@@ -28,6 +28,7 @@ type auditTransport struct {
 	next    http.RoundTripper
 	receipt *os.File
 	model   string
+	capture func([]byte) error
 }
 
 func (a *auditTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -58,6 +59,13 @@ func (a *auditTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}{io.MultiReader(bytes.NewReader(raw), res.Body), res.Body}
 			if generation {
 				event["envelope"] = generationSummary(raw, a.model, readErr)
+				if a.capture != nil && readErr == nil && len(raw) <= 1<<20 {
+					if captureErr := a.capture(raw); captureErr != nil {
+						res.Body.Close()
+						return nil, errors.New("encrypted diagnostic capture failed; no retry")
+					}
+					event["encryptedResponseCaptured"] = true
+				}
 			}
 			var body struct {
 				Error struct {
@@ -95,6 +103,7 @@ func generationSummary(raw []byte, model string, readErr error) map[string]any {
 	if readErr != nil || len(raw) > 1<<20 {
 		return out
 	}
+	out["canonicalDecodeReason"] = investigator.DiagnoseGeminiResponse(raw, model, 8000, 600)
 	var body struct {
 		ID         string `json:"responseId"`
 		Model      string `json:"modelVersion"`
@@ -142,7 +151,7 @@ func generationSummary(raw []byte, model string, readErr error) map[string]any {
 		decoder := json.NewDecoder(strings.NewReader(text))
 		decoder.DisallowUnknownFields()
 		var report investigator.InvestigationReport
-		out["canonicalJSONDecodes"] = decoder.Decode(&report) == nil && errors.Is(decoder.Decode(&struct{}{}), io.EOF)
+		out["reportGoJSONDecodes"] = decoder.Decode(&report) == nil && errors.Is(decoder.Decode(&struct{}{}), io.EOF)
 	}
 	return out
 }
@@ -200,6 +209,8 @@ func run() error {
 	origin := flag.String("api-origin", "", "existing synthetic HTTPS API")
 	payment := flag.String("payment-id", "", "existing synthetic payment UUID")
 	receipt := flag.String("receipt", "", "new absolute private receipt outside Git; exclusive creation prevents reruns")
+	encryptedResponse := flag.String("encrypted-response", "", "new private .age capture of exact response; required for offline diagnosis")
+	ageRecipient := flag.String("age-recipient-file", "", "existing private age recipient file, never an identity/key sent to the provider")
 	ack := flag.String("ack", "", "VERIFY ONE SYNTHETIC GEMINI INVESTIGATION")
 	diagnosticAck := flag.String("diagnostic-ack", "", "explicit additional owner authorization; never an automatic retry")
 	flag.Parse()
@@ -212,6 +223,9 @@ func run() error {
 	}
 	if os.Getenv("TX_GEMINI_ENABLED") == "true" || *payment == "" || !filepath.IsAbs(*receipt) {
 		return errors.New("production flag must stay off; payment and private receipt required")
+	}
+	if *receipt == *encryptedResponse || !privateOutput(*receipt) {
+		return errors.New("distinct private receipt and encrypted-response paths required")
 	}
 	for p := filepath.Dir(*receipt); ; p = filepath.Dir(p) {
 		if _, err := os.Stat(filepath.Join(p, ".git")); err == nil {
@@ -226,6 +240,11 @@ func run() error {
 	if err != nil {
 		return errors.New("actual configuration-bound owner review required")
 	}
+	capture, closeCapture, err := prepareResponseCapture(*encryptedResponse, *ageRecipient)
+	if err != nil {
+		return err
+	}
+	defer closeCapture()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
 	defer cancel()
 	pc, err := pgxpool.ParseConfig(os.Getenv("DATABASE_URL"))
@@ -256,7 +275,7 @@ func run() error {
 	if err = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE id::text=$1 AND upi_id='viewer@transactx' AND role='OPS_VIEWER')", actor.ID).Scan(&matches); err != nil || !matches {
 		return errors.New("API actor does not match confirmed database")
 	}
-	audit := &auditTransport{next: http.DefaultTransport, model: model}
+	audit := &auditTransport{next: http.DefaultTransport, model: model, capture: capture}
 	providerClient := *client
 	providerClient.Transport = audit
 	provider, err := investigator.NewGeminiProvider(investigator.GeminiProviderConfig{APIKey: key, Model: model, Provider: "google", ProjectID: project, Review: review, DB: pool, Client: &providerClient})
@@ -318,11 +337,29 @@ func run() error {
 	if err = f.Sync(); err != nil {
 		return err
 	}
-	if runErr != nil || completed.Status != investigator.StatusCompleted || completed.Report == nil || completed.Report.Mode != investigator.ModeLLM {
+	persisted, getErr := store.Get(ctx, investigator.TrustedScope{ActorID: actor.ID, Role: actor.Role, SelectedPaymentID: *payment}, job.ID)
+	if getErr != nil {
+		return errors.New("persisted verification result could not be independently read")
+	}
+	acceptanceErr := validateGeneratedAcceptance(persisted)
+	if err = enc.Encode(map[string]any{"stage": "persisted_acceptance", "status": persisted.Status, "passed": acceptanceErr == nil}); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if runErr != nil || acceptanceErr != nil {
 		return errors.New("verification did not produce a completed grounded generated report; production stays off; inspect private receipt, no automatic retry")
 	}
 	fmt.Println("One grounded generated report persisted through canonical store and durable budgets; production configuration unchanged.")
 	return nil
+}
+
+func validateGeneratedAcceptance(job investigator.Job) error {
+	if job.Status != investigator.StatusCompleted || job.Report == nil || job.Report.Mode != investigator.ModeLLM || job.Snapshot == nil || len(job.Report.Facts) == 0 {
+		return errors.New("completed generated report with collected evidence citation required")
+	}
+	return investigator.ValidateReportGrounding(*job.Report, *job.Snapshot, job.Chunks)
 }
 
 func verificationKey(ack, model string) (string, error) {

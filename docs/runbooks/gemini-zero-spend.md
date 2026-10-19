@@ -134,6 +134,52 @@ redactions and byte-preserving behavior. These diagnostics cannot reconstruct
 the past result. No further request is authorized or automatically attempted;
 production remains off pending diagnosis and real report acceptance.
 
+### Offline diagnosis and proposed instrumented test
+
+The existing receipt has HTTP200 events but **no retained generation body,
+finish reason, actual model-version string, candidate/part layout or report
+JSON**. The global generation ledger records `failed` with token usage and a
+response ID: this failure arose inside the adapter, before citation grounding.
+A citation failure after decoding would instead be `grounding_rejected`.
+Neither the old failed job nor its evidence-only fallback contains the rejected
+generated report. It cannot be recovered by re-reading that fallback.
+
+Local regressions distinguish MAX_TOKENS, truncated/trailing JSON, missing
+required fields, null arrays, incorrect enums, unknown properties, wrong typed
+assertions, foreign evidence/runbook citations and stale snapshots. A discovered
+parser defect is fixed: Go decoding alone accepted missing required fields.
+The adapter now enforces the embedded schema's structural subset, failing closed
+on unsupported schema keywords, before the unchanged semantic grounding stage.
+This defect is not established as the cause of the past live adapter failure.
+The verifier also now independently reads the persisted job and requires a real
+collected fact citation; an empty-facts generated report cannot pass that gate.
+
+The verification cap remains600 (production hard maximum1200 unchanged). A
+compact one-citation candidate using the saved snapshot identifiers is722UTF-8
+bytes. There is no exact local model tokenizer; byte count and the observed584
+tokens do not prove that the actual required response fit, or that it truncated.
+No cap, prompt, schema or citation rule is relaxed to obtain acceptance.
+
+**One proposed test, not yet authorized or run:** use the same reviewed3.5
+model/key/project, canonical evidence/store and existing600-token cap, at most
+one count plus one generation with no retries. Before admission, require a new
+private `--encrypted-response=PRIVATE_RESPONSE.age` and existing
+`--age-recipient-file=PRIVATE_RECIPIENT_FILE` alongside the private receipt.
+The installed age tool/recipient is preflighted, and the output is exclusive and
+outside Git. The complete bounded response (maximum1MiB) is encrypted directly
+from memory, never written as plaintext. Encryption failure fails closed; it
+does not trigger another call. Keep the matching private age identity locally.
+
+The sanitized receipt records the canonical decoder's fixed rejection code as
+well as finish/model/part diagnostics. The encrypted response and that job's
+saved snapshot/chunks permit exact OFFLINE replay through JSON/schema and
+citation validation until the cause is understood. This covers truncation,
+model identity, required fields, actual report shape and semantic citations
+without a second diagnostic generation. Retain both earlier failed jobs and all
+four charged attempts. A new fixed test identity requires separate explicit
+owner authorization; none was added or invoked for this proposal. Production
+stays disabled. Do not enable Google's paid response logging.
+
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does
 not establish this project's current model access or free quota.
@@ -175,7 +221,9 @@ Keep `TX_GEMINI_ENABLED=false`.
 
 From `backend/`, pass `--expected-host=OWNER_CONFIRMED_DIRECT_NEON_HOST`,
 `--expected-db=neondb`, `--api-origin=https://transactx-demo-api.onrender.com`,
-`--payment-id=EXISTING_SYNTHETIC_UUID`, `--receipt=NEW_PRIVATE_ABSOLUTE_PATH` and
+`--payment-id=EXISTING_SYNTHETIC_UUID`, `--receipt=NEW_PRIVATE_ABSOLUTE_PATH`,
+`--encrypted-response=NEW_PRIVATE_RESPONSE.age`,
+`--age-recipient-file=EXISTING_PRIVATE_RECIPIENT_PATH` and
 `--ack="VERIFY ONE SYNTHETIC GEMINI INVESTIGATION"` to `go run ./cmd/verify-gemini`.
 The command checks the exact connected target and actual API operator against
 the stored demo identity. Evidence comes from the real authenticated evidence

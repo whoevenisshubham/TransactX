@@ -8,9 +8,45 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/transactx/backend/internal/investigator"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func TestAcceptanceRequiresPersistedGroundedCitation(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "investigator", "testfixtures", "healthy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct{ Evidence investigator.EvidenceBundle }
+	if json.Unmarshal(raw, &fixture) != nil {
+		t.Fatal("fixture")
+	}
+	for _, kind := range []string{"valid", "empty_facts", "foreign_citation", "fallback", "failed"} {
+		t.Run(kind, func(t *testing.T) {
+			report, err := investigator.BuildEvidenceOnlyReport(fixture.Evidence, nil, "state")
+			if err != nil {
+				t.Fatal(err)
+			}
+			report.Mode = investigator.ModeLLM
+			job := investigator.Job{Status: investigator.StatusCompleted, Snapshot: &fixture.Evidence, Report: &report}
+			switch kind {
+			case "empty_facts":
+				report.Facts = nil
+			case "foreign_citation":
+				report.Facts[0].EvidenceIds = []string{"foreign"}
+			case "fallback":
+				report.Mode = investigator.ModeEvidenceOnly
+			case "failed":
+				job.Status = investigator.StatusFailed
+			}
+			if err = validateGeneratedAcceptance(job); (err == nil) != (kind == "valid") {
+				t.Fatalf("accepted=%t case=%s", err == nil, kind)
+			}
+		})
+	}
+}
 
 func TestGenerationAuditRecordsStructureWithoutModelText(t *testing.T) {
 	const private = "secret-prompt-or-response-never-record"
@@ -25,7 +61,8 @@ func TestGenerationAuditRecordsStructureWithoutModelText(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a := auditTransport{receipt: f, model: "gemini-3.5-flash-lite", next: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			var captured []byte
+			a := auditTransport{receipt: f, model: "gemini-3.5-flash-lite", capture: func(raw []byte) error { captured = append([]byte(nil), raw...); return nil }, next: roundTripFunc(func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
 			})}
 			req, _ := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent", nil)
@@ -37,6 +74,9 @@ func TestGenerationAuditRecordsStructureWithoutModelText(t *testing.T) {
 			got, err := io.ReadAll(res.Body)
 			if err != nil || string(got) != string(body) {
 				t.Fatal("observer changed response")
+			}
+			if string(captured) != string(body) {
+				t.Fatal("capture cannot reproduce exact provider response offline")
 			}
 			raw, err := os.ReadFile(f.Name())
 			if err != nil {
@@ -55,8 +95,11 @@ func TestGenerationAuditRecordsStructureWithoutModelText(t *testing.T) {
 			if finish == private {
 				expected = "OTHER"
 			}
-			if event.Envelope["finishReason"] != expected || event.Envelope["modelMatchesConfigured"] != true || event.Envelope["reportJSONValid"] != true || event.Envelope["canonicalJSONDecodes"] != false {
+			if event.Envelope["finishReason"] != expected || event.Envelope["modelMatchesConfigured"] != true || event.Envelope["reportJSONValid"] != true || event.Envelope["reportGoJSONDecodes"] != false {
 				t.Fatal("missing structural rejection diagnostics")
+			}
+			if event.Envelope["canonicalDecodeReason"] == nil {
+				t.Fatal("canonical decoder rejection boundary missing")
 			}
 		})
 	}
