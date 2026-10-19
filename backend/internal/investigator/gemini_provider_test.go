@@ -44,7 +44,8 @@ func TestGeminiReviewAndDecoder(t *testing.T) {
 			t.Fatal("unreviewed policy accepted")
 		}
 	}
-	raw := []byte(`{"responseId":"actual-fixture-id","modelVersion":"gemini-3.5-flash-lite","candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"{}"}]}}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":20,"thoughtsTokenCount":5}}`)
+	reportText, _ := json.Marshal(completeGeminiReport)
+	raw := []byte(`{"responseId":"actual-fixture-id","modelVersion":"gemini-3.5-flash-lite","candidates":[{"finishReason":"STOP","content":{"parts":[{"text":` + string(reportText) + `}]}}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":20,"thoughtsTokenCount":5}}`)
 	result, err := decodeGeminiResponse(raw, approval.Model, 8000, 1200)
 	if err != nil || *result.Usage.OutputTokens != 25 || result.Usage.CostMicrousd != nil {
 		t.Fatal("thinking usage/cost provenance lost")
@@ -52,7 +53,7 @@ func TestGeminiReviewAndDecoder(t *testing.T) {
 	if _, err := decodeGeminiResponse(raw, approval.Model, 8000, 24); !errors.Is(err, ErrProviderMalformed) {
 		t.Fatal("output including thought tokens exceeded cap")
 	}
-	for _, replace := range [][2]string{{`"STOP"`, `"MAX_TOKENS"`}, {`actual-fixture-id`, ``}, {`gemini-3.5-flash-lite`, `wrong-model`}, {`"{}"`, `"{\"unexpected\":true}"`}} {
+	for _, replace := range [][2]string{{`"STOP"`, `"MAX_TOKENS"`}, {`actual-fixture-id`, ``}, {`gemini-3.5-flash-lite`, `wrong-model`}, {string(reportText), `"{\"unexpected\":true}"`}} {
 		bad := strings.Replace(string(raw), replace[0], replace[1], 1)
 		if _, err := decodeGeminiResponse([]byte(bad), approval.Model, 8000, 1200); err == nil {
 			t.Fatal("malformed provider result accepted")
@@ -120,6 +121,13 @@ func TestGeminiDurableAdmissionAndGrounding(t *testing.T) {
 		t.Fatal(err)
 	}
 	report.Mode = ModeLLM
+	report.Inferences = []Inference{}
+	if report.Recommendations == nil {
+		report.Recommendations = []Recommendation{}
+	}
+	if report.MissingEvidence == nil {
+		report.MissingEvidence = []string{}
+	}
 	// Deliberately untrusted model prose must be canonicalized by existing grounding.
 	report.Summary = "Untrusted model says every bank is healthy."
 	reportJSON, _ := json.Marshal(report)

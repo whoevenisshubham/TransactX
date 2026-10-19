@@ -205,15 +205,15 @@ func decodeGeminiResponse(raw []byte, model string, inputLimit, outputLimit int6
 		} `json:"usageMetadata"`
 	}
 	if json.Unmarshal(raw, &response) != nil {
-		return GenerationResult{}, ErrProviderMalformed
+		return GenerationResult{}, malformedGemini("envelope_json")
 	}
 	result := GenerationResult{ProviderRequestID: response.ID, ProviderModel: response.Model, Usage: Usage{InputTokens: response.Usage.Input, OutputTokens: response.Usage.Output}}
 	if (response.Usage.Input != nil && *response.Usage.Input < 0) || (response.Usage.Output != nil && *response.Usage.Output < 0) {
-		return result, ErrProviderMalformed
+		return result, malformedGemini("usage_negative")
 	}
 	if response.Usage.Thoughts != nil {
 		if *response.Usage.Thoughts < 0 {
-			return result, ErrProviderMalformed
+			return result, malformedGemini("usage_negative")
 		}
 		if result.Usage.OutputTokens != nil {
 			total := *result.Usage.OutputTokens + *response.Usage.Thoughts
@@ -221,16 +221,16 @@ func decodeGeminiResponse(raw []byte, model string, inputLimit, outputLimit int6
 		}
 	}
 	if result.ProviderRequestID == "" || len(result.ProviderRequestID) > 256 || !(response.Model == model || strings.HasPrefix(response.Model, model+"-")) || len(response.Candidates) != 1 {
-		return result, ErrProviderMalformed
+		return result, malformedGemini("envelope_identity_or_candidates")
 	}
 	if response.Candidates[0].Finish == "SAFETY" || response.Candidates[0].Finish == "RECITATION" {
 		return result, ErrProviderRefusal
 	}
 	if response.Candidates[0].Finish != "STOP" {
-		return result, ErrProviderMalformed
+		return result, malformedGemini("finish_not_stop")
 	}
 	if (result.Usage.InputTokens != nil && (*result.Usage.InputTokens < 0 || *result.Usage.InputTokens > inputLimit)) || (result.Usage.OutputTokens != nil && (*result.Usage.OutputTokens < 0 || *result.Usage.OutputTokens > outputLimit)) {
-		return result, ErrProviderMalformed
+		return result, malformedGemini("usage_limit")
 	}
 	output := ""
 	for _, part := range response.Candidates[0].Content.Parts {
@@ -239,7 +239,7 @@ func decodeGeminiResponse(raw []byte, model string, inputLimit, outputLimit int6
 		}
 		if part.Text != "" {
 			if output != "" {
-				return result, ErrProviderMalformed
+				return result, malformedGemini("multiple_text_parts")
 			}
 			output = part.Text
 		}
@@ -248,10 +248,13 @@ func decodeGeminiResponse(raw []byte, model string, inputLimit, outputLimit int6
 	decoder.DisallowUnknownFields()
 	var report InvestigationReport
 	if decoder.Decode(&report) != nil {
-		return result, ErrProviderMalformed
+		return result, malformedGemini("report_json_or_type")
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return result, ErrProviderMalformed
+		return result, malformedGemini("report_trailing_json")
+	}
+	if reason := validateGeminiReportShape([]byte(output)); reason != "" {
+		return result, malformedGemini(reason)
 	}
 	result.Report = &report
 	return result, nil
