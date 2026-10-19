@@ -48,8 +48,16 @@ at `countTokens`, with one failed durable admission and zero `generateContent`
 attempts. Its saved result is evidence-summary fallback, not generated-report
 acceptance. Production generation stays off. No automatic retry or counter reset
 was performed. The verification tool now records bounded HTTP status/provider
-error category without keys, URLs, prompts or response bodies; a further live
-probe requires the owner's additional attempt authorization.
+error category without keys, URLs, prompts or response bodies. The owner then
+authorized exactly one additional diagnostic probe. It returned HTTP 404 with
+Google status `NOT_FOUND` at `countTokens`; checked durable SQL shows two failed
+count attempts in total and zero generation attempts. Both original jobs and
+receipts remain intact. The endpoint/model resource construction matches the
+official token-count API; the exact provider-side reason is not established.
+Model discovery and visible quota do not prove that this key can invoke it.
+Production stays disabled; no further probe is authorized. Next prerequisite is
+owner/Google confirmation of usable token-count access for the exact selected
+project/key/model, without enabling billing or changing the plan.
 
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does
@@ -108,6 +116,12 @@ fails, inspect the original job rather than submitting another key. No API,
 worker or alternate native service launcher is started. No financial SQL is
 written, production configuration stays unchanged, and evidence-summary fallback
 is not a successful generated-report test.
+
+Only after separate explicit owner authorization, the single diagnostic identity
+is selected with `--diagnostic-ack="OWNER AUTHORIZED ONE ADDITIONAL DIAGNOSTIC PROBE"`
+and a new private receipt. It does not reset or replace the original identity;
+repeating it reuses that same diagnostic identity and refuses resubmission.
+There is no arbitrary attempt number or automatic retry loop.
 
 After checking the existing synthetic demo target, use its Neon SQL Editor
 with owner access to stop **new admissions** without a deploy:

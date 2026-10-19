@@ -132,7 +132,12 @@ func run() error {
 	payment := flag.String("payment-id", "", "existing synthetic payment UUID")
 	receipt := flag.String("receipt", "", "new absolute private receipt outside Git; exclusive creation prevents reruns")
 	ack := flag.String("ack", "", "VERIFY ONE SYNTHETIC GEMINI INVESTIGATION")
+	diagnosticAck := flag.String("diagnostic-ack", "", "explicit additional owner authorization; never an automatic retry")
 	flag.Parse()
+	requestKey, err := verificationKey(*diagnosticAck)
+	if err != nil {
+		return err
+	}
 	if err := validateTarget(os.Getenv("DATABASE_URL"), *host, *database, *origin, *ack); err != nil {
 		return err
 	}
@@ -224,7 +229,7 @@ func run() error {
 	if err = store.SetUsageLimits(ctx, investigator.UsageAllowance{InputTokens: 80000, OutputTokens: 12000, CostMicrousd: 0}); err != nil {
 		return errors.New("durable token budget unavailable")
 	}
-	job, created, err := service.Start(ctx, investigator.TrustedScope{ActorID: actor.ID, Role: actor.Role, SelectedPaymentID: *payment}, *payment, "Explain the central state briefly with one collected evidence citation. Keep the report concise.", "gemini-owner-free-verification-v1")
+	job, created, err := service.Start(ctx, investigator.TrustedScope{ActorID: actor.ID, Role: actor.Role, SelectedPaymentID: *payment}, *payment, "Explain the central state briefly with one collected evidence citation. Keep the report concise.", requestKey)
 	if err != nil {
 		return errors.New("canonical investigation admission failed")
 	}
@@ -249,6 +254,17 @@ func run() error {
 	}
 	fmt.Println("One grounded generated report persisted through canonical store and durable budgets; production configuration unchanged.")
 	return nil
+}
+
+func verificationKey(ack string) (string, error) {
+	switch ack {
+	case "":
+		return "gemini-owner-free-verification-v1", nil
+	case "OWNER AUTHORIZED ONE ADDITIONAL DIAGNOSTIC PROBE":
+		return "gemini-owner-free-diagnostic-v2", nil
+	default:
+		return "", errors.New("additional probe requires explicit owner authorization")
+	}
 }
 
 func main() {

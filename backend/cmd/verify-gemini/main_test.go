@@ -11,6 +11,20 @@ import (
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
+func TestDiagnosticIdentityRequiresExplicitAuthorization(t *testing.T) {
+	original, err := verificationKey("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostic, err := verificationKey("OWNER AUTHORIZED ONE ADDITIONAL DIAGNOSTIC PROBE")
+	if err != nil || original == diagnostic {
+		t.Fatal("distinct authorized identity required")
+	}
+	if _, err := verificationKey("retry"); err == nil {
+		t.Fatal("arbitrary retries accepted")
+	}
+}
+
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestTransportAuditRetainsStatusWithoutCredentialsOrBodies(t *testing.T) {

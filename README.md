@@ -22,7 +22,8 @@ in this README use intercepted synthetic test responses; they are UI examples.
 Google first and returning sign-in passed for the owner's External/Testing
 account, with independently checked zero balances and stable identity. Public
 Google access is not published. Gemini remains disabled: the reviewed Free model
-has quota, but its first live token-count request failed before generation.
+has quota, but the owner-authorized diagnostic token-count request returned
+`404 NOT_FOUND` before generation. Evidence-summary mode remains available.
 This deployment is not full release acceptance.
 
 ## Try a role
