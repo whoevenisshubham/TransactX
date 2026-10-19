@@ -73,6 +73,34 @@ without preventing core startup. Configuration loads on deployment/startup.
 
 ## Immediate shared disable
 
+### One controlled verification while production stays disabled
+
+After actual project/model quota review, `backend/cmd/verify-gemini` can run one
+synthetic investigation without enabling the production provider. Supply private
+`DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_PROJECT_ID`, the helper's
+`TX_GEMINI_OWNER_REVIEW`, and a normal authenticated read-only demo operator JWT
+in `TX_VERIFY_OPS_TOKEN`. Never put these values on a command line or in Git.
+Keep `TX_GEMINI_ENABLED=false`.
+
+From `backend/`, pass `--expected-host=OWNER_CONFIRMED_DIRECT_NEON_HOST`,
+`--expected-db=neondb`, `--api-origin=https://transactx-demo-api.onrender.com`,
+`--payment-id=EXISTING_SYNTHETIC_UUID`, `--receipt=NEW_PRIVATE_ABSOLUTE_PATH` and
+`--ack="VERIFY ONE SYNTHETIC GEMINI INVESTIGATION"` to `go run ./cmd/verify-gemini`.
+The command checks the exact connected target and actual API operator against
+the stored demo identity. Evidence comes from the real authenticated evidence
+API, and retrieval uses the existing approved PostgreSQL corpus.
+
+It uses the canonical investigator/store/grounding, existing UTC token limits
+(80,000 input/12,000 output), durable ten-request admission and shared disable
+latch. One generation round has a 600-token output cap and no automatic retry.
+The canonical report/provenance and a private exclusive receipt are retained.
+The stable verification request key and refusal to overwrite a receipt prevent
+automatic resubmission. If another worker wins the normal lease or any gate
+fails, inspect the original job rather than submitting another key. No API,
+worker or alternate native service launcher is started. No financial SQL is
+written, production configuration stays unchanged, and evidence-summary fallback
+is not a successful generated-report test.
+
 After checking the existing synthetic demo target, use its Neon SQL Editor
 with owner access to stop **new admissions** without a deploy:
 

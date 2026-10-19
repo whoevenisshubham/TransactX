@@ -32,3 +32,15 @@ test("review generation needs explicit owner confirmations and binds configurati
   assert.throws(() => run(["--confirm-billing-disabled", "--confirm-free-model"]));
   assert.equal(readFileSync(output,"utf8"),raw); // Never overwrite an earlier review.
 });
+
+test("opaque dotted keys remain bound while dotenv and header injection are rejected", () => {
+  const folder = mkdtempSync(join(tmpdir(), "transactx-review-format-"));
+  const script = fileURLToPath(new URL("./prepare-gemini-review.mjs", import.meta.url));
+  for (const [index,key] of ["opaque."+randomBytes(24).toString("hex"), "GEMINI_API_KEY="+randomBytes(24).toString("hex"), "opaque"+randomBytes(24).toString("hex")+"\r\nx-header: injected"].entries()) {
+    const keyPath=join(folder,`key-${index}.txt`), output=join(folder,`review-${index}.json`);
+    writeFileSync(keyPath,key,{mode:0o600});
+    const run=()=>execFileSync(process.execPath,[script,`--key-file=${keyPath}`,`--output=${output}`,"--provider=google","--project=fixture-project","--model=gemini-2.5-flash-lite","--confirm-billing-disabled","--confirm-free-model"],{encoding:"utf8",stdio:"pipe"});
+    if(index===0){assert.equal(run().includes(key),false);assert.equal(JSON.parse(readFileSync(output,"utf8")).keySha256,createHash("sha256").update(key).digest("hex"));}
+    else {assert.throws(run);assert.equal(existsSync(output),false);}
+  }
+});

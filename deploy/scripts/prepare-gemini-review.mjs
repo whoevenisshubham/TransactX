@@ -19,7 +19,7 @@ for (const key of ["key-file", "output"]) {
   if (!isAbsolute(args[key]) || (!isAbsolute(within) && within !== ".." && !within.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`))) throw new Error("Use absolute private paths outside this checkout.");
 }
 const key = readFileSync(args["key-file"], "utf8").trim();
-if (!/^[A-Za-z0-9_-]{20,200}$/.test(key)) throw new Error("Expected a private raw key file, not dotenv content or a command-line key.");
+if (!/^[A-Za-z0-9_.-]{20,200}$/.test(key)) throw new Error("Expected a private raw key file, not dotenv content or a command-line key.");
 const review = { provider: args.provider, projectId: args.project, model: args.model, keySha256: createHash("sha256").update(key).digest("hex"), billingDisabled: true, freeTierAvailable: true, reviewedAt: new Date().toISOString() };
 const raw = JSON.stringify(review);
 if (Buffer.byteLength(raw) > 4096) throw new Error("Review exceeds the server configuration bound.");
