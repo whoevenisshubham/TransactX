@@ -51,7 +51,24 @@ after the new-account cap. Failed provisioning rolls back identity and counters.
 Gateway auth admission is shared with password/demo sign-in. Restarting the API
 does not reset durable counters or permit ambiguous code reuse.
 
-## Owner setup and live verification (pending)
+## Current demo status
+
+On 19 October 2026, the owner confirmed the access changes after inspection of
+the actual Google console. The existing Web client retains the exact callback
+above and no JavaScript origins. Consent uses only `openid` and `userinfo.email`,
+with the real frontend homepage/privacy links and exact authorized domain.
+Audience remains **External / Testing** with the owner's added test user;
+the app has not been published for general Google access.
+
+After canonical migration verification through 33, the existing Free Render
+service deployed its current `cafae17` image with Google enabled. Auth options
+report Google/demo enabled and public registration disabled; ordinary demo
+authentication and account reads still work. The actual frontend flow reached
+Google's account chooser with the correct privacy link. Owner account selection,
+consent, first/returning login and independent zero-balance checks remain pending.
+Reaching an account chooser is not successful authentication. Gemini stays off.
+
+## Owner setup and live verification
 
 1. Sign in to [Google Auth Platform](https://console.cloud.google.com/auth/overview)
    and select your owner-controlled project. Do not enable billing or paid APIs.
