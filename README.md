@@ -22,8 +22,9 @@ in this README use intercepted synthetic test responses; they are UI examples.
 Google first and returning sign-in passed for the owner's External/Testing
 account, with independently checked zero balances and stable identity. Public
 Google access is not published. Gemini remains disabled: legacy 2.5 requests
-returned `404 NOT_FOUND`; the separately authorized 3.5 check returned HTTP200
-for counting and generation, but the generated report failed canonical validation.
+returned `404 NOT_FOUND`; the instrumented 3.5 response completed within its cap
+and decoded correctly, but confused an evidence ID with an entity ID. Grounding
+correctly rejected it. The request correction is locally tested, awaiting live acceptance.
 Evidence-summary mode remains available; generated-report acceptance is pending.
 This deployment is not full release acceptance.
 

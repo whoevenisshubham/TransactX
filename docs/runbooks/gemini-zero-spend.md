@@ -160,7 +160,7 @@ bytes. There is no exact local model tokenizer; byte count and the observed584
 tokens do not prove that the actual required response fit, or that it truncated.
 No cap, prompt, schema or citation rule is relaxed to obtain acceptance.
 
-**One proposed test, not yet authorized or run:** use the same reviewed3.5
+**Instrumented procedure, separately authorized and executed below:** use the same reviewed3.5
 model/key/project, canonical evidence/store and existing600-token cap, at most
 one count plus one generation with no retries. Before admission, require a new
 private `--encrypted-response=PRIVATE_RESPONSE.age` and existing
@@ -176,9 +176,48 @@ saved snapshot/chunks permit exact OFFLINE replay through JSON/schema and
 citation validation until the cause is understood. This covers truncation,
 model identity, required fields, actual report shape and semantic citations
 without a second diagnostic generation. Retain both earlier failed jobs and all
-four charged attempts. A new fixed test identity requires separate explicit
-owner authorization; none was added or invoked for this proposal. Production
+four earlier charged attempts. This is not standing permission for more calls;
+any further fixed test identity requires explicit owner authorization. Production
 stays disabled. Do not enable Google's paid response logging.
+
+### Instrumented result and offline correction
+
+The authorized provider sequence sent exactly one count and one generation:
+bothHTTP200, `STOP`, one non-thought text part, configured model match,
+4,979input/563output tokens. The full response is encrypted outside Git with
+the matching private evidence snapshot. Canonical JSON/schema decoding passed;
+semantic grounding correctly rejected it. Exact offline replay through the real
+decoder and `GroundGeneratedReport` proves the model copied a known evidence ID
+into `assertion.entityId`; the required value was that evidence's payment entity
+ID. State/value, citation and snapshot matched. This result was not truncated;
+it does not retroactively establish the cause of the earlier uncaptured failure.
+
+The corrected request now supplies explicit collected `citationBindings` and a
+per-request string enum of permitted entity IDs, using the documented structured
+output enum capability. It excludes evidence IDs and null entities for published
+typed assertions. The shared schema/prompt is not mutated. All exact pair/value
+grounding remains mandatory; rejected reports are never rewritten or accepted.
+A regression reproduces evidence-ID-as-entity rejection; request tests verify
+the scoped bindings/enum and absence of cross-request schema mutation. This
+request correction has local acceptance only; no further generation was sent.
+
+Before the actual provider sequence, an initial queued verification was claimed
+by the normal deployed worker and failed `provider_disabled` with zero provider
+rounds; checked global attempts remained4. A wrapper-store preflight was then
+rejected by the existing concrete canonical-store guard, also with zero calls.
+All jobs/empty captures were retained. Maintenance now atomically creates and
+leases its canonical job, and runs it under that exact owner/epoch. The concrete
+Gemini store/review guard was preserved, not relaxed. Normal HTTP jobs still use
+the regular queue. Real disposable PostgreSQL/race tests verify foreign-worker
+denial, idempotency, unchanged lease and active limits, ordinary store conformance
+and guarded generated execution. The required CI gate now includes that atomic
+admission test, so it cannot silently skip.
+
+The resulting total is6charged HTTP attempts, not six attempts in this owner
+authorization. No provider retries, counter refunds, lease resets or financial
+SQL were used. Grounded generated-report acceptance remains pending; production
+is off. A future corrected-request check must be separately authorized, use the
+same bounds/encrypted capture and keep the failed reports and provenance intact.
 
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does
