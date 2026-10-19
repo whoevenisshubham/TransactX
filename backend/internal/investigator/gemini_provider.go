@@ -62,11 +62,16 @@ func (p *GeminiProvider) Generate(ctx context.Context, r GenerationRequest) (res
 	if r.PromptVersion != p.assets.Version || r.Evidence.PaymentId == "" || strings.TrimSpace(r.Question) == "" || r.InputTokenLimit < 1 || r.InputTokenLimit > 8000 || r.OutputTokenLimit < 1 || r.OutputTokenLimit > 1200 || len(r.Continuation) > 0 || len(r.ToolOutputs) > 0 {
 		return result, ErrProviderMalformed
 	}
+	schema, bindings, err := geminiCitationSchema(p.assets.ReportSchema, r.Evidence)
+	if err != nil {
+		return result, err
+	}
 	packet := struct {
-		Question string         `json:"question"`
-		Evidence EvidenceBundle `json:"evidence"`
-		Runbooks []RunbookChunk `json:"runbooks"`
-	}{r.Question, r.Evidence, r.Chunks}
+		Question         string                  `json:"question"`
+		Evidence         EvidenceBundle          `json:"evidence"`
+		Runbooks         []RunbookChunk          `json:"runbooks"`
+		CitationBindings []geminiCitationBinding `json:"citationBindings"`
+	}{r.Question, r.Evidence, r.Chunks, bindings}
 	text, err := json.Marshal(packet)
 	if err != nil || len(text) > 64<<10 {
 		return result, ErrProviderMalformed
@@ -75,7 +80,7 @@ func (p *GeminiProvider) Generate(ctx context.Context, r GenerationRequest) (res
 	if p.model == "gemini-2.5-flash-lite" {
 		thinking = map[string]any{"thinkingBudget": 0}
 	}
-	content := map[string]any{"model": "models/" + p.model, "systemInstruction": map[string]any{"parts": []any{map[string]any{"text": p.assets.Prompt}}}, "contents": []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": string(text)}}}}, "generationConfig": map[string]any{"maxOutputTokens": r.OutputTokenLimit, "candidateCount": 1, "responseMimeType": "application/json", "responseJsonSchema": p.assets.ReportSchema, "thinkingConfig": thinking}}
+	content := map[string]any{"model": "models/" + p.model, "systemInstruction": map[string]any{"parts": []any{map[string]any{"text": p.assets.Prompt}}}, "contents": []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": string(text)}}}}, "generationConfig": map[string]any{"maxOutputTokens": r.OutputTokenLimit, "candidateCount": 1, "responseMimeType": "application/json", "responseJsonSchema": schema, "thinkingConfig": thinking}}
 	countBody, err := json.Marshal(map[string]any{"generateContentRequest": content})
 	if err != nil {
 		return result, ErrProviderMalformed

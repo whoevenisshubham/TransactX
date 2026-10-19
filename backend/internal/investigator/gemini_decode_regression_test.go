@@ -69,7 +69,7 @@ func TestGeminiDecodedCitationsStillRequireGrounding(t *testing.T) {
 	base.Inferences = []Inference{}
 	base.Recommendations = []Recommendation{}
 	base.MissingEvidence = []string{}
-	for _, c := range []string{"valid", "foreign_citation", "wrong_assertion", "stale_snapshot", "missing_assertions", "missing_nested_field", "null_entity", "foreign_runbook"} {
+	for _, c := range []string{"valid", "foreign_citation", "wrong_assertion", "stale_snapshot", "missing_assertions", "missing_nested_field", "null_entity", "foreign_runbook", "evidence_id_as_entity"} {
 		t.Run(c, func(t *testing.T) {
 			encoded, _ := json.Marshal(base)
 			var report InvestigationReport
@@ -85,6 +85,8 @@ func TestGeminiDecodedCitationsStillRequireGrounding(t *testing.T) {
 				report.Facts[0].Assertions = []Assertion{}
 			case "null_entity":
 				report.Facts[0].Assertions[0].EntityId = nil
+			case "evidence_id_as_entity":
+				report.Facts[0].Assertions[0].EntityId = &report.Facts[0].Assertions[0].EvidenceId
 			case "foreign_runbook":
 				report.Recommendations = []Recommendation{{Text: "Review", RunbookChunkIds: []string{"foreign"}}}
 			}
