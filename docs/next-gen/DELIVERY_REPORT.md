@@ -7,13 +7,22 @@ they do not certify the newer V3 deployment.
 
 ## Experience V3 acceptance — 19 October 2026
 
-Deployed backend and Vercel production frontend: `cafae17a0366fc5b4991bc6e1ea123053d5d3576`.
+Deployed backend: `433011cb39ce8e996c0a2d46a333095919d7f4e4`.
+Vercel production frontend: `cafae17a0366fc5b4991bc6e1ea123053d5d3576`;
+frontend source is unchanged between these commits.
 API: https://transactx-demo-api.onrender.com; frontend:
 https://transactx-frontend.vercel.app. Render deployment:
-`dep-dbas8gk9v7es739op080`; Vercel: `dpl_2NbJJjtUhHCWY5ncn9mgZ5wxif1o`.
-Rollback application source: `426436d780b70eaf83042df91bf8f44fcf65ba99`.
-Later maintenance CLI/test/documentation commits do not change those deployed IDs.
+`dep-dbb4su6q1p3s73evc1s0`; Vercel: `dpl_2NbJJjtUhHCWY5ncn9mgZ5wxif1o`.
+Immediate backend rollback: `cafae17` / `dep-dbas8gk9v7es739op080`;
+earlier application rollback `426436d780b70eaf83042df91bf8f44fcf65ba99` retained.
+Documentation-only commits do not change those deployed IDs.
 Private evidence and the single checkpoint stay outside Git.
+
+Post-deploy authenticated customer/account/payment and saved generated-report
+reads passed; Google remains enabled and registration disabled. Actual Render
+logs show a worker heartbeat at433011c and two initial aggregate windows processed.
+Gateway `/healthz` reports alive/database not-probed; authenticated reads provide
+the separate database evidence. Gemini remains disabled pending activation.
 
 | Gate | Status and exact scope |
 | --- | --- |
@@ -56,12 +65,12 @@ references below name the owner-supplied files/sections, kept outside Git.
 | --- | --- | --- | --- |
 | Original password: V3 `03_OAUTH_DATA_AND_AI.md`, identity constraints and PostgreSQL tests | Preserve password compatibility, not possession of one historical account's password | Real stored-password login/authorized reads pass in `TestGeminiColdCompositionWithOwnerReview`; OAuth-only password denial tests pass. That original cloud password itself is unavailable | No password/reset input is needed for this requirement. Agent reuses valid regression evidence; exact original-account live recheck stays unclaimed |
 | Browser offline/replay: V3 QA§4.6 and [A5](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a5-verify-full-browser-workflows) | Mandatory current V3 browser acceptance | PASS: owner-operated actual Chrome offline queue/cache reload/Bob isolation/Alice automatic replay screenshots plus independent checkedSQL;15payments total, conserved1100000paise, zero reconstruction/unbalanced/duplicate participant-ledger errors | Completed with owner network/UI handoff; no further toggle or synthetic payment needed for this gate. Evidence applies to deployedcafae17 frontend, not native installation |
-| Gemini: V3 P8 / QA§8 | Mandatory before enabling/claiming generated reports; pack allows a clearly disabled optional provider | Corrected request passed full canonical grounding and persisted citations in one authorized encrypted live verification. Production still off; compatible final-head CI/deployment and hosted integration missing | Agent can inspect final-head CI/deploy when passing and verify hosted paths before activation. No further provider call authorized by the completed verification |
+| Gemini: V3 P8 / QA§8 | Mandatory before enabling/claiming generated reports; pack allows a clearly disabled optional provider | Corrected request passed full canonical grounding/persisted citations;433011c CI, deployment, authenticated API/browser saved-report reads, connected SSE and actual worker heartbeat passed. Production still off; normal hosted-worker generation not yet claimed | Exact reviewed Render configuration/enable is prepared for action-time confirmation because it enables external evidence transmission. The completed maintenance verification authorizes no further diagnostic call |
 | Native Linux installation: [A6](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a6-package-and-deploy-native-online-demo) / native deployment guide; V3 P10 preserves Render/Vercel/Neon | Required for certified native bundle installation, not an additional hosting requirement for the already-working Render V3 demo | Builders/configs/conformance and prior scoped native recovery exist; no actual Linux installer/systemd/Caddy run on an owner target | Owner provides an existing free Linux host/OS/architecture and authorized SSH/sudo/DNS/TLS paths if completing that native deliverable. Agent can then install/test; no paid provisioning. Until then preserve pending status |
 | Independent backup: [A7](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a7-implement-backup-and-restore-rehearsal) / [backup plan](execution-pack/docs/next-gen/DEPLOYMENT_AND_BACKUP.md#backup-and-restore) | Real encrypted restore for backup-feature claim; off-VM owner-local storage explicitly allowed. A7 is P1 in registry | Current Neon→owner-PC encrypted snapshot/isolated restore verified. Same-machine-as-source backup is not claimed; source is Neon. No third-device prerequisite. Daily schedule/retention/RPO and restored worker execution still pending | No new storage input for the verified off-host copy. For unattended daily-target claims, owner must supply/authorize an available free scheduler/host; agent cannot promise24h backups while an owner's PC is off |
 | Native crash/restored worker: testing-plan recovery gates / A7 | Required for those exact native/recovery claims; changed areas need affected checks, not automatic repetition of every old experiment | Historical genuine process-kill/restore/projection artifacts retained; current V3 native continuation not claimed. Idle/wake is distinct | Hidden native API launch was automatically rejected (`blocked by policy`); agent will not retry or use an alternate launcher. Policy resolution or an authorized existing target is needed for new native proof |
 | Cleanup: V3 QA§5 mandatory dependency/archive procedure | Required cleanup task remains incomplete, not silently waived | Dependency/archive review exists; actual historical planning/contract/AGENTS relocation/deletion was rejected | Automatic rejection was `blocked by policy`; no destructive retry/bypass. Requires that restriction to be resolved before agent can finish cleanup |
-| Final source/branch/archive/tag: V3 P10, A8 and testing-plan release gates | Mandatory for completed release claim | Working deployedcafae17/rollback426436d retained; reviewable later commits and focused gates recorded. Current browser gap, generated feature status and native/operational exclusions must remain explicit | Agent can update PR/check final-head CI and integrate only within applicable gates; no full-release tag/promotion or native-install certification claimed here |
+| Final source/branch/archive/tag: V3 P10, A8 and testing-plan release gates | Mandatory for completed release claim | Backend433011c/frontendcafae17 and rollback retained; browser offline gate now passed, deployment CI green. Provider activation and original cleanup/native/operational exclusions remain explicit | Agent updates PR/checkpoint and integrates only within applicable gates; no full-release tag/promotion or native-install certification claimed here |
 
 ## Historical native source and architecture
 
