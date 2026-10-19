@@ -55,9 +55,55 @@ count attempts in total and zero generation attempts. Both original jobs and
 receipts remain intact. The endpoint/model resource construction matches the
 official token-count API; the exact provider-side reason is not established.
 Model discovery and visible quota do not prove that this key can invoke it.
-Production stays disabled; no further probe is authorized. Next prerequisite is
-owner/Google confirmation of usable token-count access for the exact selected
-project/key/model, without enabling billing or changing the plan.
+Production stays disabled; no further probe is authorized.
+
+### Investigation of the 404 (19 October 2026)
+
+The sanitized request reconstructed from `fec5320` is below. The key and actual
+canonical prompt/evidence/schema values are deliberately redacted; this is the
+wire structure, not a replayable capture or a new live result.
+
+```http
+POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:countTokens
+Content-Type: application/json
+x-goog-api-key: [REDACTED]
+
+{"generateContentRequest":{
+  "model":"models/gemini-2.5-flash-lite",
+  "systemInstruction":{"parts":[{"text":"[canonical prompt redacted]"}]},
+  "contents":[{"role":"user","parts":[{"text":"[JSON question/evidence/runbooks redacted]"}]}],
+  "generationConfig":{
+    "maxOutputTokens":600,"candidateCount":1,"responseMimeType":"application/json",
+    "responseJsonSchema":"[canonical schema object redacted]",
+    "thinkingConfig":{"thinkingBudget":0}
+  }
+}}
+```
+
+The [token API](https://ai.google.dev/api/tokens) documents this endpoint and
+complete `generateContentRequest` wrapper. No top-level `contents` is sent with
+that wrapper. [API version guidance](https://ai.google.dev/gemini-api/docs/api-versions)
+supports `v1beta`; there is no evidence justifying a blind version switch.
+Saved authenticated discovery lists both `countTokens` and `generateContent`
+for this model. A focused PostgreSQL transport test checks the exact POST path,
+header placement, full wrapper and equality of counted/generated content.
+
+However, Google's current [Developer API access notice](https://ai.google.dev/gemini-api/docs/deprecations#gemini-25-flash-models)
+limits Gemini 2.5 to prior active users and recommends 3.5 Flash-Lite or 3.8 Flash
+for new projects. This makes restricted legacy access a concrete hypothesis;
+the sanitized `NOT_FOUND` alone does not prove that specific cause. The Developer
+API page says no 2.5 shutdown date is announced. Do not substitute a Vertex AI
+lifecycle date or infer that billing/a different key is required.
+
+The already-allowlisted `gemini-3.5-flash-lite` is in saved discovery with both
+methods. Actual project **Free tier > All models** shows 15 RPM / 250K TPM /
+500 RPD for its text row; [standard pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.5-flash-lite)
+lists free input/output. No search/maps/cache/batch tools are requested. No
+project, key, billing, production model or enabled flag changed. A new
+configuration-bound review is required before a deliberate model change; an old
+2.5 review must never be reused as a 3.5 review. An explicitly authorized bounded
+3.5 check would test the changed legacy-access hypothesis, not repeat the same
+2.5 request. Production activation still requires a real grounded saved report.
 
 The exact model allowlist is gemini-3.5-flash-lite and gemini-2.5-flash-lite.
 There is no default model or automatic alias/fallback. An allowlisted name does
@@ -122,6 +168,12 @@ is selected with `--diagnostic-ack="OWNER AUTHORIZED ONE ADDITIONAL DIAGNOSTIC P
 and a new private receipt. It does not reset or replace the original identity;
 repeating it reuses that same diagnostic identity and refuses resubmission.
 There is no arbitrary attempt number or automatic retry loop.
+
+For the separately reviewed legacy-access hypothesis, the prepared alternative
+is `--diagnostic-ack="OWNER AUTHORIZED ONE GEMINI 3.5 VERIFICATION"`, requiring
+exact model `gemini-3.5-flash-lite`, its own bound review and new private receipt.
+It has a third fixed identity, preserving both failed legacy jobs. This option
+is not permission to run it; explicit owner authorization is required first.
 
 After checking the existing synthetic demo target, use its Neon SQL Editor
 with owner access to stop **new admissions** without a deploy:

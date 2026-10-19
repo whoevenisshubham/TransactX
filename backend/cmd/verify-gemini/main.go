@@ -134,7 +134,7 @@ func run() error {
 	ack := flag.String("ack", "", "VERIFY ONE SYNTHETIC GEMINI INVESTIGATION")
 	diagnosticAck := flag.String("diagnostic-ack", "", "explicit additional owner authorization; never an automatic retry")
 	flag.Parse()
-	requestKey, err := verificationKey(*diagnosticAck)
+	requestKey, err := verificationKey(*diagnosticAck, os.Getenv("GEMINI_MODEL"))
 	if err != nil {
 		return err
 	}
@@ -256,12 +256,17 @@ func run() error {
 	return nil
 }
 
-func verificationKey(ack string) (string, error) {
+func verificationKey(ack, model string) (string, error) {
 	switch ack {
 	case "":
 		return "gemini-owner-free-verification-v1", nil
 	case "OWNER AUTHORIZED ONE ADDITIONAL DIAGNOSTIC PROBE":
 		return "gemini-owner-free-diagnostic-v2", nil
+	case "OWNER AUTHORIZED ONE GEMINI 3.5 VERIFICATION":
+		if model != "gemini-3.5-flash-lite" {
+			return "", errors.New("reviewed model-change verification requires exact 3.5 model")
+		}
+		return "gemini-owner-model35-verification-v3", nil
 	default:
 		return "", errors.New("additional probe requires explicit owner authorization")
 	}

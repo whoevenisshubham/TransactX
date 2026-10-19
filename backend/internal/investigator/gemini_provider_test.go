@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,9 +125,10 @@ func TestGeminiDurableAdmissionAndGrounding(t *testing.T) {
 	reportJSON, _ := json.Marshal(report)
 	responseBody, _ := json.Marshal(map[string]any{"responseId": "fixture-google-response", "modelVersion": "gemini-3.5-flash-lite", "candidates": []any{map[string]any{"finishReason": "STOP", "content": map[string]any{"parts": []any{map[string]any{"text": string(reportJSON)}}}}}, "usageMetadata": map[string]any{"promptTokenCount": 100, "candidatesTokenCount": 200, "thoughtsTokenCount": 0}})
 	var calls atomic.Int32
+	var countedRequest map[string]any
 	transport := geminiTransport(func(r *http.Request) (*http.Response, error) {
 		calls.Add(1)
-		if r.URL.Host != "generativelanguage.googleapis.com" || r.URL.Scheme != "https" || r.URL.RawQuery != "" || r.Header.Get("x-goog-api-key") != "fixture-key" {
+		if r.Method != http.MethodPost || r.URL.Host != "generativelanguage.googleapis.com" || r.URL.Scheme != "https" || r.URL.RawQuery != "" || r.Header.Get("x-goog-api-key") != "fixture-key" || r.Header.Get("Content-Type") != "application/json" {
 			t.Error("unsafe endpoint/key transport")
 		}
 		var body map[string]any
@@ -135,11 +137,15 @@ func TestGeminiDurableAdmissionAndGrounding(t *testing.T) {
 		}
 		raw := responseBody
 		if strings.HasSuffix(r.URL.Path, ":countTokens") {
-			if _, ok := body["generateContentRequest"]; !ok {
+			countedRequest, _ = body["generateContentRequest"].(map[string]any)
+			if r.URL.Path != "/v1beta/models/gemini-3.5-flash-lite:countTokens" || len(body) != 1 || countedRequest == nil || countedRequest["model"] != "models/gemini-3.5-flash-lite" || countedRequest["systemInstruction"] == nil || countedRequest["contents"] == nil || countedRequest["generationConfig"] == nil {
 				t.Error("incomplete token preflight")
 			}
 			raw = []byte(`{"totalTokens":100}`)
 		} else {
+			if r.URL.Path != "/v1beta/models/gemini-3.5-flash-lite:generateContent" || !reflect.DeepEqual(countedRequest, body) {
+				t.Error("generation differs from the complete request admitted by token counting")
+			}
 			config := body["generationConfig"].(map[string]any)
 			if config["maxOutputTokens"] != float64(1200) || config["candidateCount"] != float64(1) || config["responseJsonSchema"] == nil || body["tools"] != nil {
 				t.Error("generation bounds/schema/read-only boundary missing")

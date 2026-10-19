@@ -12,16 +12,23 @@ import (
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func TestDiagnosticIdentityRequiresExplicitAuthorization(t *testing.T) {
-	original, err := verificationKey("")
+	original, err := verificationKey("", "gemini-2.5-flash-lite")
 	if err != nil {
 		t.Fatal(err)
 	}
-	diagnostic, err := verificationKey("OWNER AUTHORIZED ONE ADDITIONAL DIAGNOSTIC PROBE")
+	diagnostic, err := verificationKey("OWNER AUTHORIZED ONE ADDITIONAL DIAGNOSTIC PROBE", "gemini-2.5-flash-lite")
 	if err != nil || original == diagnostic {
 		t.Fatal("distinct authorized identity required")
 	}
-	if _, err := verificationKey("retry"); err == nil {
+	if _, err := verificationKey("retry", "gemini-2.5-flash-lite"); err == nil {
 		t.Fatal("arbitrary retries accepted")
+	}
+	model35, err := verificationKey("OWNER AUTHORIZED ONE GEMINI 3.5 VERIFICATION", "gemini-3.5-flash-lite")
+	if err != nil || model35 == diagnostic || model35 == original {
+		t.Fatal("model-change verification must preserve both prior identities")
+	}
+	if _, err := verificationKey("OWNER AUTHORIZED ONE GEMINI 3.5 VERIFICATION", "gemini-2.5-flash-lite"); err == nil {
+		t.Fatal("model-change acknowledgement cannot repeat the failed legacy request")
 	}
 }
 
