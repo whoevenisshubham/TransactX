@@ -67,6 +67,7 @@ type Handler struct {
 }
 
 type RuntimeOptions struct {
+	InvestigatorService    *investigator.Service
 	SimulationMode         bool
 	CORSAllowedOrigins     []string
 	ParticipantSources     map[string]reconciliation.LedgerSnapshotSource
@@ -206,6 +207,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		chaosEnabled:           options.ChaosEnabled,
 		recoveryControlEnabled: options.RecoveryControlEnabled,
 		auditStore:             options.AuditStore,
+		investigatorSvc:        options.InvestigatorService,
 	}
 	if db != nil {
 		handler.integrityRuns = reconciliation.NewPostgresIntegrityRunStore(db)
@@ -222,19 +224,21 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 		handler.traceStore = telemetry.NewTraceStore(db, logger)
 		handler.telemetryMetrics = telemetry.NewMetrics()
 		handler.analyticsRepo = analytics.NewPostgresRepository(db)
-		corpusRepo, _ := investigator.NewPostgresCorpusRepository(db)
-		investigatorStore, _ := investigator.NewPostgresInvestigationStore(db, time.Now)
-		bridgedEvidence := investigator.BridgedEvidenceReader{
-			Source: &httpOpsEvidenceSource{ops: handler.operationsSvc},
+		if handler.investigatorSvc == nil {
+			corpusRepo, _ := investigator.NewPostgresCorpusRepository(db)
+			investigatorStore, _ := investigator.NewPostgresInvestigationStore(db, time.Now)
+			bridgedEvidence := investigator.BridgedEvidenceReader{
+				Source: &httpOpsEvidenceSource{ops: handler.operationsSvc},
+			}
+			deps := investigator.ToolDependencies{
+				Evidence:  bridgedEvidence,
+				Runbooks:  corpusRepo,
+				Recovery:  &httpOpsRecoveryReader{ops: handler.operationsSvc},
+				Trace:     &httpOpsTraceReader{traceStore: handler.traceStore},
+				Analytics: &httpOpsAnalyticsReader{repo: handler.analyticsRepo},
+			}
+			handler.investigatorSvc, _ = investigator.NewService(investigator.DefaultServiceConfig(), investigatorStore, deps)
 		}
-		deps := investigator.ToolDependencies{
-			Evidence:  bridgedEvidence,
-			Runbooks:  corpusRepo,
-			Recovery:  &httpOpsRecoveryReader{ops: handler.operationsSvc},
-			Trace:     &httpOpsTraceReader{traceStore: handler.traceStore},
-			Analytics: &httpOpsAnalyticsReader{repo: handler.analyticsRepo},
-		}
-		handler.investigatorSvc, _ = investigator.NewService(investigator.DefaultServiceConfig(), investigatorStore, deps)
 	}
 	if adapters != nil {
 		if executionTargets != nil {
@@ -327,6 +331,10 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 }
 
 func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Request) {
+	mode, modelStatus := "unavailable", "unavailable"
+	if h.investigatorSvc != nil {
+		mode, modelStatus = h.investigatorSvc.RuntimeStatus()
+	}
 	writeData(writer, http.StatusOK, request, map[string]any{
 		"simulationMode":         h.simulationMode,
 		"allowRegistration":      h.allowRegistration,
@@ -335,10 +343,10 @@ func (h *Handler) runtimeStatus(writer http.ResponseWriter, request *http.Reques
 		"canControlRecovery":     h.recoveryControlEnabled,
 		"canRunChaos":            h.chaosEnabled,
 		"canInvestigate":         h.investigatorSvc != nil,
-		"investigatorMode":       "evidence_only",
+		"investigatorMode":       mode,
 		"traceCollectionEnabled": h.traceStore != nil,
 		"analyticsEnabled":       h.analyticsRepo != nil,
-		"modelStatus":            "unavailable",
+		"modelStatus":            modelStatus,
 	})
 }
 

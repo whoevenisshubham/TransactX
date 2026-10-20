@@ -372,3 +372,15 @@ func mustJSON(value any) json.RawMessage {
 	}
 	return raw
 }
+
+// RuntimeStatus describes configured admission, not successful model execution.
+// Durable per-request budgets and the shared disable latch are checked at execution.
+func (service *Service) RuntimeStatus() (string, string) {
+	if service.config.Mode != ModeLLM {
+		return ModeEvidenceOnly, "unavailable"
+	}
+	if service.config.Provider == nil || service.config.UnavailableReason != "" {
+		return ModeLLM, "unavailable"
+	}
+	return ModeLLM, "ready"
+}

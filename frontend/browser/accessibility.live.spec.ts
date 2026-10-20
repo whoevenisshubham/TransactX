@@ -68,7 +68,7 @@ async function authenticatedViews(page: Page) {
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Facts", exact: true })).toBeVisible();
   await scan(page);
-  const citation = page.getByRole("link", { name: /^View evidence / }).first();
+  const citation = page.getByRole("link", { name: /^(Payment record|Bank operation|State transition|Evidence) \[\d+\]/ }).first();
   const reference = new URL((await citation.getAttribute("href"))!, frontend);
   const evidenceId = decodeURIComponent(reference.hash.slice(1));
   expect(evidenceId.startsWith("evidence-")).toBe(true);
