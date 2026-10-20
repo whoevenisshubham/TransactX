@@ -421,7 +421,7 @@ func TestOperations_Analytics_WindowsAndMetricsSummary(t *testing.T) {
 
 	client := server.Client()
 
-	// 1. Runtime status reports analyticsEnabled: true, modelStatus: "unavailable"
+	// 1. Runtime status reports analyticsEnabled: true, modelStatus: "disabled"
 	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/ops/runtime", nil)
 	req.Header.Set("Authorization", "Bearer "+viewerToken)
 	resp, err := client.Do(req)
@@ -437,8 +437,8 @@ func TestOperations_Analytics_WindowsAndMetricsSummary(t *testing.T) {
 	if analyticsEnabled, ok := runtimeResp.Data["analyticsEnabled"].(bool); !ok || !analyticsEnabled {
 		t.Errorf("expected analyticsEnabled == true, got %v", runtimeResp.Data["analyticsEnabled"])
 	}
-	if modelStatus, ok := runtimeResp.Data["modelStatus"].(string); !ok || modelStatus != "unavailable" {
-		t.Errorf("expected modelStatus == 'unavailable', got %v", runtimeResp.Data["modelStatus"])
+	if modelStatus, ok := runtimeResp.Data["modelStatus"].(string); !ok || modelStatus != "disabled" {
+		t.Errorf("expected modelStatus == 'disabled', got %v", runtimeResp.Data["modelStatus"])
 	}
 
 	// 2. Windows endpoint - 401 unauthenticated
