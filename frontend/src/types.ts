@@ -9,6 +9,8 @@ export type Account = {
   accountNumber: string;
   balancePaise: number;
   status: string;
+  bankCode?: string;
+  bankName?: string;
 };
 
 export type Recipient = {

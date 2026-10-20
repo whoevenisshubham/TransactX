@@ -14,7 +14,10 @@ Both builders validate and stage the current architecture, delivery report,
 safe acceptance artifacts, owner requirements, restore guide and read-only
 financial queries. Missing/empty documentation, malformed evidence JSON or
 repository-escaping inputs fail validation. This staging is not an install or
-runtime test. The final archive still needs all release gates and the configured
+runtime test. Both builders also stage the current Google sign-in, Gemini
+zero-spend and bounded demo-enrichment setup guides under `docs/runbooks/`.
+These guides do not enable providers, import secrets or initialize an existing
+database. The final archive still needs all release gates and the configured
 public HTTPS API origin.
 
 ## Build

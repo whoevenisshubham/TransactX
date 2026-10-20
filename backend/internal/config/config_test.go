@@ -6,6 +6,35 @@ import (
 	"time"
 )
 
+func TestPublicDemoAuthRequiresExplicitSafeConfiguration(t *testing.T) {
+	t.Setenv("APP_DEVELOPMENT", "true")
+	t.Setenv("TX_ALLOW_REGISTRATION", "false")
+	t.Setenv("TX_SIMULATION_MODE", "false")
+	t.Setenv("TX_PUBLIC_DEMO_AUTH", "true")
+	if _, err := Load(); err == nil {
+		t.Fatal("public demo enabled outside simulation")
+	}
+	t.Setenv("TX_SIMULATION_MODE", "true")
+	t.Setenv("TX_ALLOW_REGISTRATION", "true")
+	if _, err := Load(); err == nil {
+		t.Fatal("public demo enabled alongside registration")
+	}
+	t.Setenv("TX_ALLOW_REGISTRATION", "false")
+	cfg, err := Load()
+	if err != nil || !cfg.PublicDemoAuth {
+		t.Fatalf("safe explicit demo flag rejected: %v", err)
+	}
+	t.Setenv("TX_PUBLIC_DEMO_AUTH", "false")
+	cfg, err = Load()
+	if err != nil || cfg.PublicDemoAuth {
+		t.Fatal("disabled flag ignored")
+	}
+	t.Setenv("TX_PUBLIC_DEMO_AUTH", "invalid")
+	if _, err := Load(); err == nil {
+		t.Fatal("invalid flag accepted")
+	}
+}
+
 func TestLoad_RuntimeOptions(t *testing.T) {
 	t.Setenv("APP_DEVELOPMENT", "true")
 	t.Setenv("TX_SIMULATION_MODE", "true")

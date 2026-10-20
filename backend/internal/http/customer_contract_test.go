@@ -343,6 +343,9 @@ func TestCustomerHTTP_AccountsOmitInternalIdentifiers(t *testing.T) {
 	}
 	var publicAccount customerAccountResponse
 	decodeDataInto(t, map[string]any{"data": account}, &publicAccount)
+	if publicAccount.BankCode != fx.bankCode || publicAccount.BankName != "HTTP Contract Bank" {
+		t.Fatalf("account bank metadata = %q / %q", publicAccount.BankCode, publicAccount.BankName)
+	}
 	if publicAccount.AccountNumber == "" || publicAccount.Status == "" || publicAccount.BalancePaise != 100000 {
 		t.Fatalf("decoded public account = %+v", publicAccount)
 	}
@@ -353,6 +356,9 @@ func TestCustomerHTTP_AccountsOmitInternalIdentifiers(t *testing.T) {
 	}
 	var publicDetail customerAccountResponse
 	decodeDataInto(t, envelope, &publicDetail)
+	if publicDetail.BankCode != fx.bankCode || publicDetail.BankName != publicAccount.BankName {
+		t.Fatalf("account detail bank metadata = %+v", publicDetail)
+	}
 	if publicDetail.AccountNumber == "" || publicDetail.Status == "" {
 		t.Fatalf("decoded account detail = %+v", publicDetail)
 	}

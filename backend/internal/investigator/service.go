@@ -29,6 +29,7 @@ type ServiceConfig struct {
 	OutputTokenLimit  int
 	CostLimitMicrousd int64
 	MaxProviderRounds int
+	UnavailableReason string
 	Now               func() time.Time
 }
 
@@ -75,7 +76,20 @@ func NewService(config ServiceConfig, store InvestigationStore, dependencies Too
 	if config.Mode != ModeEvidenceOnly && config.Mode != ModeLLM {
 		return nil, errors.New("invalid investigator mode")
 	}
-	if config.Mode == ModeLLM && (config.Provider == nil || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.CostLimitMicrousd < 0 || (config.Provider.RequiresCostReservation() && config.CostLimitMicrousd == 0) || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
+	guardedFree := false
+	unavailable := config.Mode == ModeLLM && config.Provider == nil && config.CostLimitMicrousd == 0 && config.MaxProviderRounds == 1 && (config.UnavailableReason == "provider_free_tier_unverified" || config.UnavailableReason == "provider_unavailable")
+	if config.UnavailableReason != "" && !unavailable {
+		return nil, errors.New("invalid unavailable-provider fallback")
+	}
+	if provider, ok := config.Provider.(*GeminiProvider); ok {
+		postgres, canonical := store.(*PostgresInvestigationStore)
+		// Configuration binding is checked before provider use; elapsed time is not an expiry.
+		guardedFree = canonical && postgres.utcDailyUsage && provider.admission.pool != nil && provider.reviewedConfigurationReady()
+		if !guardedFree || config.CostLimitMicrousd != 0 || config.MaxProviderRounds != 1 {
+			return nil, errors.New("Gemini requires reviewed zero-spend durable daily admission and one report round")
+		}
+	}
+	if config.Mode == ModeLLM && ((!unavailable && config.Provider == nil) || config.PromptVersion != InvestigatorPromptVersion || config.InputTokenLimit < 1 || config.InputTokenLimit > 8000 || config.OutputTokenLimit < 1 || config.OutputTokenLimit > 1200 || config.CostLimitMicrousd < 0 || (config.Provider != nil && config.Provider.RequiresCostReservation() && config.CostLimitMicrousd == 0 && !guardedFree) || config.MaxProviderRounds < 1 || config.MaxProviderRounds > 2) {
 		return nil, errors.New("invalid provider generation configuration")
 	}
 	if config.Now == nil {
@@ -89,15 +103,40 @@ func NewService(config ServiceConfig, store InvestigationStore, dependencies Too
 }
 
 func (service *Service) Start(ctx context.Context, scope TrustedScope, paymentID, question, idempotencyKey string) (Job, bool, error) {
+	return service.start(ctx, scope, paymentID, question, idempotencyKey, "")
+}
+
+// StartClaimed is explicit maintenance admission on the same canonical store.
+// HTTP submissions still use Start and the normal deployed worker queue.
+func (service *Service) StartClaimed(ctx context.Context, scope TrustedScope, paymentID, question, key, owner string) (Job, bool, error) {
+	if owner == "" {
+		return Job{}, false, ErrJobNotClaimable
+	}
+	return service.start(ctx, scope, paymentID, question, key, owner)
+}
+
+func (service *Service) start(ctx context.Context, scope TrustedScope, paymentID, question, idempotencyKey, owner string) (Job, bool, error) {
 	if err := validateInvestigationRequest(scope, paymentID, question, idempotencyKey); err != nil {
 		return Job{}, false, err
 	}
 	now := service.config.Now().UTC()
 	requestHash := investigationRequestHash(paymentID, question, service.config.Mode)
-	job, created, err := service.store.Create(ctx, NewJob{
+	request := NewJob{
 		Scope: scope, PaymentID: paymentID, Question: question, IdempotencyKey: idempotencyKey,
 		RequestHash: requestHash, Mode: service.config.Mode, DeadlineAt: now.Add(service.config.JobTimeout), CreatedAt: now,
-	})
+	}
+	var job Job
+	var created bool
+	var err error
+	if owner == "" {
+		job, created, err = service.store.Create(ctx, request)
+	} else {
+		postgres, ok := service.store.(*PostgresInvestigationStore)
+		if !ok {
+			return Job{}, false, ErrJobNotClaimable
+		}
+		job, created, err = postgres.CreateClaimed(ctx, request, owner, service.config.LeaseDuration)
+	}
 	if err != nil {
 		return Job{}, false, err
 	}
@@ -118,6 +157,21 @@ func (service *Service) Run(ctx context.Context, jobID, workerID string) (Job, e
 	if err != nil {
 		return Job{}, err
 	}
+	return service.runClaimed(ctx, job)
+}
+
+func (service *Service) RunClaimed(ctx context.Context, scope TrustedScope, id, owner string) (Job, error) {
+	job, err := service.store.Get(ctx, scope, id)
+	if err != nil {
+		return Job{}, err
+	}
+	if owner == "" || job.Status != StatusRunning || job.LeaseOwner != owner || job.LeaseEpoch < 1 || !job.LeaseExpiresAt.After(service.config.Now().UTC()) {
+		return Job{}, ErrJobNotClaimable
+	}
+	return service.runClaimed(ctx, job)
+}
+
+func (service *Service) runClaimed(ctx context.Context, job Job) (Job, error) {
 	if !job.DeadlineAt.After(service.config.Now().UTC()) {
 		return service.fail(job, "deadline_exceeded", context.DeadlineExceeded)
 	}

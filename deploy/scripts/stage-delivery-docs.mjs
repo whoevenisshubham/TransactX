@@ -16,6 +16,9 @@ const sources = [
   'deploy/README.md', 'deploy/RESTORE_REHEARSAL.md',
   'deploy/verification/native-financial-proof.sql',
   'deploy/verification/cross-bank-financial-proof.sql',
+  'docs/runbooks/google-sign-in.md',
+  'docs/runbooks/gemini-zero-spend.md',
+  'docs/runbooks/demo-enrichment.md',
 ];
 const files = [];
 for (const source of sources) {

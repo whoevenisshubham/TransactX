@@ -1,0 +1,60 @@
+name: Auth and optional provider PostgreSQL acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [release/**, codex/experience-v3]
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: txv3_oidc_ci
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d txv3_oidc_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/txv3_oidc_ci?sslmode=disable
+      OIDC_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/txv3_oidc_ci?sslmode=disable
+      GEMINI_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/txv3_oidc_ci?sslmode=disable
+      APP_TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@127.0.0.1:5432/txv3_oidc_ci?sslmode=disable
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Apply canonical migrations
+        run: go run ./cmd/migrate up
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: One-time review helper checks
+        run: node --test ../deploy/scripts/prepare-gemini-review.test.mjs
+      # Packages share only this disposable namespace: no parallel fixture cleanup.
+      # All provider transport is test-local; no Google secrets or API calls.
+      - name: Required PostgreSQL tests with race detection
+        run: |
+          set -o pipefail
+          go test -race -p 1 -count=1 -json ./internal/auth ./internal/http ./internal/investigator ./internal/app ./internal/config -run 'TestGoogle|TestGemini|TestPostgresInvestigationStoreUpgradedDatabaseConformance' | tee auth-provider-tests.jsonl
+      - name: Reject missing or skipped integration acceptance
+        run: python3 ../deploy/scripts/verify-auth-provider-tests.py auth-provider-tests.jsonl
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: auth-provider-postgres-results
+          path: backend/auth-provider-tests.jsonl

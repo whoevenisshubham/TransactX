@@ -240,8 +240,8 @@ func TestPostgresInvestigationStoreUpgradedDatabaseConformance(t *testing.T) {
 		t.Fatalf("read migrations dir: %v", err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "000030_") {
-			continue // Exclude 000030 initially to simulate existing pre-upgrade DB
+		if entry.IsDir() || len(entry.Name()) < 7 || entry.Name()[:6] > "000029" {
+			continue // A genuine pre-30 schema, excluding every later migration.
 		}
 		data, err := os.ReadFile(filepath.Join(realMigrationsDir, entry.Name()))
 		if err != nil {
@@ -263,6 +263,10 @@ func TestPostgresInvestigationStoreUpgradedDatabaseConformance(t *testing.T) {
 	}
 	if applied != 29 {
 		t.Fatalf("expected 29 pre-upgrade migrations, got %d", applied)
+	}
+	var premature bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('auth_external_identities') IS NOT NULL OR to_regclass('gemini_free_attempts') IS NOT NULL`).Scan(&premature); err != nil || premature {
+		t.Fatalf("pre-30 fixture contains later schema: %v", err)
 	}
 
 	// Step 3: Seed legacy data in pre-upgrade schema state:
@@ -300,7 +304,7 @@ func TestPostgresInvestigationStoreUpgradedDatabaseConformance(t *testing.T) {
 		t.Fatalf("seed legacy reservation: %v", err)
 	}
 
-	// Step 4: Run upgrade migration 000030 using the full canonical migrations directory
+	// Step 4: Run migration 000030 and all later additive migrations using the full canonical migrations directory
 	upgradeMigrator, err := database.NewMigrator(pool, realMigrationsDir)
 	if err != nil {
 		t.Fatalf("new upgrade migrator: %v", err)
@@ -313,19 +317,28 @@ func TestPostgresInvestigationStoreUpgradedDatabaseConformance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("check migration status: %v", err)
 	}
-	if len(status.Pending) != 1 || status.Pending[0].Version != "000030" {
-		t.Fatalf("expected pending migration 000030, got %+v", status.Pending)
+	if len(status.Pending) < 3 || status.Pending[0].Version != "000030" || status.Pending[1].Version != "000031" || status.Pending[2].Version != "000032" {
+		t.Fatalf("expected contiguous latest-schema upgrade starting 30/31/32, got %+v", status.Pending)
 	}
+	expectedPending := len(status.Pending)
 	upgraded, err := upgradeMigrator.Up(ctx)
 	if err != nil {
 		t.Fatalf("apply upgrade migration 000030: %v", err)
 	}
-	if upgraded != 1 {
-		t.Fatalf("expected 1 migration applied (000030), got %d", upgraded)
+	if upgraded != expectedPending {
+		t.Fatalf("expected %d pending migrations applied, got %d", expectedPending, upgraded)
 	}
-	// Verify all 30 migrations pass checksum verification and 0 pending
+	// Verify all latest migrations pass checksum verification and 0 pending
 	if err := upgradeMigrator.Verify(ctx); err != nil {
 		t.Fatalf("checksum verification failed after upgrade: %v", err)
+	}
+	latestStatus, err := upgradeMigrator.Status(ctx)
+	if err != nil || len(latestStatus.Pending) != 0 {
+		t.Fatalf("latest schema not fully applied: %v", err)
+	}
+	var latest bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('auth_external_identities') IS NOT NULL AND to_regclass('gemini_free_attempts') IS NOT NULL AND EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='gemini_free_admission' AND column_name='disabled' AND is_nullable='NO') AND (SELECT is_nullable='YES' FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='password_hash')`).Scan(&latest); err != nil || !latest {
+		t.Fatalf("latest auth/provider schema missing: %v", err)
 	}
 
 	// Step 5: Assert legacy data migration invariants

@@ -46,6 +46,7 @@ export function WorklistPage({ token, liveRevision, onNavigate }: {
   const error = resource.key === key ? resource.error : null;
   return <div className="ops-page">
     <PageHeader eyebrow="Operations" title="Recovery worklist" description="Find payments that need a closer look. Each row reflects the last projection update; payment details fetch central truth separately." action={<Button variant="secondary" onClick={resource.refresh}>Refresh</Button>} />
+    <div className="worklist-shortcuts" role="group" aria-label="Worklist views"><Button variant={filters.state ? "secondary" : "primary"} onClick={() => navigateFilters({})}>Needs attention</Button><Button variant={filters.state === "COMPLETED" ? "primary" : "secondary"} onClick={() => navigateFilters({ state: "COMPLETED" })}>Completed</Button><Button variant={filters.state === "PENDING_RECONCILIATION,BANK_SETTLED_CENTRAL_PENDING" ? "primary" : "secondary"} onClick={() => navigateFilters({ state: "PENDING_RECONCILIATION,BANK_SETTLED_CENTRAL_PENDING" })}>Awaiting confirmation</Button></div>
     <form className="ops-controls" onSubmit={submit} aria-label="Worklist filters">
       <label>Payment state
         <select value={draft.state ?? ""} onChange={(event) => setDraft({ ...draft, state: event.target.value || undefined })}>
@@ -81,10 +82,11 @@ export function WorklistPage({ token, liveRevision, onNavigate }: {
     {resource.loading && !page && <p role="status">Loading worklist…</p>}
     {!resource.loading && !page && !error && <p role="status">No worklist data is available.</p>}
     {page && <>
-      <p className="ops-muted" role="status">Showing {page.items.length} payments on this page · Projection as of {new Date(page.asOf).toLocaleString()}</p>
+      <p className="ops-muted" role="status">Showing {page.items.length} {page.items.length === 1 ? "payment" : "payments"} on this page · Projection as of {new Date(page.asOf).toLocaleString()}</p>
+      <div className="worklist-page-summary"><span><strong>{page.items.length}</strong> loaded payments</span><span><strong>{page.items.filter(item => item.state === "COMPLETED").length}</strong> completed on this page</span><span><strong>{page.items.filter(item => item.recoveryStatus !== "none").length}</strong> with recorded recovery status</span></div>
       {page.items.length === 0 ? <EmptyState title="No matching payments" description="Try another filter or return to the attention view." /> :
         <DataTable<WorklistItem> caption="Payments on the loaded worklist page" rowKey={(item) => item.paymentId} rows={page.items} columns={[
-          { key: "payment", heading: "Payment", render: (item) => <a className="ops-link ops-mono" href={`/console/payments/${item.paymentId}`} onClick={(event) => { event.preventDefault(); onNavigate(`/console/payments/${item.paymentId}`); }}>{item.paymentId}</a> },
+          { key: "payment", heading: "Payment", render: (item) => <a className="ops-link ops-mono" aria-label={item.paymentId} title={item.paymentId} href={`/console/payments/${item.paymentId}`} onClick={(event) => { event.preventDefault(); onNavigate(`/console/payments/${item.paymentId}`); }}>{item.paymentId.slice(0, 8)}…</a> },
           { key: "state", heading: "State", render: (item) => <OpsStatusBadge state={item.state} /> },
           { key: "amount", heading: "Amount", render: (item) => formatPaiseDecimal(item.amountPaise, item.currency) },
           { key: "banks", heading: "Banks", render: (item) => `${item.sourceBankCode ?? "Unknown"} → ${item.destinationBankCode ?? "Unknown"}` },

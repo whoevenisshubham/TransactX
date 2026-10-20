@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 import type { Payment, View } from "./types";
 
-export type IconName = "home" | "send" | "activity" | "arrow" | "chevron" | "check" | "alert" | "close";
+export type IconName = "home" | "send" | "activity" | "arrow" | "chevron" | "check" | "alert" | "close" | "qr";
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -13,6 +13,7 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     check: <path d="m4 9 3 3 6-7" />,
     alert: <><path d="M9 3 2.5 15h13L9 3Z" /><path d="M9 8v3M9 13h.01" /></>,
     close: <><path d="m5 5 8 8M13 5l-8 8" /></>,
+    qr: <><path d="M2 2h5v5H2zM11 2h5v5h-5zM2 11h5v5H2zM11 11h2v2h3v3h-5v-2M16 10v1" /></>,
   };
   return <svg aria-hidden="true" className="icon" width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }

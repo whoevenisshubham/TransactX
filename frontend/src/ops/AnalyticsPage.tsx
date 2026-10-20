@@ -4,9 +4,11 @@ import { DataTable } from "../design/OpsPrimitives";
 import { liveOpsClient } from "./client";
 import type { AnalyticsWindow } from "./contracts";
 import { useResource } from "./useResource";
+import { AnalyticsCharts } from "./AnalyticsCharts";
 
 function rate(value: number | null): string { return value === null ? "Unavailable" : `${(value * 100).toFixed(1)}%`; }
 function metric(value: number | null, unit: string): string { return value === null ? "Unavailable" : `${value.toFixed(1)} ${unit}`; }
+function utc(value: string): string { return new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC"); }
 
 export function AnalyticsPage({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [cursor, setCursor] = useState<string | undefined>(() => new URLSearchParams(window.location.search).get("cursor") || undefined);
@@ -33,11 +35,13 @@ export function AnalyticsPage({ token, liveRevision }: { token: string; liveRevi
     {resource.error && <InlineError message={resource.error} />}
     {resource.stale && page && <p className="ops-banner ops-banner-warning" role="status">Showing older analytics while refreshing.</p>}
     {page && <>
-      <p className="ops-muted">Window data as of {new Date(page.asOf).toLocaleString()} · {page.items.length} windows on this page</p>
+      <p className="ops-muted">Window data as of {utc(page.asOf)} · {page.items.length} windows on this page</p>
+      <p className="analytics-provenance"><strong>Statistical baseline is the default.</strong> Experimental model signals are advisory. A missing score or alert does not prove a healthy system; calibration attestation is not supplied by this response.</p>
+      {page.items.length > 0 && <AnalyticsCharts items={page.items} />}
       {page.items.length === 0 ? <EmptyState title="No analytics windows" description="No measured operational window is available for this page." /> :
         <DataTable<AnalyticsWindow> caption="Measured operational windows with a table alternative to charts" rows={page.items} rowKey={(item) => item.id} columns={[
           { key: "entity", heading: "Entity", render: (item) => `${item.entityType.replaceAll("_", " ")} · ${item.entityId}` },
-          { key: "window", heading: "Window", render: (item) => <>{new Date(item.from).toLocaleString()} → {new Date(item.to).toLocaleString()}</> },
+          { key: "window", heading: "Window (UTC)", render: (item) => <>{utc(item.from)} → {utc(item.to)}</> },
           { key: "sample", heading: "Samples", render: (item) => item.sampleCount },
           { key: "rates", heading: "Timeout / failure", render: (item) => `${rate(item.features.timeoutRate)} / ${rate(item.features.failureRate)}` },
           { key: "latency", heading: "P95 latency", render: (item) => metric(item.features.p95LatencyMs, "ms") },

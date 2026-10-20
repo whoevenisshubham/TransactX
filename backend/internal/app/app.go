@@ -102,6 +102,11 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 	if cfg.ParticipantProvisioning {
 		authService.WithParticipantProvisioner(auth.NewSimulationParticipantAccountProvisioner())
 	}
+	if cfg.GoogleOAuthEnabled {
+		if err := authService.EnableGoogle(cfg.GoogleOAuth); err != nil {
+			return nil, fmt.Errorf("configure Google sign-in: %w", err)
+		}
+	}
 	healthService := health.NewService(health.NewRepository(db), health.DefaultConfig())
 	chaosRepo := chaos.NewRepository(db)
 	chaosController := chaos.NewController(chaosRepo)
@@ -334,7 +339,7 @@ func BuildEnvironmentWithPool(ctx context.Context, cfg config.Config, db *pgxpoo
 		Trace:     &opsTraceReader{traceStore: telemetry.NewTraceStore(db, logger)},
 		Analytics: &opsAnalyticsReader{repo: analyticsRepo},
 	}
-	invCfg := investigator.DefaultServiceConfig()
+	invCfg := optionalGemini(ctx, cfg, db, investigatorStore, logger)
 	investigatorSvc, err := investigator.NewService(invCfg, investigatorStore, investigatorDeps)
 	if err != nil {
 		return nil, fmt.Errorf("initialize investigator service: %w", err)
@@ -409,6 +414,7 @@ func (e *Environment) NewHTTPHandler() http.Handler {
 		CORSAllowedOrigins:     e.Config.CORSAllowedOrigins,
 		ParticipantSources:     e.ParticipantSources,
 		AllowRegistration:      e.Config.AllowRegistration,
+		PublicDemoAuth:         e.Config.PublicDemoAuth,
 		ChaosEnabled:           e.Config.ChaosEnabled,
 		RecoveryControlEnabled: e.Config.RecoveryControlEnabled,
 		AuditStore:             audit.NewPostgresStore(e.DB),

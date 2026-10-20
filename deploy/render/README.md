@@ -7,6 +7,41 @@ participant ownership, locking, outbox semantics or authorization with mocks.
 
 ## What is / is not done
 
+The existing Free Render service and Hobby Vercel project deployed Experience V3
+source `cafae17` on 19 October 2026. The existing synthetic Neon database was
+upgraded with only canonical migrations 31–33; checksums verified and no pending
+migrations remained. Do not repeat initial project creation or the empty-only
+initializer on this deployment.
+
+Real checks covered shared customer/merchant/operator entry, a 100-paise payment,
+receipt deep link, automatic projection, a worker-completed saved evidence
+summary and its five unique citation targets, role denials and exact-origin CORS.
+The bounded enrichment manifest also completed with checked financial invariants.
+Google is enabled for the owner's External/Testing audience after consent
+configuration and migration verification. The owner completed first/returning
+login; independent database checks confirmed stable customer identity and zero
+central/participant balances. General Google access is not published. Gemini
+remains disabled after its first token-count probe failed before generation.
+These results do not prove generated reports, native crash recovery or full
+release acceptance.
+
+Preserve backend rollback source `426436d` and its prior Render deployment,
+the previous Vercel production deployment and private configuration. An encrypted
+pre-upgrade snapshot was restored successfully into a fresh isolated local
+database. It is not an independent off-device backup or worker-continuation test.
+Rollback application source only after compatibility review; never down-migrate
+identity/provider tables or erase new financial activity to match an old snapshot.
+
+Experience V3 adds optional shared demo sign-in through `POST /api/auth/demo`.
+Set `TX_PUBLIC_DEMO_AUTH=true` only on the initialized synthetic demo database;
+it defaults to false. It requires simulation mode and disabled registration,
+checks the initializer's budget namespace and exact stored persona roles, and
+uses the same gateway admission limits as password login. It exposes no seed
+password and grants no administrator persona. Existing populated demo databases
+must **not** be reinitialized to enable this flag. Deploy the compatible backend
+before the frontend. Google sign-in is separately configured and is not enabled
+by this flag.
+
 Files and local checks can be prepared without cloud accounts. A successful
 local test does not establish Render image compatibility, Neon privileges,
 public TLS, provider availability, or live browser acceptance. No cloud account
@@ -139,7 +174,7 @@ Prefer one stable production origin; do not wildcard every preview deployment.
 | Registration / chaos | Disabled at gateway and backend |
 | Recovery-control writes | Disabled by forced backend config |
 | Payment/investigation persistence | Separate database caps described above |
-| LLM calls | Existing evidence-only service configuration; no provider key |
+| LLM calls | Evidence summaries while `TX_GEMINI_ENABLED=false`; any private key alone cannot enable generation |
 
 Budgets are **global to the one replica**, not per IP. This prevents forged
 `X-Forwarded-For` and invented tokens bypassing quotas, but a malicious visitor
@@ -183,7 +218,8 @@ allowance; close them when finished. The idle design is not a usage guarantee.
    original IDs, participant effects, conservation and projection. Do not call
    process packaging a full independent-service failure-isolation proof.
 8. Record source SHA, real URLs, actual limits, results, skips and date in the
-   checkpoint. Keep provider keys absent. Never call this deployed before then.
+   checkpoint. Keep optional providers disabled until separately verified; a
+   stored private key is not proof of provider readiness.
 
 If a free quota is exhausted, accept temporary unavailability or reduce usage;
 do not enable billing or switch to a paid plan. Database backups are separate

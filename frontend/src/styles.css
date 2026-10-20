@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap');
 
 :root {
   /* Typography fonts */
@@ -101,41 +100,6 @@
 
   color: var(--text-primary);
   background: var(--bg-page);
-}
-
-/* Future Network Console Surface (Graphite Dark Theme Architecture) */
-[data-theme="network-console"],
-.theme-network-console {
-  color-scheme: dark;
-  --bg-page: #101413;
-  --surface: #181d1b;
-  --surface-soft: #202724;
-  --surface-elevated: #242c29;
-  --line: #2b3531;
-  --border: #2b3531;
-  --line-strong: #3b4742;
-  --border-strong: #3b4742;
-  --ink: #eef3ee;
-  --text-primary: #eef3ee;
-  --muted: #95a39d;
-  --text-secondary: #95a39d;
-  --faint: #6c7973;
-  --text-muted: #6c7973;
-  --accent: #2bb38f;
-  --on-accent: #10251e;
-  --accent-strong: #3ecea5;
-  --accent-dark: #166b55;
-  --accent-pale: #14352b;
-  --success: #34a87a;
-  --warning: #d48b3b;
-  --error: #e05d52;
-  --pending: #d48b3b;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --shadow: var(--shadow-lg);
-  --focus-color: rgba(43, 179, 143, 0.3);
-  --focus-ring: 0 0 0 3px var(--focus-color);
 }
 
 * { box-sizing: border-box; }

@@ -28,6 +28,7 @@ type Service struct {
 	jwt             *JWTManager
 	defaultBankCode string
 	provisioner     ParticipantAccountProvisioner
+	google          *GoogleLogin
 }
 
 // ParticipantAccountProvisioner is an explicit simulation-only boundary. It
@@ -128,7 +129,7 @@ func (service *Service) Register(ctx context.Context, input RegisterInput) (user
 
 func (service *Service) Login(ctx context.Context, credential, password string, now time.Time) (string, users.PublicUser, error) {
 	user, err := service.users.GetByCredential(ctx, common.NormalizeIdentifier(credential))
-	if err != nil {
+	if err != nil || user.PasswordHash == "" {
 		return "", users.PublicUser{}, ErrInvalidCredentials
 	}
 	valid, _, err := VerifyPassword(password, user.PasswordHash)

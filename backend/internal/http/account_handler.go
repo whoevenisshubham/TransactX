@@ -10,15 +10,7 @@ import (
 	"github.com/transactx/backend/internal/common"
 )
 
-type customerAccountResponse struct {
-	AccountNumber string `json:"accountNumber"`
-	BalancePaise  int64  `json:"balancePaise"`
-	Status        string `json:"status"`
-}
-
-func safeAccount(account accounts.Account) customerAccountResponse {
-	return customerAccountResponse{AccountNumber: account.AccountNumber, BalancePaise: account.BalancePaise, Status: account.Status}
-}
+type customerAccountResponse = accounts.CustomerAccount
 
 func (h *Handler) me(writer http.ResponseWriter, request *http.Request) {
 	identity, _ := auth.IdentityFromRequest(request)
@@ -42,16 +34,12 @@ func (h *Handler) accounts(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
 		return
 	}
-	result, err := h.accountsRepo.ListOwned(request.Context(), userID)
+	result, err := h.accountsRepo.ListPublicOwned(request.Context(), userID)
 	if err != nil {
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "internal server error", http.StatusInternalServerError))
 		return
 	}
-	safe := make([]customerAccountResponse, 0, len(result))
-	for _, account := range result {
-		safe = append(safe, safeAccount(account))
-	}
-	writeData(writer, http.StatusOK, request, safe)
+	writeData(writer, http.StatusOK, request, result)
 }
 
 func (h *Handler) account(writer http.ResponseWriter, request *http.Request) {
@@ -62,10 +50,10 @@ func (h *Handler) account(writer http.ResponseWriter, request *http.Request) {
 		writeAPIError(writer, request, common.NewAPIError("ACCOUNT_NOT_FOUND", "account not found", http.StatusNotFound))
 		return
 	}
-	account, err := h.accountsRepo.GetOwned(request.Context(), userID, accountID)
+	account, err := h.accountsRepo.GetPublicOwned(request.Context(), userID, accountID)
 	if err != nil {
 		writeAPIError(writer, request, common.NewAPIError("ACCOUNT_NOT_FOUND", "account not found", http.StatusNotFound))
 		return
 	}
-	writeData(writer, http.StatusOK, request, safeAccount(account))
+	writeData(writer, http.StatusOK, request, account)
 }

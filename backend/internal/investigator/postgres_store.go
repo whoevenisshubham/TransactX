@@ -17,9 +17,14 @@ import (
 // durable InvestigationStore contract. M2 still owns its canonical migration
 // and runtime composition; storetest.Run is the adapter acceptance gate.
 type PostgresInvestigationStore struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	pool          *pgxpool.Pool
+	now           func() time.Time
+	utcDailyUsage bool
 }
+
+// UseUTCDailyUsageWindow is enabled only for the reviewed Gemini free path.
+// Existing paid-provider aggregate reservations retain their original semantics.
+func (s *PostgresInvestigationStore) UseUTCDailyUsageWindow() { s.utcDailyUsage = true }
 
 // NewPostgresInvestigationStore creates an InvestigationStore backed by PostgreSQL.
 func NewPostgresInvestigationStore(pool *pgxpool.Pool, now func() time.Time) (*PostgresInvestigationStore, error) {
@@ -56,6 +61,21 @@ func (s *PostgresInvestigationStore) SetUsageLimits(ctx context.Context, limits 
 }
 
 func (s *PostgresInvestigationStore) Create(ctx context.Context, request NewJob) (Job, bool, error) {
+	return s.create(ctx, request, "", 0)
+}
+
+// CreateClaimed admits and leases a maintenance job in the same transaction.
+// Normal HTTP/worker admission remains queued. This prevents an unrelated
+// worker composition from claiming a private verification between Start/Run.
+// All canonical scope, idempotency, active limits and lease fencing still apply.
+func (s *PostgresInvestigationStore) CreateClaimed(ctx context.Context, request NewJob, owner string, lease time.Duration) (Job, bool, error) {
+	if owner == "" || lease <= 0 {
+		return Job{}, false, ErrJobNotClaimable
+	}
+	return s.create(ctx, request, owner, lease)
+}
+
+func (s *PostgresInvestigationStore) create(ctx context.Context, request NewJob, owner string, lease time.Duration) (Job, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return Job{}, false, err
 	}
@@ -131,6 +151,15 @@ func (s *PostgresInvestigationStore) Create(ctx context.Context, request NewJob)
 		DeadlineAt:     request.DeadlineAt,
 		CreatedAt:      request.CreatedAt,
 	}
+	var leaseOwner, leaseExpiry any
+	if owner != "" {
+		job.Status = StatusRunning
+		job.LeaseOwner = owner
+		job.LeaseEpoch = 1
+		job.LeaseExpiresAt = s.now().UTC().Add(lease).Truncate(time.Microsecond)
+		leaseOwner = owner
+		leaseExpiry = job.LeaseExpiresAt
+	}
 	payload, err := json.Marshal(job)
 	if err != nil {
 		return Job{}, false, fmt.Errorf("marshal job: %w", err)
@@ -143,10 +172,10 @@ func (s *PostgresInvestigationStore) Create(ctx context.Context, request NewJob)
 			deadline_at, created_at, completed_at, job_payload
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, NULL, 0, NULL,
+			$7, $8, $9, $13, $14, $15,
 			$10, $11, NULL, $12
 		)`, job.ID, job.ActorID, job.Role, job.PaymentID, job.IdempotencyKey, job.RequestHash,
-		job.Status, job.Mode, job.Question, job.DeadlineAt, job.CreatedAt, payload)
+		job.Status, job.Mode, job.Question, job.DeadlineAt, job.CreatedAt, payload, leaseOwner, job.LeaseEpoch, leaseExpiry)
 	if err != nil {
 		return Job{}, false, fmt.Errorf("insert job: %w", err)
 	}
@@ -430,12 +459,17 @@ func (s *PostgresInvestigationStore) ReserveUsage(ctx context.Context, job Job, 
 
 	// Calculate currently committed/reserved budget
 	var consumedIn, consumedOut, consumedCostMicrousd int64
+	var cutoff any
+	if s.utcDailyUsage {
+		now := s.now().UTC()
+		cutoff = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	}
 	err = tx.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_input ELSE actual_input END), 0),
 			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_output ELSE actual_output END), 0),
 			COALESCE(SUM(CASE WHEN status IN ('reserved', 'uncertain') THEN reserved_cost_microusd ELSE actual_cost_microusd END), 0)
-		FROM investigation_usage_reservations`).Scan(&consumedIn, &consumedOut, &consumedCostMicrousd)
+		FROM investigation_usage_reservations WHERE ($1::timestamptz IS NULL OR created_at >= $1)`, cutoff).Scan(&consumedIn, &consumedOut, &consumedCostMicrousd)
 	if err != nil {
 		return "", fmt.Errorf("calculate consumed usage: %w", err)
 	}

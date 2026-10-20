@@ -1,10 +1,109 @@
 # TransactX v2 delivery acceptance
 
-Status: local acceptance advanced; release promotion and complete archive pending.
-This report governs combined delivery. The root M2 release report and older
-integration matrices preserve their lane/run scopes; they do not certify the release.
+Status: The owner accepted c84536a’s visual direction for extension across the remaining routes. Final hosted deployment verification and release promotion remain pending.
 
-## Source and architecture
+## Experience V3 acceptance — 19 October 2026
+
+Deployed backend: `433011cb39ce8e996c0a2d46a333095919d7f4e4`.
+Vercel production frontend: `cafae17a0366fc5b4991bc6e1ea123053d5d3576`;
+frontend source is unchanged between these commits.
+API: https://transactx-demo-api.onrender.com; frontend:
+https://transactx-frontend.vercel.app. Render deployment:
+`dep-dbb536g473hc73clm290` (confirmed Gemini configuration activation);
+Vercel: `dpl_2NbJJjtUhHCWY5ncn9mgZ5wxif1o`.
+Previous same-source provider-disabled deployment: `dep-dbb4su6q1p3s73evc1s0`.
+Immediate backend rollback: `cafae17` / `dep-dbas8gk9v7es739op080`;
+earlier application rollback `426436d780b70eaf83042df91bf8f44fcf65ba99` retained.
+Documentation-only commits do not change those deployed IDs.
+Private evidence and the single checkpoint stay outside Git.
+
+## Accepted visual system — 20 October 2026
+
+The owner accepted corrected representative direction `c84536a` for extension.
+Source `e36df2dfd6413acf3c32254f6bd389eb0b97a133` carries that DM Sans,
+light/dark palette and layout system through existing login/demo/OAuth/privacy,
+customer send/review/outcome/receipt/activity, merchant receive/incoming/settlement/search,
+operator worklist/journey/investigation/saved reports/analytics, private admin and
+labelled scenario routes. This supersedes the earlier rejected visual direction;
+it does not discard the functional evidence or historical source scopes below.
+
+Before/after full-page captures cover the representative screens in both themes
+at desktop/mobile widths, with 320px, long identities/large money and actual 200%
+zoom checks. The extension captures retain existing route-specific controls and
+scope labels. Exact citation navigation opens collapsed evidence and focuses its
+target; mobile operator navigation was corrected after two real selector failures.
+The initial affected browser run had 27 passes and two mobile failures; the affected
+mobile operator and actual-zoom rerun passed all four checks after the fix.
+Static-only offline-shell/account-owner fixture checks passed both tests.
+Frontend units, money, types/build and final-head CI passed; all five required CI
+jobs succeeded on `e36df2d`. These fixture captures prove UI behavior in their
+recorded scope, not new live financial/provider observations. Prior Google,
+Gemini, financial and hosted-offline evidence is reused where behavior is unchanged.
+
+The final Vercel production revision, hosted read-only role smoke and service-worker
+update remain pending. The existing production/rollback IDs above are preserved.
+The earlier 19 October deployment observations below retain their original scope.
+
+Post-deploy authenticated customer/account/payment and saved generated-report
+reads passed; Google remains enabled and registration disabled. Actual Render
+logs show a worker heartbeat at433011c and two initial aggregate windows processed.
+Gateway `/healthz` reports alive/database not-probed; authenticated reads provide
+the separate database evidence. Owner confirmed Gemini activation: saved exact
+provider/project/model/enable values and private review equality were checked;
+same433011c configuration redeploy succeeded. Customer login/account/payment
+reads still pass, Google remains enabled, durable attempts remain8 and the
+shared disable latch is false. No further diagnostic generation was sent;
+new hosted-worker generated execution remains unclaimed.
+
+| Gate | Status and exact scope |
+| --- | --- |
+| Visual design acceptance | ACCEPTED by owner for extension at c84536a; accepted system extended across existing routes in e36df2d with scoped responsive/keyboard/rendered checks. Final hosted deployment verification remains pending |
+| Real representative role flows | PASS on deployed V3: customer payment/receipt, merchant activity/QR, operator journey, real worker-completed saved evidence report and all five citations |
+| Authorization / HTTPS / CORS | PASS: foreign payment 404, merchant ops 403, viewer admin 403, exact frontend origin allowed and foreign origin rejected; OAuth callback no-store/no-referrer |
+| Google first and returning sign-in | PASS: owner completed real External/Testing consent/login; independent SQL proves one identity, stable customer/accounts, no duplicates and zero balances. Not published to all Google users |
+| Canonical PostgreSQL / corpus | PASS: migration checksums through33, fresh/legacy-upgrade CI, durable conformance/corpus lifecycle; cloud only additive31–33, no reset/reseed |
+| Durable provider controls | PASS in disposable PostgreSQL/transport tests: request/token reservations, concurrency, disable latch, no retry, configuration binding and evidence fallback; not live generation proof |
+| Report parser / verifier regression checks | PASS: strict required/nested shape and grounding; scoped entity bindings/enum reject the observed citation-as-entity error. Atomic maintenance admission preserves canonical limits/fences; normal store conformance passed. Corrected request also live-accepted |
+| Live Gemini | PASS bounded maintenance verification; reviewed production configuration now enabled: corrected request count+generationHTTP200; STOP,5655input/502output tokens, exact model/JSON/schema/semantic grounding and independently re-read persisted citations pass. Job2ed1aec5-d7a4-4c7d-a01d-9eb29a6461d4; encrypted exact response and matching snapshot outside Git.8durable HTTP attempts across all checks; no retries/ID repair. Hosted saved-report browser reads passed; no new enabled-worker generation performed |
+| Synthetic activity / financial checks / projection | PASS: 12 API-created enrichment entries plus representative payment, original identities retained; checked balance/ledger/participant invariants; automatic worklist projection observed |
+| Encrypted rollback restore | PASS: refreshed cloud-to-owner-local encrypted whole-DB snapshot through33 restored into a fresh isolated PostgreSQL DB; before/after/restored summaries equal:14payments/5accounts/1Google identity/7jobs/6provider attempts, equal1100000paise totals and zero reconstruction/unbalanced/duplicate-participant-ledger errors.11.765s dump+restore phase, not an operational RTO guarantee |
+| Password compatibility | PASS scoped regression evidence: real stored-password login/authenticated reads in disposablePG plus no-password OAuth denials. Exact original public-demo password recheck unavailable; not a separately specified mandatory gate, no reset needed |
+| Hosted browser offline account-isolated replay | PASS on deployedcafae17 with owner-operated Chrome: Alice107paise→Bob queued offline, cached reload retained intent; logout/switchBob/offline reload showed no foreign intent and checked SQL found0matching server payments. ReturnAlice replayed automatically: exactly1COMPLETED payment530c0de1-cfb0-4ff0-bcb6-ced13e0c71ee, one owner-scoped idempotency record, one balanced central ledger transaction,4successful bank operations, correct participant ledgers and automatic projection. Screenshots/checked SQL private. Initial local request IDs were not captured; no arbitrary replays submitted |
+| Hosted SSE transport reconnect | PASS, limited scope: actual frontend subscription bundled for Node against real HTTPS API; gateway expiry produced disconnect/gap, second connect/ready and200 recovery reads in122.4s. Browser offline/visual transition remains unclaimed |
+| Native V3 crash / restored worker continuation / installation | Existing historical native scenarios retained at their tested source; new native V3 installation/continuation unverified under recorded launch rejection/no Linux target. Native distribution claim remains pending; this is distinct from the working Render demo |
+| Independent backup / scheduled recovery target | Cloud-host-independent encrypted owner-local copy and isolated restore verified; a third physical device is not required by A7. Daily retention/schedule/RPO and new restored-worker continuation remain unverified |
+| Idle/wake | PASS limited to existing deployed child group: Render logs show idle-stop15:17:28UTC, ready15:19:34, worker heartbeat atcafae17 and two real aggregate windows processed15:20:04. Data persistence verified by subsequent reads/backup. Not platform suspension or a crash |
+| Cleanup | BLOCKED: recorded automatic cleanup rejection preserved; no deletion/relocation retry |
+| Source promotion / final archive / release tag | PENDING required gates. PR27/28 preserve stacked ancestry, no duplicate PR or force push. Default already release/transactx-v2; current deployed V3 is not yet promoted there |
+
+Source `433011c` has all five required GitHub jobs successful (backend, frontend,
+disposable demo and both PostgreSQL runs); its Vercel preview comment check also
+succeeded. Subsequent documentation receives focused verification, not another unchanged broad audit. Build
+prerequisite validation finds all eight required commands, the actual API origin,
+17 delivery inputs (including current provider/enrichment setup guides) and six approved corpus inputs; it creates no archive and is
+not an installation/runtime proof. The complete native archive remains pending
+its required acceptance gates. Spending is zero; reviewed Gemini configuration is enabled, with no
+paid fallback, billing changes or financial/historical-data repairs.
+
+### Requirement scope and smallest remaining actions
+
+This separates the authorized **V3 Render demo** from the still-unfinished
+**native distribution/operational claims**. No existing deliverable is waived,
+and optional inspections are not new mandatory release gates. External V3 pack
+references below name the owner-supplied files/sections, kept outside Git.
+
+| Item / requirement source | Mandatory scope | Existing evidence / actual gap | Smallest action / who can do it |
+| --- | --- | --- | --- |
+| Original password: V3 `03_OAUTH_DATA_AND_AI.md`, identity constraints and PostgreSQL tests | Preserve password compatibility, not possession of one historical account's password | Real stored-password login/authorized reads pass in `TestGeminiColdCompositionWithOwnerReview`; OAuth-only password denial tests pass. That original cloud password itself is unavailable | No password/reset input is needed for this requirement. Agent reuses valid regression evidence; exact original-account live recheck stays unclaimed |
+| Browser offline/replay: V3 QA§4.6 and [A5](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a5-verify-full-browser-workflows) | Mandatory current V3 browser acceptance | PASS: owner-operated actual Chrome offline queue/cache reload/Bob isolation/Alice automatic replay screenshots plus independent checkedSQL;15payments total, conserved1100000paise, zero reconstruction/unbalanced/duplicate participant-ledger errors | Completed with owner network/UI handoff; no further toggle or synthetic payment needed for this gate. Evidence applies to deployedcafae17 frontend, not native installation |
+| Gemini: V3 P8 / QA§8 | Mandatory before enabling/claiming generated reports; pack allows a clearly disabled optional provider | Corrected request passed full canonical grounding/persisted citations;433011c CI, deployment, authenticated API/browser saved-report reads, connected SSE and actual worker heartbeat passed. Owner-confirmed configuration is now enabled; normal hosted-worker generation not yet claimed | Activation completed and core-service checks passed. The completed maintenance verification authorizes no further diagnostic call |
+| Native Linux installation: [A6](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a6-package-and-deploy-native-online-demo) / native deployment guide; V3 P10 preserves Render/Vercel/Neon | Required for certified native bundle installation, not an additional hosting requirement for the already-working Render V3 demo | Builders/configs/conformance and prior scoped native recovery exist; no actual Linux installer/systemd/Caddy run on an owner target | Owner provides an existing free Linux host/OS/architecture and authorized SSH/sudo/DNS/TLS paths if completing that native deliverable. Agent can then install/test; no paid provisioning. Until then preserve pending status |
+| Independent backup: [A7](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a7-implement-backup-and-restore-rehearsal) / [backup plan](execution-pack/docs/next-gen/DEPLOYMENT_AND_BACKUP.md#backup-and-restore) | Real encrypted restore for backup-feature claim; off-VM owner-local storage explicitly allowed. A7 is P1 in registry | Current Neon→owner-PC encrypted snapshot/isolated restore verified. Same-machine-as-source backup is not claimed; source is Neon. No third-device prerequisite. Daily schedule/retention/RPO and restored worker execution still pending | No new storage input for the verified off-host copy. For unattended daily-target claims, owner must supply/authorize an available free scheduler/host; agent cannot promise24h backups while an owner's PC is off |
+| Native crash/restored worker: testing-plan recovery gates / A7 | Required for those exact native/recovery claims; changed areas need affected checks, not automatic repetition of every old experiment | Historical genuine process-kill/restore/projection artifacts retained; current V3 native continuation not claimed. Idle/wake is distinct | Hidden native API launch was automatically rejected (`blocked by policy`); agent will not retry or use an alternate launcher. Policy resolution or an authorized existing target is needed for new native proof |
+| Cleanup: V3 QA§5 mandatory dependency/archive procedure | Required cleanup task remains incomplete, not silently waived | Dependency/archive review exists; actual historical planning/contract/AGENTS relocation/deletion was rejected | Automatic rejection was `blocked by policy`; no destructive retry/bypass. Requires that restriction to be resolved before agent can finish cleanup |
+| Final source/branch/archive/tag: V3 P10, A8 and testing-plan release gates | Mandatory for completed release claim | Backend433011c/frontendcafae17 and rollback retained; browser offline gate now passed, deployment CI green. Provider configuration is enabled; original cleanup/native/operational exclusions remain explicit | Agent updates PR/checkpoint and integrates only within applicable gates; no full-release tag/promotion or native-install certification claimed here |
+
+## Historical native source and architecture
 
 The finishing branch `codex/v2-final-completion` preserves integration `86e12e4`,
 M1 `bc7c167`, M2 `e61ebd0` and M3 `15efc94` through normal history. Functional

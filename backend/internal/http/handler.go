@@ -53,6 +53,8 @@ type Handler struct {
 	simulationMode          bool
 	corsAllowedOrigins      []string
 	allowRegistration       bool
+	publicDemoAuth          bool
+	oidcSlots               chan struct{}
 	chaosEnabled            bool
 	recoveryControlEnabled  bool
 	auditStore              audit.Store
@@ -69,6 +71,7 @@ type RuntimeOptions struct {
 	CORSAllowedOrigins     []string
 	ParticipantSources     map[string]reconciliation.LedgerSnapshotSource
 	AllowRegistration      bool
+	PublicDemoAuth         bool
 	ChaosEnabled           bool
 	RecoveryControlEnabled bool
 	AuditStore             audit.Store
@@ -178,27 +181,28 @@ func newHandlerWithAdaptersAndChaos(db *pgxpool.Pool, logger *slog.Logger, authS
 	return newHandlerWithRecon(db, logger, authService, jwtManager, adapter, adapters, healthTargets, routeTargets, executionTargets, healthService, nil, mode, staticBaseline, circuitBreaker, chaosController, nil)
 }
 
-
 func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *auth.Service, jwtManager *auth.JWTManager, adapter bank.BankAdapter, adapters map[uuid.UUID]bank.BankAdapter, healthTargets map[string]health.HealthChecker, routeTargets map[uuid.UUID]string, executionTargets map[payments.RouteKey][]payments.ExecutionTarget, healthService *health.Service, _ *circuit.CircuitBreaker, mode payments.SelectionMode, staticBaseline string, circuitBreaker *circuit.CircuitBreaker, chaosController *chaos.Controller, reconEngine *reconciliation.Engine, runtimeOptions ...RuntimeOptions) http.Handler {
 	options := normalizeRuntimeOptions(runtimeOptions)
 	if logger == nil {
 		logger = slog.Default()
 	}
 	handler := &Handler{
-		db:              db,
-		logger:          logger,
-		auth:            authService,
-		users:           users.NewRepository(db),
-		accountsRepo:    accounts.NewRepository(db),
-		recipients:      recipients.NewRepository(db),
-		healthService:   healthService,
-		healthTargets:   healthTargets,
-		circuitBreaker:  circuitBreaker,
-		chaosController: chaosController,
-		reconEngine:     reconEngine,
+		db:                     db,
+		logger:                 logger,
+		auth:                   authService,
+		users:                  users.NewRepository(db),
+		accountsRepo:           accounts.NewRepository(db),
+		recipients:             recipients.NewRepository(db),
+		healthService:          healthService,
+		healthTargets:          healthTargets,
+		circuitBreaker:         circuitBreaker,
+		chaosController:        chaosController,
+		reconEngine:            reconEngine,
 		simulationMode:         options.SimulationMode,
 		corsAllowedOrigins:     append([]string(nil), options.CORSAllowedOrigins...),
 		allowRegistration:      options.AllowRegistration,
+		publicDemoAuth:         options.PublicDemoAuth && options.SimulationMode && !options.AllowRegistration,
+		oidcSlots:              make(chan struct{}, 1),
 		chaosEnabled:           options.ChaosEnabled,
 		recoveryControlEnabled: options.RecoveryControlEnabled,
 		auditStore:             options.AuditStore,
@@ -306,6 +310,11 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("GET /api/ops/investigations/{investigationID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.opsGetInvestigation))))
 	mux.HandleFunc("POST /api/auth/register", handler.register)
 	mux.HandleFunc("POST /api/auth/login", handler.login)
+	mux.HandleFunc("POST /api/auth/demo", handler.demoLogin)
+	mux.HandleFunc("GET /api/auth/options", handler.authOptions)
+	mux.HandleFunc("GET /api/auth/oidc/google/start", handler.googleStart)
+	mux.HandleFunc("GET /api/auth/oidc/google/callback", handler.googleCallback)
+	mux.HandleFunc("POST /api/auth/oidc/exchange", handler.googleExchange)
 	mux.Handle("GET /api/me", auth.Authentication(jwtManager, http.HandlerFunc(handler.me)))
 	mux.Handle("GET /api/accounts", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.accounts))))
 	mux.Handle("GET /api/accounts/{accountID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.account))))

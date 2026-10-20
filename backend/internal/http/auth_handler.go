@@ -24,6 +24,32 @@ type loginRequest struct {
 	Password   string `json:"password"`
 }
 
+func (h *Handler) authOptions(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	writeData(writer, http.StatusOK, request, map[string]any{"demoEnabled": h.publicDemoAuth, "registrationEnabled": h.allowRegistration, "googleEnabled": h.auth != nil && h.auth.Google() != nil})
+}
+
+func (h *Handler) demoLogin(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if !h.publicDemoAuth {
+		writeAPIError(writer, request, common.NewAPIError("DEMO_DISABLED", "shared demo access is unavailable", http.StatusForbidden))
+		return
+	}
+	var input struct {
+		Persona string `json:"persona"`
+	}
+	if err := decodeJSON(writer, request, &input); err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "choose a demo persona", http.StatusBadRequest))
+		return
+	}
+	token, user, err := h.auth.DemoLogin(request.Context(), input.Persona, time.Now())
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("DEMO_UNAVAILABLE", "shared demo identity is unavailable", http.StatusServiceUnavailable))
+		return
+	}
+	writeData(writer, http.StatusOK, request, map[string]any{"token": token, "user": user})
+}
+
 func (h *Handler) register(writer http.ResponseWriter, request *http.Request) {
 	if !h.allowRegistration {
 		writeAPIError(writer, request, common.NewAPIError("REGISTRATION_DISABLED", "public registration is disabled", http.StatusForbidden))
