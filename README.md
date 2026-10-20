@@ -1,204 +1,249 @@
 # TransactX
 
-### Distributed payment reliability and evidence-led operations
+### Distributed payments, with a visible trail of evidence
 
-Send a simulated payment, follow its journey across two bank participants,
-and understand what the system can prove when a response goes missing.
-TransactX combines a Go payment kernel with customer, merchant and operator
-workspaces. **Synthetic money only:** no real banks, UPI/NPCI or real transfers.
+TransactX is a payment reliability project with customer, merchant and operator
+workspaces. Send a simulated payment, follow its journey across two independent
+bank participants, and understand what the system can prove when a response goes
+missing.
 
-[Live demo](https://transactx-frontend.vercel.app) ·
+The project combines a Go payment kernel, PostgreSQL financial records and React
+workflows with durable recovery, reconciliation, cryptographic evidence and
+source-grounded investigations. Its central question is practical: **how do you
+recover a payment safely when different services have different observations?**
+
+**[Explore the live demo](https://transactx-frontend.vercel.app)** ·
 [Architecture](docs/architecture.md) ·
+[Local setup](docs/runbooks/local-development.md) ·
 [Deployment](deploy/render/README.md) ·
-[Engineering reference](docs/reference/payment-kernel.md)
+[Payment kernel reference](docs/reference/payment-kernel.md)
 
-![TransactX landing page in the light theme](docs/images/experience-landing.png)
+![TransactX payment receipt, original bank path and cited investigation](docs/images/experience-landing.png)
 
-**Visual direction is under revision after owner rejection.** The deployed
-frontend is not the completed Experience V3 release. A replacement landing,
-customer overview, merchant dashboard and operator journey/report are being
-reviewed as a representative slice before extending across other routes.
-Existing functional evidence below remains valid within its recorded scope.
+## What makes the project interesting
 
-Deployed frontend source `cafae17` and compatible backend `433011c` were deployed on
-19 October 2026. Customer receipts, merchant
-activity, automatic operator projection and a saved evidence-summary report
-with working citations were checked against the real HTTPS API. The screenshots
-in this README use intercepted synthetic test responses; they are UI examples.
-Google first and returning sign-in passed for the owner's External/Testing
-account, with independently checked zero balances and stable identity. Public
-Google access is not published. The owner enabled the reviewed Gemini 3.5
-configuration after compatible deployment and hosted report reads passed.
-The corrected 3.5 request passed one authorized
-live check: complete canonical validation and an independent persisted-citation
-read, with 5,655 input / 502 output tokens and `STOP`. Earlier failures remain
-recorded; no response IDs were repaired or grounding rules weakened.
-Evidence-summary mode remains available on provider or quota failure. No further
-generation was sent during activation; a new hosted-worker result is not claimed.
-This deployment is not full release acceptance.
-Owner-operated Chrome offline queue/reload/account isolation and automatic replay
-also passed, with independently checked exactly-one settlement and projection.
+- **One payment crosses independent services.** A central coordinator works with
+  two bank participants. Each keeps its own records, so recovery must compare
+  observations without inventing a result when one participant is unavailable.
+- **Correctness survives retries.** Stable payment and operation identities,
+  integer money and a double-entry ledger keep repeated requests attached to the
+  original financial attempt.
+- **Reliability is visible in the product.** Customers receive clear payment
+  states; merchants can distinguish completed receipts from uncertain outcomes;
+  operators can inspect the evidence behind both.
+- **Explanations are accountable.** Investigations retain their evidence snapshot,
+  missing observations and exact citations. Optional generated reports pass
+  structured validation and grounding checks before they are accepted.
 
-## Try a role
+## Explore a complete workflow
 
-Open **Try the demo** and choose a workspace. Shared accounts contain synthetic
-activity; they are not private wallets. Public demo access never grants admin.
+Open **Explore the demo** and choose a workspace. No registration is required for
+the shared demo roles. The separate [scenario library](https://transactx-frontend.vercel.app/showcase)
+provides guided, read-only examples of settlement, uncertainty, recovery,
+projection, integrity, offline use and investigation.
 
-| Role | Explore | Access boundary |
+| Workspace | A useful path through the product | Access boundary |
 | --- | --- | --- |
-| Customer | Send, review, receipts, activity, offline intents | Own account and payments |
-| Recipient | Receive and inspect incoming activity | Separate shared customer account |
-| Merchant | Receive QR, incoming payments, settlement views | Merchant-owned activity |
-| Operator | Worklist, journey, investigation, analytics | Read evidence; no money movement |
+| Customer | Open Alice, inspect the bank/account identity, verify a recipient, review an exact amount and open the resulting receipt | Own account, payments and offline intents |
+| Recipient | Open Bob to inspect the receiving side of a transfer and its incoming activity | Separate shared customer account |
+| Merchant | Copy the store identifier, download its QR, inspect incoming payments and separate completed receipts from those awaiting confirmation | Merchant-owned activity |
+| Operator | Filter the worklist, open a payment journey, compare bank observations, ask a scoped investigation question and follow report citations | Read-only public viewer; no money movement or admin access |
 
-The `/showcase` library is a separate, read-only collection of labelled
-illustrative scenarios. Its 192 records across eight stories never become live
-payments, calibration data or fallback API responses. Explanations there are
-prewritten, not Gemini output.
+Private operator screens also cover bank health, routing/circuit controls,
+reconciliation, integrity, Merkle proofs, audit activity and controlled faults.
+They remain behind administrator authorization and are not exposed by the public
+operator demo.
 
-## What the system demonstrates
+### Customer: review first, send once
 
-**Retry-safe settlement.** Integer paise, user-scoped idempotency and stable bank
-operation identities keep retries attached to the original payment attempt.
-PostgreSQL owns central payment state and its double-entry ledger.
+![Customer account balance, identity and scoped activity in the dark theme](docs/images/experience-customer.png)
 
-**Recovery through uncertainty.** Routed payments use a durable saga across
-independent participants. A timeout is an unknown outcome. Workers inspect the
-same operation identity, retain pending reconciliation when evidence is missing,
-and complete central recovery after verified participant settlement.
+The account overview brings together the available balance, stored bank identity,
+payment identifier and Send action. Balance masking and filters work within the
+loaded account history. The send flow verifies the recipient, parses decimal
+rupees into integer paise and asks the user to review the transfer before submission.
+Receipts retain the amount, counterparties, route and original reference.
 
-**Readable bank evidence.** The operator journey separates central state,
-participant observations, recovery attempts and missing evidence. Saved reports
-retain citations and their original scope rather than presenting an explanation
-as a fresh financial observation.
+### Merchant: a receiving desk with context
 
-**Reconciliation and proofs.** Bounded integrity checks compare authoritative
-records. Maintained Merkle commitments retain participant, time scope, generation
-and version. Verification rejects the wrong scope or a stale maintained root.
+![Merchant receiving workspace with identifier QR and download actions](docs/images/experience-merchant.png)
 
-**A resilient client.** Payment review preserves exact decimal-to-paise input.
-Account-isolated offline intents retain stable retry identities; an offline
-intent is not a settled payment. Static shell caching excludes API/auth responses.
-Light, dark and system themes apply across the workspaces.
+The merchant workspace combines a shareable payment identifier and QR with incoming
+activity and settlement views. Completed receipts and payments awaiting confirmation
+remain distinct. Copy/download actions use the actual account identifier, and
+expanded records retain references, routes and recorded settlement times.
 
-**A read-only investigator.** Evidence summaries are the default. Optional Gemini
-uses grounded structured reports and cited runbooks, with durable request/token
-limits and no paid fallback. Provider absence or an expired approval leaves the
-core API and worker available and returns an explicit evidence-summary fallback.
-
-## Workspaces
-
-![Customer overview with private balance controls in the dark theme](docs/images/experience-customer.png)
-
-Customer overview: stored account bank identity, exact balances, clear next
-actions and separate incoming/outgoing history. Screenshot uses test fixtures.
-
-![Merchant receive screen with labelled QR and payment identifier](docs/images/experience-merchant.png)
-
-Merchant receive: a readable payment identifier and QR with a white quiet zone.
-The QR does not fabricate a completed payment. Screenshot uses test fixtures.
+### Operator: follow the facts through uncertainty
 
 ![Operator payment journey and cited investigation in the dark theme](docs/images/experience-operator.png)
 
-Operator journey: pending central state, scoped evidence and a saved-report
-workflow. This screenshot is an intercepted fixture, not a live recovery claim.
+The journey places the authoritative payment outcome beside the original bank
+path, then shows independent observations and their collection times. Missing
+evidence and uncertain financial outcomes remain visible. Technical details are
+available through progressive disclosure; citations reveal their target section,
+scroll to the exact record and focus it. Saved investigations keep their original
+scope rather than presenting an old explanation as a fresh observation.
 
-## Architecture
+Screenshots use intercepted synthetic fixtures of the application UI. They are
+product illustrations; live account activity may differ.
+
+## How reliability works
+
+### Retry-safe settlement
+
+Money is stored as **integer paise**, avoiding floating-point rounding in payment
+amounts. A **double-entry ledger** records matching debit/credit entries so that
+financial movement can be checked independently of a status label.
+
+**Idempotency** means a retry with the same user-scoped request identity refers to
+the same payment attempt. Stable bank operation identities extend that protection
+to participant calls. PostgreSQL owns central payment state and its ledger;
+participants retain authority over their own operations.
+
+### Recovery through uncertain outcomes
+
+A **durable saga** is a recorded sequence of steps across services, with enough
+state for a worker to continue later. If a response is lost, the worker checks
+the original bank operation. A timeout remains an unknown outcome until evidence
+establishes what happened; recovery can retain pending reconciliation instead of
+mistaking silence for failure.
+
+A **transactional outbox** records operational events alongside authoritative
+changes. The worker consumes those durable events to build operator projections
+— convenient read views of the payment history — without making a browser refresh
+responsible for financial correctness.
+
+### Independent bank evidence, reconciliation and proofs
+
+Central state, participant observations and recovery attempts are separate sources.
+The operator view exposes their availability and source times so disagreements can
+be investigated explicitly.
+
+**Reconciliation** compares records across those sources to find discrepancies.
+**Integrity checks** evaluate persisted financial invariants, including ledger
+consistency. Bounded checks keep their scope visible rather than implying every
+record in the system was examined.
+
+**Merkle commitments** summarize a scoped set of records with a cryptographic root;
+a proof can check a record against that commitment. Maintained roots retain
+participant, time scope, generation and version. Verification rejects the wrong
+scope or a stale maintained root, so a valid-looking hash is not treated as a
+universal proof of payment correctness.
+
+### Offline intents and account-isolated replay
+
+An offline payment is first a saved **intent**, not settled money. The client stores
+its stable retry identity locally and waits for connectivity and a verified account
+session. Queues are isolated by account so switching users cannot replay another
+account's saved intent. Exact input/review behavior and the original payment identity
+remain intact across retry.
+
+The service worker caches the static application shell and assets, including fonts.
+API and authentication responses are excluded. Visual updates wait for existing
+tabs to close rather than taking over a payment in progress.
+
+### Grounded investigations and evidence fallback
+
+The investigator collects a scoped evidence snapshot and relevant runbook passages.
+Optional Gemini produces a structured report containing supported facts,
+interpretation, missing evidence and read-only next checks. Report shape, claims
+and citations are validated against the collected sources; a fluent response does
+not establish a financial outcome.
+
+Saved reports preserve evidence IDs and snapshot provenance. Citations return to
+exact source records. When the provider is unavailable, quota is exhausted, or
+configuration is unusable, the system visibly uses an **evidence summary** instead.
+Login, payments and recovery remain independent of provider availability.
+
+Provider requests use server-only credentials, explicit project/model configuration,
+durable daily request/token caps, bounded concurrency/timeouts and an immediate
+disable switch. There is no paid fallback or periodic manual approval renewal.
+
+## Architecture and technology
 
 ```mermaid
 flowchart LR
-  UI[React workspace / Vercel] -->|HTTPS + JWT / SSE| Gateway[Render gateway]
+  UI[React workspaces / Vercel] -->|HTTPS + JWT / SSE| Gateway[Render gateway]
   Gateway --> API[Go API]
   API --> A[Bank A process]
   API --> B[Bank B process]
-  Worker[Worker / recovery / projection] --> DB[(Neon PostgreSQL)]
-  API --> DB
+  API --> DB[(Neon PostgreSQL)]
   A --> DB
   B --> DB
-  API -. optional reviewed requests .-> Gemini[Gemini]
+  Worker[Recovery / outbox worker] --> DB
+  Worker -. optional reviewed requests .-> Gemini[Gemini]
 ```
 
-The free demo runs separate API, participant and worker processes on one Render
+The hosted demo runs separate API, participant and worker processes on one Render
 host, with central and participant schemas in Neon. Shared hosting does not merge
-their financial authority. Bank/database ports remain private. The gateway
-enforces bounded demo admission; the worker consumes durable outbox events for
-operational projections. The frontend uses the actual configured API origin.
+their financial authority. Bank/database ports stay private; the gateway exposes
+bounded HTTPS admission to the application. The frontend uses the configured API
+origin and application JWTs. SSE carries refresh hints for operational views,
+not bank-health verdicts.
 
-Native Linux deployment scripts remain available separately. Neither deployment
-path provisions paid resources. A sleeping free host can delay the first API
-response; the frontend presents that state without periodic keepalive spending.
-
-| Layer | Implementation |
+| Layer | Implementation and purpose |
 | --- | --- |
-| Payment and participants | Go, PostgreSQL 18, typed HTTP adapters, durable saga |
-| Client | React, TypeScript, Vite, IndexedDB, static service worker |
-| Identity | Application JWT; optional Google OIDC with PKCE and one-time exchange |
-| Investigation | Canonical evidence, lexical runbook retrieval, optional Gemini |
-| Analytics | Durable windows; statistical baseline by default |
-| Experiment | IsolationForest remains experimental, not the default scorer |
+| Payment coordinator and participants | Go HTTP services and typed bank adapters; durable cross-service payment steps |
+| Financial persistence | PostgreSQL 18; central double-entry ledger and independent participant records |
+| Recovery and operational views | Durable worker state and transactional outbox projections |
+| Client | React, TypeScript, Vite, IndexedDB and static-only service worker; self-hosted DM Sans |
+| Identity | Application JWT; Google OIDC with PKCE and a one-time application exchange |
+| Investigation | Canonical evidence, lexical runbook retrieval, structured validation and optional Gemini |
+| Analytics | Durable measured windows and a statistical baseline; IsolationForest remains experimental |
+| Operations | Reconciliation, integrity/Merkle checks, audit records and telemetry context |
 
 ## Engineering evidence
 
-Evidence is tied to a source and environment. Fixtures and green CI do not prove
-public deployment, native crashes, real Google consent or provider entitlement.
+Checks are tied to their source and environment. The following provide useful
+entry points for a deeper review:
 
-| Evidence | Scope and limitation |
+| Evidence | What it covers |
 | --- | --- |
-| [Auth/provider PostgreSQL CI](.github/workflows/auth-provider-postgres.yml) | Disposable PostgreSQL 18, fresh migrations, legacy upgrade, OIDC/Gemini persistence and optional-provider startup composition; required tests must pass rather than skip |
-| [Release validation](.github/workflows/release-validation.yml) | Backend/race/frontend gates and explicitly isolated lifecycle checks |
-| [Browser fixtures](frontend/browser) | Rendered UI, roles, failure states, offline isolation and accessibility; intercepted responses are labelled test evidence |
-| [Reconciliation experiments](docs/reconciliation-experiments.md) | Historical controlled measurements at their recorded source, not current production SLAs |
-| [Resilience experiments](docs/resilience-experiments.md) | Recorded environments and limitations; not proof of every later source change |
+| [Release validation CI](.github/workflows/release-validation.yml) | Backend/race/frontend gates and explicitly isolated lifecycle checks |
+| [Auth/provider PostgreSQL CI](.github/workflows/auth-provider-postgres.yml) | Disposable PostgreSQL, fresh/legacy migrations, OIDC/Gemini persistence and optional-provider composition; required tests must pass rather than skip |
+| [Browser checks](frontend/browser) | Role boundaries, payment review, QR actions, reports/citations, failure states, accessibility, responsive layouts and offline shell behavior |
+| [Reconciliation experiments](docs/reconciliation-experiments.md) | Recorded controlled measurements with their original scope |
+| [Resilience experiments](docs/resilience-experiments.md) | Recorded environments, recovery scenarios and explicit limitations |
 
-Local V3 verification on 18 October 2026 covered signed OIDC claims/key rotation,
-durable account provisioning, grounded Gemini transport fixtures, canonical
-PostgreSQL upgrade conformance and optional-provider startup composition.
-No external provider request was made for those tests. Cold composition is
-distinct from native process kill/restart acceptance.
+The [delivery report](docs/next-gen/DELIVERY_REPORT.md) records source-specific hosted
+and operational acceptance, including real consent/provider/offline evidence and
+outstanding exclusions. Fixture screenshots and green CI are not substitutes for
+live integration or native process-crash evidence.
 
-## Run locally
+## Setup and maintained guides
 
-Use Go 1.27+, Node.js 22+ and an isolated PostgreSQL 18 database. Load private
-configuration into the environment; the binaries do not automatically read
-dotenv files. Apply **all** canonical migrations with the migration command.
+Use the linked guides for commands, private configuration, all canonical migrations
+and separate API/bank/worker startup. The binaries do not automatically load dotenv
+files. Never point initialization or destructive test cleanup at an existing
+financial dataset.
 
-```powershell
-cd backend
-go run ./cmd/migrate up
-```
+- [Local development](docs/runbooks/local-development.md)
+- [Existing free Render/Vercel/Neon deployment](deploy/render/README.md)
+- [Google sign-in setup](docs/runbooks/google-sign-in.md)
+- [Gemini configuration and durable limits](docs/runbooks/gemini-zero-spend.md)
+- [Guarded synthetic demo enrichment](docs/runbooks/demo-enrichment.md)
+- [Payment kernel engineering reference](docs/reference/payment-kernel.md)
 
-Follow the [local setup guide](docs/runbooks/local-development.md) for separate
-API/bank/worker processes and the frontend. Never point an initializer or test
-cleanup at an existing financial dataset. The demo seed command is for a newly
-created, acknowledged empty demo database only.
+## Demo limitations
 
-For a host deployment, use the [free demo runbook](deploy/render/README.md) or
-[native delivery guide](deploy/README.md). Preserve the working source and private
-configuration as rollback; additive schema changes are not an invitation to erase
-identity or financial history with a downgrade.
+This is an engineering simulation: no real money, real banks or UPI/NPCI transfers.
+Shared demo activity is visible to other visitors and has bounded capacity. Private
+Google access currently uses an External/Testing audience; new private accounts
+start at zero. The free API sleeps between visits, so the first authenticated
+request can be slow; there is no periodic keepalive to mask that behavior.
 
-## Optional account configuration
+Illustrative scenarios are prewritten examples and never become live observations
+or model-calibration data. Provider review is bound to the actual key/project/model,
+without time-based renewal; the app cannot independently guarantee billing state
+or permanent free-tier availability. Standalone native Linux installation
+certification and unverified scheduled-backup/RPO work are separate operational
+deliverables, not claims of the hosted demo.
 
-- [Google sign-in](docs/runbooks/google-sign-in.md): separate Web OAuth client,
-  exact callback and frontend origin, reviewed consent/audience. New Google
-  customers start at zero and cannot select privileged roles or link by email.
-- [Gemini zero-spend setup](docs/runbooks/gemini-zero-spend.md): actual key-project
-  one-time configuration-bound billing/quota review, persistent caps and an
-  immediate shared disable switch. No periodic renewal; the app cannot guarantee
-  provider billing state or permanent free-tier availability.
-- [Demo enrichment](docs/runbooks/demo-enrichment.md): read-only dry-run first,
-  exact acknowledged Neon target, installed capacity guards and ordinary payment
-  APIs. The existing `neondb` is supported without renaming or resetting it.
+## Contributors and attribution
 
-## Boundaries and attribution
-
-This is a simulation and engineering demonstration, not a certified financial
-service. Shared demos have bounded capacity. Illustrative stories, controlled
-experiments and live observations are visibly distinct. Optional provider
-features are not a prerequisite for payment or password sign-in availability.
-
-TransactX is collaborative work. Original contributors and their authorship are
-preserved in [Git history](https://github.com/whoevenisshubham/TransactX/commits/)
-and [contributors](https://github.com/whoevenisshubham/TransactX/graphs/contributors).
-The redesign extends that work without rewriting attribution. Third-party
-dependencies retain their licenses; no copied commercial design assets are used.
+TransactX is collaborative work. Original authorship is preserved in
+[Git history](https://github.com/whoevenisshubham/TransactX/commits/) and
+[contributors](https://github.com/whoevenisshubham/TransactX/graphs/contributors).
+Third-party licenses, self-hosted font licensing and benchmark provenance are
+retained. Product artwork is original; commercial reference-site assets are not
+copied into the project.
