@@ -23,7 +23,7 @@ class PipelineChecks(unittest.TestCase):
   np.testing.assert_array_equal(before,pipeline.matrix(rows))
  def test_analytics_contract_fixtures(self):
   from jsonschema import Draft202012Validator,FormatChecker
-  schema=json.loads((pipeline.ROOT/'docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json').read_text())
+  schema=json.loads((pipeline.ROOT/'docs/api/contracts/v2.schema.json').read_text())
   v=Draft202012Validator({'$ref':'#/$defs/AnalyticsWindow','$defs':schema['$defs']},format_checker=FormatChecker())
   for window in json.loads((A/'windows.json').read_text()):v.validate(window)
  def test_projection_queue_scenario(self):

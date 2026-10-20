@@ -3,11 +3,11 @@ import hashlib,json,os
 from pathlib import Path
 from jsonschema import Draft202012Validator,FormatChecker
 ROOT=Path(__file__).resolve().parents[1]
-schema=json.loads((ROOT/'docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json').read_text())
+schema=json.loads((ROOT/'docs/api/contracts/v2.schema.json').read_text())
 def check():
  fixtures=ROOT/'backend/internal/investigator/testfixtures'
  manifest=json.loads((fixtures/'manifest.json').read_text())
- assert manifest['schemaSha256']==hashlib.sha256((ROOT/'docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json').read_bytes().replace(b'\r\n',b'\n')).hexdigest()
+ assert manifest['schemaSha256']==hashlib.sha256((ROOT/'docs/api/contracts/v2.schema.json').read_bytes().replace(b'\r\n',b'\n')).hexdigest()
  for entry in manifest['cases']:
   raw=(fixtures/entry['path']).read_bytes();assert hashlib.sha256(raw).hexdigest()==entry['sha256']
   c=json.loads(raw)
