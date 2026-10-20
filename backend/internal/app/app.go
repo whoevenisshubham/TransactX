@@ -410,6 +410,7 @@ func (e *Environment) Close() {
 // NewHTTPHandler constructs the API HTTP handler backed by the Environment.
 func (e *Environment) NewHTTPHandler() http.Handler {
 	runtimeOptions := apihttp.RuntimeOptions{
+		InvestigatorService:    e.InvestigatorService,
 		SimulationMode:         e.Config.SimulationMode,
 		CORSAllowedOrigins:     e.Config.CORSAllowedOrigins,
 		ParticipantSources:     e.ParticipantSources,
