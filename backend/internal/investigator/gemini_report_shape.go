@@ -138,3 +138,19 @@ func matchReportShape(value any, schema map[string]any) string {
 	}
 	return ""
 }
+
+// Emit only fixed local codes; never copy provider-controlled strings to logs.
+func geminiFinishFailure(finish string) string {
+	switch finish {
+	case "MAX_TOKENS":
+		return "finish_max_tokens"
+	case "MALFORMED_FUNCTION_CALL":
+		return "finish_malformed_function_call"
+	case "UNEXPECTED_TOOL_CALL":
+		return "finish_unexpected_tool_call"
+	case "OTHER":
+		return "finish_other"
+	default:
+		return "finish_not_stop"
+	}
+}

@@ -232,7 +232,7 @@ func decodeGeminiResponse(raw []byte, model string, inputLimit, outputLimit int6
 		return result, ErrProviderRefusal
 	}
 	if response.Candidates[0].Finish != "STOP" {
-		return result, malformedGemini("finish_not_stop")
+		return result, malformedGemini(geminiFinishFailure(response.Candidates[0].Finish))
 	}
 	if (result.Usage.InputTokens != nil && (*result.Usage.InputTokens < 0 || *result.Usage.InputTokens > inputLimit)) || (result.Usage.OutputTokens != nil && (*result.Usage.OutputTokens < 0 || *result.Usage.OutputTokens > outputLimit)) {
 		return result, malformedGemini("usage_limit")
