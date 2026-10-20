@@ -19,7 +19,7 @@ for (const theme of ["light", "dark"] as const) test(`200% browser zoom preserve
   });
   try {
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
-    const page = context.pages()[0] ?? await context.newPage();
+    let page = context.pages()[0] ?? await context.newPage();
     await page.addInitScript(() => sessionStorage.setItem("transactx.token", "fixture-only"));
     await page.route("http://localhost:8080/**", async route => {
       const path = new URL(route.request().url()).pathname;
@@ -49,6 +49,8 @@ for (const theme of ["light", "dark"] as const) test(`200% browser zoom preserve
         await session.detach();
       }
     };
+    await expect(page.getByRole("heading",{name:"Good day, Alice"})).toBeVisible();
+    await inspect("customer-overview");
     await page.getByRole("button",{name:"Send money",exact:true}).first().click();
     await page.getByLabel("Recipient TransactX payment ID").fill("store@fixture");
     await page.getByRole("button",{name:"Find",exact:true}).click();
@@ -61,6 +63,11 @@ for (const theme of ["light", "dark"] as const) test(`200% browser zoom preserve
     await confirm.focus();
     await expect(confirm).toBeFocused();
     await inspect("payment-review");
+    // Same actual 200% tab zoom; no API/worker or live money is involved.
+    await page.route("http://localhost:8080/api/me", route => fulfillFixture(route,{id:"merchant-zoom-fixture",name:"Store Fixture",role:"MERCHANT",paymentIdentifier:"store@fixture"}));
+    await page.goto("http://127.0.0.1:4173/merchant");
+    await expect(page.getByRole("heading",{name:"Welcome, Store"})).toBeVisible();
+    await inspect("merchant-dashboard");
     // No payment is submitted. Replace only the isolated API fixtures for ops.
     await page.unroute("http://localhost:8080/**");
     await installFixtureApi(page,"OPS_VIEWER");
@@ -76,5 +83,18 @@ for (const theme of ["light", "dark"] as const) test(`200% browser zoom preserve
     await inspect("navigation");
     await page.keyboard.press("Escape");
     await expect(menu).toBeFocused();
+    // A fresh page has no page-scoped auth fixture init scripts. Clearing storage
+    // on the old page would simply reinject its operator token on navigation.
+    await page.close();
+    page = await context.newPage();
+    await page.goto("http://127.0.0.1:4173/");
+    expect(await worker.evaluate(`(async () => {
+      const [tab] = await chrome.tabs.query({url: "http://127.0.0.1:4173/*"});
+      await chrome.tabs.setZoom(tab.id, 2);
+      return await chrome.tabs.getZoom(tab.id);
+    })()`)).toBe(2);
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(720);
+    await expect(page.getByRole("heading",{level:1})).toContainText("Money moves.");
+    await inspect("landing");
   } finally { await context.close(); }
 });

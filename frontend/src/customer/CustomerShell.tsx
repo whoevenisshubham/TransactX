@@ -146,14 +146,14 @@ export function CustomerShell({ token, onLogout }: { token: string; onLogout: ()
   const account = accounts[0];
 
   return (
-    <div className="product-shell customer-shell">
+    <div className={`product-shell customer-shell ${view === "home" ? "reset-workspace reset-personal" : ""}`}>
       <Sidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} />
       <main className="main-content">
         <MobileHeader user={user} onLogout={onLogout} />
         <div className="content-wrap">
           <div className="workspace-topbar"><span>Personal / {view === "home" ? "Overview" : view === "pay" ? "Send money" : view === "details" ? "Receipt" : "Activity"}</span><NetworkStatus online={online} /></div>
           {view === "home" && (
-            <HomeView user={user} account={account} payments={payments} onNavigate={navigate} />
+            <HomeView user={user} account={account} payments={payments} onNavigate={navigate} onExploreDemo={() => { onLogout(); window.location.assign("/demo"); }} />
           )}
           {view === "pay" && queue && (
             <PayView
@@ -308,28 +308,30 @@ function MobileNav({ view, onNavigate }: { view: View; onNavigate: (view: View) 
   );
 }
 
-function HomeView({
-  user,
-  account,
-  payments,
-  onNavigate,
-}: {
-  user: User | null;
-  account?: Account;
-  payments: Payment[];
-  onNavigate: (view: View, paymentID?: string) => void;
-}) {
+function HomeView({ user, account, payments, onNavigate, onExploreDemo }: { user: User | null; account?: Account; payments: Payment[]; onNavigate: (view: View, paymentID?: string) => void; onExploreDemo: () => void }) {
   const [masked, setMasked] = useState(false);
+  const [activityFilter,setActivityFilter] = useState("ALL");
+  const [activityQuery,setActivityQuery] = useState("");
   const activeStatus = account?.status === "ACTIVE";
   const confirming = payments.filter(payment => !["COMPLETED", "FAILED", "REVERSED"].includes(payment.state)).length;
+  const visible = payments.filter(payment => (activityFilter === "ALL" || payment.direction === activityFilter) && `${payment.senderName} ${payment.receiverName} ${payment.note ?? ""}`.toLowerCase().includes(activityQuery.toLowerCase()));
   return <>
-    <PageHeader eyebrow="Personal workspace" title={`Good day, ${firstName(user?.name)}`} description="Your money, with the full picture." action={<Button onClick={() => onNavigate("pay")}><Icon name="send" />Send money</Button>} />
-    <div className="customer-overview-grid">
-      <section className="customer-balance" aria-label="Account balance"><div className="customer-card-top"><span className="section-kicker">Available balance</span><button type="button" className="balance-visibility" aria-pressed={masked} onClick={() => setMasked(value => !value)}>{masked ? "Show balance" : "Hide balance"}</button></div>{!account ? <p className="balance-unavailable">Balance unavailable</p> : masked ? <p className="masked-balance" aria-label="Balance hidden">••••••</p> : <Amount paise={account.balancePaise} prominent />}<div className="customer-account-foot"><span className="account-status"><span className={`status-dot ${activeStatus ? "status-success-dot" : "status-neutral-dot"}`} />{activeStatus ? "Active account" : account?.status ?? "Unavailable"}</span><span className="customer-account-number">{account?.accountNumber ?? "Account unavailable"}</span></div><p className="customer-bank-identity">{account?.bankName ? <>{account.bankName}{account.bankCode ? ` · ${account.bankCode}` : ""}</> : "Bank identity unavailable"}</p><p className="simulation-caption">Simulated INR · No real money</p></section>
-      <section className="customer-identity" aria-label="Your payment identity"><div className="customer-card-top"><span className="section-kicker">Your payment ID</span><Icon name="qr" /></div><h2>{user?.paymentIdentifier ?? "Unavailable"}</h2><p>Share this ID to receive a payment from another TransactX account.</p>{user && <CopyValue value={user.paymentIdentifier} label="Copy payment ID" />}<div className="customer-identity-foot"><Avatar name={user?.name ?? "Customer"} /><span>{user?.name ?? "Customer"}<small>Personal account</small></span></div></section>
+    <PageHeader eyebrow="YOUR EVERYDAY ACCOUNT" title={`Good day, ${firstName(user?.name)}`} description="Make your next move." />
+    <div className="personal-account-layout">
+      <section className="personal-account-document" aria-label="Account balance">
+        <div className="account-document-head"><span><BrandMark /> PERSONAL ACCOUNT</span><span className="account-status"><span className={`status-dot ${activeStatus ? "status-success-dot" : "status-neutral-dot"}`} />{activeStatus ? "Active account" : account?.status ?? "Unavailable"}</span></div>
+        <div className="personal-balance-line"><div><span className="section-kicker">Available balance</span>{!account ? <p>Balance unavailable</p> : masked ? <p className="masked-balance" aria-label="Balance hidden">••••••</p> : <Amount paise={account.balancePaise} prominent />}</div><button type="button" className="balance-visibility" aria-pressed={masked} onClick={()=>setMasked(value=>!value)}>{masked?"Show balance":"Hide balance"}</button></div>
+        <div className="personal-account-action"><span>Simulated INR · No real money</span><Button onClick={()=>onNavigate("pay")}>Send money <Icon name="arrow" /></Button></div>
+        <div className="personal-account-imprint"><span className="customer-bank-identity">{account?.bankName ? <>{account.bankName}{account.bankCode ? ` · ${account.bankCode}` : ""}</> : "Bank identity unavailable"}</span><span>{account?.accountNumber ?? "Account unavailable"}</span></div>
+      </section>
+      <section className="personal-receive-note" aria-label="Your payment identity"><span className="personal-note-symbol" aria-hidden="true">↙</span><p className="section-kicker">MONEY CAN COME YOUR WAY, TOO.</p><h2>Your identity.<br />Ready to share.</h2><strong className="personal-payment-id">{user?.paymentIdentifier ?? "Unavailable"}</strong>{user && <CopyValue value={user.paymentIdentifier} label="Copy payment ID" />}<p>Receive from another TransactX account using this payment ID.</p></section>
     </div>
-    <section className="customer-activity-card"><div className="section-heading"><div><p className="eyebrow">Your latest activity</p><h2>Recent transactions</h2></div><button type="button" className="text-link" onClick={() => onNavigate("transactions")}>Open activity <Icon name="arrow" size={16} /></button></div><div className="activity-scope"><span>Latest {payments.length} loaded records · showing up to 5</span><span>{confirming} awaiting confirmation in this page</span></div>{payments.length === 0 ? <EmptyState title="No transactions yet" description="Your payments will appear here after your first transfer." action={<Button variant="secondary" onClick={() => onNavigate("pay")}>Send money</Button>} /> : <div className="payment-list">{payments.slice(0,5).map(payment => <PaymentRow key={payment.id} payment={payment} onClick={() => onNavigate("details",payment.id)} />)}</div>}</section>
-    <section className="customer-guidance"><span className="role-icon"><Icon name="check" /></span><div><h2>Review first. Send once.</h2><p>Verify the recipient and exact amount before sending. If a confirmation is missing, check the original payment before starting another.</p></div><button type="button" className="text-link" onClick={() => onNavigate("pay")}>Start a payment <Icon name="arrow" /></button></section>
+    {account?.balancePaise === 0 && <aside className="zero-balance-note"><strong>Your available balance is ₹0.</strong><p>To try payments, explore a funded shared demo. Private accounts and shared demos stay separate.</p><button type="button" onClick={onExploreDemo} className="text-link">Log out and explore shared demos <Icon name="arrow" /></button></aside>}
+    <section className="personal-activity-desk"><div className="section-heading"><div><p className="eyebrow">THE LATEST MOVEMENTS</p><h2>Recent transactions</h2></div><button type="button" className="text-link" onClick={()=>onNavigate("transactions")}>Open activity <Icon name="arrow" /></button></div>
+      <div className="personal-activity-tools"><div role="group" aria-label="Recent transaction direction">{[["ALL","All activity"],["SENT","Sent"],["RECEIVED","Received"]].map(([value,label])=><button key={value} type="button" aria-pressed={activityFilter===value} onClick={()=>setActivityFilter(value)}>{label}</button>)}</div><label className="activity-search"><span>Find in loaded activity</span><input value={activityQuery} onChange={event=>setActivityQuery(event.target.value)} placeholder="Name or note" /></label></div>
+      <div className="activity-scope"><span>Latest {payments.length} loaded records · showing up to 5</span><span>{confirming} awaiting confirmation in this page</span></div>
+      {visible.length === 0 ? <EmptyState title={payments.length ? "No matching activity" : "No transactions yet"} description={payments.length ? "Try another name or direction within the loaded records." : "Your payments will appear here after your first transfer."} /> : <div className="payment-list">{visible.slice(0,5).map(payment=><PaymentRow key={payment.id} payment={payment} onClick={()=>onNavigate("details",payment.id)} />)}</div>}
+    </section><div className="personal-footnote"><Icon name="check" /><p><strong>Review first. Send once.</strong> Missing confirmation? Check the original payment before starting another.</p></div>
   </>;
 }
 

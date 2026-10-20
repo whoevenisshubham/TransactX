@@ -34,8 +34,7 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
     } finally { inFlight.current = false; setSubmitting(false); }
   }
 
-  return <section aria-label="Payment investigation">
-    <h2>Investigate this payment</h2>
+  const composer = <div className="investigator-composer">
     <p>Questions stay scoped to this payment. Reports explain collected evidence; they cannot change settlement.</p>
     <div className="ops-question-chips" role="group" aria-label="Investigation starters">{["Why is this payment pending?", "What evidence is missing?", "What did each bank report?"].map((suggestion) => <button type="button" key={suggestion} onClick={() => setQuestion(suggestion)}>{suggestion}</button>)}</div>
     <label className="field">Question
@@ -43,10 +42,15 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
     </label>
     <Button disabled={submitting || !question.trim() || (jobId !== null && submittedQuestion === question.trim())} onClick={submit}>{submitting ? "Starting…" : "Start investigation"}</Button>
     {error && <InlineError message={error} />}
-    {jobId && <>
-      <Button variant="quiet" onClick={() => onNavigate(`/console/investigations/${jobId}?paymentId=${encodeURIComponent(paymentId)}`)}>Open saved investigation</Button>
+  </div>;
+  return <section aria-label="Payment investigation">
+    <div className="investigator-heading"><span aria-hidden="true">✳</span><div><p className="section-kicker">EVIDENCE, EXPLAINED</p><h2>Investigate this payment</h2></div></div>
+    {jobId ? <>
+      <p className="investigation-submitted-question">{submittedQuestion}</p>
+      <Button variant="quiet" onClick={() => onNavigate(`/console/investigations/${jobId}?paymentId=${encodeURIComponent(paymentId)}`)}>Open saved investigation ↗</Button>
       <InvestigationJob key={jobId} id={jobId} snapshotId={snapshotId} evidenceIds={evidenceIds} token={token} />
-    </>}
+      <details className="investigator-new-question"><summary>Ask another scoped question</summary>{composer}</details>
+    </> : composer}
   </section>;
 }
 
@@ -123,11 +127,11 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
       </li>)}</ul>
       {report.missingEvidence.length > 0 && <p className="ops-banner ops-banner-warning">Missing evidence: {report.missingEvidence.join(", ")}</p>}
     </div>}
-    {job.data && job.data.toolTimeline.length > 0 && <DataTable<Investigation["toolTimeline"][number]> caption="Investigator tool timeline" rows={job.data.toolTimeline} rowKey={(step) => `${step.toolName}:${step.startedAt}`} columns={[
+    {job.data && job.data.toolTimeline.length > 0 && <details className="investigation-tool-details"><summary>Collected sources and tool timeline</summary><DataTable<Investigation["toolTimeline"][number]> caption="Investigator tool timeline" rows={job.data.toolTimeline} rowKey={(step) => `${step.toolName}:${step.startedAt}`} columns={[
       { key: "tool", heading: "Tool", render: (step) => step.toolName },
       { key: "time", heading: "Started", render: (step) => new Date(step.startedAt).toLocaleString() },
       { key: "status", heading: "Result", render: (step) => step.status },
       { key: "evidence", heading: "Evidence IDs", render: (step) => step.evidenceIds.join(", ") || "—" },
-    ]} />}
+    ]} /></details>}
   </div>;
 }

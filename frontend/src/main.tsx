@@ -12,6 +12,7 @@ import { PrivacyPage } from "./public/PrivacyPage";
 import "./styles.css";
 import "./design/ops.css";
 import "./design/experience.css";
+import "./design/visual-reset.css";
 
 export { parsePaise } from "./money";
 

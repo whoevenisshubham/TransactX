@@ -14,8 +14,13 @@ workspaces. **Synthetic money only:** no real banks, UPI/NPCI or real transfers.
 
 ![TransactX landing page in the light theme](docs/images/experience-landing.png)
 
-**Experience V3 is live on the shared synthetic demo.** Backend and frontend
-frontend source `cafae17` and compatible backend `433011c` were deployed on
+**Visual direction is under revision after owner rejection.** The deployed
+frontend is not the completed Experience V3 release. A replacement landing,
+customer overview, merchant dashboard and operator journey/report are being
+reviewed as a representative slice before extending across other routes.
+Existing functional evidence below remains valid within its recorded scope.
+
+Deployed frontend source `cafae17` and compatible backend `433011c` were deployed on
 19 October 2026. Customer receipts, merchant
 activity, automatic operator projection and a saved evidence-summary report
 with working citations were checked against the real HTTPS API. The screenshots

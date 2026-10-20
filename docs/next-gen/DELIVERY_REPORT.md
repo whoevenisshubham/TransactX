@@ -1,7 +1,11 @@
 # TransactX v2 delivery acceptance
 
-Status: Experience V3 is deployed on the existing free demo; final release
-promotion and native archive/installation acceptance remain pending.
+Status: the owner rejected the current frontend visual direction on 20 October
+2026. Earlier visual-completion assessment is withdrawn. A replacement
+representative slice is awaiting owner review before expansion across routes.
+Do not promote or tag the deployed design as the completed Experience V3 release.
+Existing functional evidence and deployed rollback remain preserved; final
+release promotion and native archive/installation acceptance remain pending.
 The historical native results below retain their original source/run scopes;
 they do not certify the newer V3 deployment.
 
@@ -20,6 +24,17 @@ earlier application rollback `426436d780b70eaf83042df91bf8f44fcf65ba99` retained
 Documentation-only commits do not change those deployed IDs.
 Private evidence and the single checkpoint stay outside Git.
 
+The replacement representative slice changes only the landing, customer overview,
+merchant dashboard, payment journey/report and their scoped presentation. Full-page
+before/after captures cover all four screens in both themes at 1440/390px; candidate
+320px captures and actual 200% browser-tab zoom are also retained privately.
+Focused checks passed for role tabs, loaded-activity filters/search, balance masking,
+QR download, exact citation focus, zero-balance logout-to-demo, existing payment
+review and investigation failure/retry behaviour. Accessibility checks found no
+critical/serious violations in the captured slice. Build/types and diff checks pass.
+These are intercepted UI fixtures, not new live financial/provider evidence, and
+none of them constitutes owner visual acceptance. Other routes await that review.
+
 Post-deploy authenticated customer/account/payment and saved generated-report
 reads passed; Google remains enabled and registration disabled. Actual Render
 logs show a worker heartbeat at433011c and two initial aggregate windows processed.
@@ -33,7 +48,7 @@ new hosted-worker generated execution remains unclaimed.
 
 | Gate | Status and exact scope |
 | --- | --- |
-| Full public/customer/merchant/operator redesign | PASS: prior rendered fixture route/theme/mobile/keyboard/200%/axe and build evidence retained; fixtures are not live acceptance |
+| Visual design acceptance | REJECTED by owner: prior technical layout checks do not establish aesthetic acceptance. Replacement landing/customer overview/merchant dashboard/operator journey and report require concrete before/after owner review before route expansion |
 | Real representative role flows | PASS on deployed V3: customer payment/receipt, merchant activity/QR, operator journey, real worker-completed saved evidence report and all five citations |
 | Authorization / HTTPS / CORS | PASS: foreign payment 404, merchant ops 403, viewer admin 403, exact frontend origin allowed and foreign origin rejected; OAuth callback no-store/no-referrer |
 | Google first and returning sign-in | PASS: owner completed real External/Testing consent/login; independent SQL proves one identity, stable customer/accounts, no duplicates and zero balances. Not published to all Google users |
