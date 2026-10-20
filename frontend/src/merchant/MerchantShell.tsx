@@ -52,7 +52,7 @@ export function MerchantShell({ token, user, onLogout }: { token: string; user: 
   const account = accounts[0];
 
   return (
-    <div className={`product-shell merchant-shell ${view === "m-home" ? "reset-workspace reset-merchant" : ""}`}>
+    <div className="product-shell merchant-shell reset-workspace reset-merchant reset-expanded">
       <MerchantSidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} />
       <main className="main-content">
         <MerchantMobileHeader user={user} onLogout={onLogout} />

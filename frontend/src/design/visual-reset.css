@@ -1,4 +1,4 @@
-/* Representative slice. Other routes await the owner's visual-direction review. */
+/* Owner-accepted visual direction: DM Sans, financial documents and evidence-led workspaces. */
 .reset-public,.reset-workspace{--bg-page:#f5f4f0;--surface:#fff;--surface-soft:#eeeee8;--surface-elevated:#fff;--ink:#202728;--muted:#5a6464;--faint:#657171;--line:#d9ddd7;--line-strong:#bdc6be;--accent:#3158d5;--accent-strong:#2449b8;--accent-dark:#2449b8;--accent-pale:#e8edff;--accent-soft:#e8edff;--on-accent:#fff;--success:#156849;--success-bg:#e2f3e8;--warning:#83510c;--warning-bg:#fff1d6;--error:#ad3045;--error-bg:#ffecee;--reset-teal:#006b63;--reset-teal-soft:#deeee6;--reset-violet:#6650b9;--reset-violet-soft:#f0edf9;--reset-warm:#eee8d8;--text-primary:var(--ink);--text-secondary:var(--muted);--text-muted:var(--faint);background:var(--bg-page);color:var(--ink);font-size:15px;line-height:1.55}
 :root[data-theme=dark] :is(.reset-public,.reset-workspace){--bg-page:#171b1c;--surface:#202627;--surface-soft:#282f30;--surface-elevated:#30393a;--ink:#f1f2ed;--muted:#b1bfbc;--faint:#9eb0ac;--line:#394343;--line-strong:#5b6d68;--accent:#a3b6ff;--accent-strong:#b9c8ff;--accent-dark:#b9c8ff;--accent-pale:#303f65;--accent-soft:#303f65;--on-accent:#16213b;--success:#91dfb8;--success-bg:#233d31;--warning:#f0ce8c;--warning-bg:#3c3324;--error:#ffafbd;--error-bg:#442c33;--reset-teal:#81d6bf;--reset-teal-soft:#243d35;--reset-violet:#bdabef;--reset-violet-soft:#302c3e;--reset-warm:#383629}
 :is(.reset-public,.reset-workspace) :is(h1,h2,h3){text-wrap:balance;letter-spacing:-.025em}
@@ -232,3 +232,92 @@
 .reset-merchant .merchant-position small{overflow-wrap:anywhere}
 .reset-workspace :is(.personal-account-document,.merchant-position) .amount{white-space:normal;overflow-wrap:anywhere}
 @media(max-width:600px){.reset-merchant .merchant-position-mark{display:none}.reset-merchant .merchant-position{gap:0}}
+
+/* Consistency pass: extend the accepted system to existing workflows. */
+.reset-expanded :is(.card,.pay-form,.confirm-sheet,.details-hero,.record-section,.transactions-section,.merchant-qr-card,.merchant-receive-note,.settlement-group,.merchant-search-toolbar){border-radius:6px;box-shadow:none;border-color:var(--line);background:var(--surface)}
+.reset-expanded :is(.pay-form,.transactions-section,.record-section,.merchant-search-toolbar){padding:24px}
+.reset-expanded :is(.field,.field label,.transactions-filter,.ops-controls label){font-size:14px;line-height:1.5}
+.reset-expanded :is(input,textarea,select){font-size:14px;border-radius:4px}
+.reset-expanded :is(.field-hint,.payment-muted,.record-label,.record-source,.merchant-summary-foot,.merchant-full-reference,.scope-caption,.ops-muted,.console-pill,.console-badge,.merchant-status-label,.merchant-reference){font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.reset-expanded :is(.pay-form .section-kicker,.confirm-note,.confirm-recipient p,.record-row,.merchant-payment-expanded,.merchant-receipt-table,.settlement-description,.merchant-receive-note p){font-size:14px;line-height:1.6}
+.reset-expanded :is(.confirm-heading h1,.details-heading h1,.focused-state h1){font-weight:600;letter-spacing:-.03em}
+.reset-expanded .focused-state{max-width:800px;margin-inline:auto}
+.reset-expanded .confirm-sheet{border-top:3px solid var(--reset-teal)}
+.reset-expanded .confirm-amount{background:var(--surface-soft);border-color:var(--line)}
+.reset-expanded :is(.amount-input input,.confirm-amount .amount,.details-hero .amount){font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.reset-expanded :is(.state-description,.record-section p,.merchant-receive-note p){font-size:15px;line-height:1.65}
+.reset-expanded .result-mark{border-radius:50%;box-shadow:none}
+.reset-expanded :is(.transactions-toolbar,.transactions-filter-bar,.merchant-search-toolbar){gap:16px;border-color:var(--line)}
+.reset-expanded :is(.record-row,.merchant-payment-expanded){border-color:var(--line)}
+.reset-expanded .merchant-payment-expanded{background:var(--surface-soft);border-radius:0}
+.reset-expanded :is(.merchant-identity-strip,.merchant-receive-note){background:var(--reset-teal-soft)}
+.reset-expanded .merchant-qr-card{border-top:3px solid var(--reset-teal)}
+.reset-expanded :is(.settlement-group-header,.merchant-receipt-table th){background:var(--surface-soft)}
+.reset-expanded .ops-page:not(.reset-journey)>section{border-radius:4px;box-shadow:none}
+.reset-expanded .ops-page:not(.reset-journey) :is(.card,.ops-investigation){border-radius:4px;box-shadow:none;background:var(--surface)}
+.reset-expanded :is(.ops-controls,.worklist-page-summary,.analytics-summary){border-radius:4px;background:var(--surface-soft);border-color:var(--line)}
+.reset-expanded .ops-table{font-size:13px;line-height:1.6}
+.reset-expanded .ops-table th{font-size:12px;background:var(--surface-soft)}
+.reset-expanded .ops-table caption{font-size:12px;line-height:1.6}
+.reset-expanded :is(.ops-table td,.ops-mono,.proof-json,.hash-value){overflow-wrap:anywhere}
+.reset-expanded .ops-page:not(.reset-journey) .ops-banner{font-size:14px;line-height:1.6;border-radius:4px}
+.reset-expanded .ops-page:not(.reset-journey) :is(h2,h3){font-weight:600;letter-spacing:-.02em}
+.reset-expanded .ops-page:not(.reset-journey) .investigation-conclusion{background:var(--reset-violet-soft);border-radius:4px;border-left:2px solid var(--reset-violet)}
+.reset-expanded .ops-page:not(.reset-journey) .investigation-report{font-size:15px;line-height:1.65}
+.reset-expanded .ops-page:not(.reset-journey) .investigation-report li{font-size:15px}
+.reset-expanded .ops-page:not(.reset-journey) .ops-citation{color:var(--reset-violet);background:var(--reset-violet-soft);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.reset-expanded :is(.analytics-chart,.health-probe-result,.reconciliation-detail,.proof-result){border-radius:4px;box-shadow:none;border-color:var(--line)}
+.reset-expanded .analytics-chart{background:var(--surface)}
+.reset-expanded .analytics-chart figcaption{font-size:14px}
+.reset-access .auth-intro{background:var(--reset-teal-soft);color:var(--ink);border-radius:0;box-shadow:none}
+.reset-access .auth-intro h2{font-weight:550;letter-spacing:-.035em;line-height:1.1}
+.reset-access .auth-intro h2 span{color:var(--reset-teal)}
+.reset-access .auth-evidence-note{background:transparent;border:0;border-top:1px solid var(--line-strong);border-radius:0;padding-top:24px}
+.reset-access .auth-intro :is(p,.intro-foot){color:var(--muted);font-size:14px;line-height:1.65}
+.reset-access .auth-panel{background:var(--surface);border-color:var(--line);border-radius:0;box-shadow:none}
+.reset-access :is(.auth-form-context,.auth-form-note,.auth-footnote,.auth-divider,.demo-progress,.role-name,.demo-secondary,.demo-notice){font-size:12px;line-height:1.6}
+.reset-access :is(.field,input,select){font-size:14px}
+.reset-access .demo-page{padding-block:40px}
+.reset-access .demo-page h1{font-size:clamp(36px,4.5vw,60px);font-weight:600;letter-spacing:-.035em}
+.reset-access .demo-page h1 span{color:var(--reset-teal)}
+.reset-access .demo-lead{font-size:16px;line-height:1.6;max-width:760px}
+.reset-access .demo-notice{background:var(--surface-soft);border-radius:4px;border:0;border-left:2px solid var(--reset-teal)}
+.reset-access .role-cards{gap:24px;margin-block:28px}
+.reset-access .role-card{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--reset-teal);border-radius:4px;box-shadow:none;padding:25px}
+.reset-access .role-card h2{font-size:27px;letter-spacing:-.025em}
+.reset-access .role-card>p{font-size:14px;line-height:1.6}
+.reset-access .role-number{font-size:12px;color:var(--muted)}
+.reset-access .role-icon{background:transparent;border-radius:0;color:var(--reset-teal)}
+.reset-access .role-card.is-recommended{border-top-color:var(--accent)}
+.reset-access .privacy-page :is(p,li){font-size:15px;line-height:1.7}
+.reset-library .showcase-source{background:var(--reset-teal-soft);border-color:var(--line)}
+.reset-library .showcase-source>div{font-size:12px}
+.reset-library .showcase-layout{gap:32px}
+.reset-library .showcase-stories{background:transparent}
+.reset-library .showcase-stories button{border-radius:3px;border-bottom:1px solid var(--line);padding:16px 12px}
+.reset-library .showcase-stories :is(small,strong){font-size:12px;line-height:1.6}
+.reset-library :is(.showcase-payment,.showcase-evidence,.showcase-records){border:0;border-top:1px solid var(--line-strong);border-radius:0;padding:24px 0;background:transparent;box-shadow:none}
+.reset-library .showcase-explanation{background:var(--reset-violet-soft);border-radius:4px;border:0;border-left:2px solid var(--reset-violet)}
+.reset-library :is(.showcase-event-meta,.showcase-records caption,.showcase-records code,.showcase-explanation nav a){font-size:12px}
+.reset-library .showcase-detail :is(p,li){font-size:14px;line-height:1.65}
+.reset-library .showcase-boundary{border-radius:4px;background:var(--surface-soft)}
+@media(max-width:960px){.reset-expanded .main-content{margin-left:0}.reset-expanded .content-wrap{padding-bottom:100px}}
+@media(max-width:600px){
+ .reset-expanded :is(.pay-form,.transactions-section,.record-section,.merchant-search-toolbar){padding:20px 16px}
+ .reset-expanded .page-header h1{font-size:30px}
+ .reset-expanded .confirm-amount .amount{font-size:38px}
+ .reset-expanded :is(.record-row,.merchant-payment-expanded){gap:12px}
+ .reset-expanded .merchant-qr-card{padding:24px 20px}
+ .reset-expanded .ops-controls{padding:18px 14px}
+ .reset-expanded .ops-table tr{background:var(--surface)}
+ .reset-access .auth-intro{padding:26px}
+ .reset-access .demo-page{padding-block:30px}
+ .reset-access .role-cards{gap:16px}
+ .reset-access .role-card{padding:22px}
+ .reset-library .showcase-stories{position:static}
+ .reset-library .showcase-layout{gap:20px}
+ .reset-library .showcase-explanation{padding:20px}
+}
+
+/* The mobile dialog owns a visible sidebar; the page sidebar stays hidden. */
+.reset-workspace .operator-navigation-dialog .sidebar{display:flex;position:static;inset:auto;width:100%;height:auto;min-height:0;padding:22px;border:0;background:var(--surface)}

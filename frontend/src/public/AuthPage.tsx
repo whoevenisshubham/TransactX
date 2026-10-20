@@ -32,7 +32,7 @@ export function AuthPage({
     return () => controller.abort();
   }, []);
   const registering = mode === "register" && options?.registrationEnabled === true;
-  return <div className="public-site"><PublicHeader /><main className="auth-layout experience-auth">
+  return <div className="public-site reset-public reset-access"><PublicHeader /><main className="auth-layout experience-auth">
     <section className="auth-intro">
       <div className="auth-intro-copy"><p className="eyebrow">Clear at every step</p><h2>Your payments.<br /><span>The complete picture.</span></h2><p>See what happened, what is known, and what needs another look.</p></div>
       <div className="auth-evidence-note"><span className="auth-note-icon" aria-hidden="true">↳</span><p><strong>Built around evidence.</strong> A bank timeout is never treated as proof of failure. Every outcome stays tied to the original payment.</p></div>

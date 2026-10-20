@@ -167,7 +167,7 @@ export function ConsoleShell({ token, user, onLogout }: { token: string; user: U
   }
 
   return (
-    <div className={`product-shell console-shell ${view === "c-payment-evidence" ? "reset-workspace reset-operations" : ""}`}>
+    <div className="product-shell console-shell reset-workspace reset-operations reset-expanded">
       <ConsoleSidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} />
       <main className="main-content">
         <ConsoleMobileHeader user={user} onLogout={onLogout} onMenu={() => navigationDialog.current?.showModal()} />

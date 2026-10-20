@@ -146,7 +146,7 @@ export function CustomerShell({ token, onLogout }: { token: string; onLogout: ()
   const account = accounts[0];
 
   return (
-    <div className={`product-shell customer-shell ${view === "home" ? "reset-workspace reset-personal" : ""}`}>
+    <div className="product-shell customer-shell reset-workspace reset-personal reset-expanded">
       <Sidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} />
       <main className="main-content">
         <MobileHeader user={user} onLogout={onLogout} />

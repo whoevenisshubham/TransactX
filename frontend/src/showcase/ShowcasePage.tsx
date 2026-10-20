@@ -17,7 +17,7 @@ export function ShowcasePage() {
   const records = story.records.slice(page*pageSize,(page+1)*pageSize);
   const reference = `EXAMPLE ${String(recordIndex+1).padStart(3,"0")}`;
   function selectStory(index: number) { setStoryIndex(index); setRecordIndex(0); setPage(0); }
-  return <div className="public-site showcase-site"><a className="skip-link" href="#main">Skip to content</a><PublicHeader />
+  return <div className="public-site showcase-site reset-public reset-library"><a className="skip-link" href="#main">Skip to content</a><PublicHeader />
     <div className="showcase-source"><div className="public-container"><strong><Icon name="activity" />Illustrative scenario — not the live network</strong><span>Fixed scenario date: {showcaseLibrary.scenarioDate} · UTC</span></div></div>
     <main id="main" className="public-container showcase-main">
       <PageHeader eyebrow="The scenario library" title="Follow the difficult moments." description="Eight guided stories about payment reliability. Explore the evidence, and the limits of what it can tell you." />
