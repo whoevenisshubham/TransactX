@@ -41,6 +41,18 @@ func TestGeminiRequestSeparatesEntityAndEvidenceIDs(t *testing.T) {
 	if !found || node["type"] != "string" {
 		t.Fatal("scoped entity restriction missing")
 	}
+	props := schema["properties"].(map[string]any)
+	for name, maximum := range map[string]int{"facts": 3, "inferences": 1, "recommendations": 1} {
+		if props[name].(map[string]any)["maxItems"] != maximum {
+			t.Fatalf("unbounded response section %s", name)
+		}
+	}
+	factProps := props["facts"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+	for _, field := range []string{"assertions", "evidenceIds"} {
+		if factProps[field].(map[string]any)["maxItems"] != 1 {
+			t.Fatalf("unbounded fact %s", field)
+		}
+	}
 	after, _ := json.Marshal(assets.ReportSchema)
 	if string(before) != string(after) {
 		t.Fatal("shared canonical schema mutated")

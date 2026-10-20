@@ -21,7 +21,7 @@ func geminiEnvelope(t *testing.T, text, finish string) []byte {
 func TestGeminiDecoderFailureBoundaries(t *testing.T) {
 	for _, c := range []struct{ name, text, finish, want string }{
 		{"complete", completeGeminiReport, "STOP", "valid"},
-		{"truncated_finish", completeGeminiReport, "MAX_TOKENS", "finish_not_stop"},
+		{"truncated_finish", completeGeminiReport, "MAX_TOKENS", "finish_max_tokens"},
 		{"truncated_json", `{"schemaVersion":`, "STOP", "report_json_or_type"},
 		{"missing_required", `{}`, "STOP", "report_required_fields"},
 		{"null_arrays", strings.Replace(completeGeminiReport, `"facts":[]`, `"facts":null`, 1), "STOP", "report_schema_type"},
@@ -112,5 +112,18 @@ func TestGeminiDecodedCitationsStillRequireGrounding(t *testing.T) {
 				t.Fatalf("grounding accepted=%t case=%s", err == nil, c)
 			}
 		})
+	}
+}
+
+func TestGeminiFinishDiagnosticsAreContentFree(t *testing.T) {
+	for _, row := range []struct{ finish, want string }{
+		{"MAX_TOKENS", "finish_max_tokens"}, {"MALFORMED_FUNCTION_CALL", "finish_malformed_function_call"},
+		{"UNEXPECTED_TOOL_CALL", "finish_unexpected_tool_call"}, {"OTHER", "finish_other"},
+		{"credential-like-untrusted-provider-text", "finish_not_stop"},
+	} {
+		got := DiagnoseGeminiResponse(geminiEnvelope(t, completeGeminiReport, row.finish), "gemini-3.5-flash-lite", 8000, 1200)
+		if got != row.want {
+			t.Fatalf("got %q want %q", got, row.want)
+		}
 	}
 }

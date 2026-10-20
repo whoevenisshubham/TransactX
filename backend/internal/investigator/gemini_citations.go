@@ -47,5 +47,19 @@ func geminiCitationSchema(base map[string]any, evidence EvidenceBundle) (map[str
 		node = child
 	}
 	node["entityId"] = map[string]any{"type": "string", "enum": entities, "description": "Copy entityId from citationBindings for this evidenceId. An evidenceId is a citation, never an entityId."}
+
+	// Request a bounded selection rather than enumerating the entire snapshot.
+	// This is a request-only narrowing; canonical shape and grounding stay strict.
+	properties := schema["properties"].(map[string]any)
+	for name, maximum := range map[string]int{"facts": 3, "inferences": 1, "recommendations": 1} {
+		properties[name].(map[string]any)["maxItems"] = maximum
+	}
+	facts := properties["facts"].(map[string]any)
+	facts["description"] = "Only the most relevant directly grounded facts; do not enumerate intermediate operations. Keep prose brief."
+	factFields := facts["items"].(map[string]any)["properties"].(map[string]any)
+	factFields["assertions"].(map[string]any)["maxItems"] = 1
+	factFields["evidenceIds"].(map[string]any)["maxItems"] = 1
+	properties["inferences"].(map[string]any)["description"] = "Use an empty array unless an inference is needed to answer the question."
+	properties["recommendations"].(map[string]any)["description"] = "Use an empty array for a settled payment unless the question calls for a further check."
 	return schema, bindings, nil
 }

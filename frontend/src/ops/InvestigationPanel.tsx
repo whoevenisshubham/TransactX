@@ -94,7 +94,7 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
     {job.data && <p role="status">Status: {job.data.status} · Mode: {(report?.mode ?? job.data.mode) === "evidence_only" ? "Evidence summary" : "LLM investigation"}</p>}
     {status === "queued" || status === "running" ? <p>Evidence gathering is in progress. This view will refresh.</p> : null}
     {job.data?.error && <InlineError message={job.data.error.message} />}
-    {job.data && (report?.mode ?? job.data.mode) === "evidence_only" && <p className="ops-muted">This is a report from collected records, not a Gemini-generated answer. {job.data.usage.model ? "See execution details for recorded model usage." : "No model execution is recorded for this investigation."}</p>}
+    {job.data && (report?.mode ?? job.data.mode) === "evidence_only" && <p className="ops-muted">This is a report from collected records, not a Gemini-generated answer. {job.data.usage.model ? "See execution details for recorded model usage." : "This report contains no accepted model answer; a provider attempt may still have occurred."}</p>}
     {report && <div className="investigation-report">
       {effectiveSnapshotId && report.snapshotId !== effectiveSnapshotId && <p className="ops-banner ops-banner-warning" role="status">This report uses an older evidence snapshot. Refresh or start a new investigation for the current payment view.</p>}
       <p>Coverage: {report.evidenceCoverage.replaceAll("_", " ")} · Collected {new Date(report.collectedAt).toLocaleString()}</p>
@@ -125,7 +125,7 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
     <details className="investigation-identity"><summary>Saved report identity</summary><p className="ops-mono">Investigation {id}</p></details>
     {job.data && <details><summary>Report execution details</summary>
       <p>Prompt version: {job.data.usage.promptVersion || "Not recorded"}</p>
-      <p>Model: {job.data.usage.model ?? "No model call recorded"}</p>
+      <p>Model: {job.data.usage.model ?? "Not recorded in this report"}</p>
       <p>Input tokens: {job.data.usage.inputTokens ?? "Not reported"} · Output tokens: {job.data.usage.outputTokens ?? "Not reported"}</p>
     </details>}
     {job.data && job.data.toolTimeline.length > 0 && <details className="investigation-tool-details"><summary>Collected sources and tool timeline</summary><DataTable<Investigation["toolTimeline"][number]> caption="Investigator tool timeline" rows={job.data.toolTimeline} rowKey={(step) => `${step.toolName}:${step.startedAt}`} columns={[
