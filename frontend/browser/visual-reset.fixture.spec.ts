@@ -79,7 +79,7 @@ for (const theme of ["light", "dark"] as const) for (const width of widths) {
           expect((await download).suggestedFilename()).toBe("transactx-receive.png");
         }
         if (screen === "journey") {
-          await page.getByRole("button", { name: /^View evidence payment:/ }).click();
+          await page.getByRole("button", { name: /^Payment record \[1\]/ }).click();
           const id = fixture("evidence-partial.json").data.payment.evidenceId;
           await expect(page.locator(`[id="evidence-${id}"]`)).toBeFocused();
         }
@@ -134,7 +134,7 @@ for (const width of [1440,390,320]) test(`disclosed evidence citation reveals ex
   await expect(page.getByRole("complementary",{name:"Investigation workspace"})).toBeFocused();
   await page.getByLabel("Question",{exact:true}).fill("What did the destination report?");
   await page.getByRole("button",{name:"Start investigation",exact:true}).click();
-  const citation=page.getByRole("button",{name:`View evidence ${operation.evidenceId}`,exact:true});
+  const citation=page.getByRole("button",{name:`Bank operation [1]`,exact:true});
   await citation.focus();await page.keyboard.press("Enter");
   const target=page.locator(`[id="evidence-${operation.evidenceId}"]`);
   await expect(disclosure).toHaveAttribute("open", "");

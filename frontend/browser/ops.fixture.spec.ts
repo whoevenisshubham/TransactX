@@ -42,7 +42,7 @@ test("evidence-only investigation citations resolve and new pages have no seriou
   await page.getByRole("button", { name: "Start investigation" }).click();
   await expect(page.getByText("Evidence summary", { exact: false })).toBeVisible();
   await expect(page.getByText("The central payment is PENDING_RECONCILIATION.")).toBeVisible();
-  const citation = page.getByRole("button", { name: /View evidence payment:/ });
+  const citation = page.getByRole("button", { name: /Payment record \[1\]/ });
   await citation.focus();
   await expect(citation).toBeFocused();
   await page.keyboard.press("Enter");
@@ -138,9 +138,9 @@ test("saved report labels stale and missing citations without inventing evidence
   });
   await page.goto(`/console/investigations/${investigationId}?paymentId=${paymentId}`);
   await expect(page.getByText("This report uses an older evidence snapshot.", { exact: false })).toBeVisible();
-  await expect(page.getByText("Evidence unknown:fixture is not in this snapshot")).toBeVisible();
+  await expect(page.getByText(/Evidence \[\d+\] · Not in this snapshot/)).toBeVisible();
   await expect(page.getByText("Runbook references: runbook:00986824035ce0aafb0d3c46c3d699ef", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "View evidence unknown:fixture" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Evidence \[\d+\]/ })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
 

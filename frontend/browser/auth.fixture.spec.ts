@@ -38,3 +38,20 @@ for (const theme of ["light", "dark"] as const) {
     });
   }
 }
+
+
+test("stalled demo sign-in times out and allows a deliberate retry", async ({ page }) => {
+  await page.clock.install();
+  let attempts = 0;
+  await page.route("**/api/auth/demo", route => {
+    if (route.request().method() === "POST") { attempts++; return; }
+    return route.fulfill({ status: 204, headers: {"access-control-allow-origin":"http://127.0.0.1:4173", "access-control-allow-headers":"Content-Type", "access-control-allow-methods":"POST, OPTIONS"} });
+  });
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "Explore operator" }).click();
+  await expect.poll(() => attempts).toBe(1);
+  await page.clock.fastForward(61_000);
+  await expect(page.getByRole("alert")).toContainText("Sign-in took longer than expected");
+  await expect(page.getByRole("button", { name: "Explore operator" })).toBeEnabled();
+  expect(attempts).toBe(1);
+});

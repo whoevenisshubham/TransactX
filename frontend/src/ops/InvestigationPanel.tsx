@@ -55,12 +55,12 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
   </section>;
 }
 
-function EvidenceCitation({ id, available }: { id: string; available: boolean }) {
+function EvidenceCitation({ id, available, label }: { id: string; available: boolean; label: string }) {
   return available
-    ? <button type="button" className="ops-citation" onClick={() => {
+    ? <button type="button" className="ops-citation" title={id} onClick={() => {
       focusEvidence(`evidence-${id}`);
-    }}>View evidence {id}</button>
-    : <span className="ops-muted">Evidence {id} is not in this snapshot</span>;
+    }}>{label}</button>
+    : <span className="ops-muted" title={id}>{label} · Not in this snapshot</span>;
 }
 
 export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId }: {
@@ -85,13 +85,16 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
   const available = new Set([...evidenceIds, ...retainedEvidenceIds]);
   const effectiveSnapshotId = snapshotId ?? job.data?.snapshot?.snapshotId;
   const report = job.data?.report;
+  const citationIds = [...new Set([...(report?.facts ?? []), ...(report?.inferences ?? [])].flatMap(item => item.evidenceIds))];
+  const citationLabel = (id: string) => `${id.startsWith("operation:") ? "Bank operation" : id.startsWith("transition:") ? "State transition" : id.startsWith("payment:") ? "Payment record" : "Evidence"} [${citationIds.indexOf(id) + 1}]`;
   return <div className="ops-investigation">
 
     {job.loading && <p role="status">Loading investigation…</p>}
     {job.error && <InlineError message={job.error} />}
-    {job.data && <p role="status">Status: {job.data.status} · Mode: {job.data.mode === "evidence_only" ? "Evidence summary" : "LLM investigation"}</p>}
+    {job.data && <p role="status">Status: {job.data.status} · Mode: {(report?.mode ?? job.data.mode) === "evidence_only" ? "Evidence summary" : "LLM investigation"}</p>}
     {status === "queued" || status === "running" ? <p>Evidence gathering is in progress. This view will refresh.</p> : null}
     {job.data?.error && <InlineError message={job.data.error.message} />}
+    {job.data && (report?.mode ?? job.data.mode) === "evidence_only" && <p className="ops-muted">This is a report from collected records, not a Gemini-generated answer. {job.data.usage.model ? "See execution details for recorded model usage." : "No model execution is recorded for this investigation."}</p>}
     {report && <div className="investigation-report">
       {effectiveSnapshotId && report.snapshotId !== effectiveSnapshotId && <p className="ops-banner ops-banner-warning" role="status">This report uses an older evidence snapshot. Refresh or start a new investigation for the current payment view.</p>}
       <p>Coverage: {report.evidenceCoverage.replaceAll("_", " ")} · Collected {new Date(report.collectedAt).toLocaleString()}</p>
@@ -101,16 +104,16 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
       <ul>{report.facts.map((fact, index) => <li key={index}>
         {fact.text} {fact.contradiction && <strong>Contradictory evidence</strong>}
         <div className="ops-citations">{fact.evidenceIds.map((evidenceId) => paymentId && available.has(evidenceId)
-          ? <a className="ops-citation" key={evidenceId} href={`/console/payments/${paymentId}#evidence-${encodeURIComponent(evidenceId)}`}>View evidence {evidenceId}</a>
-          : <EvidenceCitation key={evidenceId} id={evidenceId} available={available.has(evidenceId)} />)}</div>
+          ? <a className="ops-citation" title={evidenceId} key={evidenceId} href={`/console/payments/${paymentId}#evidence-${encodeURIComponent(evidenceId)}`}>{citationLabel(evidenceId)}</a>
+          : <EvidenceCitation key={evidenceId} id={evidenceId} label={citationLabel(evidenceId)} available={available.has(evidenceId)} />)}</div>
       </li>)}</ul>
       <h3>Interpretation</h3>
       {report.inferences.length === 0 && <p>No inference was included.</p>}
       <ul>{report.inferences.map((inference, index) => <li key={index}>
         <strong>Inference:</strong> {inference.text} {inference.contradiction && <strong>Contradictory evidence</strong>}
         <div className="ops-citations">{inference.evidenceIds.map((evidenceId) => paymentId && available.has(evidenceId)
-          ? <a className="ops-citation" key={evidenceId} href={`/console/payments/${paymentId}#evidence-${encodeURIComponent(evidenceId)}`}>View evidence {evidenceId}</a>
-          : <EvidenceCitation key={evidenceId} id={evidenceId} available={available.has(evidenceId)} />)}</div>
+          ? <a className="ops-citation" title={evidenceId} key={evidenceId} href={`/console/payments/${paymentId}#evidence-${encodeURIComponent(evidenceId)}`}>{citationLabel(evidenceId)}</a>
+          : <EvidenceCitation key={evidenceId} id={evidenceId} label={citationLabel(evidenceId)} available={available.has(evidenceId)} />)}</div>
       </li>)}</ul>
       <h3>Suggested next checks</h3>
       {report.recommendations.length === 0 && <p>No further check was suggested.</p>}
@@ -121,7 +124,7 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
     </div>}
     <details className="investigation-identity"><summary>Saved report identity</summary><p className="ops-mono">Investigation {id}</p></details>
     {job.data && <details><summary>Report execution details</summary>
-      <p>Prompt version: {job.data.usage.promptVersion}</p>
+      <p>Prompt version: {job.data.usage.promptVersion || "Not recorded"}</p>
       <p>Model: {job.data.usage.model ?? "No model call recorded"}</p>
       <p>Input tokens: {job.data.usage.inputTokens ?? "Not reported"} · Output tokens: {job.data.usage.outputTokens ?? "Not reported"}</p>
     </details>}
