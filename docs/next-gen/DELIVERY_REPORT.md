@@ -34,6 +34,15 @@ review and investigation failure/retry behaviour. Accessibility checks found no
 critical/serious violations in the captured slice. Build/types and diff checks pass.
 These are intercepted UI fixtures, not new live financial/provider evidence, and
 none of them constitutes owner visual acceptance. Other routes await that review.
+The subsequent focused correction retains DM Sans, raises functional secondary
+text to at least 12px within the slice, fixes local dark-receipt ink and replaces
+miniature workspaces with task-focused component captures. On mobile the report
+now precedes collapsed technical evidence, with a top investigation jump link.
+Citation clicks and deep links reveal collapsed ancestors before focusing exact
+evidence; desktop reports use page scrolling rather than a nested scroll panel.
+Merchant fixture senders are distinct from the receiving merchant. Production
+and the existing financial/provider evidence remain unchanged.
+
 
 Post-deploy authenticated customer/account/payment and saved generated-report
 reads passed; Google remains enabled and registration disabled. Actual Render

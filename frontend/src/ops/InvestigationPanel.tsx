@@ -4,6 +4,7 @@ import { DataTable } from "../design/OpsPrimitives";
 import { liveOpsClient } from "./client";
 import type { Investigation } from "./contracts";
 import { useResource } from "./useResource";
+import { focusEvidence } from "./focusEvidence";
 
 export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, onNavigate }: {
   paymentId: string; snapshotId: string; evidenceIds: string[]; token: string; onNavigate: (path: string) => void;
@@ -57,11 +58,7 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
 function EvidenceCitation({ id, available }: { id: string; available: boolean }) {
   return available
     ? <button type="button" className="ops-citation" onClick={() => {
-      const target = document.getElementById(`evidence-${id}`);
-      if (!target) return;
-      target.tabIndex = -1;
-      target.focus({ preventScroll: true });
-      target.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" });
+      focusEvidence(`evidence-${id}`);
     }}>View evidence {id}</button>
     : <span className="ops-muted">Evidence {id} is not in this snapshot</span>;
 }
@@ -89,17 +86,12 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
   const effectiveSnapshotId = snapshotId ?? job.data?.snapshot?.snapshotId;
   const report = job.data?.report;
   return <div className="ops-investigation">
-    <details className="investigation-identity"><summary>Saved report identity</summary><p className="ops-mono">Investigation {id}</p></details>
+
     {job.loading && <p role="status">Loading investigation…</p>}
     {job.error && <InlineError message={job.error} />}
     {job.data && <p role="status">Status: {job.data.status} · Mode: {job.data.mode === "evidence_only" ? "Evidence summary" : "LLM investigation"}</p>}
     {status === "queued" || status === "running" ? <p>Evidence gathering is in progress. This view will refresh.</p> : null}
     {job.data?.error && <InlineError message={job.data.error.message} />}
-    {job.data && <details><summary>Report execution details</summary>
-      <p>Prompt version: {job.data.usage.promptVersion}</p>
-      <p>Model: {job.data.usage.model ?? "No model call recorded"}</p>
-      <p>Input tokens: {job.data.usage.inputTokens ?? "Not reported"} · Output tokens: {job.data.usage.outputTokens ?? "Not reported"}</p>
-    </details>}
     {report && <div className="investigation-report">
       {effectiveSnapshotId && report.snapshotId !== effectiveSnapshotId && <p className="ops-banner ops-banner-warning" role="status">This report uses an older evidence snapshot. Refresh or start a new investigation for the current payment view.</p>}
       <p>Coverage: {report.evidenceCoverage.replaceAll("_", " ")} · Collected {new Date(report.collectedAt).toLocaleString()}</p>
@@ -127,6 +119,12 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
       </li>)}</ul>
       {report.missingEvidence.length > 0 && <p className="ops-banner ops-banner-warning">Missing evidence: {report.missingEvidence.join(", ")}</p>}
     </div>}
+    <details className="investigation-identity"><summary>Saved report identity</summary><p className="ops-mono">Investigation {id}</p></details>
+    {job.data && <details><summary>Report execution details</summary>
+      <p>Prompt version: {job.data.usage.promptVersion}</p>
+      <p>Model: {job.data.usage.model ?? "No model call recorded"}</p>
+      <p>Input tokens: {job.data.usage.inputTokens ?? "Not reported"} · Output tokens: {job.data.usage.outputTokens ?? "Not reported"}</p>
+    </details>}
     {job.data && job.data.toolTimeline.length > 0 && <details className="investigation-tool-details"><summary>Collected sources and tool timeline</summary><DataTable<Investigation["toolTimeline"][number]> caption="Investigator tool timeline" rows={job.data.toolTimeline} rowKey={(step) => `${step.toolName}:${step.startedAt}`} columns={[
       { key: "tool", heading: "Tool", render: (step) => step.toolName },
       { key: "time", heading: "Started", render: (step) => new Date(step.startedAt).toLocaleString() },

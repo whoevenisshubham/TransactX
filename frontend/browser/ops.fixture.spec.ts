@@ -23,6 +23,7 @@ test("admin retry reuses the idempotency key after an ambiguous network failure"
   await installFixtureApi(page, "OPS_ADMIN", (key, attempt) => { keys.push(key); return attempt === 1; });
   await page.goto(`/console/payments/${paymentId}`);
   await expect(page.getByRole("heading", { name: "Payment journey" })).toBeVisible();
+  await page.getByRole("link", { name: "Detailed evidence ↓" }).click();
   await page.getByLabel("Reason").fill("Operator review requested");
   await page.getByRole("button", { name: "Schedule recheck" }).click();
   await expect(page.getByRole("alert")).toContainText("couldn't reach TransactX");
@@ -115,6 +116,7 @@ test("terminal evidence hides pending warning and exports the server bundle", as
   await page.goto(`/console/payments/${paymentId}`);
   await expect(page.getByText("Completed", { exact: true })).toBeVisible();
   await expect(page.getByText("An unavailable or unknown bank observation does not prove failure.", { exact: false })).toHaveCount(0);
+  await page.getByRole("link", { name: "Detailed evidence ↓" }).click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download server export" }).click();
   const download = await downloadPromise;

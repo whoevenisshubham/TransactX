@@ -76,6 +76,17 @@ for (const theme of ["light", "dark"] as const) test(`200% browser zoom preserve
     await expect(page.getByRole("heading",{name:"Payment journey"})).toBeVisible();
     await page.getByRole("link",{name:"Ask about this payment ↓"}).click();
     await expect(page.getByRole("complementary",{name:"Investigation workspace"})).toBeFocused();
+    await page.getByLabel("Question",{exact:true}).fill("What evidence is missing?");
+    await page.getByRole("button",{name:"Start investigation",exact:true}).click();
+    await expect(page.getByText("The central payment is PENDING_RECONCILIATION.")).toBeVisible();
+    await page.getByRole("heading",{name:"Suggested next checks"}).scrollIntoViewIfNeeded();
+    const followup=page.locator(".investigator-new-question>summary");await followup.focus();await page.keyboard.press("Enter");
+    await expect(page.getByLabel("Question",{exact:true})).toBeVisible();
+    await page.getByLabel("Question",{exact:true}).focus();await expect(page.getByLabel("Question",{exact:true})).toBeFocused();
+    await inspect("report-bottom");
+    const technical=page.locator("#journey-detailed-evidence>summary");await technical.focus();await page.keyboard.press("Enter");
+    const exportAction=page.getByRole("button",{name:"Download server export"});await exportAction.focus();await expect(exportAction).toBeFocused();
+    expect(await exportAction.evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})).toBe(true);
     await inspect("evidence");
     const menu=page.getByRole("button",{name:"Open operations navigation"});
     await menu.focus(); await page.keyboard.press("Enter");

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, EmptyState, InlineError, PageHeader } from "../components";
 import { DataTable, formatPaiseDecimal, OpsStatusBadge, Timeline } from "../design/OpsPrimitives";
 import { liveOpsClient } from "./client";
-import type { EvidenceOperation, EvidenceSource, EvidenceTransition, RecoveryAttempt } from "./contracts";
+import type { EvidenceOperation, EvidenceTransition, RecoveryAttempt } from "./contracts";
 import { useResource } from "./useResource";
 import { TracePanel } from "./TracePanel";
 import { InvestigationPanel } from "./InvestigationPanel";
+import { focusEvidence } from "./focusEvidence";
 
 function time(value: string | null) { return value ? new Date(value).toLocaleString() : "Not observed"; }
 function optional(value: string | null) { return value ?? "Unknown"; }
@@ -50,11 +51,7 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
     try {
       const id = decodeURIComponent(window.location.hash.slice(1));
       window.setTimeout(() => {
-        const target = document.getElementById(id);
-        if (!target) return;
-        target.tabIndex = -1;
-        target.focus({ preventScroll: true });
-        target.scrollIntoView({ block: "center" });
+        focusEvidence(id);
       }, 0);
     } catch { /* Ignore malformed link fragments. */ }
   }, [evidence]);
@@ -93,7 +90,7 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
   }
 
   return <div className="ops-page reset-journey">
-    <PageHeader eyebrow="Investigate / Payment evidence" title="Payment journey" description="Follow the original route, bank observations and recorded recovery." action={<Button variant="secondary" onClick={() => {
+    <PageHeader title="Payment journey" description="Outcome, bank observations and a cited investigation." action={<Button variant="secondary" onClick={() => {
       const from = window.history.state?.from;
       onNavigate(typeof from === "string" && from.startsWith("/console/worklist") ? from : "/console/worklist");
     }}>Back to worklist</Button>} />
@@ -102,30 +99,29 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
     {detail.stale && evidence && <p role="status" className="ops-banner ops-banner-warning">Showing the last collected evidence while refreshing. Collected {time(evidence.collectedAt)}.</p>}
     {!evidence && !detail.loading && !detail.error && <EmptyState title="Evidence unavailable" description="Try refreshing this payment." />}
     {evidence && <>
-      <div className="journey-reference"><span>{paymentId}</span><button type="button" aria-label="Copy payment reference" onClick={() => {
+      <details className="journey-reference-details"><summary>Payment reference & snapshot</summary><div className="journey-reference"><span>{paymentId}</span><button type="button" aria-label="Copy payment reference" onClick={() => {
         navigator.clipboard.writeText(paymentId).then(() => setCopyStatus("Reference copied"), () => setCopyStatus("Copy unavailable. Select the reference to copy it."));
       }}>Copy</button><span role="status">{copyStatus}</span></div>
       <div className="journey-meta"><p className="ops-muted">Collected {time(evidence.collectedAt)}</p><details><summary>Snapshot identity</summary><span className="ops-mono">{evidence.snapshotId}</span></details></div>
-      <a className="button button-secondary journey-jump" href="#payment-investigation" onClick={event => {
+      </details><nav className="journey-section-nav" aria-label="Payment journey sections"><a className="button button-secondary journey-jump" href="#payment-investigation" onClick={event => {
         event.preventDefault();
         const panel = document.getElementById("payment-investigation");
         panel?.focus({ preventScroll: true });
         panel?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-      }}>Ask about this payment ↓</a>
-      <div className="journey-layout"><div className="journey-body">
+      }}>Ask about this payment ↓</a><a href="#journey-detailed-evidence" onClick={event=>{event.preventDefault();const section=document.getElementById("journey-detailed-evidence");if(section instanceof HTMLDetailsElement){section.open=true;section.querySelector("summary")?.focus();section.scrollIntoView({block:"start"});}}}>Detailed evidence ↓</a></nav>
+      <div className="journey-layout"><div className="journey-body"><div className="journey-overview">
       <section className="journey-payment-banner" id={`evidence-${evidence.payment.evidenceId}`}>
-        <div className="journey-payment-outcome"><p className="section-kicker">Central payment</p><p className="amount amount-prominent">{formatPaiseDecimal(evidence.payment.amountPaise,evidence.payment.currency)}</p><OpsStatusBadge state={evidence.payment.state} /><span>Created {time(evidence.payment.createdAt)}</span><details><summary>Central evidence identity</summary><span className="ops-mono">{evidence.payment.evidenceId}</span><p>Last updated {time(evidence.payment.updatedAt)}</p></details></div>
-        <div className="journey-bank-route"><h2>Original route</h2><div className="journey-bank-stations"><div><span className="journey-bank-letter">{bankMark(evidence.route.sourceBankCode)}</span><strong>{optional(evidence.route.sourceBankCode)}</strong><small>Source bank</small></div><span className="journey-route-line" aria-hidden="true">→</span><div><span className="journey-bank-letter">{bankMark(evidence.route.destinationBankCode)}</span><strong>{optional(evidence.route.destinationBankCode)}</strong><small>Destination bank</small></div></div><p>Execution target: <span className="ops-mono">{optional(evidence.route.executionTargetId)}</span></p><small>Selected {time(evidence.route.selectedAt)} · Source: {evidence.route.status.replaceAll("_"," ")}</small></div>
+        <div className="journey-payment-outcome"><p className="section-kicker">Central payment</p><p className="amount amount-prominent">{formatPaiseDecimal(evidence.payment.amountPaise,evidence.payment.currency)}</p><OpsStatusBadge state={evidence.payment.state} /><details><summary>Central evidence identity</summary><p>Created {time(evidence.payment.createdAt)}</p><span className="ops-mono">{evidence.payment.evidenceId}</span><p>Last updated {time(evidence.payment.updatedAt)}</p></details></div>
+        <div className="journey-bank-route"><h2>Original route</h2><div className="journey-bank-stations"><div><span className="journey-bank-letter">{bankMark(evidence.route.sourceBankCode)}</span><strong>{optional(evidence.route.sourceBankCode)}</strong><small>Source bank</small></div><span className="journey-route-line" aria-hidden="true">→</span><div><span className="journey-bank-letter">{bankMark(evidence.route.destinationBankCode)}</span><strong>{optional(evidence.route.destinationBankCode)}</strong><small>Destination bank</small></div></div><details><summary>Route provenance</summary><p>Execution target: <span className="ops-mono">{optional(evidence.route.executionTargetId)}</span></p><small>Selected {time(evidence.route.selectedAt)} · Source: {evidence.route.status.replaceAll("_"," ")}</small></details></div>
       </section>
       {(evidence.payment.state === "PENDING_RECONCILIATION" || evidence.payment.state === "BANK_SETTLED_CENTRAL_PENDING") &&
         <p className="ops-banner ops-banner-warning" role="status">This payment has no safely established final result. An unavailable or unknown bank observation does not prove failure.</p>}
       {evidence.warnings.length > 0 && <section aria-label="Evidence warnings"><h2>Evidence limits</h2>{evidence.warnings.map((warning) => <p key={warning.code} className="ops-banner ops-banner-warning">{warning.message}</p>)}</section>}
-      <DataTable<EvidenceSource> caption="Source availability and observation time" rows={evidence.sources} rowKey={(source) => source.name} columns={[
-        { key: "source", heading: "Source", render: (source) => source.name },
-        { key: "status", heading: "Availability", render: (source) => source.status.replaceAll("_", " ") },
-        { key: "observed", heading: "Observed", render: (source) => time(source.observedAt) },
-        { key: "error", heading: "Error code", render: (source) => source.errorCode ?? "—" },
-      ]} />
+      <section className="journey-observations" aria-label="Independent source observations"><h2>Independent observations</h2><ul>{evidence.sources.map(source => <li key={source.name}><div><strong>{source.name}</strong><span>{source.status.replaceAll("_", " ")}</span></div><p>{source.observedAt ? `Observed ${time(source.observedAt)}` : "Not observed"}</p>{source.errorCode && <p className="observation-error">{source.errorCode}</p>}</li>)}</ul></section>
+      </div><aside className="journey-rail" id="payment-investigation" tabIndex={-1} aria-label="Investigation workspace">
+        <p className="eyebrow">Read-only investigation</p>
+        <InvestigationPanel paymentId={paymentId} snapshotId={evidence.snapshotId} evidenceIds={[evidence.payment.evidenceId, ...evidence.operations.map((operation) => operation.evidenceId), ...evidence.transitions.map((transition) => transition.evidenceId)]} token={token} onNavigate={onNavigate} />
+      </aside><details className="journey-details" id="journey-detailed-evidence"><summary>Detailed evidence <span>Transitions, bank operations & recovery</span></summary><div className="journey-detail-content">
       <Timeline<EvidenceTransition> title="State transitions" entries={evidence.transitions} entryKey={(entry) => entry.id} entryId={(entry) => `evidence-${entry.evidenceId}`} when={(entry) => entry.occurredAt} heading={(entry) => `${entry.fromState} → ${entry.toState}`} detail={(entry) => <details><summary>Sequence {entry.sequence} · Evidence identity</summary><span className="ops-mono">{entry.evidenceId}</span></details>} />
       {evidence.transitionsTruncated && <p className="ops-banner ops-banner-warning">Only the first 200 transitions were returned.</p>}
       <h2>Bank operations</h2>
@@ -170,10 +166,7 @@ export function PaymentEvidencePage({ paymentId, token, isAdmin, liveRevision, o
         {exportedAt && <p role="status">Export received {time(exportedAt)}. The downloaded file contains the server response.</p>}
         {exportError && <InlineError message={exportError} />}
       </section>
-      </div><aside className="journey-rail" id="payment-investigation" tabIndex={-1} aria-label="Investigation workspace">
-        <p className="eyebrow">Read-only investigation</p>
-        <InvestigationPanel paymentId={paymentId} snapshotId={evidence.snapshotId} evidenceIds={[evidence.payment.evidenceId, ...evidence.operations.map((operation) => operation.evidenceId), ...evidence.transitions.map((transition) => transition.evidenceId)]} token={token} onNavigate={onNavigate} />
-      </aside></div>
+      </div></details></div></div>
     </>}
   </div>;
 }
