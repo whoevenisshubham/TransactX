@@ -1,13 +1,6 @@
 # TransactX v2 delivery acceptance
 
-Status: the owner rejected the current frontend visual direction on 20 October
-2026. Earlier visual-completion assessment is withdrawn. A replacement
-representative slice is awaiting owner review before expansion across routes.
-Do not promote or tag the deployed design as the completed Experience V3 release.
-Existing functional evidence and deployed rollback remain preserved; final
-release promotion and native archive/installation acceptance remain pending.
-The historical native results below retain their original source/run scopes;
-they do not certify the newer V3 deployment.
+Status: The owner accepted c84536a’s visual direction for extension across the remaining routes. Final hosted deployment verification and release promotion remain pending.
 
 ## Experience V3 acceptance — 19 October 2026
 
@@ -24,25 +17,32 @@ earlier application rollback `426436d780b70eaf83042df91bf8f44fcf65ba99` retained
 Documentation-only commits do not change those deployed IDs.
 Private evidence and the single checkpoint stay outside Git.
 
-The replacement representative slice changes only the landing, customer overview,
-merchant dashboard, payment journey/report and their scoped presentation. Full-page
-before/after captures cover all four screens in both themes at 1440/390px; candidate
-320px captures and actual 200% browser-tab zoom are also retained privately.
-Focused checks passed for role tabs, loaded-activity filters/search, balance masking,
-QR download, exact citation focus, zero-balance logout-to-demo, existing payment
-review and investigation failure/retry behaviour. Accessibility checks found no
-critical/serious violations in the captured slice. Build/types and diff checks pass.
-These are intercepted UI fixtures, not new live financial/provider evidence, and
-none of them constitutes owner visual acceptance. Other routes await that review.
-The subsequent focused correction retains DM Sans, raises functional secondary
-text to at least 12px within the slice, fixes local dark-receipt ink and replaces
-miniature workspaces with task-focused component captures. On mobile the report
-now precedes collapsed technical evidence, with a top investigation jump link.
-Citation clicks and deep links reveal collapsed ancestors before focusing exact
-evidence; desktop reports use page scrolling rather than a nested scroll panel.
-Merchant fixture senders are distinct from the receiving merchant. Production
-and the existing financial/provider evidence remain unchanged.
+## Accepted visual system — 20 October 2026
 
+The owner accepted corrected representative direction `c84536a` for extension.
+Source `e36df2dfd6413acf3c32254f6bd389eb0b97a133` carries that DM Sans,
+light/dark palette and layout system through existing login/demo/OAuth/privacy,
+customer send/review/outcome/receipt/activity, merchant receive/incoming/settlement/search,
+operator worklist/journey/investigation/saved reports/analytics, private admin and
+labelled scenario routes. This supersedes the earlier rejected visual direction;
+it does not discard the functional evidence or historical source scopes below.
+
+Before/after full-page captures cover the representative screens in both themes
+at desktop/mobile widths, with 320px, long identities/large money and actual 200%
+zoom checks. The extension captures retain existing route-specific controls and
+scope labels. Exact citation navigation opens collapsed evidence and focuses its
+target; mobile operator navigation was corrected after two real selector failures.
+The initial affected browser run had 27 passes and two mobile failures; the affected
+mobile operator and actual-zoom rerun passed all four checks after the fix.
+Static-only offline-shell/account-owner fixture checks passed both tests.
+Frontend units, money, types/build and final-head CI passed; all five required CI
+jobs succeeded on `e36df2d`. These fixture captures prove UI behavior in their
+recorded scope, not new live financial/provider observations. Prior Google,
+Gemini, financial and hosted-offline evidence is reused where behavior is unchanged.
+
+The final Vercel production revision, hosted read-only role smoke and service-worker
+update remain pending. The existing production/rollback IDs above are preserved.
+The earlier 19 October deployment observations below retain their original scope.
 
 Post-deploy authenticated customer/account/payment and saved generated-report
 reads passed; Google remains enabled and registration disabled. Actual Render
@@ -57,7 +57,7 @@ new hosted-worker generated execution remains unclaimed.
 
 | Gate | Status and exact scope |
 | --- | --- |
-| Visual design acceptance | REJECTED by owner: prior technical layout checks do not establish aesthetic acceptance. Replacement landing/customer overview/merchant dashboard/operator journey and report require concrete before/after owner review before route expansion |
+| Visual design acceptance | ACCEPTED by owner for extension at c84536a; accepted system extended across existing routes in e36df2d with scoped responsive/keyboard/rendered checks. Final hosted deployment verification remains pending |
 | Real representative role flows | PASS on deployed V3: customer payment/receipt, merchant activity/QR, operator journey, real worker-completed saved evidence report and all five citations |
 | Authorization / HTTPS / CORS | PASS: foreign payment 404, merchant ops 403, viewer admin 403, exact frontend origin allowed and foreign origin rejected; OAuth callback no-store/no-referrer |
 | Google first and returning sign-in | PASS: owner completed real External/Testing consent/login; independent SQL proves one identity, stable customer/accounts, no duplicates and zero balances. Not published to all Google users |
