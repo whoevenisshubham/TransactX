@@ -1,0 +1,43 @@
+{
+  "verifiedSource": "0c95e82e9af53c8551d162af1566b86cd5adc76c",
+  "date": "2026-10-18",
+  "scope": "GitHub Actions disposable PostgreSQL 18 and actual non-root Linux demo image with 512 MiB limit; not Render/Neon deployment",
+  "demoWorkflow": {
+    "url": "https://github.com/whoevenisshubham/TransactX/actions/runs/39102042703",
+    "jobId": 117600123829,
+    "conclusion": "success"
+  },
+  "releaseWorkflow": {
+    "url": "https://github.com/whoevenisshubham/TransactX/actions/runs/39102042721",
+    "conclusion": "success"
+  },
+  "checks": [
+    "canonical migrations",
+    "explicit empty-only seed",
+    "populated-database reseed refusal",
+    "no public OPS_ADMIN",
+    "persistent daily/lifetime capacity and rollback",
+    "global budget concurrency and spoof resistance",
+    "bounded chunked body",
+    "CORS success/rejection/proxy failure",
+    "streaming flush",
+    "native process cancellation and peer failure",
+    "actual Linux image build/start",
+    "real cross-bank transfer",
+    "idempotent duplicate retained one payment",
+    "completed evidence-only investigation",
+    "automatic completed worklist projection",
+    "four successful journal operations and two operations per bank",
+    "central ledger net zero",
+    "central and participant aggregate balance conservation",
+    "zero application connections after 100 seconds idle",
+    "API wake and retained payment after idle"
+  ],
+  "unverified": [
+    "actual Neon version/privileges/direct TLS connection",
+    "actual Render deployment/cold start",
+    "public HTTPS/CORS and browser/offline/device acceptance",
+    "off-machine backup restore",
+    "historical 158 transitions recovery"
+  ]
+}

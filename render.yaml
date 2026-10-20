@@ -1,0 +1,39 @@
+# Import this Blueprint only after confirming every resource shows Free / $0.
+# Database is a separately created Neon Free project, not Render Postgres.
+services:
+  - type: web
+    name: transactx-demo-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: TX_DEMO_EXPECTED_DATABASE
+        value: neondb
+      - key: JWT_SECRET
+        generateValue: true
+      - key: BANK_A_SERVICE_TOKEN
+        generateValue: true
+      - key: BANK_B_SERVICE_TOKEN
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: TX_RECOVERY_STALE_AFTER
+        value: 30s
+      - key: TX_RECOVERY_SCAN_INTERVAL
+        value: 10s
+      - key: TX_RECOVERY_LEASE
+        value: 60s
+      - key: TX_RECOVERY_HEARTBEAT
+        value: 15s
+      - key: TX_RECOVERY_ATTEMPT_TIMEOUT
+        value: 20s
+      - key: TX_RECOVERY_MAX_ATTEMPTS
+        value: "20"
+      - key: JWT_LIFETIME
+        value: 30m
