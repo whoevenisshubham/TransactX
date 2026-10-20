@@ -12,8 +12,7 @@ import (
 // all required JSON fields specified in the shared contract schema v2.schema.json.
 func TestSchemaCompliance_AgainstV2Schema(t *testing.T) {
 	schemaPaths := []string{
-		"../../../docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json",
-		"../../../../TransactX_Execution_Pack/TransactX_Execution_Pack/docs/next-gen/contracts/v2.schema.json",
+		"../../../docs/api/contracts/v2.schema.json",
 		"../../docs/next-gen/contracts/v2.schema.json",
 	}
 
@@ -26,7 +25,7 @@ func TestSchemaCompliance_AgainstV2Schema(t *testing.T) {
 		}
 	}
 	if err != nil {
-		t.Skip("v2.schema.json not accessible from test path, skipping schema contract test")
+		t.Fatalf("required repository v2.schema.json is not accessible: %v", err)
 	}
 
 	var schemaRoot struct {

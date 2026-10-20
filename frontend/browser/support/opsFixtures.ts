@@ -4,7 +4,7 @@ import type { Page, Route } from "@playwright/test";
 export const paymentId = "11111111-1111-4111-8111-111111111111";
 export const investigationId = "44444444-4444-4444-8444-444444444444";
 export function fixture(name: string) {
-  return JSON.parse(readFileSync(new URL(`../../../docs/next-gen/execution-pack/docs/next-gen/contracts/fixtures/${name}`, import.meta.url), "utf8"));
+  return JSON.parse(readFileSync(new URL(`../../../docs/api/contracts/fixtures/${name}`, import.meta.url), "utf8"));
 }
 
 export function worklistFixture() {

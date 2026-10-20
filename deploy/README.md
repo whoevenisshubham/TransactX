@@ -229,5 +229,5 @@ measured fixture result, refusal checks and remaining recovery gates.
 
 The build is not an online deployment. A free VM, Vercel access, DNS and
 provider identity checks must be available to complete the online gate. See
-`docs/next-gen/execution-pack/docs/next-gen/DEPLOYMENT_AND_BACKUP.md` for the
+`docs/deployment/native-deployment-and-backup.md` for the
 security, backup and rollback contract.

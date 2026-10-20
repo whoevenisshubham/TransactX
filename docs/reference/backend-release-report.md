@@ -1,7 +1,7 @@
 # TransactX Milestone 2 (M2) Platform & Reliability Release Report
 
 Current combined delivery status is **pending release gates**, recorded in
-[M1's delivery report](docs/next-gen/DELIVERY_REPORT.md). This historical M2
+[M1's delivery report](../next-gen/DELIVERY_REPORT.md). This historical M2
 lane report preserves its reported runs; its completion statements do not
 certify native crash coverage, current calibration provenance, an archive or deployment.
 
@@ -46,7 +46,7 @@ certify native crash coverage, current calibration provenance, an archive or dep
 | **B10** | Durable operational analytics windows | Migration 000028, `internal/analytics`, ADR-037 (`10845f4`) | 8 analytics test suites, temporal cutoff verified | **VERIFIED** |
 | **B11** | Mount investigator & corpus packages | Migration 000027, `internal/investigator`, ADR-036 (`74f8042`) | 6 investigator suites, 9-phase HTTP contract test | **VERIFIED** |
 | **B12** | Prove crash safety & event restart | `internal/experiments/crash_matrix.go`, ADR-038 (`fa1454c`) | 20 fault boundary scenarios (20/20 PASS in 0.91s) | **VERIFIED** |
-| **B13** | Close backend release gates & resolve CI | `RELEASE_REPORT.md`, `docs/next-gen/state/M2.md` (`5b779f0`) | Resolved 4 CI failures (REC-08 lease clock, export isolation, trace flush), full backend/frontend suites | **VERIFIED** |
+| **B13** | Close backend release gates & resolve CI | `docs\reference\backend-release-report.md`, `docs/next-gen/state/M2.md` (`5b779f0`) | Resolved 4 CI failures (REC-08 lease clock, export isolation, trace flush), full backend/frontend suites | **VERIFIED** |
 
 ---
 

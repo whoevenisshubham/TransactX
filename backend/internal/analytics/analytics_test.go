@@ -78,8 +78,8 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 
 func TestSchemaCompliance_AgainstV2Schema(t *testing.T) {
 	schemaPaths := []string{
-		"../../../docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json",
-		"docs/next-gen/execution-pack/docs/next-gen/contracts/v2.schema.json",
+		"../../../docs/api/contracts/v2.schema.json",
+		"docs/api/contracts/v2.schema.json",
 	}
 
 	var schemaData []byte

@@ -1,6 +1,51 @@
 # TransactX v2 delivery acceptance
 
-Status: The owner accepted c84536a’s visual direction for extension across the remaining routes. Final hosted deployment verification and release promotion remain pending.
+Status: The accepted Experience V3 frontend is deployed and its hosted read-only smoke passed at f7e432a. Repository presentation cleanup is completed in the current release changes; native certification and unverified operational claims remain separate.
+
+## Hosted deployment verification — 20 October 2026
+
+PR #27 and PR #28 were merged normally, preserving commits and authorship.
+Stable/default source is `f7e432adaa60da01f5c110ab97d20ec262fc4d03`, whose tree
+matches reviewed head `8c38a7291d7c90697f93156082e71a4f400e9174`.
+All five required jobs passed on the reviewed head; all three merge-triggered
+jobs also passed. Both Vercel and Render track `release/transactx-v2`.
+
+Vercel production `dpl_FokfeGfQjNmRnL4iekD3WkSs85xQ` is Ready on `f7e432a`
+at https://transactx-frontend.vercel.app. Backend remains `433011c` /
+`dep-dbb536g473hc73clm290`; Render Free auto-deploy remains disabled. No backend
+redeploy, secret/configuration, billing or database changes were needed.
+Previous frontend `cafae17` / `dpl_2NbJJjtUhHCWY5ncn9mgZ5wxif1o` remains rollback.
+
+Actual read-only browser smoke passed the new landing and theme switch, customer
+account/activity/existing 107-paise receipt, merchant incoming/actual QR, operator
+worklist with 15 completed payments and connected SSE, and saved generated report
+`2ed1aec5-d7a4-4c7d-a01d-9eb29a6461d4`. That report retains its older snapshot
+warning. Its historical central citation is not silently rewritten to current
+evidence. A retained exact transition deep link opened collapsed technical
+evidence and focused the correct record. Google sign-in remains available; prior
+real first/returning consent evidence is reused, not repeated. No new payment or
+provider generation was submitted.
+
+The old frontend client loaded the new design after reload and safe close/reopen.
+Served worker revision changed from `1d64399ab00cd317` to `4cb84b9bc2585559` and
+matches its 19-asset manifest; `/sw.js` is served no-cache and update code waits
+for existing tabs. API/auth responses remain excluded. Browser cache internals
+were not directly exposed; no new hosted-offline emulation is claimed. Existing
+production-shell fixtures and owner Chrome replay evidence retain their scopes.
+
+Additional current-design breakpoint checks at 768/1024/1920 passed 24 cases.
+Affected landing heading correction passed four desktop/mobile/theme checks and
+a focused Lighthouse heading-order audit. Mobile lab performance was 99 with
+LCP 1.7s, CLS 0.001 and TBT 10ms; its initial accessibility score was 99 before
+that heading correction, not a claim of complete WCAG or field CWV certification.
+
+Repository presentation cleanup preserves the verified private archive and Git
+history. Canonical contracts/fixtures now live under `docs/api/contracts/`; retained
+technical references are linked from the documentation index. Redundant planning
+material is removed, all active consumers and packaging references are updated,
+and approved corpus content/hashes are unchanged. See [hosted release notes](../releases/v3.0.0-hosted.md). Native Linux installation,
+new native restored-worker and scheduled-backup/RPO claims remain separately
+unverified and explicitly deferred from this hosted-demo pass.
 
 ## Experience V3 acceptance — 19 October 2026
 
@@ -40,9 +85,7 @@ jobs succeeded on `e36df2d`. These fixture captures prove UI behavior in their
 recorded scope, not new live financial/provider observations. Prior Google,
 Gemini, financial and hosted-offline evidence is reused where behavior is unchanged.
 
-The final Vercel production revision, hosted read-only role smoke and service-worker
-update remain pending. The existing production/rollback IDs above are preserved.
-The earlier 19 October deployment observations below retain their original scope.
+Final Vercel production deployment and scoped read-only browser/static-update checks passed as recorded in the 20 October section above. The 19 October production/rollback IDs below retain their historical scopes.
 
 Post-deploy authenticated customer/account/payment and saved generated-report
 reads passed; Google remains enabled and registration disabled. Actual Render
@@ -57,7 +100,7 @@ new hosted-worker generated execution remains unclaimed.
 
 | Gate | Status and exact scope |
 | --- | --- |
-| Visual design acceptance | ACCEPTED by owner for extension at c84536a; accepted system extended across existing routes in e36df2d with scoped responsive/keyboard/rendered checks. Final hosted deployment verification remains pending |
+| Visual design acceptance | Owner accepted c84536a for extension; accepted system extended across existing routes in e36df2d, with final heading correction in cb41709 and scoped rendered/keyboard/responsive checks. Hosted f7e432a verification passed; no native certification is implied |
 | Real representative role flows | PASS on deployed V3: customer payment/receipt, merchant activity/QR, operator journey, real worker-completed saved evidence report and all five citations |
 | Authorization / HTTPS / CORS | PASS: foreign payment 404, merchant ops 403, viewer admin 403, exact frontend origin allowed and foreign origin rejected; OAuth callback no-store/no-referrer |
 | Google first and returning sign-in | PASS: owner completed real External/Testing consent/login; independent SQL proves one identity, stable customer/accounts, no duplicates and zero balances. Not published to all Google users |
@@ -73,8 +116,8 @@ new hosted-worker generated execution remains unclaimed.
 | Native V3 crash / restored worker continuation / installation | Existing historical native scenarios retained at their tested source; new native V3 installation/continuation unverified under recorded launch rejection/no Linux target. Native distribution claim remains pending; this is distinct from the working Render demo |
 | Independent backup / scheduled recovery target | Cloud-host-independent encrypted owner-local copy and isolated restore verified; a third physical device is not required by A7. Daily retention/schedule/RPO and new restored-worker continuation remain unverified |
 | Idle/wake | PASS limited to existing deployed child group: Render logs show idle-stop15:17:28UTC, ready15:19:34, worker heartbeat atcafae17 and two real aggregate windows processed15:20:04. Data persistence verified by subsequent reads/backup. Not platform suspension or a crash |
-| Cleanup | BLOCKED: recorded automatic cleanup rejection preserved; no deletion/relocation retry |
-| Source promotion / final archive / release tag | PENDING required gates. PR27/28 preserve stacked ancestry, no duplicate PR or force push. Default already release/transactx-v2; current deployed V3 is not yet promoted there |
+| Cleanup | Completed in the current presentation changes: private hash-verified backups, canonical contracts/fixtures retained, consumer and packaging paths updated, redundant planning removed; approved corpus unchanged |
+| Source promotion / final archive / release tag | PR27/28 normally merged; hosted V3 is on the default branch and deployed. Hosted release notes identify the presentation release; native archive/installation certification remains separate and unverified |
 
 Source `433011c` has all five required GitHub jobs successful (backend, frontend,
 disposable demo and both PostgreSQL runs); its Vercel preview comment check also
@@ -95,13 +138,13 @@ references below name the owner-supplied files/sections, kept outside Git.
 | Item / requirement source | Mandatory scope | Existing evidence / actual gap | Smallest action / who can do it |
 | --- | --- | --- | --- |
 | Original password: V3 `03_OAUTH_DATA_AND_AI.md`, identity constraints and PostgreSQL tests | Preserve password compatibility, not possession of one historical account's password | Real stored-password login/authorized reads pass in `TestGeminiColdCompositionWithOwnerReview`; OAuth-only password denial tests pass. That original cloud password itself is unavailable | No password/reset input is needed for this requirement. Agent reuses valid regression evidence; exact original-account live recheck stays unclaimed |
-| Browser offline/replay: V3 QA§4.6 and [A5](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a5-verify-full-browser-workflows) | Mandatory current V3 browser acceptance | PASS: owner-operated actual Chrome offline queue/cache reload/Bob isolation/Alice automatic replay screenshots plus independent checkedSQL;15payments total, conserved1100000paise, zero reconstruction/unbalanced/duplicate participant-ledger errors | Completed with owner network/UI handoff; no further toggle or synthetic payment needed for this gate. Evidence applies to deployedcafae17 frontend, not native installation |
+| Browser offline/replay: V3 QA§4.6 and [A5](../reference/testing-and-benchmarks.md) | Mandatory current V3 browser acceptance | PASS: owner-operated actual Chrome offline queue/cache reload/Bob isolation/Alice automatic replay screenshots plus independent checkedSQL;15payments total, conserved1100000paise, zero reconstruction/unbalanced/duplicate participant-ledger errors | Completed with owner network/UI handoff; no further toggle or synthetic payment needed for this gate. Evidence applies to deployedcafae17 frontend, not native installation |
 | Gemini: V3 P8 / QA§8 | Mandatory before enabling/claiming generated reports; pack allows a clearly disabled optional provider | Corrected request passed full canonical grounding/persisted citations;433011c CI, deployment, authenticated API/browser saved-report reads, connected SSE and actual worker heartbeat passed. Owner-confirmed configuration is now enabled; normal hosted-worker generation not yet claimed | Activation completed and core-service checks passed. The completed maintenance verification authorizes no further diagnostic call |
-| Native Linux installation: [A6](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a6-package-and-deploy-native-online-demo) / native deployment guide; V3 P10 preserves Render/Vercel/Neon | Required for certified native bundle installation, not an additional hosting requirement for the already-working Render V3 demo | Builders/configs/conformance and prior scoped native recovery exist; no actual Linux installer/systemd/Caddy run on an owner target | Owner provides an existing free Linux host/OS/architecture and authorized SSH/sudo/DNS/TLS paths if completing that native deliverable. Agent can then install/test; no paid provisioning. Until then preserve pending status |
-| Independent backup: [A7](execution-pack/manuals/M1_PRODUCT_AND_DELIVERY.md#a7-implement-backup-and-restore-rehearsal) / [backup plan](execution-pack/docs/next-gen/DEPLOYMENT_AND_BACKUP.md#backup-and-restore) | Real encrypted restore for backup-feature claim; off-VM owner-local storage explicitly allowed. A7 is P1 in registry | Current Neon→owner-PC encrypted snapshot/isolated restore verified. Same-machine-as-source backup is not claimed; source is Neon. No third-device prerequisite. Daily schedule/retention/RPO and restored worker execution still pending | No new storage input for the verified off-host copy. For unattended daily-target claims, owner must supply/authorize an available free scheduler/host; agent cannot promise24h backups while an owner's PC is off |
+| Native Linux installation: [A6](../../deploy/README.md) / native deployment guide; V3 P10 preserves Render/Vercel/Neon | Required for certified native bundle installation, not an additional hosting requirement for the already-working Render V3 demo | Builders/configs/conformance and prior scoped native recovery exist; no actual Linux installer/systemd/Caddy run on an owner target | Owner provides an existing free Linux host/OS/architecture and authorized SSH/sudo/DNS/TLS paths if completing that native deliverable. Agent can then install/test; no paid provisioning. Until then preserve pending status |
+| Independent backup: [A7](../../deploy/RESTORE_REHEARSAL.md) / [backup plan](../deployment/native-deployment-and-backup.md#backup-and-restore) | Real encrypted restore for backup-feature claim; off-VM owner-local storage explicitly allowed. A7 is P1 in registry | Current Neon→owner-PC encrypted snapshot/isolated restore verified. Same-machine-as-source backup is not claimed; source is Neon. No third-device prerequisite. Daily schedule/retention/RPO and restored worker execution still pending | No new storage input for the verified off-host copy. For unattended daily-target claims, owner must supply/authorize an available free scheduler/host; agent cannot promise24h backups while an owner's PC is off |
 | Native crash/restored worker: testing-plan recovery gates / A7 | Required for those exact native/recovery claims; changed areas need affected checks, not automatic repetition of every old experiment | Historical genuine process-kill/restore/projection artifacts retained; current V3 native continuation not claimed. Idle/wake is distinct | Hidden native API launch was automatically rejected (`blocked by policy`); agent will not retry or use an alternate launcher. Policy resolution or an authorized existing target is needed for new native proof |
-| Cleanup: V3 QA§5 mandatory dependency/archive procedure | Required cleanup task remains incomplete, not silently waived | Dependency/archive review exists; actual historical planning/contract/AGENTS relocation/deletion was rejected | Automatic rejection was `blocked by policy`; no destructive retry/bypass. Requires that restriction to be resolved before agent can finish cleanup |
-| Final source/branch/archive/tag: V3 P10, A8 and testing-plan release gates | Mandatory for completed release claim | Backend433011c/frontendcafae17 and rollback retained; browser offline gate now passed, deployment CI green. Provider configuration is enabled; original cleanup/native/operational exclusions remain explicit | Agent updates PR/checkpoint and integrates only within applicable gates; no full-release tag/promotion or native-install certification claimed here |
+| Cleanup: V3 QA§5 mandatory dependency/archive procedure | Required presentation cleanup | Verified original private archive plus fresh pre-edit snapshot; retained canonical contracts and engineering references; removed redundant planning copies; corpus unchanged | Current source and focused checks demonstrate cleanup; no historical evidence or contributor history erased |
+| Final source/branch/archive/tag: V3 P10, A8 and testing-plan release gates | Hosted source/default branch/deployment verified | PR27/28 normally merged; Vercel f7e432a, backend433011c and rollback preserved; presentation cleanup retains unchanged application source | Tag and published release identify the final reviewed presentation tree; native installation and scheduled recovery certification remain separately deferred |
 
 ## Historical native source and architecture
 

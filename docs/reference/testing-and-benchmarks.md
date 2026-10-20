@@ -94,4 +94,4 @@ Final release requires P0 acceptance, combined PostgreSQL suite, race/build/type
 
 Every new result records schema version, UTC time, source SHA, dirty-tree flag, toolchain/platform, dataset/seed/scenario, exact command, sample counts, failures, exclusions, measured values and SHA-256 of raw inputs/output. Write uniquely named files; never overwrite historical evidence. Store safe reports under `artifacts/v2/<experiment>/<run-id>/`.
 
-Final `RELEASE_REPORT.md` has feature status, test evidence links, open limitations, deployment URL/status, provider mode and rollback instructions. No future benchmark placeholder becomes a numeric claim without its raw result.
+Final `docs\reference\backend-release-report.md` has feature status, test evidence links, open limitations, deployment URL/status, provider mode and rollback instructions. No future benchmark placeholder becomes a numeric claim without its raw result.

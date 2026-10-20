@@ -6,7 +6,7 @@ import { createFixtureOpsClient } from "./fixtures";
 import { formatPaiseDecimal } from "../design/OpsPrimitives";
 
 function fixture(name: string): unknown {
-  const path = new URL(`../../../docs/next-gen/execution-pack/docs/next-gen/contracts/fixtures/${name}`, import.meta.url);
+  const path = new URL(`../../../docs/api/contracts/fixtures/${name}`, import.meta.url);
   return JSON.parse(readFileSync(path, "utf8")).data;
 }
 
