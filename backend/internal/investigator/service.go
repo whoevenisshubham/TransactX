@@ -377,10 +377,10 @@ func mustJSON(value any) json.RawMessage {
 // Durable per-request budgets and the shared disable latch are checked at execution.
 func (service *Service) RuntimeStatus() (string, string) {
 	if service.config.Mode != ModeLLM {
-		return ModeEvidenceOnly, "disabled"
+		return ModeEvidenceOnly, "unavailable"
 	}
 	if service.config.Provider == nil || service.config.UnavailableReason != "" {
 		return ModeLLM, "unavailable"
 	}
-	return ModeLLM, "configured"
+	return ModeLLM, "ready"
 }

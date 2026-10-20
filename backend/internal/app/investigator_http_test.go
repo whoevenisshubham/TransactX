@@ -79,7 +79,7 @@ func TestHTTPInvestigationUsesConfiguredService(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &runtime); err != nil {
 				t.Fatal(err)
 			}
-			expectedModel := "disabled"
+			expectedModel := "unavailable"
 			if mode == investigator.ModeLLM {
 				expectedModel = "unavailable"
 			}
