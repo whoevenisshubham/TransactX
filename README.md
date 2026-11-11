@@ -102,6 +102,8 @@ participants retain authority over their own operations.
 
 ### Recovery through uncertain outcomes
 
+![TransactX unknown-outcome recovery sequence across coordinator, PostgreSQL, participant bank and recovery worker](docs/images/architecture-recovery.png)
+
 A **durable saga** is a recorded sequence of steps across services, with enough
 state for a worker to continue later. If a response is lost, the worker checks
 the original bank operation. A timeout remains an unknown outcome until evidence
@@ -161,18 +163,7 @@ disable switch. There is no paid fallback or periodic manual approval renewal.
 
 ## Architecture and technology
 
-```mermaid
-flowchart LR
-  UI[React workspaces / Vercel] -->|HTTPS + JWT / SSE| Gateway[Render gateway]
-  Gateway --> API[Go API]
-  API --> A[Bank A process]
-  API --> B[Bank B process]
-  API --> DB[(Neon PostgreSQL)]
-  A --> DB
-  B --> DB
-  Worker[Recovery / outbox worker] --> DB
-  Worker -. optional reviewed requests .-> Gemini[Gemini]
-```
+![TransactX system architecture spanning React SPA, Go API, Bank A and Bank B services, PostgreSQL and recovery worker](docs/images/architecture-system.png)
 
 The hosted demo runs separate API, participant and worker processes on one Render
 host, with central and participant schemas in Neon. Shared hosting does not merge
