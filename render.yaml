@@ -8,7 +8,7 @@ services:
     region: singapore
     dockerfilePath: ./deploy/render/Dockerfile
     dockerContext: .
-    healthCheckPath: /healthz
+    healthCheckPath: /health
     autoDeployTrigger: "off"
     envVars:
       - key: DATABASE_URL
