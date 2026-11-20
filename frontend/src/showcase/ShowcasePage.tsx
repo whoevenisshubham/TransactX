@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Amount, Badge, Icon, PageHeader, StatusBadge } from "../components";
-import { PublicHeader } from "../public/LandingPage";
+import { PublicHeader } from "../features/public";
 import { showcaseLibrary, scenarioTime } from "./catalogue";
 import "./showcase.css";
 

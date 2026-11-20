@@ -1,0 +1,82 @@
+@import "tailwindcss";
+@import "./tokens.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono";
+
+@theme {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-surface-raised: var(--bg-surface-raised);
+  --color-surface-overlay: var(--bg-surface-overlay);
+
+  --color-border-hairline: var(--border-hairline);
+  --color-border-active: var(--border-active);
+  --color-border-focus: var(--border-focus);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+
+  --color-action-primary-bg: var(--action-primary-bg);
+  --color-action-primary-fg: var(--action-primary-fg);
+  --color-action-accent-bg: var(--action-accent-bg);
+  --color-action-accent-fg: var(--action-accent-fg);
+
+  --color-status-success-fg: var(--status-success-fg);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-warning-fg: var(--status-warning-fg);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-danger-fg: var(--status-danger-fg);
+  --color-status-danger-bg: var(--status-danger-bg);
+  --color-status-info-fg: var(--status-info-fg);
+  --color-status-info-bg: var(--status-info-bg);
+}
+
+@layer base {
+  * {
+    border-color: var(--border-hairline);
+  }
+
+  p a,
+  span a,
+  label a,
+  .privacy-page a,
+  .public-site a:not([class*="button"]):not([class*="nav"]) {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv05", "tnum" 0;
+    transition: background-color 150ms ease, color 150ms ease;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Monospace figures and telemetry */
+  .font-mono,
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
