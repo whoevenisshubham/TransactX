@@ -14,13 +14,13 @@ export function ArchitectureTopologyDiagram() {
             Multi-Bank Two-Phase Settlement Pipeline
           </h3>
           <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-2xl leading-relaxed">
-            Real-time inspection of distributed state transitions. Each bank participant maintains sovereign database isolation without cross-network row locking.
+            Illustrative topology of distributed state transitions. Each simulated bank participant maintains sovereign database isolation without cross-network row locking.
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium bg-[var(--status-info-bg)] text-[var(--status-info-fg)] border border-[var(--status-info-border)]">
             <span className="w-2 h-2 rounded-full bg-[var(--action-accent-bg)] animate-pulse" />
-            <span>RAFT LEADER: Node-01</span>
+            <span>TOPOLOGY · 2-BANK SIMULATION</span>
           </div>
         </div>
       </div>
@@ -41,7 +41,7 @@ export function ArchitectureTopologyDiagram() {
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-hairline)]">
-                RTGS-01
+                SIMULATED BANK-A
               </span>
             </div>
 
@@ -62,14 +62,14 @@ export function ArchitectureTopologyDiagram() {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[var(--text-secondary)]">Lease Timeout:</span>
-                <span className="font-mono text-[var(--status-warning-fg)]">T+1800ms auto-rollback</span>
+                <span className="font-mono text-[var(--status-warning-fg)]">Bounded hold timeout</span>
               </div>
             </div>
           </div>
 
           <div className="p-2.5 rounded bg-[var(--bg-surface)] border border-[var(--border-hairline)] font-mono text-[11px] text-[var(--text-secondary)] truncate">
             <span className="text-[var(--text-tertiary)] mr-1">$</span>
-            INSERT INTO debits_escrow (uid, amt) VALUES ('usr_alice', 15000);
+            -- Illustrative: INSERT INTO debits_escrow (uid, amt) VALUES ('usr_alice', 15000);
           </div>
         </div>
 
@@ -87,7 +87,7 @@ export function ArchitectureTopologyDiagram() {
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-[var(--action-accent-bg)]/10 text-[var(--action-accent-bg)] border border-[var(--action-accent-bg)]/20">
-                Raft 3/3
+                Central Coordinator
               </span>
             </div>
 
@@ -95,7 +95,7 @@ export function ArchitectureTopologyDiagram() {
               <div className="flex justify-between items-center">
                 <span className="text-[var(--text-secondary)]">Coordinator Phase:</span>
                 <span className="font-mono text-[11px] font-semibold text-[var(--status-success-fg)] bg-[var(--status-success-bg)] px-1.5 py-0.5 rounded border border-[var(--status-success-border)]">
-                  PREPARED (SYN_ACK)
+                  PREPARED (ESCROW_HELD)
                 </span>
               </div>
               <div className="flex justify-between items-center">
@@ -103,19 +103,19 @@ export function ArchitectureTopologyDiagram() {
                 <span className="font-mono text-[var(--text-primary)]">idem_pay_89f02c</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-[var(--text-secondary)]">Outbox Worker:</span>
-                <span className="font-mono text-[var(--text-primary)]">wrk_03_fenced</span>
+                <span className="text-[var(--text-secondary)]">Outbox Recovery:</span>
+                <span className="font-mono text-[var(--text-primary)]">ClaimDueJobs / Worker</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-[var(--text-secondary)]">Consensus Term:</span>
-                <span className="font-mono text-[var(--text-tertiary)]">Term #108,492 (Zero Skew)</span>
+                <span className="text-[var(--text-secondary)]">Lease Epoch:</span>
+                <span className="font-mono text-[var(--text-tertiary)]">Monotonic HeartbeatLease</span>
               </div>
             </div>
           </div>
 
           <div className="p-2.5 rounded bg-[var(--bg-surface-raised)] border border-[var(--border-hairline)] font-mono text-[11px] text-[var(--text-secondary)] truncate">
             <span className="text-[var(--action-accent-bg)] mr-1">$</span>
-            SELECT state FROM sagas WHERE xid='x_8819a' FOR UPDATE NOWAIT;
+            -- Illustrative: SELECT state FROM sagas WHERE xid='x_8819a' FOR UPDATE NOWAIT;
           </div>
         </div>
 
@@ -133,7 +133,7 @@ export function ArchitectureTopologyDiagram() {
                 </div>
               </div>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-hairline)]">
-                CORE-09
+                SIMULATED BANK-B
               </span>
             </div>
 
@@ -150,18 +150,18 @@ export function ArchitectureTopologyDiagram() {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[var(--text-secondary)]">Ack Ingress:</span>
-                <span className="font-mono text-[var(--text-tertiary)]">14:02:18.421 (200 OK)</span>
+                <span className="font-mono text-[var(--text-tertiary)]">HTTP 200 OK (Status Ack)</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-[var(--text-secondary)]">Final Seal:</span>
-                <span className="font-mono text-[var(--status-success-fg)] font-semibold">Invariant Validated</span>
+                <span className="font-mono text-[var(--status-success-fg)] font-semibold">Double-Entry Recorded</span>
               </div>
             </div>
           </div>
 
           <div className="p-2.5 rounded bg-[var(--bg-surface)] border border-[var(--border-hairline)] font-mono text-[11px] text-[var(--text-secondary)] truncate">
             <span className="text-[var(--text-tertiary)] mr-1">$</span>
-            INSERT INTO customer_journal (dest, amt, idem) VALUES ('usr_bob', 15000, ...);
+            -- Illustrative: INSERT INTO customer_journal (dest, amt, idem) VALUES ('usr_bob', 15000, ...);
           </div>
         </div>
       </div>
@@ -171,7 +171,7 @@ export function ArchitectureTopologyDiagram() {
         <div className="p-3.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/30 space-y-1">
           <div className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[var(--action-accent-bg)]">
             <Lock className="w-3.5 h-3.5 shrink-0" />
-            <span>STEP 01: HOLD RESERVED (14ms)</span>
+            <span>STEP 01: HOLD RESERVED (PHASE 1)</span>
           </div>
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
             Bank A acquires sovereign ledger hold. Zero locks exposed to external coordinator.
@@ -181,17 +181,17 @@ export function ArchitectureTopologyDiagram() {
         <div className="p-3.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/30 space-y-1">
           <div className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[var(--action-accent-bg)]">
             <Cpu className="w-3.5 h-3.5 shrink-0" />
-            <span>STEP 02: PROVISIONAL ACK (18ms)</span>
+            <span>STEP 02: PROVISIONAL ACK (PHASE 2 PREPARE)</span>
           </div>
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            Bank B signs tentative credit payload with counterparty nonce and validates signature.
+            Bank B acknowledges tentative credit payload with counterparty nonce.
           </p>
         </div>
 
         <div className="p-3.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/30 space-y-1">
           <div className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[var(--status-success-fg)]">
             <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-            <span>STEP 03: DUAL COMMIT SEAL (326ms)</span>
+            <span>STEP 03: DUAL COMMIT SEAL (CONVERGENCE)</span>
           </div>
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
             Coordinator flushes outbox lease. Simultaneous release of hold and finalization of credit.
@@ -203,12 +203,12 @@ export function ArchitectureTopologyDiagram() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-[var(--border-hairline)] text-xs font-mono text-[var(--text-secondary)]">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-[var(--status-success-fg)]" />
-          <span>Active Corridor: Apex RTGS-01 → Pacific CORE-09</span>
+          <span>Simulated Corridor: Bank A → TransactX Coordinator → Bank B</span>
           <span className="text-[var(--text-tertiary)]">·</span>
-          <span className="text-[var(--status-success-fg)] font-semibold">100% Zero-Loss Parity</span>
+          <span className="text-[var(--status-success-fg)] font-semibold">Double-Entry Conserved</span>
         </div>
         <div className="text-[11px] text-[var(--text-tertiary)]">
-          SHA-256 Digest: <span className="text-[var(--text-secondary)] font-semibold">8f44...ce19</span>
+          Illustrative model · <span className="text-[var(--text-secondary)] font-semibold">Not live telemetry</span>
         </div>
       </div>
     </div>

@@ -62,7 +62,7 @@ export function AuthPage({
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[var(--status-success-fg)] animate-pulse" />
                 <span className="font-mono text-xs uppercase font-semibold text-[var(--status-success-fg)] tracking-wider">
-                  TLS 1.3 · ISOLATED NETWORK
+                  DEMO PLATFORM · ISOLATED ENVIRONMENT
                 </span>
               </div>
 
@@ -75,7 +75,7 @@ export function AuthPage({
                   <span className="text-[var(--text-secondary)]">The complete picture.</span>
                 </h2>
                 <p className="text-xs text-[var(--text-secondary)] leading-relaxed pt-1">
-                  See what happened, what is known, and what needs another look. Every transaction links to immutable ledger proofs.
+                  See what happened, what is known, and what needs another look. Balances are derived from double-entry ledger entries and verifiable transaction evidence.
                 </p>
               </div>
 
@@ -89,19 +89,19 @@ export function AuthPage({
                 </p>
               </div>
 
-              {/* Mini Metrics / Uptime */}
+              {/* Architecture Capabilities */}
               <div className="grid grid-cols-3 gap-2 pt-2 text-center font-mono">
                 <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-                  <div className="font-bold text-sm text-[var(--text-primary)]">99.99%</div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Uptime</div>
+                  <div className="font-bold text-sm text-[var(--text-primary)]">64-bit</div>
+                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Integer Paise</div>
                 </div>
                 <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-                  <div className="font-bold text-sm text-[var(--text-primary)]">&lt;85ms</div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">P99 Latency</div>
+                  <div className="font-bold text-sm text-[var(--text-primary)]">SQL Sum</div>
+                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Conservation</div>
                 </div>
                 <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-                  <div className="font-bold text-sm text-[var(--status-success-fg)]">0 paise</div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Drift</div>
+                  <div className="font-bold text-sm text-[var(--status-success-fg)]">UUIDv4</div>
+                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Idempotency</div>
                 </div>
               </div>
             </div>

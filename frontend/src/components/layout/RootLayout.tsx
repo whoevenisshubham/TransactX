@@ -98,8 +98,8 @@ export function RootLayout({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
           <p className="max-w-xl">© 2026 TransactX Foundation · Double-entry invariant verified · Non-custodial simulation testbed.</p>
           <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 font-mono text-[11px]">
-            <span>ENGINE: v4.0-PROD</span>
-            <span>RAFT TERM: #14,028</span>
+            <span>ENGINE: v4.0</span>
+            <span>COORDINATOR: LEASE-FENCED</span>
             <span className="text-[var(--status-success-fg)]">● NOMINAL</span>
           </div>
         </div>

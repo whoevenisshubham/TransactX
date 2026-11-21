@@ -12,8 +12,9 @@ export function ArchitecturalPillars() {
         "Rather than holding distributed database row locks across networks, TransactX issues isolated debit holds in participant bank schemas. If network partitions occur before Phase 2 commits, holds expire cleanly via idempotent compensating transactions.",
       tags: ["Zero Distributed Locks", "Bounded Lease Timeouts", "BigInt Paise Precision"],
       snippetTitle: "saga_definition.go",
-      snippetStatus: "ESCROW_CONFIRMED",
-      snippetCode: `type SettlementSaga struct {
+      snippetStatus: "ILLUSTRATIVE",
+      snippetCode: `// Illustrative saga definition — not live telemetry
+type SettlementSaga struct {
   HoldRef:    "hld_apex_8910",
   Compensate: RollbackParticipantA,
   Timeout:    1800 * time.Millisecond,
@@ -23,31 +24,34 @@ export function ArchitecturalPillars() {
       number: "02",
       icon: <RefreshCw className="w-5 h-5 text-[var(--action-accent-bg)]" />,
       title: "Automated Outbox Recovery",
-      subtitle: "Self-healing against gateway socket timeouts.",
+      subtitle: "Fenced lease execution for ambiguous gateway timeouts.",
       description:
-        "When Bank B drops connection or returns HTTP 504 during settlement, background recovery workers acquire outbox leases via monotonic fences. Workers probe counterparties with idempotent hashes to confirm status without risk of double-charging.",
-      tags: ["Fenced Monotonic Leases", "Exponential Jitter Backoff", "Probe Ack Verification"],
-      snippetTitle: "recovery_telemetry.log",
-      snippetStatus: "RECONCILED",
-      snippetCode: `[14:02:19] [ERR] Socket drop on Bank_B POST /v1/credit
-[14:02:20] [WRK] Worker_03 claims lease fence #4092
-[14:02:20] [ACK] Probe query returns STATUS_CREDITED
-[14:02:21] [OK] Outbox flagged SETTLED. 0 phantom debits.`,
+        "When Bank B drops connection or returns HTTP 504 during settlement, background schedulers call ClaimDueJobs and maintain execution fencing via HeartbeatLease with a monotonic LeaseEpoch. Workers probe counterparties with idempotent keys to verify state without double-charging.",
+      tags: ["ClaimDueJobs Scheduler", "HeartbeatLease Epoch Fencing", "Idempotent Status Probe"],
+      snippetTitle: "recovery_sequence.log",
+      snippetStatus: "ILLUSTRATIVE",
+      snippetCode: `// Illustrative recovery sequence — not live telemetry
+[ClaimDueJobs] Worker acquires job with LeaseEpoch #4092
+[HeartbeatLease] Lease renewed during active execution
+[ProbeStatus] Counterparty returns STATUS_CREDITED
+[Outbox] Converged to SETTLED without duplicate debits`,
     },
     {
       number: "03",
       icon: <GitBranch className="w-5 h-5 text-[var(--action-accent-bg)]" />,
       title: "Merkle Tree Reconciliation",
-      subtitle: "Continuous cryptographic state verification.",
+      subtitle: "Cryptographic state verification using merkle-v1.",
       description:
-        "Every balance update appends to an immutable write ledger and hashes into a binary Merkle accumulator. Counterparty institutions independently audit cryptographic balance inclusion proofs in O(log N) operations without sharing raw customer PII.",
-      tags: ["ED25519 Hardware Keys", "SHA-256 Merkle Roots", "Inclusion Proofs"],
-      snippetTitle: "tree_accumulator.log",
-      snippetStatus: "VERIFIED",
-      snippetCode: `Root: 0x9f1a23...c890de44
-Leaf_L3: SHA256(Hold#8910 + Credit#7712)
-Path: [L_Hash: 0x11ab..., R_Hash: 0xdd82...]
-Proof Invariant: Validated (0.12ms)`,
+        "Batch settlement periods commit records into a binary Merkle accumulator using SHA-256 and TXNODE|v1| domain separation. Inclusion proofs verify record inclusion in O(log N) operations, while accounting equilibrium is separately audited via SQL double-entry aggregation.",
+      tags: ["merkle-v1 Spec", "TXNODE|v1| Domain Separation", "SQL Conservation Audit"],
+      snippetTitle: "merkle_verification.log",
+      snippetStatus: "ILLUSTRATIVE",
+      snippetCode: `// Illustrative proof verification — not live telemetry
+Algorithm: merkle-v1
+Node: SHA256("TXNODE|v1|" + L_Hash + R_Hash)
+Root: 0x9f1a23...c890de44
+Inclusion: Verified against committed participant root
+Conservation: Evaluated independently via SQL sum`,
     },
   ];
 
