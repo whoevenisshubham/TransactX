@@ -92,8 +92,8 @@ export function AuthPage({
               {/* Architecture Capabilities */}
               <div className="grid grid-cols-3 gap-2 pt-2 text-center font-mono">
                 <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-                  <div className="font-bold text-sm text-[var(--text-primary)]">64-bit</div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Integer Paise</div>
+                  <div className="font-bold text-sm text-[var(--text-primary)]">Integer</div>
+                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Paise</div>
                 </div>
                 <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
                   <div className="font-bold text-sm text-[var(--text-primary)]">SQL Sum</div>

@@ -13,10 +13,12 @@ import type {
   IntegrityRunResult,
   IntegrityRunStatus,
   IntegrityRunSummary,
+  IntegritySeverity,
   IntegrityStatusResponse,
   IntegrityVerifyProofResult,
   MerkleTreeChild,
   MerkleTreeRoot,
+  ProofVerificationMetrics,
   User,
 } from "../../types";
 
@@ -35,10 +37,12 @@ export type {
   IntegrityRunResult,
   IntegrityRunStatus,
   IntegrityRunSummary,
+  IntegritySeverity,
   IntegrityStatusResponse,
   IntegrityVerifyProofResult,
   MerkleTreeChild,
   MerkleTreeRoot,
+  ProofVerificationMetrics,
   User,
 };
 
