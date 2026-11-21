@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { api, ApiError } from "../../api";
 import { Button, InlineError, PageHeader } from "../../components";
-import type { IntegrityProof } from "./types";
+import type {
+  IntegrityCheckResult,
+  IntegrityProof,
+  IntegrityRunResult,
+  IntegrityVerifyProofResult,
+} from "./types";
 
 export function IntegrityView({ token, liveRevision }: { token: string; liveRevision: number }) {
-  const [integrityRuns, setIntegrityRuns] = useState<any[]>([]);
-  const [integrityDetail, setIntegrityDetail] = useState<any>(null);
+  const [integrityRuns, setIntegrityRuns] = useState<IntegrityRunResult[]>([]);
+  const [integrityDetail, setIntegrityDetail] = useState<IntegrityRunResult | null>(null);
   const [integrityError, setIntegrityError] = useState("");
   const [checking, setChecking] = useState(false);
   const [operationId, setOperationId] = useState("");
@@ -18,7 +23,7 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
   const [proof, setProof] = useState<IntegrityProof | null>(null);
 
   const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [verifyResult, setVerifyResult] = useState<IntegrityVerifyProofResult | null>(null);
   const [verifyError, setVerifyError] = useState("");
 
   async function loadIntegrity() {
@@ -126,7 +131,7 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
         {integrityDetail && (
           <div>
             <h4>Run {integrityDetail.runId}</h4>
-            {(integrityDetail.checks ?? []).map((check: any) => (
+            {(integrityDetail.checks ?? []).map((check: IntegrityCheckResult) => (
               <div className="console-spec-item" key={check.code}>
                 <span>{check.code}</span>
                 <span>{check.status} · {check.message}</span>

@@ -124,9 +124,9 @@ export const api = {
   opsReconciliationRuns: (token: string, participantId?: string) => apiRequest<any>(`/api/ops/reconciliation/runs${participantId ? `?participantId=${encodeURIComponent(participantId)}` : ""}`, {}, token),
   opsReconciliationCreateRun: (input: { participantId: string; scopeFrom: string; scopeTo: string }, token: string) => apiRequest<any>("/api/ops/reconciliation/runs", { method: "POST", body: JSON.stringify(input) }, token),
   opsReconciliationDiscrepancies: (runId: string, token: string) => apiRequest<any>(`/api/ops/reconciliation/runs/${encodeURIComponent(runId)}/discrepancies`, {}, token),
-  opsIntegrityStatus: (token: string) => apiRequest<any>("/api/ops/integrity/status", {}, token),
-  opsIntegrityCheck: (input: Record<string, unknown>, token: string) => apiRequest<any>("/api/ops/integrity/check", { method: "POST", body: JSON.stringify(input) }, token),
-  opsIntegrityRun: (runId: string, token: string) => apiRequest<any>(`/api/ops/integrity/runs/${encodeURIComponent(runId)}`, {}, token),
+  opsIntegrityStatus: (token: string) => apiRequest<import("./types").IntegrityStatusResponse>("/api/ops/integrity/status", {}, token),
+  opsIntegrityCheck: (input: Record<string, unknown>, token: string) => apiRequest<import("./types").IntegrityRunResult>("/api/ops/integrity/check", { method: "POST", body: JSON.stringify(input) }, token),
+  opsIntegrityRun: (runId: string, token: string) => apiRequest<import("./types").IntegrityRunResult>(`/api/ops/integrity/runs/${encodeURIComponent(runId)}`, {}, token),
   opsRoutingDistribution: (token: string) => apiRequest<{ windowHours: number; items: { targetId: string; payments: number }[] }>("/api/ops/routing/distribution", {}, token),
   opsActivity: (token: string, limit = 50, offset = 0) => apiRequest<{ items: import("./types").ActivityEvent[]; limit: number; nextOffset?: number }>(`/api/ops/activity?limit=${limit}&offset=${offset}`, {}, token),
   opsRuntime: (token: string) => apiRequest<{ simulationMode: boolean }>("/api/ops/runtime", {}, token),
@@ -137,5 +137,5 @@ export const api = {
   opsReconciliationGetProof: (operationId: string, participantId: string, scopeFrom: string, scopeTo: string, token: string) =>
     apiRequest<import("./types").IntegrityProof>(`/api/ops/reconciliation/proof/${encodeURIComponent(operationId)}?participantId=${encodeURIComponent(participantId)}&scopeFrom=${encodeURIComponent(scopeFrom)}&scopeTo=${encodeURIComponent(scopeTo)}`, {}, token),
   opsReconciliationVerifyProof: (_participantId: string, _scopeFrom: string, _scopeTo: string, proof: import("./types").IntegrityProof, token: string) =>
-    apiRequest<any>("/api/ops/reconciliation/proof/verify", { method: "POST", body: JSON.stringify(proof) }, token),
+    apiRequest<import("./types").IntegrityVerifyProofResult>("/api/ops/reconciliation/proof/verify", { method: "POST", body: JSON.stringify(proof) }, token),
 };
