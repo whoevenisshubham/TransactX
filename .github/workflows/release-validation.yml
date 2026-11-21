@@ -83,9 +83,33 @@ jobs:
       - name: Money boundaries
         working-directory: frontend
         run: npm run test:money
+      - name: Offline queue
+        working-directory: frontend
+        run: npm run test:offline-queue
+      - name: Offline replay
+        working-directory: frontend
+        run: npm run test:offline-replay
       - name: Lint
         working-directory: frontend
         run: npm run lint
       - name: Build
         working-directory: frontend
         run: npm run build
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Browser fixture suite
+        working-directory: frontend
+        run: npm run test:browser:fixtures -- --workers=2
+      - name: Offline shell browser suite
+        working-directory: frontend
+        run: npm run test:browser:offline-shell
+      - name: Upload Playwright artifacts
+        uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+          retention-days: 7
