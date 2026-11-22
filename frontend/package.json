@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
-    "test": "node --import tsx --test src/config.test.ts src/console.test.ts src/merchant.test.ts src/offlineQueue.test.ts src/offlineReplay.test.ts src/operationalEvents.test.ts src/ops/contracts.test.ts src/ops/worklistFilters.test.ts src/ops/analyticsSeries.test.ts src/showcase/catalogue.test.ts src/qr.test.ts src/features/customer/customer.test.ts src/features/customer/remediation.test.ts",
+    "test": "node --import tsx --test src/config.test.ts src/console.test.ts src/merchant.test.ts src/offlineQueue.test.ts src/offlineReplay.test.ts src/operationalEvents.test.ts src/ops/contracts.test.ts src/ops/worklistFilters.test.ts src/ops/analyticsSeries.test.ts src/showcase/catalogue.test.ts src/qr.test.ts src/features/customer/customer.test.ts src/features/customer/remediation.test.ts src/features/customer/durableUnresolved.test.ts",
     "test:money": "node scripts/verify-money.mjs",
     "test:browser:fixtures": "playwright test",
     "test:browser:live": "playwright test --config playwright.live.config.ts",

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../api";
-import { Avatar, BrandMark, Button, Icon, InlineError } from "../../components";
+import { Amount, Avatar, BrandMark, Button, Icon, InlineError } from "../../components";
 import { LoadingShell } from "../../shared/ShellStates";
 import { ThemeSelect } from "../../theme";
 import { OfflineIntentQueue, type OfflineIntent } from "../../offlineQueue";
 import { OfflineReplayWorker } from "../../offlineReplay";
+import { DurableUnresolvedStore, type DurableUnresolvedIntent } from "../../unresolvedStore";
 import type { Account, Payment, User, View } from "../../types";
 import { CustomerDashboard } from "./CustomerDashboard";
 import { SendMoneyPage } from "./SendMoneyPage";
@@ -24,7 +25,41 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
   const [error, setError] = useState("");
   const [view, setView] = useState<View>(readView());
   const [selectedPaymentID, setSelectedPaymentID] = useState<string | null>(readPaymentID());
+  const [unresolvedStore, setUnresolvedStore] = useState<DurableUnresolvedStore | null>(null);
+  const [activeUnresolvedIntent, setActiveUnresolvedIntent] = useState<DurableUnresolvedIntent | null>(null);
   const replayRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+  useEffect(() => {
+    if (!user) {
+      setUnresolvedStore(null);
+      setActiveUnresolvedIntent(null);
+      return;
+    }
+    const store = new DurableUnresolvedStore(user.id);
+    setUnresolvedStore(store);
+
+    let active = true;
+    const loadActiveIntent = async () => {
+      try {
+        const intent = await store.getActive();
+        if (active) setActiveUnresolvedIntent(intent);
+      } catch {
+        // ignore load errors
+      }
+    };
+
+    void loadActiveIntent();
+
+    const unsubscribe = store.onChanged(() => {
+      void loadActiveIntent();
+    });
+
+    return () => {
+      active = false;
+      unsubscribe();
+      store.close();
+    };
+  }, [user]);
 
   useEffect(() => {
     let active = true;
@@ -211,6 +246,26 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
             <NetworkStatus online={online} />
           </div>
 
+          {activeUnresolvedIntent && (
+            <div
+              className="p-4 mb-4 rounded-lg border border-[var(--reset-gold)] bg-[var(--surface-soft)] text-xs flex flex-wrap items-center justify-between gap-3"
+              role="alert"
+              data-testid="global-unresolved-banner"
+            >
+              <div className="flex items-center gap-2 font-medium">
+                <Icon name="activity" size={16} />
+                <span>
+                  Unresolved transfer pending: <Amount paise={activeUnresolvedIntent.amountPaise} /> to{" "}
+                  <strong>{activeUnresolvedIntent.recipient.name}</strong> (Idempotency key:{" "}
+                  <code className="font-mono text-xs">{activeUnresolvedIntent.idempotencyKey.slice(0, 8)}…</code>)
+                </span>
+              </div>
+              <Button size="sm" onClick={() => navigate("pay")}>
+                Resolve transfer
+              </Button>
+            </div>
+          )}
+
           {view === "home" && (
             <CustomerDashboard
               user={user}
@@ -229,6 +284,8 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
               account={account}
               token={token}
               queue={queue}
+              unresolvedStore={unresolvedStore ?? undefined}
+              unresolvedIntent={activeUnresolvedIntent}
               onComplete={completedPayment}
               onQueueChanged={queueChanged}
               onNavigate={navigate}

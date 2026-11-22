@@ -48,6 +48,11 @@ jobs:
       - name: Vet
         working-directory: backend
         run: go vet ./...
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+      - name: Vulnerability scan (govulncheck)
+        working-directory: backend
+        run: govulncheck ./...
       # Broad suites intentionally skip destructive matrices without a lifecycle
       # contract. This separate invocation must run them, including race coverage.
       - name: Dedicated Disposable Database Lifecycle (Cross-Bank & Crash Matrix, race)

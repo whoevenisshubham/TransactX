@@ -1,5 +1,6 @@
 import type { Account, Payment, Recipient, User, View } from "../../types";
 import type { OfflineIntent } from "../../offlineQueue";
+import type { DurableUnresolvedIntent, DurableUnresolvedStore } from "../../unresolvedStore";
 
 export type CustomerView = View;
 
@@ -23,6 +24,8 @@ export interface SendMoneyPageProps {
   onQueueChanged: () => void;
   onNavigate: (view: CustomerView) => void;
   queue: import("../../offlineQueue").OfflineIntentQueue;
+  unresolvedStore?: DurableUnresolvedStore;
+  unresolvedIntent?: DurableUnresolvedIntent | null;
 }
 
 export interface TransactionActivityProps {

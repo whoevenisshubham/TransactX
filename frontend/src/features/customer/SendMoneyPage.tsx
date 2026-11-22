@@ -1,4 +1,4 @@
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../api";
 import {
   Amount,
@@ -12,16 +12,10 @@ import {
 } from "../../components";
 import { parsePaise } from "../../money";
 import type { Payment, Recipient } from "../../types";
+import type { DurableUnresolvedIntent, DurableUnresolvedStore } from "../../unresolvedStore";
 import type { SendMoneyPageProps } from "./types";
 
-export type UnresolvedIntent = {
-  recipient: Recipient;
-  amountPaise: number;
-  amount: string;
-  note: string;
-  idempotencyKey: string;
-  clientRequestId: string;
-};
+export type UnresolvedIntent = DurableUnresolvedIntent;
 
 export function SendMoneyPage({
   account,
@@ -30,6 +24,8 @@ export function SendMoneyPage({
   onComplete,
   onQueueChanged,
   onNavigate,
+  unresolvedStore,
+  unresolvedIntent: initialUnresolvedIntent,
 }: SendMoneyPageProps) {
   const [stage, setStage] = useState<
     "form" | "confirm" | "processing" | "result" | "uncertain" | "queued"
@@ -44,11 +40,41 @@ export function SendMoneyPage({
   const [payment, setPayment] = useState<Payment | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [clientRequestId, setClientRequestId] = useState<string | null>(null);
-  const [unresolvedIntent, setUnresolvedIntent] = useState<UnresolvedIntent | null>(null);
+  const [unresolvedIntent, setUnresolvedIntent] = useState<DurableUnresolvedIntent | null>(
+    initialUnresolvedIntent ?? null
+  );
   const [statusChecking, setStatusChecking] = useState(false);
   const [statusCheckError, setStatusCheckError] = useState("");
   const submitLock = useRef(false);
   const lookupGeneration = useRef(0);
+
+  useEffect(() => {
+    if (initialUnresolvedIntent) {
+      setUnresolvedIntent(initialUnresolvedIntent);
+      setRecipient(initialUnresolvedIntent.recipient);
+      setRecipientInput(initialUnresolvedIntent.recipient.paymentIdentifier);
+      setAmount(
+        initialUnresolvedIntent.amount || (initialUnresolvedIntent.amountPaise / 100).toFixed(2)
+      );
+      setNote(initialUnresolvedIntent.note);
+      setIdempotencyKey(initialUnresolvedIntent.idempotencyKey);
+      setClientRequestId(initialUnresolvedIntent.clientRequestId);
+      setStage("uncertain");
+    } else if (unresolvedStore) {
+      void unresolvedStore.getActive().then((active) => {
+        if (active) {
+          setUnresolvedIntent(active);
+          setRecipient(active.recipient);
+          setRecipientInput(active.recipient.paymentIdentifier);
+          setAmount(active.amount || (active.amountPaise / 100).toFixed(2));
+          setNote(active.note);
+          setIdempotencyKey(active.idempotencyKey);
+          setClientRequestId(active.clientRequestId);
+          setStage("uncertain");
+        }
+      });
+    }
+  }, [initialUnresolvedIntent, unresolvedStore]);
 
   const amountPaise = parsePaise(amount);
   const availableBalance = account?.balancePaise ?? 0;
@@ -145,6 +171,9 @@ export function SendMoneyPage({
 
     try {
       const result = await api.createPayment(payload, token, key, requestID);
+      if (unresolvedStore) {
+        await unresolvedStore.markResolved(requestID, "RESOLVED_COMPLETED", result.id);
+      }
       setUnresolvedIntent(null);
       setPayment(result);
       setStage("result");
@@ -154,6 +183,9 @@ export function SendMoneyPage({
         try {
           await queue.enqueue(payload, { clientRequestId: requestID, idempotencyKey: key });
           onQueueChanged();
+          if (unresolvedStore && overrideIntent) {
+            await unresolvedStore.markResolved(requestID, "RESOLVED_COMPLETED");
+          }
           setUnresolvedIntent(null);
           setStage("queued");
         } catch {
@@ -162,19 +194,43 @@ export function SendMoneyPage({
         }
       } else if (caught instanceof ApiError && caught.status >= 500) {
         // Server error or timeout: outcome is uncertain, never assume failure!
-        const intentToFreeze: UnresolvedIntent = overrideIntent
-          ? overrideIntent
+        const now = new Date().toISOString();
+        const baseIntent: DurableUnresolvedIntent = overrideIntent
+          ? {
+              ...overrideIntent,
+              updatedAt: now,
+              lastHttpStatus: caught.status,
+              lastError: caught.message,
+            }
           : {
+              ownerUserId:
+                (unresolvedStore as unknown as { ownerUserId?: string })?.ownerUserId ??
+                "authenticated-user",
+              clientRequestId: requestID,
+              idempotencyKey: key,
               recipient: targetRecipient,
               amountPaise: targetAmountPaise,
-              amount,
+              amount: amount || (targetAmountPaise / 100).toFixed(2),
+              currency: "INR",
               note: targetNote,
-              idempotencyKey: key,
-              clientRequestId: requestID,
+              payloadHash: "",
+              createdAt: now,
+              updatedAt: now,
+              state: "UNCERTAIN",
+              lastHttpStatus: caught.status,
+              lastError: caught.message,
             };
-        setUnresolvedIntent(intentToFreeze);
+        if (unresolvedStore) {
+          const saved = await unresolvedStore.save(baseIntent);
+          setUnresolvedIntent(saved);
+        } else {
+          setUnresolvedIntent(baseIntent);
+        }
         setStage("uncertain");
       } else {
+        if (overrideIntent && unresolvedStore) {
+          await unresolvedStore.markResolved(requestID, "RESOLVED_FAILED");
+        }
         setError(paymentError(caught));
         setUnresolvedIntent(null);
         setIdempotencyKey(null);
@@ -189,23 +245,45 @@ export function SendMoneyPage({
 
   async function checkUncertainStatus() {
     const activeKey = unresolvedIntent?.idempotencyKey ?? idempotencyKey;
+    const activeRequestId = unresolvedIntent?.clientRequestId ?? clientRequestId;
     if (!activeKey) return;
     setStatusChecking(true);
     setStatusCheckError("");
     try {
       const existing = await api.paymentByIdempotencyKey(activeKey, token);
+      if (activeRequestId && unresolvedStore) {
+        await unresolvedStore.markResolved(activeRequestId, "RESOLVED_COMPLETED", existing.id);
+      }
       setUnresolvedIntent(null);
       setPayment(existing);
       setStage("result");
     } catch (caught) {
+      const now = new Date().toISOString();
       if (caught instanceof ApiError && caught.status === 404) {
         setStatusCheckError(
-          "Payment not yet found on the ledger. You can retry safely with the same key, or check again in a few moments."
+          "Payment not yet found on the ledger. It may still be processing in flight. Your transaction identity is preserved and safe to retry."
         );
+        if (unresolvedIntent && unresolvedStore) {
+          await unresolvedStore.save({
+            ...unresolvedIntent,
+            updatedAt: now,
+            lastStatusCheckAt: now,
+            lastHttpStatus: 404,
+          });
+        }
       } else {
-        setStatusCheckError(
-          caught instanceof Error ? caught.message : "Unable to verify payment status."
-        );
+        const errorMsg =
+          caught instanceof Error ? caught.message : "Unable to verify payment status.";
+        setStatusCheckError(errorMsg);
+        if (unresolvedIntent && unresolvedStore) {
+          await unresolvedStore.save({
+            ...unresolvedIntent,
+            updatedAt: now,
+            lastStatusCheckAt: now,
+            lastHttpStatus: caught instanceof ApiError ? caught.status : undefined,
+            lastError: errorMsg,
+          });
+        }
       }
     } finally {
       setStatusChecking(false);
@@ -218,13 +296,6 @@ export function SendMoneyPage({
     } else {
       void submitPayment();
     }
-  }
-
-  function discardUnresolvedIntent() {
-    setUnresolvedIntent(null);
-    setIdempotencyKey(null);
-    setClientRequestId(null);
-    setError("");
   }
 
   function editPayment() {
@@ -270,6 +341,7 @@ export function SendMoneyPage({
         onCheckStatus={() => void checkUncertainStatus()}
         onViewActivity={() => onNavigate("transactions")}
         onReturnToForm={() => setStage("form")}
+        onReturnToOverview={() => onNavigate("home")}
         checkingStatus={statusChecking}
         statusError={statusCheckError}
       />
@@ -310,6 +382,11 @@ export function SendMoneyPage({
                   <Icon name="activity" size={16} />
                   <span>Unresolved Payment Intent Locked</span>
                 </div>
+                {unresolvedIntent.persistenceFailed && (
+                  <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-200">
+                    Storage fallback active: Local storage was restricted; transaction identity is preserved in memory.
+                  </div>
+                )}
                 <p className="text-[var(--muted)]">
                   A transfer of <Amount paise={unresolvedIntent.amountPaise} /> to{" "}
                   <strong>{unresolvedIntent.recipient.name}</strong> (
@@ -322,8 +399,8 @@ export function SendMoneyPage({
                   <Button size="sm" onClick={() => setStage("uncertain")}>
                     Return to status check
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={discardUnresolvedIntent}>
-                    Discard unresolved intent
+                  <Button size="sm" variant="secondary" onClick={() => onNavigate("home")}>
+                    Return to overview
                   </Button>
                 </div>
               </div>
@@ -789,6 +866,7 @@ function UncertainPayment({
   onCheckStatus,
   onViewActivity,
   onReturnToForm,
+  onReturnToOverview,
   checkingStatus,
   statusError,
 }: {
@@ -797,6 +875,7 @@ function UncertainPayment({
   onCheckStatus: () => void;
   onViewActivity: () => void;
   onReturnToForm: () => void;
+  onReturnToOverview?: () => void;
   checkingStatus: boolean;
   statusError: string;
 }) {
@@ -811,6 +890,11 @@ function UncertainPayment({
         Your transfer may still be processing on the ledger. We preserved your payment request ID
         and idempotency key so you can safely check status or retry without duplicate debit.
       </p>
+      {intent?.persistenceFailed && (
+        <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs mb-3">
+          Storage fallback active: Local storage was restricted; transaction identity is preserved in memory.
+        </div>
+      )}
       {intent && (
         <div className="mini-payment">
           <Avatar name={intent.recipient.name} />
@@ -837,6 +921,11 @@ function UncertainPayment({
         <Button variant="quiet" onClick={onReturnToForm}>
           Review intent details
         </Button>
+        {onReturnToOverview && (
+          <Button variant="secondary" onClick={onReturnToOverview}>
+            Return to overview
+          </Button>
+        )}
       </div>
     </div>
   );

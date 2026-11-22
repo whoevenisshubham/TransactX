@@ -86,7 +86,9 @@ describe("Milestone 20-R.1 Production Remediation & Payment Safety Regressions",
     const key = crypto.randomUUID();
     const clientRequestId = crypto.randomUUID();
 
+    const now = new Date().toISOString();
     const intent: UnresolvedIntent = {
+      ownerUserId: "usr-test-alice",
       recipient: {
         name: "Bob Demo",
         paymentIdentifier: "bob@transactx",
@@ -94,9 +96,14 @@ describe("Milestone 20-R.1 Production Remediation & Payment Safety Regressions",
       },
       amountPaise: 250000,
       amount: "2500.00",
+      currency: "INR",
       note: "Rent payment",
       idempotencyKey: key,
       clientRequestId: clientRequestId,
+      payloadHash: "hash-test-001",
+      createdAt: now,
+      updatedAt: now,
+      state: "UNCERTAIN",
     };
 
     // Verify properties cannot be mutated or lost

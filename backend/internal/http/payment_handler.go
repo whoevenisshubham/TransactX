@@ -150,7 +150,7 @@ func (h *Handler) paymentByIdempotencyKey(writer http.ResponseWriter, request *h
 		return
 	}
 	key := strings.TrimSpace(request.PathValue("key"))
-	if key == "" || len(key) > 255 {
+	if key == "" || len(key) > 255 || strings.ContainsAny(key, "\r\n\t") {
 		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "invalid idempotency key", http.StatusBadRequest))
 		return
 	}
