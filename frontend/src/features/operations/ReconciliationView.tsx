@@ -208,11 +208,7 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
           </div>
           {selected.errorMessage && <InlineError message={selected.errorMessage} />}
           {discrepancies.length === 0 ? (
-            <p>
-              {totalDiscrepancies === 0
-                ? "No discrepancies detected for this run."
-                : "No discrepancy evidence on this page."}
-            </p>
+            <p>No discrepancy evidence in this page.</p>
           ) : (
             <>
               {totalDiscrepancies !== null && (
