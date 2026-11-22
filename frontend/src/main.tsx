@@ -66,7 +66,7 @@ function App() {
       api.me(token).then((profile) => {
         if (!active || current !== generation) return;
         const path = window.location.pathname;
-        const allowedPath = profile.role === "CUSTOMER" ? path === "/" || /^\/(pay|transactions)(\/|$)/.test(path) : profile.role === "MERCHANT" ? /^\/merchant(\/|$)/.test(path) : /^\/console(\/|$)/.test(path);
+        const allowedPath = path === "/design-system" || (profile.role === "CUSTOMER" ? path === "/" || /^\/(pay|transactions)(\/|$)/.test(path) : profile.role === "MERCHANT" ? /^\/merchant(\/|$)/.test(path) : /^\/console(\/|$)/.test(path));
         if (!allowedPath) window.history.replaceState({}, "", profile.role === "CUSTOMER" ? "/" : profile.role === "MERCHANT" ? "/merchant" : "/console/worklist");
         sessionStorage.setItem("transactx.profile", JSON.stringify({ token, profile: { id: profile.id, role: profile.role } }));
         setUser(profile);

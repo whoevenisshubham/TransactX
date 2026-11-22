@@ -50,12 +50,36 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       icon: "h-10 w-10 p-0",
     };
 
+    const isDisabled = disabled || loading;
+    const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (isDisabled) {
+        e.preventDefault();
+        return;
+      }
+      props.onClick?.(e);
+    };
+
+    if (asChild) {
+      return (
+        <Comp
+          ref={ref}
+          aria-disabled={isDisabled}
+          className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className} ${isDisabled ? "pointer-events-none opacity-50" : ""}`}
+          {...props}
+          onClick={handleClick}
+        >
+          {children}
+        </Comp>
+      );
+    }
+
     return (
       <Comp
         ref={ref}
-        disabled={disabled || loading}
+        disabled={isDisabled}
         className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
         {...props}
+        onClick={handleClick}
       >
         {loading ? (
           <>

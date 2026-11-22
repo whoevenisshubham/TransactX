@@ -11,13 +11,27 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
     { value: "system", label: "System sync", icon: <Monitor className="w-3.5 h-3.5" /> },
   ];
 
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let nextIndex = index;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      nextIndex = (index + 1) % options.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      nextIndex = (index - 1 + options.length) % options.length;
+    }
+    if (nextIndex !== index) {
+      setTheme(options[nextIndex].value);
+    }
+  };
+
   return (
     <div
       role="radiogroup"
       aria-label="Theme selection"
       className={`inline-flex items-center p-0.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)] ${className}`}
     >
-      {options.map((opt) => {
+      {options.map((opt, idx) => {
         const isSelected = theme === opt.value;
         return (
           <button
@@ -26,7 +40,9 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
             aria-checked={isSelected}
             aria-label={opt.label}
             title={opt.label}
+            tabIndex={isSelected ? 0 : -1}
             type="button"
+            onKeyDown={(e) => handleKeyDown(e, idx)}
             onClick={() => setTheme(opt.value)}
             className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-medium rounded-md transition-all cursor-pointer ${
               isSelected

@@ -36,6 +36,7 @@ export function SendMoneyPage({
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [clientRequestId, setClientRequestId] = useState<string | null>(null);
   const submitLock = useRef(false);
+  const lookupGeneration = useRef(0);
 
   const amountPaise = parsePaise(amount);
   const availableBalance = account?.balancePaise ?? 0;
@@ -46,6 +47,7 @@ export function SendMoneyPage({
     event?.preventDefault();
     const query = (identifierToLookup ?? recipientInput).trim();
     if (!query) return;
+    const currentGen = ++lookupGeneration.current;
     setLookupBusy(true);
     setError("");
     setRecipient(null);
@@ -53,14 +55,18 @@ export function SendMoneyPage({
     setClientRequestId(null);
     try {
       const resolved = await api.resolveRecipient(query, token);
+      if (currentGen !== lookupGeneration.current) return;
       setRecipient(resolved);
       if (identifierToLookup) {
         setRecipientInput(identifierToLookup);
       }
     } catch (caught) {
+      if (currentGen !== lookupGeneration.current) return;
       setError(caught instanceof Error ? caught.message : "Payment ID not found");
     } finally {
-      setLookupBusy(false);
+      if (currentGen === lookupGeneration.current) {
+        setLookupBusy(false);
+      }
     }
   }
 
@@ -72,6 +78,7 @@ export function SendMoneyPage({
     }
     setError("");
     setIdempotencyKey(null);
+    setClientRequestId(null);
   }
 
   function continueToConfirm(event: FormEvent) {
@@ -93,9 +100,9 @@ export function SendMoneyPage({
       return;
     }
     setError("");
-    // Generate idempotency key for this payment intent
-    setIdempotencyKey(crypto.randomUUID());
-    setClientRequestId(crypto.randomUUID());
+    // Preserve existing idempotency key and client request ID if already active/unresolved; otherwise generate fresh
+    setIdempotencyKey((prev) => prev ?? crypto.randomUUID());
+    setClientRequestId((prev) => prev ?? crypto.randomUUID());
     setStage("confirm");
   }
 
@@ -221,6 +228,7 @@ export function SendMoneyPage({
                         setRecipient(null);
                         setError("");
                         setIdempotencyKey(null);
+                        setClientRequestId(null);
                       }}
                       onBlur={() => {
                         if (recipientInput && !recipient) void resolve();
@@ -299,6 +307,7 @@ export function SendMoneyPage({
                         setAmount(event.target.value);
                         setError("");
                         setIdempotencyKey(null);
+                        setClientRequestId(null);
                       }}
                       inputMode="decimal"
                       placeholder="0.00"

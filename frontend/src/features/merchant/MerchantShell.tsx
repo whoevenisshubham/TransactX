@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../api";
 import { Avatar, BrandMark, Button, InlineError } from "../../components";
 import { ThemeSelect } from "../../theme";
@@ -25,6 +25,7 @@ export function MerchantShell({ token, user, onLogout }: MerchantShellProps) {
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator !== "undefined" ? navigator.onLine : true
   );
+  const refreshGeneration = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -77,7 +78,17 @@ export function MerchantShell({ token, user, onLogout }: MerchantShellProps) {
 
   function refreshPayments() {
     if (!navigator.onLine) return;
-    api.payments(token).then(setPayments).catch(() => undefined);
+    const currentGen = ++refreshGeneration.current;
+    api.payments(token)
+      .then((p) => {
+        if (currentGen === refreshGeneration.current) setPayments(p);
+      })
+      .catch(() => undefined);
+    api.accounts(token)
+      .then((acc) => {
+        if (currentGen === refreshGeneration.current) setAccounts(acc);
+      })
+      .catch(() => undefined);
   }
 
   if (loading) return <LoadingShell />;

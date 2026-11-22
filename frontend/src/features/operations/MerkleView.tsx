@@ -56,6 +56,7 @@ export function MerkleView({ token }: { token: string }) {
       );
       if (requestGeneration === treeGeneration.current) {
         setChildrenMap((prev) => ({ ...prev, [key]: res }));
+        setError("");
       }
     } catch (err) {
       if (requestGeneration === treeGeneration.current) {

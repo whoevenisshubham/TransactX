@@ -25,14 +25,23 @@ export function ReceiptDrawer({
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let active = true;
     setLoading(true);
+    setError("");
     api
       .payment(paymentID, token)
-      .then(setPayment)
-      .catch((caught) =>
-        setError(caught instanceof Error ? caught.message : "Transaction not found")
-      )
-      .finally(() => setLoading(false));
+      .then((p) => {
+        if (active) setPayment(p);
+      })
+      .catch((caught) => {
+        if (active) setError(caught instanceof Error ? caught.message : "Transaction not found");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [paymentID, token]);
 
   if (loading) return <DetailsSkeleton />;

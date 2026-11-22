@@ -6,6 +6,10 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
   const [runs, setRuns] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [discrepancies, setDiscrepancies] = useState<any[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [limit] = useState(50);
+  const [totalDiscrepancies, setTotalDiscrepancies] = useState<number | null>(null);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [participantId, setParticipantId] = useState("");
   const [scopeFrom, setScopeFrom] = useState("");
   const [scopeTo, setScopeTo] = useState("");
@@ -28,14 +32,15 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
 
   const discrepancyGeneration = useRef(0);
 
-  async function choose(run: any) {
+  async function loadDiscrepancies(runId: string, pageOffset: number) {
     const current = ++discrepancyGeneration.current;
-    setSelected(run);
-    setDiscrepancies([]);
+    setOffset(pageOffset);
     try {
-      const page = await api.opsReconciliationDiscrepancies(run.id, token);
+      const page = await api.opsReconciliationDiscrepancies(runId, token, limit, pageOffset);
       if (current === discrepancyGeneration.current) {
         setDiscrepancies(page.items ?? []);
+        setTotalDiscrepancies(typeof page.total === "number" ? page.total : (page.items ? page.items.length : 0));
+        setNextOffset(page.nextOffset ?? null);
         setError("");
       }
     } catch (err) {
@@ -43,6 +48,14 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
         setError(err instanceof Error ? err.message : "Could not load discrepancy evidence.");
       }
     }
+  }
+
+  async function choose(run: any) {
+    setSelected(run);
+    setDiscrepancies([]);
+    setTotalDiscrepancies(null);
+    setNextOffset(null);
+    await loadDiscrepancies(run.id, 0);
   }
 
   async function execute(event: React.FormEvent) {
@@ -194,13 +207,47 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
             </div>
           </div>
           {selected.errorMessage && <InlineError message={selected.errorMessage} />}
-          {discrepancies.length === 0 && <p>No discrepancy evidence in this page.</p>}
-          {discrepancies.map((item, index) => (
-            <div className="console-spec-item" key={item.id ?? index}>
-              <span>{item.mismatchCategory} · {item.bucketKey}</span>
-              <span>{item.evidence?.operation_id ?? "bucket-level"}</span>
-            </div>
-          ))}
+          {discrepancies.length === 0 ? (
+            <p>
+              {totalDiscrepancies === 0
+                ? "No discrepancies detected for this run."
+                : "No discrepancy evidence on this page."}
+            </p>
+          ) : (
+            <>
+              {totalDiscrepancies !== null && (
+                <p className="text-sm text-muted-foreground mb-2">
+                  Showing {offset + 1}–{offset + discrepancies.length} of {totalDiscrepancies} discrepancies
+                </p>
+              )}
+              {discrepancies.map((item, index) => (
+                <div className="console-spec-item" key={item.id ?? index}>
+                  <span>{item.mismatchCategory} · {item.bucketKey}</span>
+                  <span>{item.evidence?.operation_id ?? "bucket-level"}</span>
+                </div>
+              ))}
+              <div className="flex gap-2 mt-4 items-center">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={offset === 0}
+                  onClick={() => selected && void loadDiscrepancies(selected.id, Math.max(0, offset - limit))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={nextOffset === null}
+                  onClick={() => selected && nextOffset !== null && void loadDiscrepancies(selected.id, nextOffset)}
+                >
+                  Next
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </>

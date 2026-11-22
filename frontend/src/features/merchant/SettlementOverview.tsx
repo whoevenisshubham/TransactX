@@ -34,7 +34,7 @@ export function SettlementOverview({ payments, onRefresh }: SettlementOverviewPr
         title="Settlement status"
         description="Outcomes in the latest 50 loaded records. These are payment states, not a separate payout schedule."
         action={
-          <Button variant="secondary" onClick={onRefresh}>
+          <Button variant="secondary" onClick={onRefresh} disabled={typeof navigator !== "undefined" && !navigator.onLine}>
             <Icon name="activity" size={16} />
             Refresh
           </Button>

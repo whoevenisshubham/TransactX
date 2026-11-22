@@ -15,35 +15,49 @@ export function RoutingView({ token, liveRevision }: { token: string; liveRevisi
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState("");
   const eventGeneration = useRef(0);
+  const circuitGeneration = useRef(0);
+  const distributionGeneration = useRef(0);
   const eventTarget = useRef("");
   const [error, setError] = useState("");
 
   function loadDistribution() {
+    const generation = ++distributionGeneration.current;
     api.opsRoutingDistribution(token)
       .then((data) => {
-        setDistribution(data.items);
-        setDistributionError("");
+        if (generation === distributionGeneration.current) {
+          setDistribution(data.items);
+          setDistributionError("");
+        }
       })
       .catch((err) => {
-        setDistributionError(err instanceof Error ? err.message : "Could not load route selections.");
+        if (generation === distributionGeneration.current) {
+          setDistributionError(err instanceof Error ? err.message : "Could not load route selections.");
+        }
       });
   }
 
   function loadCircuits() {
+    const generation = ++circuitGeneration.current;
     setLoading(true);
     setError("");
     api.opsCircuits(token)
       .then((map) => {
-        setCircuits(map);
-        const keys = Object.keys(map);
-        if (keys.length > 0 && !keys.includes(selectedTarget)) {
-          setSelectedTarget(keys[0]);
+        if (generation === circuitGeneration.current) {
+          setCircuits(map);
+          const keys = Object.keys(map);
+          if (keys.length > 0 && !keys.includes(selectedTarget)) {
+            setSelectedTarget(keys[0]);
+          }
         }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load circuit states.");
+        if (generation === circuitGeneration.current) {
+          setError(err instanceof Error ? err.message : "Failed to load circuit states.");
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (generation === circuitGeneration.current) setLoading(false);
+      });
   }
 
   function loadEvents(target: string) {

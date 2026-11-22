@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../api";
 import { Button, InlineError, PageHeader } from "../../components";
 import type {
@@ -25,12 +25,20 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<IntegrityVerifyProofResult | null>(null);
   const [verifyError, setVerifyError] = useState("");
+  const selectedRunIdRef = useRef<string | null>(null);
+  const proofParamsRef = useRef<{ participantId: string; scopeFrom: string; scopeTo: string } | null>(null);
 
   async function loadIntegrity() {
     try {
       const status = await api.opsIntegrityStatus(token);
       setIntegrityRuns(status.runs ?? []);
-      if (status.runs?.[0]) setIntegrityDetail(await api.opsIntegrityRun(status.runs[0].runId, token));
+      const targetRunId = selectedRunIdRef.current && status.runs?.some((r) => r.runId === selectedRunIdRef.current)
+        ? selectedRunIdRef.current
+        : status.runs?.[0]?.runId;
+      if (targetRunId) {
+        selectedRunIdRef.current = targetRunId;
+        setIntegrityDetail(await api.opsIntegrityRun(targetRunId, token));
+      }
       setIntegrityError("");
     } catch (err) {
       setIntegrityError(err instanceof Error ? err.message : "Could not load integrity state.");
@@ -44,13 +52,22 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
   async function runIntegrity() {
     setChecking(true);
     setIntegrityError("");
+    const hasPart = Boolean(participantId.trim());
+    const hasFrom = Boolean(scopeFrom);
+    const hasTo = Boolean(scopeTo);
+    if ((hasPart || hasFrom || hasTo) && !(hasPart && hasFrom && hasTo)) {
+      setIntegrityError("Participant ID, scope start, and scope end must all be provided together to verify Merkle consistency.");
+      setChecking(false);
+      return;
+    }
     try {
       const input: Record<string, unknown> = {};
-      if (participantId.trim() && scopeFrom && scopeTo) {
+      if (hasPart && hasFrom && hasTo) {
         input.participantId = participantId.trim();
         input.scope = { from: scopeFrom, to: scopeTo };
       }
       const result = await api.opsIntegrityCheck(input, token);
+      selectedRunIdRef.current = result.runId;
       setIntegrityDetail(result);
       await loadIntegrity();
     } catch (err) {
@@ -69,6 +86,7 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
     setVerifyError("");
     try {
       const res = await api.opsReconciliationGetProof(operationId, participantId, scopeFrom, scopeTo, token);
+      proofParamsRef.current = { participantId, scopeFrom, scopeTo };
       setProof(res);
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
@@ -79,12 +97,13 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
   }
 
   async function handleVerify() {
-    if (!proof) return;
+    const params = proofParamsRef.current;
+    if (!proof || !params) return;
     setVerifying(true);
     setVerifyError("");
     setVerifyResult(null);
     try {
-      const res = await api.opsReconciliationVerifyProof(participantId, scopeFrom, scopeTo, proof, token);
+      const res = await api.opsReconciliationVerifyProof(params.participantId, params.scopeFrom, params.scopeTo, proof, token);
       setVerifyResult(res);
     } catch (err) {
       if (err instanceof ApiError) setVerifyError(err.message);
@@ -117,6 +136,7 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
             key={run.runId}
             onClick={async () => {
               try {
+                selectedRunIdRef.current = run.runId;
                 setIntegrityDetail(await api.opsIntegrityRun(run.runId, token));
                 setIntegrityError("");
               } catch (err) {

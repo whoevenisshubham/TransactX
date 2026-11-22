@@ -219,7 +219,7 @@ export function ChaosView({ token, liveRevision }: { token: string; liveRevision
             className="console-input"
             value={durationMs}
             onChange={(e) => setDurationMs(Number(e.target.value))}
-            min={100}
+            min={1000}
             max={600000}
             step={1000}
             required

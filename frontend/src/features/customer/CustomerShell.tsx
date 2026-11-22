@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../api";
 import { Avatar, BrandMark, Button, Icon, InlineError } from "../../components";
 import { LoadingShell } from "../../shared/ShellStates";
@@ -24,6 +24,7 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
   const [error, setError] = useState("");
   const [view, setView] = useState<View>(readView());
   const [selectedPaymentID, setSelectedPaymentID] = useState<string | null>(readPaymentID());
+  const replayRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   useEffect(() => {
     let active = true;
@@ -86,8 +87,10 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
       if (active) {
         await refreshQueue(queue);
         api.payments(token).then(setPayments).catch(() => undefined);
+        api.accounts(token).then(setAccounts).catch(() => undefined);
       }
     };
+    replayRef.current = replay;
 
     const handleOnline = () => {
       setOnline(true);
@@ -99,9 +102,17 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
     window.addEventListener("offline", handleOffline);
     void replay();
 
+    // Periodic sweep for retryable intents whose nextAttemptAt becomes due while page remains open
+    const sweepInterval = window.setInterval(() => {
+      if (navigator.onLine) {
+        void replay();
+      }
+    }, 15000);
+
     return () => {
       active = false;
       worker.stop();
+      window.clearInterval(sweepInterval);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       void queue.close();
@@ -131,6 +142,7 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
 
   function refreshPayments() {
     api.payments(token).then(setPayments).catch(() => undefined);
+    api.accounts(token).then(setAccounts).catch(() => undefined);
   }
 
   function completedPayment(payment: Payment) {
@@ -160,6 +172,9 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
 
   function queueChanged() {
     void refreshQueue();
+    if (navigator.onLine) {
+      void replayRef.current();
+    }
   }
 
   if (loading) return <LoadingShell />;

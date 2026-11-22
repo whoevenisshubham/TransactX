@@ -123,7 +123,7 @@ export const api = {
   // OPS_ADMIN / Network Console APIs for Reconciliation and Merkle Visualization (M3-8)
   opsReconciliationRuns: (token: string, participantId?: string) => apiRequest<any>(`/api/ops/reconciliation/runs${participantId ? `?participantId=${encodeURIComponent(participantId)}` : ""}`, {}, token),
   opsReconciliationCreateRun: (input: { participantId: string; scopeFrom: string; scopeTo: string }, token: string) => apiRequest<any>("/api/ops/reconciliation/runs", { method: "POST", body: JSON.stringify(input) }, token),
-  opsReconciliationDiscrepancies: (runId: string, token: string) => apiRequest<any>(`/api/ops/reconciliation/runs/${encodeURIComponent(runId)}/discrepancies`, {}, token),
+  opsReconciliationDiscrepancies: (runId: string, token: string, limit = 50, offset = 0) => apiRequest<any>(`/api/ops/reconciliation/runs/${encodeURIComponent(runId)}/discrepancies?limit=${limit}&offset=${offset}`, {}, token),
   opsIntegrityStatus: (token: string) => apiRequest<import("./types").IntegrityStatusResponse>("/api/ops/integrity/status", {}, token),
   opsIntegrityCheck: (input: Record<string, unknown>, token: string) => apiRequest<import("./types").IntegrityRunResult>("/api/ops/integrity/check", { method: "POST", body: JSON.stringify(input) }, token),
   opsIntegrityRun: (runId: string, token: string) => apiRequest<import("./types").IntegrityRunResult>(`/api/ops/integrity/runs/${encodeURIComponent(runId)}`, {}, token),

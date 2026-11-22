@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useState } from "react";
+import React, { FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { authClient, type AuthOptions } from "../../public/authClient";
 import { beginGoogleSignIn } from "../../public/googleAuth";
@@ -354,6 +354,7 @@ function RegisterForm({ onAuthenticated }: { onAuthenticated: (token: string) =>
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const registeredRef = useRef(false);
 
   function update(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -372,11 +373,18 @@ function RegisterForm({ onAuthenticated }: { onAuthenticated: (token: string) =>
     setBusy(true);
     setError("");
     try {
-      await api.register(form);
+      if (!registeredRef.current) {
+        await api.register(form);
+        registeredRef.current = true;
+      }
       const result = await api.login(form.paymentIdentifier.trim(), form.password);
       onAuthenticated(result.token);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "We couldn't create your account.");
+      if (registeredRef.current) {
+        setError("Account created successfully. Automatic sign-in failed; please click sign in to proceed.");
+      } else {
+        setError(caught instanceof Error ? caught.message : "We couldn't create your account.");
+      }
     } finally {
       setBusy(false);
     }

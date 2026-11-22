@@ -11,8 +11,9 @@ export interface IncomingPaymentsProps {
 export function IncomingPayments({ payments, onRefresh }: IncomingPaymentsProps) {
   const [filter, setFilter] = useState("ALL");
   const received = payments.filter((p) => p.direction === "RECEIVED");
+  const activeFilter = filter !== "ALL" && !received.some((p) => p.state === filter) ? "ALL" : filter;
   const filtered = received.filter(
-    (payment) => filter === "ALL" || payment.state === filter
+    (payment) => activeFilter === "ALL" || payment.state === activeFilter
   );
 
   return (
@@ -22,7 +23,7 @@ export function IncomingPayments({ payments, onRefresh }: IncomingPaymentsProps)
         title="Payments received"
         description="Incoming payments in the latest 50 loaded account records. Refresh to fetch current observations."
         action={
-          <Button variant="secondary" onClick={onRefresh}>
+          <Button variant="secondary" onClick={onRefresh} disabled={typeof navigator !== "undefined" && !navigator.onLine}>
             <Icon name="activity" size={16} />
             Refresh
           </Button>
@@ -48,7 +49,7 @@ export function IncomingPayments({ payments, onRefresh }: IncomingPaymentsProps)
           <label className="merchant-status-filter">
             Payment status
             <select
-              value={filter}
+              value={activeFilter}
               onChange={(event) => setFilter(event.target.value)}
             >
               <option value="ALL">All outcomes</option>

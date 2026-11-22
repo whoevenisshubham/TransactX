@@ -70,6 +70,7 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
 
     try {
       const response = await authClient.demo(persona);
+      if (controller.signal.aborted) return;
       onAuthenticated(response.token);
     } catch (failure) {
       if (controller.signal.aborted) {
@@ -82,8 +83,10 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
         );
       }
     } finally {
-      setBusy(null);
-      abortControllerRef.current = null;
+      if (abortControllerRef.current === controller) {
+        setBusy(null);
+        abortControllerRef.current = null;
+      }
     }
   }
 
