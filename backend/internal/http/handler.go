@@ -326,6 +326,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("POST /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.createPayment))))
 	mux.Handle("GET /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentsList))))
 	mux.Handle("GET /api/payments/{paymentID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentDetails))))
+	mux.Handle("GET /api/payments/idempotency/{key}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentByIdempotencyKey))))
 	mux.Handle("GET /api/merchant/receive-info", auth.Authentication(jwtManager, auth.RequireRole(users.RoleMerchant)(http.HandlerFunc(handler.merchantReceiveInfo))))
 	return common.RequestIDMiddleware(cors(mux, handler.corsAllowedOrigins))
 }

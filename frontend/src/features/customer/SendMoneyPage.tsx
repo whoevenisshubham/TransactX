@@ -14,6 +14,15 @@ import { parsePaise } from "../../money";
 import type { Payment, Recipient } from "../../types";
 import type { SendMoneyPageProps } from "./types";
 
+export type UnresolvedIntent = {
+  recipient: Recipient;
+  amountPaise: number;
+  amount: string;
+  note: string;
+  idempotencyKey: string;
+  clientRequestId: string;
+};
+
 export function SendMoneyPage({
   account,
   token,
@@ -35,6 +44,9 @@ export function SendMoneyPage({
   const [payment, setPayment] = useState<Payment | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
   const [clientRequestId, setClientRequestId] = useState<string | null>(null);
+  const [unresolvedIntent, setUnresolvedIntent] = useState<UnresolvedIntent | null>(null);
+  const [statusChecking, setStatusChecking] = useState(false);
+  const [statusCheckError, setStatusCheckError] = useState("");
   const submitLock = useRef(false);
   const lookupGeneration = useRef(0);
 
@@ -83,6 +95,10 @@ export function SendMoneyPage({
 
   function continueToConfirm(event: FormEvent) {
     event.preventDefault();
+    if (unresolvedIntent) {
+      setStage("uncertain");
+      return;
+    }
     if (!recipient) {
       void resolve();
       return;
@@ -106,16 +122,20 @@ export function SendMoneyPage({
     setStage("confirm");
   }
 
-  async function submitPayment() {
-    if (!recipient || amountPaise === null || submitLock.current) return;
+  async function submitPayment(overrideIntent?: UnresolvedIntent) {
+    const targetRecipient = overrideIntent?.recipient ?? recipient;
+    const targetAmountPaise = overrideIntent?.amountPaise ?? amountPaise;
+    const targetNote = overrideIntent?.note ?? note;
+    const key = overrideIntent?.idempotencyKey ?? idempotencyKey ?? crypto.randomUUID();
+    const requestID = overrideIntent?.clientRequestId ?? clientRequestId ?? crypto.randomUUID();
+
+    if (!targetRecipient || targetAmountPaise === null || submitLock.current) return;
     submitLock.current = true;
-    const key = idempotencyKey ?? crypto.randomUUID();
-    const requestID = clientRequestId ?? crypto.randomUUID();
     const payload = {
-      recipient: recipient.paymentIdentifier,
-      amountPaise,
+      recipient: targetRecipient.paymentIdentifier,
+      amountPaise: targetAmountPaise,
       currency: "INR",
-      note: note.trim() || undefined,
+      note: targetNote.trim() || undefined,
     };
     setIdempotencyKey(key);
     setClientRequestId(requestID);
@@ -125,6 +145,7 @@ export function SendMoneyPage({
 
     try {
       const result = await api.createPayment(payload, token, key, requestID);
+      setUnresolvedIntent(null);
       setPayment(result);
       setStage("result");
     } catch (caught) {
@@ -133,6 +154,7 @@ export function SendMoneyPage({
         try {
           await queue.enqueue(payload, { clientRequestId: requestID, idempotencyKey: key });
           onQueueChanged();
+          setUnresolvedIntent(null);
           setStage("queued");
         } catch {
           setError("We couldn't save this payment on your device. Please try again.");
@@ -140,9 +162,21 @@ export function SendMoneyPage({
         }
       } else if (caught instanceof ApiError && caught.status >= 500) {
         // Server error or timeout: outcome is uncertain, never assume failure!
+        const intentToFreeze: UnresolvedIntent = overrideIntent
+          ? overrideIntent
+          : {
+              recipient: targetRecipient,
+              amountPaise: targetAmountPaise,
+              amount,
+              note: targetNote,
+              idempotencyKey: key,
+              clientRequestId: requestID,
+            };
+        setUnresolvedIntent(intentToFreeze);
         setStage("uncertain");
       } else {
         setError(paymentError(caught));
+        setUnresolvedIntent(null);
         setIdempotencyKey(null);
         setClientRequestId(null);
         setStage("form");
@@ -151,6 +185,46 @@ export function SendMoneyPage({
       submitLock.current = false;
       setBusy(false);
     }
+  }
+
+  async function checkUncertainStatus() {
+    const activeKey = unresolvedIntent?.idempotencyKey ?? idempotencyKey;
+    if (!activeKey) return;
+    setStatusChecking(true);
+    setStatusCheckError("");
+    try {
+      const existing = await api.paymentByIdempotencyKey(activeKey, token);
+      setUnresolvedIntent(null);
+      setPayment(existing);
+      setStage("result");
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 404) {
+        setStatusCheckError(
+          "Payment not yet found on the ledger. You can retry safely with the same key, or check again in a few moments."
+        );
+      } else {
+        setStatusCheckError(
+          caught instanceof Error ? caught.message : "Unable to verify payment status."
+        );
+      }
+    } finally {
+      setStatusChecking(false);
+    }
+  }
+
+  function retryUncertain() {
+    if (unresolvedIntent) {
+      void submitPayment(unresolvedIntent);
+    } else {
+      void submitPayment();
+    }
+  }
+
+  function discardUnresolvedIntent() {
+    setUnresolvedIntent(null);
+    setIdempotencyKey(null);
+    setClientRequestId(null);
+    setError("");
   }
 
   function editPayment() {
@@ -172,8 +246,10 @@ export function SendMoneyPage({
     );
   }
 
-  if (stage === "processing" && recipient && amountPaise !== null) {
-    return <ProcessingPayment recipient={recipient} amount={amountPaise} />;
+  if (stage === "processing" && (recipient || unresolvedIntent) && (amountPaise !== null || unresolvedIntent)) {
+    const displayRecipient = unresolvedIntent?.recipient ?? recipient!;
+    const displayAmount = unresolvedIntent?.amountPaise ?? amountPaise!;
+    return <ProcessingPayment recipient={displayRecipient} amount={displayAmount} />;
   }
 
   if (stage === "queued" && recipient && amountPaise !== null) {
@@ -187,7 +263,17 @@ export function SendMoneyPage({
   }
 
   if (stage === "uncertain") {
-    return <UncertainPayment onRetry={submitPayment} onEdit={editPayment} />;
+    return (
+      <UncertainPayment
+        intent={unresolvedIntent}
+        onRetry={retryUncertain}
+        onCheckStatus={() => void checkUncertainStatus()}
+        onViewActivity={() => onNavigate("transactions")}
+        onReturnToForm={() => setStage("form")}
+        checkingStatus={statusChecking}
+        statusError={statusCheckError}
+      />
+    );
   }
 
   if (stage === "result" && payment) {
@@ -214,6 +300,35 @@ export function SendMoneyPage({
         {/* Main 4-step progressive flow card */}
         <section className="lg:col-span-8 flex flex-col gap-6">
           <form className="pay-form" onSubmit={continueToConfirm}>
+            {unresolvedIntent && (
+              <div
+                className="p-4 rounded-lg border border-[var(--reset-gold)] bg-[var(--surface-soft)] text-xs flex flex-col gap-2"
+                role="alert"
+                data-testid="unresolved-intent-banner"
+              >
+                <div className="flex items-center gap-2 font-semibold text-[var(--reset-gold)] text-sm">
+                  <Icon name="activity" size={16} />
+                  <span>Unresolved Payment Intent Locked</span>
+                </div>
+                <p className="text-[var(--muted)]">
+                  A transfer of <Amount paise={unresolvedIntent.amountPaise} /> to{" "}
+                  <strong>{unresolvedIntent.recipient.name}</strong> (
+                  {unresolvedIntent.recipient.paymentIdentifier}) was initiated with idempotency key{" "}
+                  <code className="font-mono text-xs">{unresolvedIntent.idempotencyKey.slice(0, 8)}…</code>{" "}
+                  but the server returned an uncertain outcome. To guarantee zero duplicate debits,
+                  form editing is frozen to preserve this transaction's cryptographic identity.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button size="sm" onClick={() => setStage("uncertain")}>
+                    Return to status check
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={discardUnresolvedIntent}>
+                    Discard unresolved intent
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Step 1: Target Counterparty */}
             <div className="form-section">
               <div className="form-section-number">01</div>
@@ -223,7 +338,9 @@ export function SendMoneyPage({
                   <div className="input-with-action">
                     <input
                       value={recipientInput}
+                      disabled={lookupBusy || Boolean(unresolvedIntent)}
                       onChange={(event) => {
+                        if (unresolvedIntent) return;
                         setRecipientInput(event.target.value);
                         setRecipient(null);
                         setError("");
@@ -231,7 +348,7 @@ export function SendMoneyPage({
                         setClientRequestId(null);
                       }}
                       onBlur={() => {
-                        if (recipientInput && !recipient) void resolve();
+                        if (recipientInput && !recipient && !unresolvedIntent) void resolve();
                       }}
                       placeholder="name@transactx"
                       autoComplete="off"
@@ -241,7 +358,7 @@ export function SendMoneyPage({
                       type="button"
                       className="input-action"
                       onClick={() => void resolve()}
-                      disabled={lookupBusy || !recipientInput.trim()}
+                      disabled={lookupBusy || !recipientInput.trim() || Boolean(unresolvedIntent)}
                     >
                       {lookupBusy ? "Checking…" : "Find"}
                     </button>
@@ -272,14 +389,16 @@ export function SendMoneyPage({
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="px-2.5 py-1 text-xs rounded border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] transition-colors text-[var(--foreground)]"
+                      disabled={Boolean(unresolvedIntent)}
+                      className="px-2.5 py-1 text-xs rounded border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] transition-colors text-[var(--foreground)] disabled:opacity-50"
                       onClick={() => void resolve("store@fixture")}
                     >
                       store@fixture (Demo Store)
                     </button>
                     <button
                       type="button"
-                      className="px-2.5 py-1 text-xs rounded border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] transition-colors text-[var(--foreground)]"
+                      disabled={Boolean(unresolvedIntent)}
+                      className="px-2.5 py-1 text-xs rounded border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] transition-colors text-[var(--foreground)] disabled:opacity-50"
                       onClick={() => void resolve("bob@transactx")}
                     >
                       bob@transactx (Bob Demo)
@@ -303,7 +422,9 @@ export function SendMoneyPage({
                     <span>₹</span>
                     <input
                       value={amount}
+                      disabled={Boolean(unresolvedIntent)}
                       onChange={(event) => {
+                        if (unresolvedIntent) return;
                         setAmount(event.target.value);
                         setError("");
                         setIdempotencyKey(null);
@@ -344,7 +465,8 @@ export function SendMoneyPage({
                     <button
                       key={preset}
                       type="button"
-                      className="px-3 py-1 rounded text-xs font-medium border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] transition-colors"
+                      disabled={Boolean(unresolvedIntent)}
+                      className="px-3 py-1 rounded text-xs font-medium border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] transition-colors disabled:opacity-50"
                       onClick={() => handleQuickPreset(preset)}
                     >
                       ₹{preset}
@@ -352,7 +474,8 @@ export function SendMoneyPage({
                   ))}
                   <button
                     type="button"
-                    className="px-3 py-1 rounded text-xs font-medium border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] text-[var(--reset-teal)] transition-colors"
+                    disabled={Boolean(unresolvedIntent)}
+                    className="px-3 py-1 rounded text-xs font-medium border border-[var(--line)] bg-[var(--surface-soft)] hover:bg-[var(--line)] text-[var(--reset-teal)] transition-colors disabled:opacity-50"
                     onClick={() => handleQuickPreset("Max")}
                   >
                     Max
@@ -372,7 +495,9 @@ export function SendMoneyPage({
                   <input
                     value={note}
                     maxLength={280}
+                    disabled={Boolean(unresolvedIntent)}
                     onChange={(event) => {
+                      if (unresolvedIntent) return;
                       setNote(event.target.value);
                       setIdempotencyKey(null);
                     }}
@@ -394,7 +519,7 @@ export function SendMoneyPage({
               </Button>
               <Button
                 type="submit"
-                disabled={!recipient || amountPaise === null || isOverBalance}
+                disabled={Boolean(unresolvedIntent) || !recipient || amountPaise === null || isOverBalance}
               >
                 Review payment <Icon name="arrow" />
               </Button>
@@ -659,11 +784,21 @@ function QueuedPayment({
 }
 
 function UncertainPayment({
+  intent,
   onRetry,
-  onEdit,
+  onCheckStatus,
+  onViewActivity,
+  onReturnToForm,
+  checkingStatus,
+  statusError,
 }: {
+  intent: UnresolvedIntent | null;
   onRetry: () => void;
-  onEdit: () => void;
+  onCheckStatus: () => void;
+  onViewActivity: () => void;
+  onReturnToForm: () => void;
+  checkingStatus: boolean;
+  statusError: string;
 }) {
   return (
     <div className="focused-state centered-state">
@@ -676,11 +811,32 @@ function UncertainPayment({
         Your transfer may still be processing on the ledger. We preserved your payment request ID
         and idempotency key so you can safely check status or retry without duplicate debit.
       </p>
-      <div className="confirm-actions">
-        <Button variant="secondary" onClick={onEdit}>
-          Edit payment
+      {intent && (
+        <div className="mini-payment">
+          <Avatar name={intent.recipient.name} />
+          <span>
+            <strong>{intent.recipient.name}</strong>
+            <small>
+              <Amount paise={intent.amountPaise} /> · Key:{" "}
+              <code className="font-mono text-xs">{intent.idempotencyKey.slice(0, 8)}…</code>
+            </small>
+          </span>
+        </div>
+      )}
+      {statusError && <InlineError message={statusError} />}
+      <div className="confirm-actions flex-wrap">
+        <Button variant="secondary" onClick={onCheckStatus} disabled={checkingStatus}>
+          {checkingStatus ? "Checking status…" : "Check status"}
         </Button>
-        <Button onClick={onRetry}>Try again safely</Button>
+        <Button onClick={onRetry} disabled={checkingStatus}>
+          Try again safely
+        </Button>
+        <Button variant="secondary" onClick={onViewActivity}>
+          View activity
+        </Button>
+        <Button variant="quiet" onClick={onReturnToForm}>
+          Review intent details
+        </Button>
       </div>
     </div>
   );

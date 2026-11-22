@@ -22,6 +22,7 @@ type Repository struct {
 	db                             *pgxpool.Pool
 	adapterResolver                func(ctx context.Context, payment Payment) (bank.BankAdapter, bank.BankAdapter, bool)
 	getIdempotentFn                func(ctx context.Context, userID uuid.UUID, key, requestHash string) (Payment, bool, error)
+	getByIdempotentFn              func(ctx context.Context, userID uuid.UUID, key string) (CustomerPayment, error)
 	recoverRoutedFn                func(ctx context.Context, payment Payment, sourceAdapter, destinationAdapter bank.BankAdapter) error
 	getFn                          func(ctx context.Context, id uuid.UUID) (Payment, error)
 	getSelectedExecutionTargetIDFn func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)
@@ -40,6 +41,10 @@ func (repository *Repository) SetAdapterResolver(fn func(ctx context.Context, pa
 
 func (repository *Repository) SetSelectedExecutionTargetIDFn(fn func(ctx context.Context, paymentID uuid.UUID) (string, bool, error)) {
 	repository.getSelectedExecutionTargetIDFn = fn
+}
+
+func (repository *Repository) SetGetByIdempotentFn(fn func(ctx context.Context, userID uuid.UUID, key string) (CustomerPayment, error)) {
+	repository.getByIdempotentFn = fn
 }
 
 func (repository *Repository) SetMockHooks(
@@ -111,6 +116,27 @@ func (repository *Repository) GetIdempotent(ctx context.Context, userID uuid.UUI
 	record.PaymentID = *paymentID
 	payment, err := repository.Get(ctx, record.PaymentID)
 	return payment, true, err
+}
+
+func (repository *Repository) GetByIdempotencyKey(ctx context.Context, userID uuid.UUID, key string) (CustomerPayment, error) {
+	if repository.getByIdempotentFn != nil {
+		return repository.getByIdempotentFn(ctx, userID, key)
+	}
+	if repository.db == nil {
+		return CustomerPayment{}, ErrNotFound
+	}
+	var paymentID *uuid.UUID
+	err := repository.db.QueryRow(ctx, `
+		SELECT payment_id
+		FROM idempotency_records
+		WHERE user_id = $1 AND key = $2`, userID, key).Scan(&paymentID)
+	if errors.Is(err, pgx.ErrNoRows) || paymentID == nil {
+		return CustomerPayment{}, ErrNotFound
+	}
+	if err != nil {
+		return CustomerPayment{}, err
+	}
+	return repository.GetForUser(ctx, userID, *paymentID)
 }
 
 func (repository *Repository) CreateIdempotent(ctx context.Context, payment Payment, key, requestHash string) (Payment, bool, error) {

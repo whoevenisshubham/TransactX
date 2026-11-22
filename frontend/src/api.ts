@@ -101,6 +101,7 @@ export const api = {
   resolveRecipient: (identifier: string, token: string) => apiRequest<Recipient>(`/api/recipients/${encodeURIComponent(identifier)}`, {}, token),
   payments: (token: string) => apiRequest<Payment[]>("/api/payments?limit=50", {}, token),
   payment: (id: string, token: string) => apiRequest<Payment>(`/api/payments/${encodeURIComponent(id)}`, {}, token),
+  paymentByIdempotencyKey: (key: string, token: string) => apiRequest<Payment>(`/api/payments/idempotency/${encodeURIComponent(key)}`, {}, token),
   createPayment: (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequest<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
   createPaymentWithStatus: async (input: { recipient: string; amountPaise: number; currency: string; note?: string }, token: string, idempotencyKey: string, clientRequestId?: string) => apiRequestWithStatus<Payment>("/api/payments", { method: "POST", headers: { "Idempotency-Key": idempotencyKey, ...(clientRequestId ? { "X-Request-ID": clientRequestId } : {}) }, body: JSON.stringify(input) }, token),
   merchantReceiveInfo: (token: string) => apiRequest<MerchantReceiveInfo>("/api/merchant/receive-info", {}, token),

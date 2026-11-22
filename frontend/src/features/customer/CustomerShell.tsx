@@ -83,11 +83,13 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
     });
 
     const replay = async () => {
-      await worker.run();
-      if (active) {
+      const results = await worker.run();
+      if (active && results.length > 0) {
         await refreshQueue(queue);
-        api.payments(token).then(setPayments).catch(() => undefined);
-        api.accounts(token).then(setAccounts).catch(() => undefined);
+        if (results.some((r) => r.outcome === "SYNCED" || r.outcome === "FAILED")) {
+          api.payments(token).then(setPayments).catch(() => undefined);
+          api.accounts(token).then(setAccounts).catch(() => undefined);
+        }
       }
     };
     replayRef.current = replay;

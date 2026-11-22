@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -126,6 +127,38 @@ func (h *Handler) paymentDetails(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	result, err := h.payments.GetForUser(request.Context(), userID, paymentID)
+	if errors.Is(err, payments.ErrNotFound) {
+		writeAPIError(writer, request, common.NewAPIError("PAYMENT_NOT_FOUND", "transaction not found", http.StatusNotFound))
+		return
+	}
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "transaction details are temporarily unavailable", http.StatusInternalServerError))
+		return
+	}
+	writeData(writer, http.StatusOK, request, result)
+}
+
+func (h *Handler) paymentByIdempotencyKey(writer http.ResponseWriter, request *http.Request) {
+	identity, ok := auth.IdentityFromRequest(request)
+	if !ok {
+		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
+		return
+	}
+	userID, err := uuid.Parse(identity.UserID)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
+		return
+	}
+	key := strings.TrimSpace(request.PathValue("key"))
+	if key == "" || len(key) > 255 {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "invalid idempotency key", http.StatusBadRequest))
+		return
+	}
+	if h.payments == nil {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payments service is not configured", http.StatusInternalServerError))
+		return
+	}
+	result, err := h.payments.GetByIdempotencyKey(request.Context(), userID, key)
 	if errors.Is(err, payments.ErrNotFound) {
 		writeAPIError(writer, request, common.NewAPIError("PAYMENT_NOT_FOUND", "transaction not found", http.StatusNotFound))
 		return

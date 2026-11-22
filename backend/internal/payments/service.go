@@ -160,6 +160,13 @@ func (service *Service) GetForUser(ctx context.Context, userID, paymentID uuid.U
 	return service.payments.GetForUser(ctx, userID, paymentID)
 }
 
+func (service *Service) GetByIdempotencyKey(ctx context.Context, userID uuid.UUID, key string) (CustomerPayment, error) {
+	if service.payments == nil {
+		return CustomerPayment{}, ErrNotFound
+	}
+	return service.payments.GetByIdempotencyKey(ctx, userID, key)
+}
+
 // GetPayment retrieves a payment by its unique ID.
 func (service *Service) GetPayment(ctx context.Context, paymentID uuid.UUID) (*Payment, error) {
 	if service.payments == nil {
