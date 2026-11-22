@@ -21,6 +21,7 @@ export interface SendMoneyPageProps {
   account?: Account;
   token: string;
   onComplete: (payment: Payment) => void;
+  onPaymentCompleted?: (payment: Payment) => void;
   onQueueChanged: () => void;
   onNavigate: (view: CustomerView) => void;
   queue: import("../../offlineQueue").OfflineIntentQueue;

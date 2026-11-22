@@ -39,6 +39,7 @@ export function SendMoneyPage({
   token,
   queue,
   onComplete,
+  onPaymentCompleted,
   onQueueChanged,
   onNavigate,
   unresolvedStore,
@@ -50,8 +51,11 @@ export function SendMoneyPage({
   >("form");
   const [recipientInput, setRecipientInput] = useState("");
   const [recipient, setRecipient] = useState<Recipient | null>(null);
+  const [reviewedRecipient, setReviewedRecipient] = useState<Recipient | null>(null);
   const [amount, setAmount] = useState("");
+  const [reviewedAmountPaise, setReviewedAmountPaise] = useState<number | null>(null);
   const [note, setNote] = useState("");
+  const [reviewedNote, setReviewedNote] = useState<string>("");
   const [lookupBusy, setLookupBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -107,6 +111,7 @@ export function SendMoneyPage({
     setLookupBusy(true);
     setError("");
     setRecipient(null);
+    setReviewedRecipient(null);
     setIdempotencyKey(null);
     setClientRequestId(null);
     try {
@@ -133,12 +138,14 @@ export function SendMoneyPage({
       setAmount(rupees.toFixed(2));
     }
     setError("");
+    setReviewedAmountPaise(null);
     setIdempotencyKey(null);
     setClientRequestId(null);
   }
 
   function continueToConfirm(event: FormEvent) {
     event.preventDefault();
+    lookupGeneration.current++;
     if (unresolvedIntent) {
       setStage("uncertain");
       return;
@@ -160,6 +167,9 @@ export function SendMoneyPage({
       return;
     }
     setError("");
+    setReviewedRecipient(recipient);
+    setReviewedAmountPaise(amountPaise);
+    setReviewedNote(note);
     // Preserve existing idempotency key and client request ID if already active/unresolved; otherwise generate fresh
     setIdempotencyKey((prev) => prev ?? crypto.randomUUID());
     setClientRequestId((prev) => prev ?? crypto.randomUUID());
@@ -168,9 +178,9 @@ export function SendMoneyPage({
 
   async function submitPayment(rawOverride?: unknown) {
     const overrideIntent = isDurableIntent(rawOverride) ? rawOverride : undefined;
-    const targetRecipient = overrideIntent?.recipient ?? recipient;
-    const targetAmountPaise = overrideIntent?.amountPaise ?? amountPaise;
-    const targetNote = overrideIntent?.note ?? note;
+    const targetRecipient = overrideIntent?.recipient ?? reviewedRecipient ?? recipient;
+    const targetAmountPaise = overrideIntent?.amountPaise ?? reviewedAmountPaise ?? amountPaise;
+    const targetNote = overrideIntent?.note ?? reviewedNote ?? note;
     const key = overrideIntent?.idempotencyKey ?? idempotencyKey ?? crypto.randomUUID();
     const requestID = overrideIntent?.clientRequestId ?? clientRequestId ?? crypto.randomUUID();
 
@@ -281,6 +291,7 @@ export function SendMoneyPage({
         await unresolvedStore.resolveTerminal(requestID, "RESOLVED_COMPLETED", response.data.id);
         setUnresolvedIntent(null);
         setPayment(response.data);
+        onPaymentCompleted?.(response.data);
         setStage("result");
       } else if (outcome === "TERMINAL_FAILED") {
         await unresolvedStore.resolveTerminal(requestID, "RESOLVED_FAILED", response.data.id);
@@ -367,6 +378,7 @@ export function SendMoneyPage({
         await unresolvedStore.resolveTerminal(activeRequestId, "RESOLVED_COMPLETED", existing.id);
         setUnresolvedIntent(null);
         setPayment(existing);
+        onPaymentCompleted?.(existing);
         setStage("result");
       } else if (outcome === "TERMINAL_FAILED") {
         await unresolvedStore.resolveTerminal(activeRequestId, "RESOLVED_FAILED", existing.id);
@@ -418,15 +430,21 @@ export function SendMoneyPage({
   }
 
   function editPayment() {
+    setReviewedRecipient(null);
+    setReviewedAmountPaise(null);
+    setReviewedNote("");
     setStage("form");
   }
 
-  if (stage === "confirm" && recipient && amountPaise !== null) {
+  if (stage === "confirm" && (reviewedRecipient ?? recipient) && (reviewedAmountPaise ?? amountPaise) !== null) {
+    const targetRecipient = reviewedRecipient ?? recipient!;
+    const targetAmount = reviewedAmountPaise ?? amountPaise!;
+    const targetNote = reviewedNote || note;
     return (
       <ConfirmPayment
-        recipient={recipient}
-        amount={amountPaise}
-        note={note}
+        recipient={targetRecipient}
+        amount={targetAmount}
+        note={targetNote}
         account={account}
         idempotencyKey={idempotencyKey}
         onBack={editPayment}
@@ -473,8 +491,14 @@ export function SendMoneyPage({
         payment={payment}
         token={token}
         onPayment={setPayment}
-        onView={() => onComplete(payment)}
-        onDone={() => onNavigate("home")}
+        onView={() => {
+          onPaymentCompleted?.(payment);
+          onComplete(payment);
+        }}
+        onDone={() => {
+          onPaymentCompleted?.(payment);
+          onNavigate("home");
+        }}
       />
     );
   }
@@ -539,6 +563,7 @@ export function SendMoneyPage({
                         if (unresolvedIntent) return;
                         setRecipientInput(event.target.value);
                         setRecipient(null);
+                        setReviewedRecipient(null);
                         setError("");
                         setIdempotencyKey(null);
                         setClientRequestId(null);
@@ -622,6 +647,7 @@ export function SendMoneyPage({
                       onChange={(event) => {
                         if (unresolvedIntent) return;
                         setAmount(event.target.value);
+                        setReviewedAmountPaise(null);
                         setError("");
                         setIdempotencyKey(null);
                         setClientRequestId(null);
@@ -695,6 +721,7 @@ export function SendMoneyPage({
                     onChange={(event) => {
                       if (unresolvedIntent) return;
                       setNote(event.target.value);
+                      setReviewedNote("");
                       setIdempotencyKey(null);
                     }}
                     placeholder="What is this payment for?"

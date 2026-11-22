@@ -652,7 +652,7 @@ test.describe("M20-R.3: Unresolved Payment Lifecycle, Dispatch Reservation & Ter
     await setupStandardMocks(page1, {
       postPaymentHandler: async (route) => {
         // Hold post request in flight
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 10000));
         await route.fulfill({
           status: 201,
           headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },

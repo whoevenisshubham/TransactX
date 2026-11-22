@@ -109,9 +109,20 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
     setQueueIntents(records.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
   }
 
+  const refreshGenRef = useRef(0);
+
   useEffect(() => {
     if (!queue) return;
     let active = true;
+    let scheduleTimeoutId: number | null = null;
+
+    const clearScheduledTimer = () => {
+      if (scheduleTimeoutId !== null) {
+        window.clearTimeout(scheduleTimeoutId);
+        scheduleTimeoutId = null;
+      }
+    };
+
     const worker = new OfflineReplayWorker(queue, {
       createPayment: async (payload, idempotencyKey, clientRequestId) => {
         const response = await api.createPaymentWithStatus(
@@ -125,39 +136,90 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
       getPayment: (paymentID) => api.payment(paymentID, token),
     });
 
-    const replay = async () => {
-      const results = await worker.run();
-      if (active && results.length > 0) {
-        await refreshQueue(queue);
-        if (results.some((r) => r.outcome === "SYNCED" || r.outcome === "FAILED")) {
-          api.payments(token).then(setPayments).catch(() => undefined);
-          api.accounts(token).then(setAccounts).catch(() => undefined);
+    const scheduleNextReplay = async () => {
+      clearScheduledTimer();
+      if (!active || !navigator.onLine) return;
+
+      try {
+        const queued = await queue.listByState("QUEUED");
+        const retryable = await queue.listByState("RETRYABLE");
+
+        if (queued.length > 0) {
+          void runReplayAndSchedule();
+          return;
         }
+
+        if (retryable.length === 0) return;
+
+        const now = Date.now();
+        let earliestDueTime = Infinity;
+
+        for (const item of retryable) {
+          const nextAttempt = item.retry?.nextAttemptAt;
+          if (!nextAttempt) {
+            earliestDueTime = 0;
+            break;
+          }
+          const time = new Date(nextAttempt).getTime();
+          if (isNaN(time) || time <= now) {
+            earliestDueTime = 0;
+            break;
+          }
+          if (time < earliestDueTime) {
+            earliestDueTime = time;
+          }
+        }
+
+        if (earliestDueTime === 0) {
+          void runReplayAndSchedule();
+          return;
+        }
+
+        if (earliestDueTime < Infinity) {
+          const delay = Math.max(0, earliestDueTime - now);
+          scheduleTimeoutId = window.setTimeout(() => {
+            scheduleTimeoutId = null;
+            void runReplayAndSchedule();
+          }, delay);
+        }
+      } catch {
+        // queue closed or storage error
       }
     };
-    replayRef.current = replay;
+
+    const runReplayAndSchedule = async () => {
+      if (!active || !navigator.onLine) return;
+      const results = await worker.run();
+      if (active) {
+        if (results.length > 0) {
+          await refreshQueue(queue);
+          if (results.some((r) => r.outcome === "SYNCED" || r.outcome === "FAILED")) {
+            refreshPayments();
+          }
+        }
+        await scheduleNextReplay();
+      }
+    };
+
+    replayRef.current = runReplayAndSchedule;
 
     const handleOnline = () => {
       setOnline(true);
-      void replay();
+      void runReplayAndSchedule();
     };
-    const handleOffline = () => setOnline(false);
+    const handleOffline = () => {
+      setOnline(false);
+      clearScheduledTimer();
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
-    void replay();
-
-    // Periodic sweep for retryable intents whose nextAttemptAt becomes due while page remains open
-    const sweepInterval = window.setInterval(() => {
-      if (navigator.onLine) {
-        void replay();
-      }
-    }, 15000);
+    void runReplayAndSchedule();
 
     return () => {
       active = false;
+      clearScheduledTimer();
       worker.stop();
-      window.clearInterval(sweepInterval);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       void queue.close();
@@ -186,8 +248,21 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
   }
 
   function refreshPayments() {
-    api.payments(token).then(setPayments).catch(() => undefined);
-    api.accounts(token).then(setAccounts).catch(() => undefined);
+    const currentGen = ++refreshGenRef.current;
+    api.payments(token)
+      .then((data) => {
+        if (currentGen === refreshGenRef.current) {
+          setPayments(data);
+        }
+      })
+      .catch(() => undefined);
+    api.accounts(token)
+      .then((data) => {
+        if (currentGen === refreshGenRef.current) {
+          setAccounts(data);
+        }
+      })
+      .catch(() => undefined);
   }
 
   function completedPayment(payment: Payment) {
@@ -296,6 +371,7 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
               unresolvedIntent={activeUnresolvedIntent}
               storeStatus={storeStatus}
               onComplete={completedPayment}
+              onPaymentCompleted={refreshPayments}
               onQueueChanged={queueChanged}
               onNavigate={navigate}
             />

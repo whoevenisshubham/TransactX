@@ -26,7 +26,10 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
   const [verifyResult, setVerifyResult] = useState<IntegrityVerifyProofResult | null>(null);
   const [verifyError, setVerifyError] = useState("");
   const selectedRunIdRef = useRef<string | null>(null);
-  const proofParamsRef = useRef<{ participantId: string; scopeFrom: string; scopeTo: string } | null>(null);
+  const proofParamsRef = useRef<{ participantId: string; scopeFrom: string; scopeTo: string; operationId: string } | null>(null);
+  const proofGenRef = useRef(0);
+  const verifyGenRef = useRef(0);
+  const detailGenRef = useRef(0);
 
   async function loadIntegrity() {
     try {
@@ -37,7 +40,11 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
         : status.runs?.[0]?.runId;
       if (targetRunId) {
         selectedRunIdRef.current = targetRunId;
-        setIntegrityDetail(await api.opsIntegrityRun(targetRunId, token));
+        const currentGen = ++detailGenRef.current;
+        const detail = await api.opsIntegrityRun(targetRunId, token);
+        if (currentGen === detailGenRef.current) {
+          setIntegrityDetail(detail);
+        }
       }
       setIntegrityError("");
     } catch (err) {
@@ -79,6 +86,8 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
 
   async function fetchProof(e: React.FormEvent) {
     e.preventDefault();
+    const currentProofGen = ++proofGenRef.current;
+    verifyGenRef.current++;
     setLoading(true);
     setError("");
     setProof(null);
@@ -86,30 +95,41 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
     setVerifyError("");
     try {
       const res = await api.opsReconciliationGetProof(operationId, participantId, scopeFrom, scopeTo, token);
-      proofParamsRef.current = { participantId, scopeFrom, scopeTo };
+      if (currentProofGen !== proofGenRef.current) return;
+      proofParamsRef.current = { participantId, scopeFrom, scopeTo, operationId };
       setProof(res);
     } catch (err) {
+      if (currentProofGen !== proofGenRef.current) return;
       if (err instanceof ApiError) setError(err.message);
       else setError("Failed to fetch integrity proof");
     } finally {
-      setLoading(false);
+      if (currentProofGen === proofGenRef.current) {
+        setLoading(false);
+      }
     }
   }
 
   async function handleVerify() {
     const params = proofParamsRef.current;
     if (!proof || !params) return;
+    const currentVerifyGen = ++verifyGenRef.current;
+    const boundOpId = params.operationId;
     setVerifying(true);
     setVerifyError("");
     setVerifyResult(null);
     try {
       const res = await api.opsReconciliationVerifyProof(params.participantId, params.scopeFrom, params.scopeTo, proof, token);
+      if (currentVerifyGen !== verifyGenRef.current) return;
+      if (proofParamsRef.current?.operationId !== boundOpId) return;
       setVerifyResult(res);
     } catch (err) {
+      if (currentVerifyGen !== verifyGenRef.current) return;
       if (err instanceof ApiError) setVerifyError(err.message);
       else setVerifyError("Failed to verify proof");
     } finally {
-      setVerifying(false);
+      if (currentVerifyGen === verifyGenRef.current) {
+        setVerifying(false);
+      }
     }
   }
 
@@ -135,12 +155,18 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
             className="text-link"
             key={run.runId}
             onClick={async () => {
+              const currentGen = ++detailGenRef.current;
               try {
                 selectedRunIdRef.current = run.runId;
-                setIntegrityDetail(await api.opsIntegrityRun(run.runId, token));
-                setIntegrityError("");
+                const detail = await api.opsIntegrityRun(run.runId, token);
+                if (currentGen === detailGenRef.current) {
+                  setIntegrityDetail(detail);
+                  setIntegrityError("");
+                }
               } catch (err) {
-                setIntegrityError(err instanceof Error ? err.message : "Could not load integrity run.");
+                if (currentGen === detailGenRef.current) {
+                  setIntegrityError(err instanceof Error ? err.message : "Could not load integrity run.");
+                }
               }
             }}
             style={{ display: "block", marginTop: "0.8rem" }}

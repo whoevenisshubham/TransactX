@@ -208,7 +208,21 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
           </div>
           {selected.errorMessage && <InlineError message={selected.errorMessage} />}
           {discrepancies.length === 0 ? (
-            <p>No discrepancy evidence in this page.</p>
+            <div>
+              <p>No discrepancy evidence in this page.</p>
+              {offset > 0 && (
+                <div className="flex gap-2 mt-4 items-center">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => selected && void loadDiscrepancies(selected.id, Math.max(0, offset - limit))}
+                  >
+                    Previous
+                  </Button>
+                </div>
+              )}
+            </div>
           ) : (
             <>
               {totalDiscrepancies !== null && (
