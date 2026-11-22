@@ -498,3 +498,177 @@ func TestConcurrency_RoutedSaga_IdempotencyRecovery(t *testing.T) {
 		t.Fatalf("sender balance = %d; want 9970000 (no double debit)", balanceA)
 	}
 }
+
+type controlledInterruptAdapter struct {
+	mu           sync.Mutex
+	holdAttempts int
+	failFirst    bool
+}
+
+func (a *controlledInterruptAdapter) GetHealth(context.Context) (bank.HealthResult, error) {
+	return bank.HealthResult{Available: true}, nil
+}
+func (a *controlledInterruptAdapter) ResolveAccount(context.Context, bank.ResolveAccountRequest) (bank.AccountResult, error) {
+	return bank.AccountResult{Status: bank.AccountActive}, nil
+}
+func (a *controlledInterruptAdapter) HoldFunds(_ context.Context, request bank.HoldFundsRequest) (bank.HoldResult, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.holdAttempts++
+	if a.failFirst && a.holdAttempts == 1 {
+		return bank.HoldResult{}, &bank.AdapterError{
+			Code:    bank.ErrCodeTransientFailure,
+			Message: "controlled network drop during saga hold",
+		}
+	}
+	return bank.HoldResult{
+		OperationResult: bank.OperationResult{
+			PaymentID:   request.PaymentID,
+			OperationID: request.OperationID,
+			Status:      bank.OperationSucceeded,
+		},
+		HoldID: request.OperationID,
+	}, nil
+}
+func (a *controlledInterruptAdapter) ProvisionalCredit(_ context.Context, request bank.ProvisionalCreditRequest) (bank.OperationResult, error) {
+	return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationSucceeded}, nil
+}
+func (a *controlledInterruptAdapter) ConfirmHold(_ context.Context, request bank.ConfirmHoldRequest) (bank.OperationResult, error) {
+	return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationSucceeded}, nil
+}
+func (a *controlledInterruptAdapter) ReleaseHold(_ context.Context, request bank.ReleaseHoldRequest) (bank.OperationResult, error) {
+	return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationSucceeded}, nil
+}
+func (a *controlledInterruptAdapter) ReverseProvisionalCredit(_ context.Context, request bank.ReverseCreditRequest) (bank.OperationResult, error) {
+	return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationSucceeded}, nil
+}
+func (a *controlledInterruptAdapter) GetOperationStatus(_ context.Context, request bank.OperationStatusRequest) (bank.OperationResult, error) {
+	return bank.OperationResult{PaymentID: request.PaymentID, OperationID: request.OperationID, Status: bank.OperationSucceeded}, nil
+}
+func (a *controlledInterruptAdapter) GetLedgerSnapshot(context.Context, bank.LedgerScope) (bank.LedgerSnapshot, error) {
+	return bank.LedgerSnapshot{}, nil
+}
+
+// Case 6: Interrupted routed saga recovery using controlled bank adapter (Track H requirement).
+// Proves that when a routed saga encounters a transient adapter failure during HoldFunds,
+// leaving the payment in non-terminal StatePendingReconciliation, retrying with the same idempotency key
+// invokes Resume(), completes the saga to StateCompleted, and performs exactly 1 debit and 1 credit.
+func TestConcurrency_InterruptedRoutedSaga_ControlledBankAdapterRecovery(t *testing.T) {
+	pool, cleanup := setupM20R2DisposableDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	bankID := uuid.New()
+	userA := uuid.New()
+	userB := uuid.New()
+	sourceA := uuid.New()
+	destB := uuid.New()
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, phone, upi_id, password_hash, role) VALUES
+		($1, 'Alice Controlled', $2, 'alice.controlled@transactx', 'hash', 'CUSTOMER'),
+		($3, 'Bob Controlled', $4, 'bob.controlled@transactx', 'hash', 'CUSTOMER')`,
+		userA, userA.String()[:20], userB, userB.String()[:20])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = pool.Exec(ctx, `INSERT INTO banks (id, code, name, status) VALUES ($1, $2, 'Controlled Bank', 'ACTIVE')`,
+		bankID, "CTRL-"+bankID.String()[:15])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, status) VALUES
+		($1, $2, $3, $4, 2500000, 'ACTIVE')`,
+		sourceA, userA, bankID, "ACC-SRC-"+sourceA.String()[:10])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO accounts (id, user_id, bank_id, account_number, balance_paise, status) VALUES
+		($1, $2, $3, $4, 100000, 'ACTIVE')`,
+		destB, userB, bankID, "ACC-DST-"+destB.String()[:10])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	controlledAdapter := &controlledInterruptAdapter{failFirst: true}
+	adapters := map[uuid.UUID]bank.BankAdapter{bankID: controlledAdapter}
+
+	repo := NewRepository(pool)
+	accountsRepo := accounts.NewRepository(pool)
+	recipientsRepo := recipients.NewRepository(pool)
+	service := NewServiceWithAdapters(accountsRepo, recipientsRepo, repo, adapters)
+
+	key := "key-controlled-saga-" + uuid.NewString()
+
+	// First attempt: Hold fails transiently, leaving payment in PENDING_RECONCILIATION
+	p1, dup1, err1 := service.CreateWithResult(ctx, CreateInput{
+		UserID:          userA,
+		SourceAccountID: sourceA,
+		Recipient:       "bob.controlled@transactx",
+		AmountPaise:     50000,
+		Currency:        "INR",
+		Note:            "Controlled interrupted saga test",
+		IdempotencyKey:  key,
+	})
+	if err1 != nil {
+		t.Fatalf("unexpected error on first attempt: %v", err1)
+	}
+	if dup1 {
+		t.Fatal("expected dup1=false on first attempt")
+	}
+	if p1.State != StatePendingReconciliation {
+		t.Fatalf("state = %s; want PENDING_RECONCILIATION", p1.State)
+	}
+
+	// Second attempt: Exact same idempotency key and payload -> triggers Resume recovery
+	p2, dup2, err2 := service.CreateWithResult(ctx, CreateInput{
+		UserID:          userA,
+		SourceAccountID: sourceA,
+		Recipient:       "bob.controlled@transactx",
+		AmountPaise:     50000,
+		Currency:        "INR",
+		Note:            "Controlled interrupted saga test",
+		IdempotencyKey:  key,
+	})
+	if err2 != nil {
+		t.Fatalf("expected successful recovery on second attempt, got: %v", err2)
+	}
+	if !dup2 {
+		t.Fatalf("expected dup2=true on recovery attempt")
+	}
+	if p2.ID != p1.ID {
+		t.Fatalf("payment ID divergent: got %s, want %s", p2.ID, p1.ID)
+	}
+	if p2.State != StateCompleted {
+		t.Fatalf("recovered payment state = %s; want COMPLETED", p2.State)
+	}
+
+	// Verify financial balances: 2500000 - 50000 = 2450000, 100000 + 50000 = 150000
+	var finalBalA, finalBalB int64
+	if err := pool.QueryRow(ctx, `SELECT balance_paise FROM accounts WHERE id = $1`, sourceA).Scan(&finalBalA); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT balance_paise FROM accounts WHERE id = $1`, destB).Scan(&finalBalB); err != nil {
+		t.Fatal(err)
+	}
+	if finalBalA != 2450000 {
+		t.Fatalf("sender balance = %d; want 2450000 (exactly one debit)", finalBalA)
+	}
+	if finalBalB != 150000 {
+		t.Fatalf("destination balance = %d; want 150000 (exactly one credit)", finalBalB)
+	}
+
+	// Verify exactly 1 ledger transaction exists
+	var ledgerTxCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_transactions WHERE payment_id = $1`, p1.ID).Scan(&ledgerTxCount); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerTxCount != 1 {
+		t.Fatalf("ledger transactions count = %d; want exactly 1", ledgerTxCount)
+	}
+}

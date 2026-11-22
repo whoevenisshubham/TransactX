@@ -26,6 +26,7 @@ export interface SendMoneyPageProps {
   queue: import("../../offlineQueue").OfflineIntentQueue;
   unresolvedStore?: DurableUnresolvedStore;
   unresolvedIntent?: DurableUnresolvedIntent | null;
+  storeStatus?: "uninitialized" | "loading" | "ready" | "failed";
 }
 
 export interface TransactionActivityProps {

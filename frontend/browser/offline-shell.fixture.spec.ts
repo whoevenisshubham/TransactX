@@ -36,10 +36,10 @@ test("production shell reloads fully offline and retains the owner's saved inten
   await expect(page.getByText("receiver@fixture", { exact: true }).first()).toBeVisible();
   await page.getByLabel("Amount in Indian rupees").fill("1.00");
   await page.getByRole("button", { name: "Review payment" }).click();
+  await context.setOffline(true);
   await page.getByRole("button", { name: "Confirm payment" }).click();
   await expect(page.getByRole("heading", { name: "Payment queued for replay" })).toBeVisible();
 
-  await context.setOffline(true);
   await page.reload();
   expect(await page.evaluate(() => navigator.onLine)).toBe(false);
   await expect(page.getByRole("heading", { name: "You're offline" })).toBeVisible();

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -209,5 +210,114 @@ func TestPaymentByIdempotencyKey_CommittedPaymentAndIsolation(t *testing.T) {
 
 	if recorderB.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d (User B must not see User A's idempotency key)", recorderB.Code, http.StatusNotFound)
+	}
+}
+
+// Real HTTP Server Delayed Commit Test (Track H: Protocol-level verification)
+// Proves over real HTTP network sockets (httptest.NewServer) that querying GET /api/payments/idempotency/{key}
+// while the payment transaction is in-flight returns HTTP 404 PAYMENT_NOT_FOUND, and only returns HTTP 200 OK
+// once the payment commits.
+func TestPaymentByIdempotencyKey_DelayedCommit_RealHTTPServer(t *testing.T) {
+	now := time.Now()
+	manager, err := auth.NewJWTManager(strings.Repeat("x", 32), "test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userAID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	userAToken, err := manager.Issue(userAID.String(), "CUSTOMER", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key := "key-real-http-delayed-" + uuid.NewString()
+	paymentID := uuid.New()
+
+	var committed atomic.Bool
+	committed.Store(false)
+
+	repo := payments.NewRepository(nil)
+	repo.SetGetByIdempotentFn(func(ctx context.Context, userID uuid.UUID, k string) (payments.CustomerPayment, error) {
+		if userID == userAID && k == key {
+			if !committed.Load() {
+				// While in flight before commit, ledger does not have visibility
+				return payments.CustomerPayment{}, payments.ErrNotFound
+			}
+			return payments.CustomerPayment{
+				ID:                paymentID,
+				AmountPaise:       120000,
+				Currency:          "INR",
+				State:             payments.StateCompleted,
+				SenderName:        "Alice Tester",
+				SenderPaymentID:   "alice@transactx",
+				ReceiverName:      "Bob Merchant",
+				ReceiverPaymentID: "bob@transactx",
+			}, nil
+		}
+		return payments.CustomerPayment{}, payments.ErrNotFound
+	})
+	svc := payments.NewService(nil, nil, repo, nil)
+
+	h := &Handler{
+		logger:   slog.Default(),
+		payments: svc,
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/payments/idempotency/{key}", auth.Authentication(manager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(h.paymentByIdempotencyKey))))
+
+	// Real HTTP Server over TCP
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := server.Client()
+
+	// 1. In-flight lookup before commit -> Must return real HTTP 404
+	reqInflight, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/api/payments/idempotency/"+key, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqInflight.Header.Set("Authorization", "Bearer "+userAToken)
+	respInflight, err := client.Do(reqInflight)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer respInflight.Body.Close()
+
+	if respInflight.StatusCode != http.StatusNotFound {
+		t.Fatalf("in-flight lookup status = %d, want %d", respInflight.StatusCode, http.StatusNotFound)
+	}
+	var errEnvelope map[string]any
+	if err := json.NewDecoder(respInflight.Body).Decode(&errEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	errObj, _ := errEnvelope["error"].(map[string]any)
+	if errObj["code"] != "PAYMENT_NOT_FOUND" {
+		t.Fatalf("error code = %v, want PAYMENT_NOT_FOUND", errObj["code"])
+	}
+
+	// 2. Commit transaction
+	committed.Store(true)
+
+	// 3. Post-commit lookup -> Must return real HTTP 200 OK
+	reqCommitted, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/api/payments/idempotency/"+key, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqCommitted.Header.Set("Authorization", "Bearer "+userAToken)
+	respCommitted, err := client.Do(reqCommitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer respCommitted.Body.Close()
+
+	if respCommitted.StatusCode != http.StatusOK {
+		t.Fatalf("post-commit lookup status = %d, want %d", respCommitted.StatusCode, http.StatusOK)
+	}
+	var dataEnvelope map[string]any
+	if err := json.NewDecoder(respCommitted.Body).Decode(&dataEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := dataEnvelope["data"].(map[string]any)
+	if data["id"] != paymentID.String() || data["state"] != "COMPLETED" {
+		t.Fatalf("unexpected payment response: %v", data)
 	}
 }

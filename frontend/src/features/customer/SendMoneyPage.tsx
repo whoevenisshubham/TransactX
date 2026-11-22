@@ -12,10 +12,27 @@ import {
 } from "../../components";
 import { parsePaise } from "../../money";
 import type { Payment, Recipient } from "../../types";
-import type { DurableUnresolvedIntent, DurableUnresolvedStore } from "../../unresolvedStore";
+import {
+  ActiveReservationConflictError,
+  classifyPaymentOutcome,
+  computePayloadHash,
+  StorageUnavailableError,
+  type DurableUnresolvedIntent,
+  type DurableUnresolvedStore,
+} from "../../unresolvedStore";
 import type { SendMoneyPageProps } from "./types";
 
 export type UnresolvedIntent = DurableUnresolvedIntent;
+
+function isDurableIntent(val: unknown): val is UnresolvedIntent {
+  return (
+    val !== null &&
+    typeof val === "object" &&
+    "ownerUserId" in val &&
+    typeof (val as Record<string, unknown>).ownerUserId === "string" &&
+    "clientRequestId" in val
+  );
+}
 
 export function SendMoneyPage({
   account,
@@ -26,6 +43,7 @@ export function SendMoneyPage({
   onNavigate,
   unresolvedStore,
   unresolvedIntent: initialUnresolvedIntent,
+  storeStatus,
 }: SendMoneyPageProps) {
   const [stage, setStage] = useState<
     "form" | "confirm" | "processing" | "result" | "uncertain" | "queued"
@@ -148,7 +166,8 @@ export function SendMoneyPage({
     setStage("confirm");
   }
 
-  async function submitPayment(overrideIntent?: UnresolvedIntent) {
+  async function submitPayment(rawOverride?: unknown) {
+    const overrideIntent = isDurableIntent(rawOverride) ? rawOverride : undefined;
     const targetRecipient = overrideIntent?.recipient ?? recipient;
     const targetAmountPaise = overrideIntent?.amountPaise ?? amountPaise;
     const targetNote = overrideIntent?.note ?? note;
@@ -165,71 +184,162 @@ export function SendMoneyPage({
     };
     setIdempotencyKey(key);
     setClientRequestId(requestID);
-    setStage("processing");
-    setBusy(true);
     setError("");
 
-    try {
-      const result = await api.createPayment(payload, token, key, requestID);
-      if (unresolvedStore) {
-        await unresolvedStore.markResolved(requestID, "RESOLVED_COMPLETED", result.id);
+    // Situation 1: Known offline before dispatch -> enqueue into local replay queue
+    if (!navigator.onLine && !overrideIntent) {
+      submitLock.current = false;
+      setBusy(false);
+      try {
+        await queue.enqueue(payload, { clientRequestId: requestID, idempotencyKey: key });
+        onQueueChanged();
+        setStage("queued");
+        return;
+      } catch {
+        setError("We couldn't save this payment on your device. Please try again.");
+        setStage("form");
+        return;
       }
-      setUnresolvedIntent(null);
-      setPayment(result);
-      setStage("result");
+    }
+
+    setStage("processing");
+    setBusy(true);
+
+    const now = new Date().toISOString();
+    let payloadHash = "";
+    try {
+      payloadHash = await computePayloadHash(payload);
+    } catch {
+      payloadHash = "hash-calc-failed";
+    }
+
+    const baseIntent: DurableUnresolvedIntent = overrideIntent
+      ? {
+          ...overrideIntent,
+          updatedAt: now,
+          state: "DISPATCHING",
+        }
+      : {
+          ownerUserId:
+            unresolvedStore?.getOwnerUserId() ??
+            (account?.accountNumber ? `user-${account.accountNumber}` : "authenticated-user"),
+          clientRequestId: requestID,
+          idempotencyKey: key,
+          recipient: targetRecipient,
+          amountPaise: targetAmountPaise,
+          amount: amount || (targetAmountPaise / 100).toFixed(2),
+          currency: "INR",
+          note: targetNote,
+          payloadHash,
+          createdAt: now,
+          updatedAt: now,
+          state: "DISPATCHING",
+        };
+
+    // Pre-dispatch reservation: MUST reserve in IndexedDB before network dispatch (Fail-closed storage gate)
+    if (!unresolvedStore) {
+      submitLock.current = false;
+      setBusy(false);
+      setError("Payment dispatch blocked: Durable storage is not initialized.");
+      setStage("form");
+      return;
+    }
+
+    try {
+      await unresolvedStore.reserveActiveIntent(baseIntent);
+      setUnresolvedIntent(baseIntent);
+    } catch (reserveErr) {
+      submitLock.current = false;
+      setBusy(false);
+      if (reserveErr instanceof ActiveReservationConflictError) {
+        setError(
+          "Another payment is currently unresolved or processing for this account. Cross-tab concurrency locked."
+        );
+        setStage("uncertain");
+        return;
+      }
+      if (reserveErr instanceof StorageUnavailableError) {
+        setError(
+          "Payment dispatch blocked: Durable browser storage (IndexedDB) is unavailable or disabled. To prevent duplicate charges, payments cannot be submitted without durable persistence."
+        );
+        setStage("form");
+        return;
+      }
+      setError(
+        reserveErr instanceof Error ? reserveErr.message : "Failed to safely persist payment reservation."
+      );
+      setStage("form");
+      return;
+    }
+
+    // Now dispatch to backend via createPaymentWithStatus
+    try {
+      const response = await api.createPaymentWithStatus(payload, token, key, requestID);
+      const outcome = classifyPaymentOutcome(response.data);
+
+      if (outcome === "TERMINAL_COMPLETED") {
+        await unresolvedStore.resolveTerminal(requestID, "RESOLVED_COMPLETED", response.data.id);
+        setUnresolvedIntent(null);
+        setPayment(response.data);
+        setStage("result");
+      } else if (outcome === "TERMINAL_FAILED") {
+        await unresolvedStore.resolveTerminal(requestID, "RESOLVED_FAILED", response.data.id);
+        setUnresolvedIntent(null);
+        setError(response.data.failureReason || "Payment failed.");
+        setStage("form");
+      } else if (outcome === "TERMINAL_REVERSED") {
+        await unresolvedStore.resolveTerminal(requestID, "RESOLVED_REVERSED", response.data.id);
+        setUnresolvedIntent(null);
+        setError("Payment was reversed.");
+        setStage("form");
+      } else {
+        // NON_TERMINAL_PROCESSING or UNKNOWN_STATE: Keep active reservation locked!
+        await unresolvedStore.updateProgress(requestID, "PROCESSING", response.data.id, response.status);
+        setUnresolvedIntent({
+          ...baseIntent,
+          state: "PROCESSING",
+          paymentId: response.data.id,
+          lastHttpStatus: response.status,
+        });
+        setStage("uncertain");
+      }
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 0) {
-        // Network failure / unreachable: safely save intent on device
-        try {
-          await queue.enqueue(payload, { clientRequestId: requestID, idempotencyKey: key });
-          onQueueChanged();
-          if (unresolvedStore && overrideIntent) {
-            await unresolvedStore.markResolved(requestID, "RESOLVED_COMPLETED");
-          }
-          setUnresolvedIntent(null);
-          setStage("queued");
-        } catch {
-          setError("We couldn't save this payment on your device. Please try again.");
-          setStage("form");
-        }
+        // Situation 2: Post-dispatch network failure / drop
+        // Request may have reached the server! Keep active reservation, set state UNCERTAIN!
+        // DO NOT enqueue into OfflineIntentQueue!
+        await unresolvedStore.updateProgress(requestID, "UNCERTAIN", undefined, 0, caught.message);
+        setUnresolvedIntent({
+          ...baseIntent,
+          state: "UNCERTAIN",
+          lastHttpStatus: 0,
+          lastError: caught.message,
+        });
+        setStage("uncertain");
       } else if (caught instanceof ApiError && caught.status >= 500) {
-        // Server error or timeout: outcome is uncertain, never assume failure!
-        const now = new Date().toISOString();
-        const baseIntent: DurableUnresolvedIntent = overrideIntent
-          ? {
-              ...overrideIntent,
-              updatedAt: now,
-              lastHttpStatus: caught.status,
-              lastError: caught.message,
-            }
-          : {
-              ownerUserId:
-                (unresolvedStore as unknown as { ownerUserId?: string })?.ownerUserId ??
-                "authenticated-user",
-              clientRequestId: requestID,
-              idempotencyKey: key,
-              recipient: targetRecipient,
-              amountPaise: targetAmountPaise,
-              amount: amount || (targetAmountPaise / 100).toFixed(2),
-              currency: "INR",
-              note: targetNote,
-              payloadHash: "",
-              createdAt: now,
-              updatedAt: now,
-              state: "UNCERTAIN",
-              lastHttpStatus: caught.status,
-              lastError: caught.message,
-            };
-        if (unresolvedStore) {
-          const saved = await unresolvedStore.save(baseIntent);
-          setUnresolvedIntent(saved);
-        } else {
-          setUnresolvedIntent(baseIntent);
-        }
+        // Server error or timeout: outcome uncertain!
+        await unresolvedStore.updateProgress(
+          requestID,
+          "UNCERTAIN",
+          undefined,
+          caught.status,
+          caught.message
+        );
+        setUnresolvedIntent({
+          ...baseIntent,
+          state: "UNCERTAIN",
+          lastHttpStatus: caught.status,
+          lastError: caught.message,
+        });
+        setStage("uncertain");
+      } else if (caught instanceof ApiError && caught.status === 409) {
+        // Conflict on idempotency key with mismatched payload
+        setError("Payment conflict: Idempotency key already used with different payment parameters.");
         setStage("uncertain");
       } else {
-        if (overrideIntent && unresolvedStore) {
-          await unresolvedStore.markResolved(requestID, "RESOLVED_FAILED");
+        // Definitive client rejection (400, 422)
+        if (unresolvedStore) {
+          await unresolvedStore.resolveTerminal(requestID, "RESOLVED_FAILED");
         }
         setError(paymentError(caught));
         setUnresolvedIntent(null);
@@ -246,44 +356,53 @@ export function SendMoneyPage({
   async function checkUncertainStatus() {
     const activeKey = unresolvedIntent?.idempotencyKey ?? idempotencyKey;
     const activeRequestId = unresolvedIntent?.clientRequestId ?? clientRequestId;
-    if (!activeKey) return;
+    if (!activeKey || !activeRequestId || !unresolvedStore) return;
     setStatusChecking(true);
     setStatusCheckError("");
     try {
       const existing = await api.paymentByIdempotencyKey(activeKey, token);
-      if (activeRequestId && unresolvedStore) {
-        await unresolvedStore.markResolved(activeRequestId, "RESOLVED_COMPLETED", existing.id);
+      const outcome = classifyPaymentOutcome(existing);
+
+      if (outcome === "TERMINAL_COMPLETED") {
+        await unresolvedStore.resolveTerminal(activeRequestId, "RESOLVED_COMPLETED", existing.id);
+        setUnresolvedIntent(null);
+        setPayment(existing);
+        setStage("result");
+      } else if (outcome === "TERMINAL_FAILED") {
+        await unresolvedStore.resolveTerminal(activeRequestId, "RESOLVED_FAILED", existing.id);
+        setUnresolvedIntent(null);
+        setError(existing.failureReason || "Payment failed.");
+        setStage("form");
+      } else if (outcome === "TERMINAL_REVERSED") {
+        await unresolvedStore.resolveTerminal(activeRequestId, "RESOLVED_REVERSED", existing.id);
+        setUnresolvedIntent(null);
+        setError("Payment was reversed.");
+        setStage("form");
+      } else {
+        // Non-terminal state (e.g. PROCESSING, PENDING_RECONCILIATION, COMMITTED, etc.)
+        await unresolvedStore.updateProgress(activeRequestId, "PROCESSING", existing.id, 200);
+        setStatusCheckError(
+          `Payment is currently in intermediate state "${existing.state}". Settlement is ongoing; transaction remains safely locked.`
+        );
       }
-      setUnresolvedIntent(null);
-      setPayment(existing);
-      setStage("result");
     } catch (caught) {
       const now = new Date().toISOString();
       if (caught instanceof ApiError && caught.status === 404) {
         setStatusCheckError(
           "Payment not yet found on the ledger. It may still be processing in flight. Your transaction identity is preserved and safe to retry."
         );
-        if (unresolvedIntent && unresolvedStore) {
-          await unresolvedStore.save({
-            ...unresolvedIntent,
-            updatedAt: now,
-            lastStatusCheckAt: now,
-            lastHttpStatus: 404,
-          });
-        }
+        await unresolvedStore.updateProgress(activeRequestId, "UNCERTAIN", undefined, 404);
       } else {
         const errorMsg =
           caught instanceof Error ? caught.message : "Unable to verify payment status.";
         setStatusCheckError(errorMsg);
-        if (unresolvedIntent && unresolvedStore) {
-          await unresolvedStore.save({
-            ...unresolvedIntent,
-            updatedAt: now,
-            lastStatusCheckAt: now,
-            lastHttpStatus: caught instanceof ApiError ? caught.status : undefined,
-            lastError: errorMsg,
-          });
-        }
+        await unresolvedStore.updateProgress(
+          activeRequestId,
+          "UNCERTAIN",
+          undefined,
+          caught instanceof ApiError ? caught.status : undefined,
+          errorMsg
+        );
       }
     } finally {
       setStatusChecking(false);
@@ -311,7 +430,7 @@ export function SendMoneyPage({
         account={account}
         idempotencyKey={idempotencyKey}
         onBack={editPayment}
-        onConfirm={submitPayment}
+        onConfirm={() => void submitPayment()}
         busy={busy}
       />
     );
@@ -596,9 +715,9 @@ export function SendMoneyPage({
               </Button>
               <Button
                 type="submit"
-                disabled={Boolean(unresolvedIntent) || !recipient || amountPaise === null || isOverBalance}
+                disabled={Boolean(unresolvedIntent) || !recipient || amountPaise === null || isOverBalance || storeStatus === "loading"}
               >
-                Review payment <Icon name="arrow" />
+                {storeStatus === "loading" ? "Initializing storage…" : "Review payment"} <Icon name="arrow" />
               </Button>
             </div>
           </form>

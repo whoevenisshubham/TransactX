@@ -26,6 +26,7 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
   const [view, setView] = useState<View>(readView());
   const [selectedPaymentID, setSelectedPaymentID] = useState<string | null>(readPaymentID());
   const [unresolvedStore, setUnresolvedStore] = useState<DurableUnresolvedStore | null>(null);
+  const [storeStatus, setStoreStatus] = useState<"uninitialized" | "loading" | "ready" | "failed">("uninitialized");
   const [activeUnresolvedIntent, setActiveUnresolvedIntent] = useState<DurableUnresolvedIntent | null>(null);
   const replayRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
@@ -33,8 +34,10 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
     if (!user) {
       setUnresolvedStore(null);
       setActiveUnresolvedIntent(null);
+      setStoreStatus("uninitialized");
       return;
     }
+    setStoreStatus("loading");
     const store = new DurableUnresolvedStore(user.id);
     setUnresolvedStore(store);
 
@@ -42,9 +45,14 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
     const loadActiveIntent = async () => {
       try {
         const intent = await store.getActive();
-        if (active) setActiveUnresolvedIntent(intent);
+        if (active) {
+          setActiveUnresolvedIntent(intent);
+          setStoreStatus("ready");
+        }
       } catch {
-        // ignore load errors
+        if (active) {
+          setStoreStatus("failed");
+        }
       }
     };
 
@@ -286,6 +294,7 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
               queue={queue}
               unresolvedStore={unresolvedStore ?? undefined}
               unresolvedIntent={activeUnresolvedIntent}
+              storeStatus={storeStatus}
               onComplete={completedPayment}
               onQueueChanged={queueChanged}
               onNavigate={navigate}
