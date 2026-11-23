@@ -1,0 +1,67 @@
+{
+	admin off
+}
+
+:3000 {
+	# Security headers
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	encode zstd gzip
+
+	# Route /api/* to Go backend with unbuffered SSE
+	handle /api/* {
+		header {
+			Cache-Control "no-store, no-cache, must-revalidate"
+		}
+		reverse_proxy 127.0.0.1:8080 {
+			flush_interval -1
+		}
+	}
+
+	# Route /health*, /readyz to Go backend
+	handle /health* {
+		header {
+			Cache-Control "no-cache"
+		}
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	handle /readyz {
+		header {
+			Cache-Control "no-cache"
+		}
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# Static assets cache rules (hashed immutable files)
+	handle /assets/* {
+		root * frontend/dist
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Service worker & offline manifest revalidation rules
+	handle /sw.js {
+		root * frontend/dist
+		header Cache-Control "no-cache, no-store, must-revalidate"
+		file_server
+	}
+
+	handle /offline-assets.json {
+		root * frontend/dist
+		header Cache-Control "no-cache, no-store, must-revalidate"
+		file_server
+	}
+
+	# Root and SPA fallback (for non-API paths)
+	handle {
+		root * frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -97,3 +97,35 @@ func TestHealthSnapshotRejectsMalformedTarget(t *testing.T) {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
 	}
 }
+
+func TestHealthzLivenessEndpoint(t *testing.T) {
+	manager, err := auth.NewJWTManager(strings.Repeat("h", 32), "health-test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(nil, nil, nil, manager)
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"liveness":true`) {
+		t.Fatalf("unexpected body: %s", body)
+	}
+}
+
+func TestReadyzReadinessEndpointWithoutDB(t *testing.T) {
+	manager, err := auth.NewJWTManager(strings.Repeat("h", 32), "health-test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(nil, nil, nil, manager)
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+}

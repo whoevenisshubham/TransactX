@@ -18,6 +18,21 @@ func Handler(service *Service) http.Handler {
 		result, err := service.GetHealth(request.Context())
 		writeResult(writer, result, err)
 	})
+	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`{"status":"ok","liveness":true}`))
+	})
+	mux.HandleFunc("GET /readyz", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.GetHealth(request.Context())
+		if err != nil || !result.Available {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = writer.Write([]byte(`{"status":"unavailable","readiness":false}`))
+			return
+		}
+		writeResult(writer, result, nil)
+	})
 	mux.HandleFunc("POST /v1/accounts/resolve", func(writer http.ResponseWriter, request *http.Request) {
 		var input bank.ResolveAccountRequest
 		if !decode(writer, request, &input) {

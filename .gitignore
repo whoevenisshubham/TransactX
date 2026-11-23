@@ -14,4 +14,7 @@ frontend/dist/
 deploy/out/
 frontend/test-results/
 frontend/playwright-report/
+bin/
+logs/
+backups/
 artifacts/
