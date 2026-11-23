@@ -38,6 +38,14 @@ example.com {
 		reverse_proxy 127.0.0.1:8080
 	}
 
+	# Route /readyz to Go backend
+	handle /readyz {
+		header {
+			Cache-Control "no-cache"
+		}
+		reverse_proxy 127.0.0.1:8080
+	}
+
 	# Static assets cache rules (hashed immutable files)
 	handle /assets/* {
 		root * /opt/transactx/current/frontend

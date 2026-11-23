@@ -123,18 +123,21 @@ func (repository *Repository) GetByIdempotencyKey(ctx context.Context, userID uu
 		return repository.getByIdempotentFn(ctx, userID, key)
 	}
 	if repository.db == nil {
-		return CustomerPayment{}, ErrNotFound
+		return CustomerPayment{}, errors.New("database connection unavailable")
 	}
 	var paymentID *uuid.UUID
 	err := repository.db.QueryRow(ctx, `
 		SELECT payment_id
 		FROM idempotency_records
 		WHERE user_id = $1 AND key = $2`, userID, key).Scan(&paymentID)
-	if errors.Is(err, pgx.ErrNoRows) || paymentID == nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return CustomerPayment{}, ErrNotFound
 	}
 	if err != nil {
 		return CustomerPayment{}, err
+	}
+	if paymentID == nil {
+		return CustomerPayment{}, ErrNotFound
 	}
 	return repository.GetForUser(ctx, userID, *paymentID)
 }

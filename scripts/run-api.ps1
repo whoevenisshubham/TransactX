@@ -1,7 +1,9 @@
 $ErrorActionPreference = "Stop"
 $root = (Get-Item $PSScriptRoot\..).FullName
-$env:APP_ADDR = "127.0.0.1:8080"
-$env:DATABASE_URL = "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable"
+$env:APP_ADDR = if ($env:APP_ADDR) { $env:APP_ADDR } else { "127.0.0.1:8080" }
+if (-not $env:DATABASE_URL) {
+    $env:DATABASE_URL = "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable"
+}
 $env:JWT_SECRET = "supersecretjwtkeythatisatleast32byteslongforsecurity!"
 $env:JWT_ISSUER = "transactx-api"
 $env:JWT_LIFETIME = "15m"

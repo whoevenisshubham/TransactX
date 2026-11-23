@@ -1,5 +1,9 @@
 # Render + Neon + Vercel: free portfolio demo
 
+> [!NOTE]
+> The hosted demo at `https://transactx-frontend.vercel.app` reflects an earlier baseline deployment on Render/Vercel/Neon (`release/transactx-v2`).
+> The current hardened release candidate (M20-R.5.2) — featuring durable unresolved payment intent preservation, PostgreSQL idempotency failure isolation, lease epoch concurrency protection, and local staging supervision — is maintained on branch `feat/frontend-rebuild-v4` (Pull Request #32).
+
 This is an optional single-replica sleeping demo deployment. The native VM
 deployment remains available. The gateway runs existing bank/API/worker
 binaries as separate processes on one shared host. It does not replace sagas,

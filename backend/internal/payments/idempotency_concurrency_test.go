@@ -672,3 +672,67 @@ func TestConcurrency_InterruptedRoutedSaga_ControlledBankAdapterRecovery(t *test
 		t.Fatalf("ledger transactions count = %d; want exactly 1", ledgerTxCount)
 	}
 }
+
+// Case 6: Strict Database Failure Semantics for Idempotency Key Lookup
+// Proves that GetByIdempotencyKey returns ErrNotFound ONLY for genuine non-existent records,
+// and returns real errors (NOT ErrNotFound) for connection failures, canceled contexts, and nil DB.
+func TestGetByIdempotencyKey_DatabaseErrorSemantics(t *testing.T) {
+	pool, cleanup := setupM20R2DisposableDB(t)
+	defer cleanup()
+	f := seedConcurrencyFixtures(t, pool)
+
+	key := "key-db-semantics-" + uuid.NewString()
+
+	// 1. Non-existent key -> returns ErrNotFound
+	_, err := f.service.GetByIdempotencyKey(context.Background(), f.userA, key)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for non-existent key, got: %v", err)
+	}
+
+	// 2. Insert valid payment
+	p, dup, err := f.service.CreateWithResult(context.Background(), CreateInput{
+		UserID:          f.userA,
+		SourceAccountID: f.sourceAccountA,
+		Recipient:       "bob@transactx",
+		AmountPaise:     15000,
+		Currency:        "INR",
+		Note:            "DB semantics test",
+		IdempotencyKey:  key,
+	})
+	if err != nil || dup {
+		t.Fatalf("create payment failed: dup=%v err=%v", dup, err)
+	}
+
+	// 3. Existing key for User A -> returns payment successfully
+	foundP, err := f.service.GetByIdempotencyKey(context.Background(), f.userA, key)
+	if err != nil || foundP.ID != p.ID {
+		t.Fatalf("expected payment %s, got: %v, err: %v", p.ID, foundP, err)
+	}
+
+	// 4. Cross-user lookup (User B) -> returns ErrNotFound (tenant isolation)
+	_, errB := f.service.GetByIdempotencyKey(context.Background(), f.userB, key)
+	if !errors.Is(errB, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for cross-user lookup, got: %v", errB)
+	}
+
+	// 5. Canceled Context -> must return context/db error, NEVER ErrNotFound!
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+	_, canceledErr := f.service.GetByIdempotencyKey(canceledCtx, f.userA, key)
+	if errors.Is(canceledErr, ErrNotFound) {
+		t.Fatalf("canceled context must NOT be converted to ErrNotFound; got: %v", canceledErr)
+	}
+	if canceledErr == nil {
+		t.Fatal("expected error on canceled context, got nil")
+	}
+
+	// 6. Nil DB Repository -> must return database unavailable error, NEVER ErrNotFound!
+	nilRepo := NewRepository(nil)
+	_, nilDbErr := nilRepo.GetByIdempotencyKey(context.Background(), f.userA, key)
+	if errors.Is(nilDbErr, ErrNotFound) {
+		t.Fatalf("nil DB repository must NOT return ErrNotFound; got: %v", nilDbErr)
+	}
+	if nilDbErr == nil {
+		t.Fatal("expected error for nil DB repository, got nil")
+	}
+}

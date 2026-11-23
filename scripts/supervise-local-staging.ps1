@@ -1,21 +1,33 @@
 # TransactX Local Staging Resilient Supervisor
 param(
-    [string]$DbUrl = "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable"
+    [string]$DbUrl = $(if ($env:DATABASE_URL) { $env:DATABASE_URL } else { "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable" })
 )
 
 $ErrorActionPreference = "Stop"
 $root = (Get-Item $PSScriptRoot\..).FullName
 $logsDir = Join-Path $root "logs"
 $scriptsDir = Join-Path $root "scripts"
+$supervisorPidFile = Join-Path $logsDir "supervisor.pid"
+$supervisorStopFile = Join-Path $logsDir "supervisor.stop"
+$stagingPidsFile = Join-Path $logsDir "staging-pids.json"
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 
-# Clean up any leftover .stop flags
+# 1. Record supervisor PID
+$PID | Set-Content $supervisorPidFile
+Write-Host "[SUPERVISOR] TransactX Resilient Local Staging Supervisor started with PID $PID."
+
+# 2. Clean up any leftover .stop flags
 Get-ChildItem -Path $logsDir -Filter "*.stop" | Remove-Item -Force -ErrorAction SilentlyContinue
 
-Write-Host "TransactX Resilient Local Staging Supervisor starting..."
+# 3. Propagate Database URLs into environment
+if ($DbUrl) {
+    $env:DATABASE_URL = $DbUrl
+    $env:BANK_A_DATABASE_URL = $DbUrl
+    $env:BANK_B_DATABASE_URL = $DbUrl
+}
 
-$serviceConfigs = @{
+$serviceConfigs = [ordered]@{
     "bank-a" = @{ Script = "run-bank-a.ps1"; Name = "Bank A" }
     "bank-b" = @{ Script = "run-bank-b.ps1"; Name = "Bank B" }
     "api"    = @{ Script = "run-api.ps1";    Name = "Core API" }
@@ -38,14 +50,25 @@ function Start-ManagedService {
 
 try {
     # Initial start
-    foreach ($key in @("bank-a", "bank-b", "api", "worker", "caddy")) {
+    foreach ($key in $serviceConfigs.Keys) {
         $runningProcs[$key] = Start-ManagedService -Key $key
     }
 
     # Supervision loop
     while ($true) {
+        # Check for global supervisor stop signal
+        if (Test-Path $supervisorStopFile) {
+            Write-Host "[SUPERVISOR] Stop flag detected ($supervisorStopFile). Initiating clean shutdown..."
+            break
+        }
+
         $pidMap = @{}
         foreach ($key in $serviceConfigs.Keys) {
+            # Double check global stop inside iteration
+            if (Test-Path $supervisorStopFile) {
+                break
+            }
+
             $stopFile = Join-Path $logsDir "$key.stop"
             $proc = $runningProcs[$key]
             $isAlive = ($null -ne $proc) -and (-not $proc.HasExited)
@@ -53,7 +76,7 @@ try {
             if (Test-Path $stopFile) {
                 if ($isAlive) {
                     Write-Host "[SUPERVISOR] Stop flag detected for $key, stopping PID $($proc.Id)..."
-                    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                    & taskkill.exe /PID $proc.Id /T /F 2>$null
                     $runningProcs[$key] = $null
                 }
             } else {
@@ -68,14 +91,23 @@ try {
             }
         }
 
-        $pidMap | ConvertTo-Json | Set-Content (Join-Path $logsDir "staging-pids.json")
+        if (Test-Path $supervisorStopFile) {
+            break
+        }
+
+        $pidMap | ConvertTo-Json | Set-Content $stagingPidsFile
         Start-Sleep -Seconds 2
     }
 } finally {
     Write-Host "[SUPERVISOR] Shutting down all managed services..."
     foreach ($p in $runningProcs.Values) {
         if ($p -and (-not $p.HasExited)) {
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Write-Host "[SUPERVISOR] Terminating process PID $($p.Id) and tree..."
+            & taskkill.exe /PID $p.Id /T /F 2>$null
         }
     }
+    Remove-Item $supervisorPidFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $supervisorStopFile -Force -ErrorAction SilentlyContinue
+    Remove-Item $stagingPidsFile -Force -ErrorAction SilentlyContinue
+    Write-Host "[SUPERVISOR] Supervisor stopped and clean-up complete."
 }

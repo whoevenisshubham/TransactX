@@ -18,6 +18,9 @@ recover a payment safely when different services have different observations?**
 [Deployment](deploy/render/README.md) ·
 [Payment kernel reference](docs/reference/payment-kernel.md)
 
+> [!NOTE]
+> The hosted demo at `https://transactx-frontend.vercel.app` reflects an earlier baseline deployment on Render/Vercel/Neon (`release/transactx-v2`). The current hardened release candidate (M20-R.5.2) — featuring durable unresolved payment intent preservation, PostgreSQL idempotency failure isolation, lease epoch concurrency protection, and local staging supervision — is maintained on branch `feat/frontend-rebuild-v4` (Pull Request #32).
+
 ![TransactX payment receipt, original bank path and cited investigation](docs/images/experience-landing.png)
 
 ## What makes the project interesting
@@ -182,6 +185,15 @@ not bank-health verdicts.
 | Investigation | Canonical evidence, lexical runbook retrieval, structured validation and optional Gemini |
 | Analytics | Durable measured windows and a statistical baseline; IsolationForest remains experimental |
 | Operations | Reconciliation, integrity/Merkle checks, audit records and telemetry context |
+
+### Verified Engineering Toolchain
+
+| Component | Standard / Version | Scope & Verification |
+| --- | --- | --- |
+| Go Runtime | Go 1.27.4 | All microservices (`api`, `bank-a`, `bank-b`, `worker`, `migrate`, `seed`); tested with `-race` |
+| Node.js Engine | Node.js 22 LTS | Frontend build, Vite, Vitest suite, Playwright money fixture tests |
+| Database Engine | PostgreSQL 18 | Central schema, bank-a, bank-b schemas, 33 canonical migrations |
+| Security Scanner | govulncheck v1.10.0 | CI dependency and vulnerability verification |
 
 ## Engineering evidence
 

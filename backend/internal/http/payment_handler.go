@@ -171,12 +171,7 @@ func (h *Handler) paymentByIdempotencyKey(writer http.ResponseWriter, request *h
 }
 
 func intermediatePaymentState(state string) bool {
-	switch state {
-	case payments.StateProcessing, payments.StatePendingReconciliation, payments.StateBankSettledCentralPending:
-		return true
-	default:
-		return false
-	}
+	return payments.IsIntermediateCentralState(state)
 }
 
 func writePaymentError(writer http.ResponseWriter, request *http.Request, err error) {

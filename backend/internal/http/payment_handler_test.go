@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -124,11 +125,22 @@ func TestPaymentByIdempotencyKey_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(nil, slog.Default(), nil, manager)
+	repo := payments.NewRepository(nil)
+	repo.SetGetByIdempotentFn(func(ctx context.Context, userID uuid.UUID, key string) (payments.CustomerPayment, error) {
+		return payments.CustomerPayment{}, payments.ErrNotFound
+	})
+	svc := payments.NewService(nil, nil, repo, nil)
+	h := &Handler{
+		logger:   slog.Default(),
+		payments: svc,
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/payments/idempotency/{key}", auth.Authentication(manager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(h.paymentByIdempotencyKey))))
+
 	request := httptest.NewRequest(http.MethodGet, "/api/payments/idempotency/nonexistent-key", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
+	mux.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
@@ -319,5 +331,110 @@ func TestPaymentByIdempotencyKey_DelayedCommit_RealHTTPServer(t *testing.T) {
 	data, _ := dataEnvelope["data"].(map[string]any)
 	if data["id"] != paymentID.String() || data["state"] != "COMPLETED" {
 		t.Fatalf("unexpected payment response: %v", data)
+	}
+}
+
+func TestPaymentByIdempotencyKey_DatabaseErrorReturns500InternalError(t *testing.T) {
+	now := time.Now()
+	manager, err := auth.NewJWTManager(strings.Repeat("x", 32), "test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userAID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	userAToken, err := manager.Issue(userAID.String(), "CUSTOMER", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock repository that returns a genuine database connection error
+	repo := payments.NewRepository(nil)
+	repo.SetGetByIdempotentFn(func(ctx context.Context, userID uuid.UUID, key string) (payments.CustomerPayment, error) {
+		return payments.CustomerPayment{}, errors.New("connection to PostgreSQL pool timed out")
+	})
+	svc := payments.NewService(nil, nil, repo, nil)
+
+	h := &Handler{
+		logger:   slog.Default(),
+		payments: svc,
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/payments/idempotency/{key}", auth.Authentication(manager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(h.paymentByIdempotencyKey))))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/payments/idempotency/test-db-error-key", nil)
+	request.Header.Set("Authorization", "Bearer "+userAToken)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+
+	// Must return HTTP 500 Internal Server Error, NOT HTTP 404 Not Found!
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d (database error must NEVER be misreported as 404 Not Found)", recorder.Code, http.StatusInternalServerError)
+	}
+	var envelope map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	errObj, _ := envelope["error"].(map[string]any)
+	if errObj["code"] != "INTERNAL_ERROR" {
+		t.Fatalf("code = %v, want INTERNAL_ERROR", errObj["code"])
+	}
+}
+
+func TestPaymentStateClassification_ExhaustiveTable(t *testing.T) {
+	tests := []struct {
+		state                string
+		wantTerminal         bool
+		wantIntermediate     bool
+		wantOfflineLifecycle bool
+	}{
+		// Non-terminal central payment states
+		{payments.StateCreated, false, true, false},
+		{payments.StateValidating, false, true, false},
+		{payments.StateLocalSettlement, false, true, false},
+		{payments.StateRouting, false, true, false},
+		{payments.StateProcessing, false, true, false},
+		{payments.StateBankSettledCentralPending, false, true, false},
+		{payments.StateCommitted, false, true, false},
+		{payments.StatePendingReconciliation, false, true, false},
+
+		// Terminal central payment states
+		{payments.StateCompleted, true, false, false},
+		{payments.StateFailed, true, false, false},
+		{payments.StateReversed, true, false, false},
+
+		// Offline queue lifecycle states (distinct from online central progress)
+		{payments.StateOfflineCaptured, false, false, true},
+		{payments.StateQueued, false, false, true},
+		{payments.StateSyncing, false, false, true},
+		{payments.StateReplayFailed, false, false, true},
+
+		// Unknown / unrecognized states (must fail closed: neither terminal nor intermediate)
+		{"UNKNOWN_XYZ", false, false, false},
+		{"SOME_RANDOM_STATE", false, false, false},
+		{"", false, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			gotTerminal := payments.IsTerminalState(tt.state)
+			if gotTerminal != tt.wantTerminal {
+				t.Errorf("IsTerminalState(%q) = %v, want %v", tt.state, gotTerminal, tt.wantTerminal)
+			}
+
+			gotIntermediate := payments.IsIntermediateCentralState(tt.state)
+			if gotIntermediate != tt.wantIntermediate {
+				t.Errorf("IsIntermediateCentralState(%q) = %v, want %v", tt.state, gotIntermediate, tt.wantIntermediate)
+			}
+
+			// Verify HTTP handler intermediate helper matches payments package canonical definition
+			gotHttpHelper := intermediatePaymentState(tt.state)
+			if gotHttpHelper != tt.wantIntermediate {
+				t.Errorf("intermediatePaymentState(%q) = %v, want %v", tt.state, gotHttpHelper, tt.wantIntermediate)
+			}
+
+			gotOffline := payments.IsOfflineLifecycleState(tt.state)
+			if gotOffline != tt.wantOfflineLifecycle {
+				t.Errorf("IsOfflineLifecycleState(%q) = %v, want %v", tt.state, gotOffline, tt.wantOfflineLifecycle)
+			}
+		})
 	}
 }

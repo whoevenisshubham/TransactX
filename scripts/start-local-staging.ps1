@@ -1,5 +1,6 @@
 # Start TransactX Local Staging Stack
 param(
+    [string]$DbUrl = $(if ($env:DATABASE_URL) { $env:DATABASE_URL } else { "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable" }),
     [switch]$IncludeFrontend = $false
 )
 
@@ -11,6 +12,23 @@ $scriptsDir = Join-Path $root "scripts"
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 
 Write-Host "Starting TransactX Local Staging Stack from $root..."
+
+# Propagate Database URLs into environment
+if ($DbUrl) {
+    $env:DATABASE_URL = $DbUrl
+    $env:BANK_A_DATABASE_URL = $DbUrl
+    $env:BANK_B_DATABASE_URL = $DbUrl
+}
+
+if ($IncludeFrontend) {
+    Write-Host "Verifying frontend build artifacts in frontend/dist..."
+    if (-not (Test-Path "$root\frontend\dist\index.html")) {
+        Write-Host "Building frontend assets..."
+        Push-Location "$root\frontend"
+        & npm run build
+        Pop-Location
+    }
+}
 
 function Start-Service {
     param([string]$Name, [string]$ScriptFile, [string]$LogName)

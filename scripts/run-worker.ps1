@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 $root = (Get-Item $PSScriptRoot\..).FullName
-$env:DATABASE_URL = "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable"
+if (-not $env:DATABASE_URL) {
+    $env:DATABASE_URL = "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable"
+}
 $env:JWT_SECRET = "supersecretjwtkeythatisatleast32byteslongforsecurity!"
 $env:BANK_A_CODE = "BANK-A"
 $env:BANK_B_CODE = "BANK-B"
