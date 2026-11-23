@@ -1,6 +1,7 @@
 # TransactX Local Staging Resilient Supervisor
 param(
-    [string]$DbUrl = $(if ($env:DATABASE_URL) { $env:DATABASE_URL } else { "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable" })
+    [string]$DbUrl,
+    [string]$EnvFile
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,19 +14,29 @@ $stagingPidsFile = Join-Path $logsDir "staging-pids.json"
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 
-# 1. Record supervisor PID
-$PID | Set-Content $supervisorPidFile
-Write-Host "[SUPERVISOR] TransactX Resilient Local Staging Supervisor started with PID $PID."
+# 1. Load environment configuration via shared loader
+$loaderArgs = @{}
+if ($EnvFile) { $loaderArgs["EnvFile"] = $EnvFile }
+try {
+    & "$scriptsDir\load-local-staging-env.ps1" @loaderArgs
+} catch {
+    [Console]::Error.WriteLine("Supervisor configuration error: $_")
+    exit 1
+}
 
-# 2. Clean up any leftover .stop flags
-Get-ChildItem -Path $logsDir -Filter "*.stop" | Remove-Item -Force -ErrorAction SilentlyContinue
-
-# 3. Propagate Database URLs into environment
+# 2. CLI parameter precedence: $DbUrl overrides loaded database URLs if explicitly supplied
 if ($DbUrl) {
     $env:DATABASE_URL = $DbUrl
     $env:BANK_A_DATABASE_URL = $DbUrl
     $env:BANK_B_DATABASE_URL = $DbUrl
 }
+
+# 3. Record supervisor PID
+$PID | Set-Content $supervisorPidFile
+Write-Host "[SUPERVISOR] TransactX Resilient Local Staging Supervisor started with PID $PID."
+
+# 4. Clean up any leftover .stop flags
+Get-ChildItem -Path $logsDir -Filter "*.stop" | Remove-Item -Force -ErrorAction SilentlyContinue
 
 $serviceConfigs = [ordered]@{
     "bank-a" = @{ Script = "run-bank-a.ps1"; Name = "Bank A" }
@@ -64,7 +75,6 @@ try {
 
         $pidMap = @{}
         foreach ($key in $serviceConfigs.Keys) {
-            # Double check global stop inside iteration
             if (Test-Path $supervisorStopFile) {
                 break
             }

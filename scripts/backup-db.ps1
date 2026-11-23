@@ -8,15 +8,12 @@ param(
     [string]$Password = $env:PGPASSWORD
 )
 
-$ErrorActionPreference = "Stop"
-trap {
-    exit 1
-}
+$ErrorActionPreference = "Continue"
 
 # 1. Identifier Validation (Regex allowlist: ^[A-Za-z_][A-Za-z0-9_]{0,62}$)
 $identRegex = '^[A-Za-z_][A-Za-z0-9_]{0,62}$'
 if ($SourceDb -notmatch $identRegex) {
-    Write-Error "Invalid source database identifier: '$SourceDb'. Must match pattern: ^[A-Za-z_][A-Za-z0-9_]{0,62}$"
+    [Console]::Error.WriteLine("Invalid source database identifier: '$SourceDb'. Must match pattern: ^[A-Za-z_][A-Za-z0-9_]{0,62}$")
     exit 1
 }
 
@@ -25,7 +22,7 @@ if ($Password) {
     $env:PGPASSWORD = $Password
 }
 if (-not $env:PGPASSWORD) {
-    Write-Error "PGPASSWORD is not configured. Set the PGPASSWORD environment variable or provide -Password parameter."
+    [Console]::Error.WriteLine("PGPASSWORD is not configured. Set the PGPASSWORD environment variable or provide -Password parameter.")
     exit 1
 }
 
@@ -42,13 +39,13 @@ Write-Host "Creating backup of $SourceDb to $backupFile..."
 & pg_dump -h $HostName -p $Port -U $User -d $SourceDb --clean --if-exists --no-owner --no-privileges -f $backupFile
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "pg_dump failed with exit code $LASTEXITCODE"
+    [Console]::Error.WriteLine("pg_dump failed with exit code $LASTEXITCODE")
     if (Test-Path $backupFile) { Remove-Item $backupFile -Force -ErrorAction SilentlyContinue }
     exit 1
 }
 
 if (-not (Test-Path $backupFile) -or ((Get-Item $backupFile).Length -eq 0)) {
-    Write-Error "Backup failed: generated backup file is missing or 0 bytes."
+    [Console]::Error.WriteLine("Backup failed: generated backup file is missing or 0 bytes.")
     if (Test-Path $backupFile) { Remove-Item $backupFile -Force -ErrorAction SilentlyContinue }
     exit 1
 }

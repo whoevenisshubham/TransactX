@@ -13,7 +13,14 @@ var ErrNotFound = errors.New("account not found")
 var ErrInsufficientFunds = errors.New("insufficient funds")
 var ErrAmbiguousPrimary = errors.New("multiple active primary accounts")
 
-type Repository struct{ db *pgxpool.Pool }
+type Repository struct {
+	db                *pgxpool.Pool
+	getPrimaryOwnedFn func(ctx context.Context, userID uuid.UUID) (Account, error)
+}
+
+func (repository *Repository) SetGetPrimaryOwnedFn(fn func(ctx context.Context, userID uuid.UUID) (Account, error)) {
+	repository.getPrimaryOwnedFn = fn
+}
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
@@ -112,6 +119,9 @@ func (repository *Repository) GetOwned(ctx context.Context, userID, accountID uu
 }
 
 func (repository *Repository) GetPrimaryOwned(ctx context.Context, userID uuid.UUID) (Account, error) {
+	if repository.getPrimaryOwnedFn != nil {
+		return repository.getPrimaryOwnedFn(ctx, userID)
+	}
 	rows, err := repository.db.Query(ctx, `SELECT `+accountColumns+` FROM accounts WHERE user_id = $1 AND status = 'ACTIVE' ORDER BY created_at ASC, id ASC LIMIT 2`, userID)
 	if err != nil {
 		return Account{}, err

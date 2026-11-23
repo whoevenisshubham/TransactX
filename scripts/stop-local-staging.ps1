@@ -71,27 +71,37 @@ Get-Process | Where-Object {
     & taskkill.exe /PID $_.Id /T /F 2>$null
 }
 
-# 5. Clean up supervisor and staging PID/stop files
+# 5. Verify local staging ports (8080, 8081, 8082, 3000) are released
+$ports = @(8080, 8081, 8082, 3000)
+$occupiedPorts = @()
+foreach ($port in $ports) {
+    $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    if ($conn) {
+        $occupiedPorts += $port
+        [Console]::Error.WriteLine("ERROR: Port $port is still in use by PID $($conn.OwningProcess)!")
+    }
+}
+
+# 6. Check if supervisor or any staging process is still running
+$lingeringProcesses = Get-Process | Where-Object {
+    try {
+        $_.Path -and ($_.Path.StartsWith($binDir, [System.StringComparison]::OrdinalIgnoreCase))
+    } catch {
+        $false
+    }
+}
+
+if ($occupiedPorts.Count -gt 0 -or $lingeringProcesses.Count -gt 0) {
+    [Console]::Error.WriteLine("TransactX local staging shutdown INCOMPLETE. Lingering processes: $($lingeringProcesses.Count), occupied ports: $($occupiedPorts -join ', ').")
+    exit 1
+}
+
+# 7. Clean up supervisor and staging PID/stop files only when shutdown is verified
 Remove-Item $supervisorPidFile -Force -ErrorAction SilentlyContinue
 Remove-Item $supervisorStopFile -Force -ErrorAction SilentlyContinue
 Remove-Item $stagingPidsFile -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $logsDir -Filter "*.stop" | Remove-Item -Force -ErrorAction SilentlyContinue
 
-# 6. Verify local staging ports (8080, 8081, 8082, 3000) are released
-$ports = @(8080, 8081, 8082, 3000)
-$allFree = $true
-foreach ($port in $ports) {
-    $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    if ($conn) {
-        Write-Warning "Port $port is still in use by PID $($conn.OwningProcess)!"
-        $allFree = $false
-    }
-}
-
-if ($allFree) {
-    Write-Host "All TransactX staging ports (8080, 8081, 8082, 3000) verified free."
-} else {
-    Write-Host "Some ports may still have lingering listeners."
-}
-
+Write-Host "All TransactX staging ports (8080, 8081, 8082, 3000) verified free."
 Write-Host "TransactX local staging shutdown complete."
+exit 0

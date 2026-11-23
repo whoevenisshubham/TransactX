@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/transactx/backend/internal/accounts"
 	"github.com/transactx/backend/internal/auth"
 	"github.com/transactx/backend/internal/payments"
 )
@@ -434,6 +435,642 @@ func TestPaymentStateClassification_ExhaustiveTable(t *testing.T) {
 			gotOffline := payments.IsOfflineLifecycleState(tt.state)
 			if gotOffline != tt.wantOfflineLifecycle {
 				t.Errorf("IsOfflineLifecycleState(%q) = %v, want %v", tt.state, gotOffline, tt.wantOfflineLifecycle)
+			}
+		})
+	}
+}
+
+func TestPaymentAPI_HTTPStateContract_PostPayments(t *testing.T) {
+	now := time.Now()
+	jwtSecret := strings.Repeat("s", 32)
+	manager, err := auth.NewJWTManager(jwtSecret, "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	userToken, err := manager.Issue(userID.String(), "CUSTOMER", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	primaryAccID := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+
+	type postTestCase struct {
+		name                   string
+		state                  string
+		duplicate              bool
+		createErr              error
+		accountsErr            error
+		rawBody                string
+		authHeader             string
+		role                   string
+		wantStatus             int
+		wantErrorCode          string
+		wantTerminal           bool
+		wantReservationRetain bool
+	}
+
+	tests := []postTestCase{
+		// 1. New payment terminal completed -> 201 Created
+		{
+			name:                   "New_Payment_Completed",
+			state:                  payments.StateCompleted,
+			duplicate:              false,
+			wantStatus:             http.StatusCreated,
+			wantTerminal:           true,
+			wantReservationRetain: true,
+		},
+		// 2. New payment intermediate states -> 202 Accepted
+		{
+			name:                   "New_Payment_Created",
+			state:                  payments.StateCreated,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "New_Payment_Validating",
+			state:                  payments.StateValidating,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "New_Payment_LocalSettlement",
+			state:                  payments.StateLocalSettlement,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "New_Payment_Routing",
+			state:                  payments.StateRouting,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "New_Payment_Processing",
+			state:                  payments.StateProcessing,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "New_Payment_BankSettledCentralPending",
+			state:                  payments.StateBankSettledCentralPending,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "New_Payment_Committed",
+			state:                  payments.StateCommitted,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "New_Payment_PendingReconciliation",
+			state:                  payments.StatePendingReconciliation,
+			duplicate:              false,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		// 3. Duplicate payment terminal states -> 200 OK
+		{
+			name:                   "Duplicate_Payment_Completed",
+			state:                  payments.StateCompleted,
+			duplicate:              true,
+			wantStatus:             http.StatusOK,
+			wantTerminal:           true,
+			wantReservationRetain: true,
+		},
+		{
+			name:                   "Duplicate_Payment_Failed",
+			state:                  payments.StateFailed,
+			duplicate:              true,
+			wantStatus:             http.StatusOK,
+			wantTerminal:           true,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Duplicate_Payment_Reversed",
+			state:                  payments.StateReversed,
+			duplicate:              true,
+			wantStatus:             http.StatusOK,
+			wantTerminal:           true,
+			wantReservationRetain: false,
+		},
+		// 4. Duplicate payment intermediate states -> 202 Accepted
+		{
+			name:                   "Duplicate_Payment_Processing",
+			state:                  payments.StateProcessing,
+			duplicate:              true,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Duplicate_Payment_BankSettledCentralPending",
+			state:                  payments.StateBankSettledCentralPending,
+			duplicate:              true,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		// 5. Unknown / Indeterminate state -> 500 Fail closed
+		{
+			name:          "New_Payment_UnknownState_FailsClosed",
+			state:         "UNKNOWN_CORRUPT_STATE",
+			duplicate:     false,
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		{
+			name:          "Duplicate_Payment_UnknownState_FailsClosed",
+			state:         "UNKNOWN_CORRUPT_STATE",
+			duplicate:     true,
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		// 6. Offline lifecycle state -> 500 Fail closed
+		{
+			name:          "New_Payment_OfflineCaptured_FailsClosed",
+			state:         payments.StateOfflineCaptured,
+			duplicate:     false,
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		// 7. Error scenarios
+		{
+			name:          "Error_MalformedJSON",
+			rawBody:       `{"recipient": invalid json}`,
+			wantStatus:    http.StatusBadRequest,
+			wantErrorCode: "INVALID_REQUEST",
+		},
+		{
+			name:          "Error_Unauthenticated",
+			authHeader:    "NONE",
+			wantStatus:    http.StatusUnauthorized,
+			wantErrorCode: "UNAUTHORIZED",
+		},
+		{
+			name:          "Error_ForbiddenRole_OpsAdmin",
+			role:          "OPS_ADMIN",
+			wantStatus:    http.StatusForbidden,
+			wantErrorCode: "FORBIDDEN",
+		},
+		{
+			name:          "Error_SourceAccountNotFound",
+			accountsErr:   accounts.ErrNotFound,
+			wantStatus:    http.StatusNotFound,
+			wantErrorCode: "ACCOUNT_NOT_FOUND",
+		},
+		{
+			name:          "Error_SourceAccountAmbiguous",
+			accountsErr:   accounts.ErrAmbiguousPrimary,
+			wantStatus:    http.StatusConflict,
+			wantErrorCode: "ACCOUNT_AMBIGUOUS",
+		},
+		{
+			name:          "Error_InsufficientFunds",
+			createErr:     payments.ErrInsufficientFunds,
+			wantStatus:    http.StatusConflict,
+			wantErrorCode: "INSUFFICIENT_FUNDS",
+		},
+		{
+			name:          "Error_IdempotencyConflict",
+			createErr:     payments.ErrIdempotencyConflict,
+			wantStatus:    http.StatusConflict,
+			wantErrorCode: "IDEMPOTENCY_CONFLICT",
+		},
+		{
+			name:          "Error_BankUnavailable",
+			createErr:     payments.ErrBankRouteUnavailable,
+			wantStatus:    http.StatusServiceUnavailable,
+			wantErrorCode: "BANK_UNAVAILABLE",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			paymentID := uuid.New()
+			accountsRepo := accounts.NewRepository(nil)
+			accountsRepo.SetGetPrimaryOwnedFn(func(ctx context.Context, uID uuid.UUID) (accounts.Account, error) {
+				if tc.accountsErr != nil {
+					return accounts.Account{}, tc.accountsErr
+				}
+				return accounts.Account{
+					ID:           primaryAccID,
+					UserID:       uID,
+					Status:       "ACTIVE",
+					BalancePaise: 100000,
+				}, nil
+			})
+
+			paymentsRepo := payments.NewRepository(nil)
+			paymentsRepo.SetGetForUserFn(func(ctx context.Context, uID, pID uuid.UUID) (payments.CustomerPayment, error) {
+				return payments.CustomerPayment{
+					ID:          pID,
+					AmountPaise: 5000,
+					Currency:    "INR",
+					State:       tc.state,
+				}, nil
+			})
+
+			svc := payments.NewService(accountsRepo, nil, paymentsRepo, nil)
+			svc.SetCreateWithResultFn(func(ctx context.Context, input payments.CreateInput) (payments.Payment, bool, error) {
+				if tc.createErr != nil {
+					return payments.Payment{}, false, tc.createErr
+				}
+				return payments.Payment{
+					ID:                paymentID,
+					InitiatedByUserID: input.UserID,
+					State:             tc.state,
+				}, tc.duplicate, nil
+			})
+
+			h := &Handler{
+				logger:       slog.Default(),
+				payments:     svc,
+				accountsRepo: accountsRepo,
+			}
+
+			mux := http.NewServeMux()
+			mux.Handle("POST /api/payments", auth.Authentication(manager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(h.createPayment))))
+
+			bodyStr := `{"recipient":"bob@transactx","amountPaise":5000,"currency":"INR","note":"test"}`
+			if tc.rawBody != "" {
+				bodyStr = tc.rawBody
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/api/payments", strings.NewReader(bodyStr))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "test-key-"+tc.name)
+
+			if tc.authHeader != "NONE" {
+				tokenToUse := userToken
+				if tc.role != "" {
+					customToken, err := manager.Issue(userID.String(), tc.role, now)
+					if err != nil {
+						t.Fatal(err)
+					}
+					tokenToUse = customToken
+				}
+				req.Header.Set("Authorization", "Bearer "+tokenToUse)
+			}
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body: %s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+
+			var envelope map[string]any
+			if err := json.NewDecoder(rec.Body).Decode(&envelope); err != nil {
+				t.Fatalf("failed to decode JSON response: %v", err)
+			}
+
+			if tc.wantErrorCode != "" {
+				errObj, ok := envelope["error"].(map[string]any)
+				if !ok {
+					t.Fatalf("expected error object in envelope: %v", envelope)
+				}
+				if errObj["code"] != tc.wantErrorCode {
+					t.Fatalf("error code = %v, want %s", errObj["code"], tc.wantErrorCode)
+				}
+			} else {
+				dataObj, ok := envelope["data"].(map[string]any)
+				if !ok {
+					t.Fatalf("expected data object in envelope: %v", envelope)
+				}
+				stateGot, _ := dataObj["state"].(string)
+				if stateGot != tc.state {
+					t.Fatalf("state in data = %v, want %s", stateGot, tc.state)
+				}
+
+				// Check terminality and reservation retention invariants
+				isTerm := payments.IsTerminalState(tc.state)
+				if isTerm != tc.wantTerminal {
+					t.Fatalf("IsTerminalState(%s) = %v, want %v", tc.state, isTerm, tc.wantTerminal)
+				}
+				isRetained := tc.state == payments.StateCompleted
+				if isRetained != tc.wantReservationRetain {
+					t.Fatalf("ReservationRetained(%s) = %v, want %v", tc.state, isRetained, tc.wantReservationRetain)
+				}
+			}
+		})
+	}
+}
+
+func TestPaymentAPI_HTTPStateContract_GetIdempotencyKey(t *testing.T) {
+	now := time.Now()
+	jwtSecret := strings.Repeat("s", 32)
+	manager, err := auth.NewJWTManager(jwtSecret, "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	userToken, err := manager.Issue(userID.String(), "CUSTOMER", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type getTestCase struct {
+		name                   string
+		key                    string
+		state                  string
+		repoErr                error
+		authHeader             string
+		role                   string
+		wantStatus             int
+		wantErrorCode          string
+		wantTerminal           bool
+		wantReservationRetain bool
+	}
+
+	tests := []getTestCase{
+		// 1. Terminal states -> 200 OK
+		{
+			name:                   "Terminal_Completed",
+			key:                    "key-completed",
+			state:                  payments.StateCompleted,
+			wantStatus:             http.StatusOK,
+			wantTerminal:           true,
+			wantReservationRetain: true,
+		},
+		{
+			name:                   "Terminal_Failed",
+			key:                    "key-failed",
+			state:                  payments.StateFailed,
+			wantStatus:             http.StatusOK,
+			wantTerminal:           true,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Terminal_Reversed",
+			key:                    "key-reversed",
+			state:                  payments.StateReversed,
+			wantStatus:             http.StatusOK,
+			wantTerminal:           true,
+			wantReservationRetain: false,
+		},
+		// 2. Intermediate states -> 202 Accepted
+		{
+			name:                   "Intermediate_Created",
+			key:                    "key-created",
+			state:                  payments.StateCreated,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Intermediate_Validating",
+			key:                    "key-validating",
+			state:                  payments.StateValidating,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Intermediate_LocalSettlement",
+			key:                    "key-local-settlement",
+			state:                  payments.StateLocalSettlement,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Intermediate_Routing",
+			key:                    "key-routing",
+			state:                  payments.StateRouting,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Intermediate_Processing",
+			key:                    "key-processing",
+			state:                  payments.StateProcessing,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Intermediate_BankSettledCentralPending",
+			key:                    "key-bank-settled-pending",
+			state:                  payments.StateBankSettledCentralPending,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Intermediate_Committed",
+			key:                    "key-committed",
+			state:                  payments.StateCommitted,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		{
+			name:                   "Intermediate_PendingReconciliation",
+			key:                    "key-pending-recon",
+			state:                  payments.StatePendingReconciliation,
+			wantStatus:             http.StatusAccepted,
+			wantTerminal:           false,
+			wantReservationRetain: false,
+		},
+		// 3. Unknown state -> 500 Fail closed
+		{
+			name:          "Unknown_State_FailsClosed",
+			key:           "key-unknown",
+			state:         "UNKNOWN_STATE_XYZ",
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		// 4. Offline lifecycle states -> 500 Fail closed
+		{
+			name:          "Offline_Captured_FailsClosed",
+			key:           "key-offline-captured",
+			state:         payments.StateOfflineCaptured,
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		{
+			name:          "Offline_Queued_FailsClosed",
+			key:           "key-offline-queued",
+			state:         payments.StateQueued,
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		{
+			name:          "Offline_Syncing_FailsClosed",
+			key:           "key-offline-syncing",
+			state:         payments.StateSyncing,
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		{
+			name:          "Offline_ReplayFailed_FailsClosed",
+			key:           "key-offline-replay-failed",
+			state:         payments.StateReplayFailed,
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		// 5. Missing record -> 404 Not Found
+		{
+			name:          "Missing_Record_NotFound",
+			key:           "nonexistent-key",
+			repoErr:       payments.ErrNotFound,
+			wantStatus:    http.StatusNotFound,
+			wantErrorCode: "PAYMENT_NOT_FOUND",
+		},
+		// 6. Database connection error -> 500 Internal Server Error
+		{
+			name:          "Database_Error_500",
+			key:           "key-db-error",
+			repoErr:       errors.New("connection reset by peer"),
+			wantStatus:    http.StatusInternalServerError,
+			wantErrorCode: "INTERNAL_ERROR",
+		},
+		// 7. Security and Validation errors
+		{
+			name:          "Error_Unauthenticated",
+			key:           "valid-key",
+			authHeader:    "NONE",
+			wantStatus:    http.StatusUnauthorized,
+			wantErrorCode: "UNAUTHORIZED",
+		},
+		{
+			name:          "Error_ForbiddenRole_OpsAdmin",
+			key:           "valid-key",
+			role:          "OPS_ADMIN",
+			wantStatus:    http.StatusForbidden,
+			wantErrorCode: "FORBIDDEN",
+		},
+		{
+			name:          "Error_ForbiddenRole_OpsViewer",
+			key:           "valid-key",
+			role:          "OPS_VIEWER",
+			wantStatus:    http.StatusForbidden,
+			wantErrorCode: "FORBIDDEN",
+		},
+		{
+			name:          "Error_MalformedKey_TooLong",
+			key:           strings.Repeat("k", 256),
+			wantStatus:    http.StatusBadRequest,
+			wantErrorCode: "INVALID_REQUEST",
+		},
+		{
+			name:          "Error_MalformedKey_Whitespace",
+			key:           "   ",
+			wantStatus:    http.StatusBadRequest,
+			wantErrorCode: "INVALID_REQUEST",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			paymentID := uuid.New()
+			paymentsRepo := payments.NewRepository(nil)
+			paymentsRepo.SetGetByIdempotentFn(func(ctx context.Context, uID uuid.UUID, k string) (payments.CustomerPayment, error) {
+				if tc.repoErr != nil {
+					return payments.CustomerPayment{}, tc.repoErr
+				}
+				return payments.CustomerPayment{
+					ID:          paymentID,
+					AmountPaise: 7500,
+					Currency:    "INR",
+					State:       tc.state,
+				}, nil
+			})
+
+			svc := payments.NewService(nil, nil, paymentsRepo, nil)
+			h := &Handler{
+				logger:   slog.Default(),
+				payments: svc,
+			}
+
+			mux := http.NewServeMux()
+			mux.Handle("GET /api/payments/idempotency/{key}", auth.Authentication(manager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(h.paymentByIdempotencyKey))))
+
+			// Invoke through httptest.NewServer for full TCP and HTTP stack verification
+			server := httptest.NewServer(mux)
+			defer server.Close()
+
+			reqURL := server.URL + "/api/payments/idempotency/" + tc.key
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, reqURL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if tc.authHeader != "NONE" {
+				tokenToUse := userToken
+				if tc.role != "" {
+					customToken, err := manager.Issue(userID.String(), tc.role, now)
+					if err != nil {
+						t.Fatal(err)
+					}
+					tokenToUse = customToken
+				}
+				req.Header.Set("Authorization", "Bearer "+tokenToUse)
+			}
+
+			resp, err := server.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.wantStatus {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				t.Fatalf("status = %d, want %d; body: %s", resp.StatusCode, tc.wantStatus, string(bodyBytes))
+			}
+
+			var envelope map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+				t.Fatalf("failed to decode JSON response: %v", err)
+			}
+
+			if tc.wantErrorCode != "" {
+				errObj, ok := envelope["error"].(map[string]any)
+				if !ok {
+					t.Fatalf("expected error object in envelope: %v", envelope)
+				}
+				if errObj["code"] != tc.wantErrorCode {
+					t.Fatalf("error code = %v, want %s", errObj["code"], tc.wantErrorCode)
+				}
+			} else {
+				dataObj, ok := envelope["data"].(map[string]any)
+				if !ok {
+					t.Fatalf("expected data object in envelope: %v", envelope)
+				}
+				stateGot, _ := dataObj["state"].(string)
+				if stateGot != tc.state {
+					t.Fatalf("state in data = %v, want %s", stateGot, tc.state)
+				}
+
+				// Check terminality and reservation retention invariants
+				isTerm := payments.IsTerminalState(tc.state)
+				if isTerm != tc.wantTerminal {
+					t.Fatalf("IsTerminalState(%s) = %v, want %v", tc.state, isTerm, tc.wantTerminal)
+				}
+				isRetained := tc.state == payments.StateCompleted
+				if isRetained != tc.wantReservationRetain {
+					t.Fatalf("ReservationRetained(%s) = %v, want %v", tc.state, isRetained, tc.wantReservationRetain)
+				}
 			}
 		})
 	}

@@ -1,27 +1,20 @@
 $ErrorActionPreference = "Stop"
 $root = (Get-Item $PSScriptRoot\..).FullName
-$env:APP_ADDR = if ($env:APP_ADDR) { $env:APP_ADDR } else { "127.0.0.1:8080" }
-if (-not $env:DATABASE_URL) {
-    $env:DATABASE_URL = "postgres://postgres:1234@127.0.0.1:5432/transactx_local_staging?sslmode=disable"
-}
-$env:JWT_SECRET = "supersecretjwtkeythatisatleast32byteslongforsecurity!"
-$env:JWT_ISSUER = "transactx-api"
-$env:JWT_LIFETIME = "15m"
-$env:DEFAULT_BANK_CODE = "BANK-A"
-$env:BANK_A_CODE = "BANK-A"
-$env:BANK_B_CODE = "BANK-B"
-$env:BANK_A_URL = "http://127.0.0.1:8081"
-$env:BANK_B_URL = "http://127.0.0.1:8082"
-$env:BANK_A_SERVICE_TOKEN = "local-staging-bank-a-token-32b"
-$env:BANK_B_SERVICE_TOKEN = "local-staging-bank-b-token-32b"
+
+# Load and validate local staging environment
+& "$PSScriptRoot\load-local-staging-env.ps1"
+
+$env:DEFAULT_BANK_CODE = if ($env:DEFAULT_BANK_CODE) { $env:DEFAULT_BANK_CODE } else { "BANK-A" }
+$env:BANK_A_CODE = if ($env:BANK_A_CODE) { $env:BANK_A_CODE } else { "BANK-A" }
+$env:BANK_B_CODE = if ($env:BANK_B_CODE) { $env:BANK_B_CODE } else { "BANK-B" }
 $env:APP_DEVELOPMENT = "true"
 $env:TX_SIMULATION_MODE = "true"
 $env:TX_ALLOW_REGISTRATION = "false"
 $env:TX_PUBLIC_DEMO_AUTH = "true"
 $env:TX_CHAOS_ENABLED = "true"
 $env:TX_RECOVERY_CONTROL_ENABLED = "true"
-$env:CORS_ALLOWED_ORIGINS = "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:4173,http://localhost:4173,http://localhost:5173"
-$env:TX_DB_MAX_CONNS = "8"
-$env:TX_PAYMENT_CONCURRENCY = "2"
+$env:TX_DB_MAX_CONNS = if ($env:TX_DB_MAX_CONNS) { $env:TX_DB_MAX_CONNS } else { "8" }
+$env:TX_PAYMENT_CONCURRENCY = if ($env:TX_PAYMENT_CONCURRENCY) { $env:TX_PAYMENT_CONCURRENCY } else { "2" }
+
 Set-Location $root
 & "$root\bin\api.exe"

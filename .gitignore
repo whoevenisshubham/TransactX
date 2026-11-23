@@ -1,4 +1,9 @@
 .env
+.env.*
+deploy/env/*.env
+deploy/env/local-staging.env
+!deploy/env/*.example
+!deploy/env/*.env.example
 
 backend/bin/
 backend/*.test

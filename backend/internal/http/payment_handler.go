@@ -77,12 +77,20 @@ func (h *Handler) createPayment(writer http.ResponseWriter, request *http.Reques
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment details are temporarily unavailable", http.StatusInternalServerError))
 		return
 	}
-	status := http.StatusCreated
-	if duplicate {
-		status = http.StatusOK
-	}
-	if intermediatePaymentState(customer.State) {
+	var status int
+	switch {
+	case payments.IsTerminalState(customer.State):
+		if duplicate {
+			status = http.StatusOK
+		} else {
+			status = http.StatusCreated
+		}
+	case payments.IsIntermediateCentralState(customer.State):
 		status = http.StatusAccepted
+	default:
+		// Unknown or offline state fails closed
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment in indeterminate state", http.StatusInternalServerError))
+		return
 	}
 	if customer.State == payments.StateCompleted && h.integrityCoordinator != nil {
 		event := reconciliation.IntegrityEventCentralSettlement
@@ -135,7 +143,18 @@ func (h *Handler) paymentDetails(writer http.ResponseWriter, request *http.Reque
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "transaction details are temporarily unavailable", http.StatusInternalServerError))
 		return
 	}
-	writeData(writer, http.StatusOK, request, result)
+	var status int
+	switch {
+	case payments.IsTerminalState(result.State):
+		status = http.StatusOK
+	case payments.IsIntermediateCentralState(result.State):
+		status = http.StatusAccepted
+	default:
+		// Unknown or offline state fails closed
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment in indeterminate state", http.StatusInternalServerError))
+		return
+	}
+	writeData(writer, status, request, result)
 }
 
 func (h *Handler) paymentByIdempotencyKey(writer http.ResponseWriter, request *http.Request) {
@@ -167,7 +186,18 @@ func (h *Handler) paymentByIdempotencyKey(writer http.ResponseWriter, request *h
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "transaction details are temporarily unavailable", http.StatusInternalServerError))
 		return
 	}
-	writeData(writer, http.StatusOK, request, result)
+	var status int
+	switch {
+	case payments.IsTerminalState(result.State):
+		status = http.StatusOK
+	case payments.IsIntermediateCentralState(result.State):
+		status = http.StatusAccepted
+	default:
+		// Unknown or offline state fails closed
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment in indeterminate state", http.StatusInternalServerError))
+		return
+	}
+	writeData(writer, status, request, result)
 }
 
 func intermediatePaymentState(state string) bool {

@@ -58,6 +58,7 @@ type Service struct {
 	concurrencyLimit       int
 	concurrencyOnce        sync.Once
 	recoveryMetrics        *RecoveryMetrics
+	createWithResultFn     func(ctx context.Context, input CreateInput) (Payment, bool, error)
 }
 
 func NewService(accountsRepository *accounts.Repository, recipientsRepository *recipients.Repository, paymentRepository *Repository, adapter bank.BankAdapter) *Service {
@@ -179,7 +180,14 @@ func (service *Service) GetPayment(ctx context.Context, paymentID uuid.UUID) (*P
 	return &p, nil
 }
 
+func (service *Service) SetCreateWithResultFn(fn func(ctx context.Context, input CreateInput) (Payment, bool, error)) {
+	service.createWithResultFn = fn
+}
+
 func (service *Service) CreateWithResult(ctx context.Context, input CreateInput) (Payment, bool, error) {
+	if service.createWithResultFn != nil {
+		return service.createWithResultFn(ctx, input)
+	}
 	key := strings.TrimSpace(input.IdempotencyKey)
 	currency := strings.ToUpper(strings.TrimSpace(input.Currency))
 	if input.UserID == uuid.Nil || input.SourceAccountID == uuid.Nil ||
