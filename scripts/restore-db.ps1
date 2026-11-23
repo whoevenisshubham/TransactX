@@ -2,10 +2,11 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$BackupFile,
-    [string]$TargetDb = "transactx_restore_drill",
-    [string]$HostName = "127.0.0.1",
-    [int]$Port = 5432,
-    [string]$User = "postgres"
+    [string]$TargetDb = $(if ($env:TX_TARGET_DB) { $env:TX_TARGET_DB } else { "transactx_restore_drill" }),
+    [string]$HostName = $(if ($env:PGHOST) { $env:PGHOST } else { "127.0.0.1" }),
+    [int]$Port = $(if ($env:PGPORT) { [int]$env:PGPORT } else { 5432 }),
+    [string]$User = $(if ($env:PGUSER) { $env:PGUSER } else { "postgres" }),
+    [string]$Password = $env:PGPASSWORD
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +16,11 @@ if (-not (Test-Path $BackupFile)) {
 }
 
 Write-Host "Creating target database $TargetDb..."
-$env:PGPASSWORD = "1234"
+if ($Password) {
+    $env:PGPASSWORD = $Password
+} elseif (-not $env:PGPASSWORD) {
+    $env:PGPASSWORD = "1234"
+}
 & psql -h $HostName -p $Port -U $User -d postgres -c "DROP DATABASE IF EXISTS $TargetDb WITH (FORCE);"
 & psql -h $HostName -p $Port -U $User -d postgres -c "CREATE DATABASE $TargetDb;"
 

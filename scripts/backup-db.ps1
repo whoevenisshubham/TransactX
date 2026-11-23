@@ -1,10 +1,11 @@
 # PostgreSQL Database Backup Script for TransactX
 param(
-    [string]$SourceDb = "transactx_local_staging",
+    [string]$SourceDb = $(if ($env:TX_SOURCE_DB) { $env:TX_SOURCE_DB } else { "transactx_local_staging" }),
     [string]$BackupDir = "backups",
-    [string]$HostName = "127.0.0.1",
-    [int]$Port = 5432,
-    [string]$User = "postgres"
+    [string]$HostName = $(if ($env:PGHOST) { $env:PGHOST } else { "127.0.0.1" }),
+    [int]$Port = $(if ($env:PGPORT) { [int]$env:PGPORT } else { 5432 }),
+    [string]$User = $(if ($env:PGUSER) { $env:PGUSER } else { "postgres" }),
+    [string]$Password = $env:PGPASSWORD
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +17,11 @@ $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
 $backupFile = Join-Path $targetDir "transactx-backup-$timestamp.sql"
 
 Write-Host "Creating backup of $SourceDb to $backupFile..."
-$env:PGPASSWORD = "1234"
+if ($Password) {
+    $env:PGPASSWORD = $Password
+} elseif (-not $env:PGPASSWORD) {
+    $env:PGPASSWORD = "1234"
+}
 & pg_dump -h $HostName -p $Port -U $User -d $SourceDb --clean --if-exists --no-owner --no-privileges -f $backupFile
 
 if ($LASTEXITCODE -ne 0 -or !(Test-Path $backupFile) -or ((Get-Item $backupFile).Length -eq 0)) {
