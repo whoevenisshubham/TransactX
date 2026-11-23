@@ -843,4 +843,230 @@ test.describe("M20-R.3: Unresolved Payment Lifecycle, Dispatch Reservation & Ter
     await expect(page.getByTestId("unresolved-intent-banner")).not.toBeVisible();
     await expect(page.getByLabel("Recipient TransactX payment ID")).not.toBeDisabled();
   });
+
+  // E2E-17: Comprehensive multi-stage recovery journey across intermediate states, errors (404, 500), reload, and terminal resolution (M20-R.5.4)
+  test("E2E-17: Comprehensive multi-stage recovery journey across intermediate states, errors (404, 500), reload, and terminal resolution", async ({ page }) => {
+    let capturedIdempotencyKey = "";
+    let getAttempt = 0;
+
+    await setupStandardMocks(page, {
+      postPaymentHandler: async (route, request) => {
+        capturedIdempotencyKey = request.headers()["idempotency-key"] ?? "";
+        // 1. POST returns 202 PROCESSING
+        await route.fulfill({
+          status: 202,
+          headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+          contentType: "application/json",
+          body: JSON.stringify({
+            data: {
+              id: "pmt-e2e17-journey",
+              amountPaise: 10000,
+              currency: "INR",
+              origin: "ONLINE",
+              state: "PROCESSING",
+              createdAt: new Date().toISOString(),
+              senderName: "Alice Tester",
+              senderPaymentIdentifier: "alice@transactx",
+              receiverName: "Merchant Bob",
+              receiverPaymentIdentifier: "bob@transactx",
+              direction: "SENT",
+            },
+          }),
+        });
+      },
+      idempotencyHandler: async (route) => {
+        getAttempt++;
+        if (getAttempt === 1) {
+          // 4. GET returns 202 PENDING_RECONCILIATION
+          await route.fulfill({
+            status: 202,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              data: {
+                id: "pmt-e2e17-journey",
+                amountPaise: 10000,
+                currency: "INR",
+                origin: "ONLINE",
+                state: "PENDING_RECONCILIATION",
+                createdAt: new Date().toISOString(),
+                senderName: "Alice Tester",
+                senderPaymentIdentifier: "alice@transactx",
+                receiverName: "Merchant Bob",
+                receiverPaymentIdentifier: "bob@transactx",
+                direction: "SENT",
+              },
+            }),
+          });
+        } else if (getAttempt === 2) {
+          // 6. GET returns 404 while backend transaction remains uncommitted
+          await route.fulfill({
+            status: 404,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: {
+                code: "PAYMENT_NOT_FOUND",
+                message: "transaction not found",
+              },
+            }),
+          });
+        } else if (getAttempt === 3) {
+          // 8. GET returns 500 due to database unavailability
+          await route.fulfill({
+            status: 500,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "database connection timed out",
+              },
+            }),
+          });
+        } else {
+          // 10. GET later returns 200 COMPLETED
+          await route.fulfill({
+            status: 200,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              data: {
+                id: "pmt-e2e17-journey",
+                amountPaise: 10000,
+                currency: "INR",
+                origin: "ONLINE",
+                state: "COMPLETED",
+                createdAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                senderName: "Alice Tester",
+                senderPaymentIdentifier: "alice@transactx",
+                receiverName: "Merchant Bob",
+                receiverPaymentIdentifier: "bob@transactx",
+                direction: "SENT",
+              },
+            }),
+          });
+        }
+      },
+    });
+
+    // 1. Dispatch payment
+    await page.goto("/pay");
+    await page.getByLabel("Recipient TransactX payment ID").fill("bob@transactx");
+    await page.getByRole("button", { name: "Find", exact: true }).click();
+    await page.getByLabel("Amount in Indian rupees").fill("100.00");
+    await page.getByRole("button", { name: "Review payment" }).click();
+    await page.getByRole("button", { name: "Confirm payment", exact: true }).click();
+
+    // 1. POST returned 202 PROCESSING -> In-flight screen
+    await expect(page.getByRole("heading", { name: "We couldn't confirm the response" })).toBeVisible();
+
+    // 2. Browser reload occurs while PROCESSING
+    await page.reload();
+
+    // 3. Active reservation remains present in IndexedDB and UI remains locked
+    await expect(page.getByRole("heading", { name: "We couldn't confirm the response" })).toBeVisible();
+    let reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+    expect(reservations[0].state).toBe("PROCESSING");
+
+    // 4. Click Check status -> GET returns 202 PENDING_RECONCILIATION
+    await page.getByRole("button", { name: "Check status" }).click();
+
+    // 5. Reservation remains locked
+    await expect(page.getByText(/intermediate state "PENDING_RECONCILIATION"/)).toBeVisible();
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+
+    // 6. Click Check status again -> GET returns 404 (delayed commit)
+    await page.getByRole("button", { name: "Check status" }).click();
+
+    // 7. Reservation remains locked
+    await expect(page.getByText(/Payment not yet found on the ledger/)).toBeVisible();
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+
+    // 8. Click Check status again -> GET returns 500 (DB failure)
+    await page.getByRole("button", { name: "Check status" }).click();
+
+    // 9. Reservation remains locked
+    await expect(page.getByText(/The request could not be completed|Unable to verify payment status/)).toBeVisible();
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+
+    // 10. Click Check status again -> GET returns 200 COMPLETED
+    await page.getByRole("button", { name: "Check status" }).click();
+
+    // 11. Reservation is removed only after terminal resolution; UI shows complete
+    await expect(page.getByRole("heading", { name: /Payment complete/ })).toBeVisible();
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(0);
+
+    // 15. Verify durable intent history in IndexedDB remains persisted after active lock released
+    const durableIntents = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("unresolved-intents", "readonly");
+          const getReq = tx.objectStore("unresolved-intents").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(durableIntents.length).toBe(1);
+    expect(durableIntents[0].state).toBe("RESOLVED_COMPLETED");
+    expect(durableIntents[0].paymentId).toBe("pmt-e2e17-journey");
+  });
 });

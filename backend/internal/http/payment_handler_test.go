@@ -457,208 +457,256 @@ func TestPaymentAPI_HTTPStateContract_PostPayments(t *testing.T) {
 	primaryAccID := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 
 	type postTestCase struct {
-		name                   string
-		state                  string
-		duplicate              bool
-		createErr              error
-		accountsErr            error
-		rawBody                string
-		authHeader             string
-		role                   string
-		wantStatus             int
-		wantErrorCode          string
-		wantTerminal           bool
-		wantReservationRetain bool
+		name                        string
+		state                       string
+		duplicate                   bool
+		createErr                   error
+		accountsErr                 error
+		rawBody                     string
+		authHeader                  string
+		role                        string
+		wantStatus                  int
+		wantErrorCode               string
+		wantTerminal                bool
+		activeReservationMustRemain bool
+		idempotencyRecordMustRemain bool
 	}
 
 	tests := []postTestCase{
 		// 1. New payment terminal completed -> 201 Created
 		{
-			name:                   "New_Payment_Completed",
-			state:                  payments.StateCompleted,
-			duplicate:              false,
-			wantStatus:             http.StatusCreated,
-			wantTerminal:           true,
-			wantReservationRetain: true,
+			name:                        "New_Payment_Completed",
+			state:                       payments.StateCompleted,
+			duplicate:                   false,
+			wantStatus:                  http.StatusCreated,
+			wantTerminal:                true,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: true,
 		},
 		// 2. New payment intermediate states -> 202 Accepted
 		{
-			name:                   "New_Payment_Created",
-			state:                  payments.StateCreated,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_Created",
+			state:                       payments.StateCreated,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "New_Payment_Validating",
-			state:                  payments.StateValidating,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_Validating",
+			state:                       payments.StateValidating,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "New_Payment_LocalSettlement",
-			state:                  payments.StateLocalSettlement,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_LocalSettlement",
+			state:                       payments.StateLocalSettlement,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "New_Payment_Routing",
-			state:                  payments.StateRouting,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_Routing",
+			state:                       payments.StateRouting,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "New_Payment_Processing",
-			state:                  payments.StateProcessing,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_Processing",
+			state:                       payments.StateProcessing,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "New_Payment_BankSettledCentralPending",
-			state:                  payments.StateBankSettledCentralPending,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_BankSettledCentralPending",
+			state:                       payments.StateBankSettledCentralPending,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "New_Payment_Committed",
-			state:                  payments.StateCommitted,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_Committed",
+			state:                       payments.StateCommitted,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "New_Payment_PendingReconciliation",
-			state:                  payments.StatePendingReconciliation,
-			duplicate:              false,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "New_Payment_PendingReconciliation",
+			state:                       payments.StatePendingReconciliation,
+			duplicate:                   false,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		// 3. Duplicate payment terminal states -> 200 OK
 		{
-			name:                   "Duplicate_Payment_Completed",
-			state:                  payments.StateCompleted,
-			duplicate:              true,
-			wantStatus:             http.StatusOK,
-			wantTerminal:           true,
-			wantReservationRetain: true,
+			name:                        "Duplicate_Payment_Completed",
+			state:                       payments.StateCompleted,
+			duplicate:                   true,
+			wantStatus:                  http.StatusOK,
+			wantTerminal:                true,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Duplicate_Payment_Failed",
-			state:                  payments.StateFailed,
-			duplicate:              true,
-			wantStatus:             http.StatusOK,
-			wantTerminal:           true,
-			wantReservationRetain: false,
+			name:                        "Duplicate_Payment_Failed",
+			state:                       payments.StateFailed,
+			duplicate:                   true,
+			wantStatus:                  http.StatusOK,
+			wantTerminal:                true,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Duplicate_Payment_Reversed",
-			state:                  payments.StateReversed,
-			duplicate:              true,
-			wantStatus:             http.StatusOK,
-			wantTerminal:           true,
-			wantReservationRetain: false,
+			name:                        "Duplicate_Payment_Reversed",
+			state:                       payments.StateReversed,
+			duplicate:                   true,
+			wantStatus:                  http.StatusOK,
+			wantTerminal:                true,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: true,
 		},
 		// 4. Duplicate payment intermediate states -> 202 Accepted
 		{
-			name:                   "Duplicate_Payment_Processing",
-			state:                  payments.StateProcessing,
-			duplicate:              true,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Duplicate_Payment_Processing",
+			state:                       payments.StateProcessing,
+			duplicate:                   true,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Duplicate_Payment_BankSettledCentralPending",
-			state:                  payments.StateBankSettledCentralPending,
-			duplicate:              true,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Duplicate_Payment_BankSettledCentralPending",
+			state:                       payments.StateBankSettledCentralPending,
+			duplicate:                   true,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		// 5. Unknown / Indeterminate state -> 500 Fail closed
 		{
-			name:          "New_Payment_UnknownState_FailsClosed",
-			state:         "UNKNOWN_CORRUPT_STATE",
-			duplicate:     false,
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "New_Payment_UnknownState_FailsClosed",
+			state:                       "UNKNOWN_CORRUPT_STATE",
+			duplicate:                   false,
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Duplicate_Payment_UnknownState_FailsClosed",
-			state:         "UNKNOWN_CORRUPT_STATE",
-			duplicate:     true,
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "Duplicate_Payment_UnknownState_FailsClosed",
+			state:                       "UNKNOWN_CORRUPT_STATE",
+			duplicate:                   true,
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		// 6. Offline lifecycle state -> 500 Fail closed
 		{
-			name:          "New_Payment_OfflineCaptured_FailsClosed",
-			state:         payments.StateOfflineCaptured,
-			duplicate:     false,
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "New_Payment_OfflineCaptured_FailsClosed",
+			state:                       payments.StateOfflineCaptured,
+			duplicate:                   false,
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		// 7. Error scenarios
 		{
-			name:          "Error_MalformedJSON",
-			rawBody:       `{"recipient": invalid json}`,
-			wantStatus:    http.StatusBadRequest,
-			wantErrorCode: "INVALID_REQUEST",
+			name:                        "Error_MalformedJSON",
+			rawBody:                     `{"recipient": invalid json}`,
+			wantStatus:                  http.StatusBadRequest,
+			wantErrorCode:               "INVALID_REQUEST",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 		{
-			name:          "Error_Unauthenticated",
-			authHeader:    "NONE",
-			wantStatus:    http.StatusUnauthorized,
-			wantErrorCode: "UNAUTHORIZED",
+			name:                        "Error_Unauthenticated",
+			authHeader:                  "NONE",
+			wantStatus:                  http.StatusUnauthorized,
+			wantErrorCode:               "UNAUTHORIZED",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 		{
-			name:          "Error_ForbiddenRole_OpsAdmin",
-			role:          "OPS_ADMIN",
-			wantStatus:    http.StatusForbidden,
-			wantErrorCode: "FORBIDDEN",
+			name:                        "Error_ForbiddenRole_OpsAdmin",
+			role:                        "OPS_ADMIN",
+			wantStatus:                  http.StatusForbidden,
+			wantErrorCode:               "FORBIDDEN",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 		{
-			name:          "Error_SourceAccountNotFound",
-			accountsErr:   accounts.ErrNotFound,
-			wantStatus:    http.StatusNotFound,
-			wantErrorCode: "ACCOUNT_NOT_FOUND",
+			name:                        "Error_SourceAccountNotFound",
+			accountsErr:                 accounts.ErrNotFound,
+			wantStatus:                  http.StatusNotFound,
+			wantErrorCode:               "ACCOUNT_NOT_FOUND",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 		{
-			name:          "Error_SourceAccountAmbiguous",
-			accountsErr:   accounts.ErrAmbiguousPrimary,
-			wantStatus:    http.StatusConflict,
-			wantErrorCode: "ACCOUNT_AMBIGUOUS",
+			name:                        "Error_SourceAccountAmbiguous",
+			accountsErr:                 accounts.ErrAmbiguousPrimary,
+			wantStatus:                  http.StatusConflict,
+			wantErrorCode:               "ACCOUNT_AMBIGUOUS",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 		{
-			name:          "Error_InsufficientFunds",
-			createErr:     payments.ErrInsufficientFunds,
-			wantStatus:    http.StatusConflict,
-			wantErrorCode: "INSUFFICIENT_FUNDS",
+			name:                        "Error_InsufficientFunds",
+			createErr:                   payments.ErrInsufficientFunds,
+			wantStatus:                  http.StatusConflict,
+			wantErrorCode:               "INSUFFICIENT_FUNDS",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 		{
-			name:          "Error_IdempotencyConflict",
-			createErr:     payments.ErrIdempotencyConflict,
-			wantStatus:    http.StatusConflict,
-			wantErrorCode: "IDEMPOTENCY_CONFLICT",
+			name:                        "Error_IdempotencyConflict",
+			createErr:                   payments.ErrIdempotencyConflict,
+			wantStatus:                  http.StatusConflict,
+			wantErrorCode:               "IDEMPOTENCY_CONFLICT",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Error_BankUnavailable",
-			createErr:     payments.ErrBankRouteUnavailable,
-			wantStatus:    http.StatusServiceUnavailable,
-			wantErrorCode: "BANK_UNAVAILABLE",
+			name:                        "Error_BankUnavailable",
+			createErr:                   payments.ErrBankRouteUnavailable,
+			wantStatus:                  http.StatusServiceUnavailable,
+			wantErrorCode:               "BANK_UNAVAILABLE",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 	}
 
@@ -765,9 +813,14 @@ func TestPaymentAPI_HTTPStateContract_PostPayments(t *testing.T) {
 				if isTerm != tc.wantTerminal {
 					t.Fatalf("IsTerminalState(%s) = %v, want %v", tc.state, isTerm, tc.wantTerminal)
 				}
-				isRetained := tc.state == payments.StateCompleted
-				if isRetained != tc.wantReservationRetain {
-					t.Fatalf("ReservationRetained(%s) = %v, want %v", tc.state, isRetained, tc.wantReservationRetain)
+				// In TransactX, client active reservation is released upon reaching terminal state.
+				// Non-terminal intermediate states must retain active reservation.
+				activeRemain := !payments.IsTerminalState(tc.state)
+				if activeRemain != tc.activeReservationMustRemain {
+					t.Fatalf("ActiveReservationMustRemain(%s) = %v, want %v", tc.state, activeRemain, tc.activeReservationMustRemain)
+				}
+				if !tc.idempotencyRecordMustRemain {
+					t.Fatalf("IdempotencyRecordMustRemain(%s) must be true for valid payment responses", tc.state)
 				}
 			}
 		})
@@ -789,195 +842,243 @@ func TestPaymentAPI_HTTPStateContract_GetIdempotencyKey(t *testing.T) {
 	}
 
 	type getTestCase struct {
-		name                   string
-		key                    string
-		state                  string
-		repoErr                error
-		authHeader             string
-		role                   string
-		wantStatus             int
-		wantErrorCode          string
-		wantTerminal           bool
-		wantReservationRetain bool
+		name                        string
+		key                         string
+		state                       string
+		repoErr                     error
+		authHeader                  string
+		role                        string
+		wantStatus                  int
+		wantErrorCode               string
+		wantTerminal                bool
+		activeReservationMustRemain bool
+		idempotencyRecordMustRemain bool
 	}
 
 	tests := []getTestCase{
 		// 1. Terminal states -> 200 OK
 		{
-			name:                   "Terminal_Completed",
-			key:                    "key-completed",
-			state:                  payments.StateCompleted,
-			wantStatus:             http.StatusOK,
-			wantTerminal:           true,
-			wantReservationRetain: true,
+			name:                        "Terminal_Completed",
+			key:                         "key-completed",
+			state:                       payments.StateCompleted,
+			wantStatus:                  http.StatusOK,
+			wantTerminal:                true,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Terminal_Failed",
-			key:                    "key-failed",
-			state:                  payments.StateFailed,
-			wantStatus:             http.StatusOK,
-			wantTerminal:           true,
-			wantReservationRetain: false,
+			name:                        "Terminal_Failed",
+			key:                         "key-failed",
+			state:                       payments.StateFailed,
+			wantStatus:                  http.StatusOK,
+			wantTerminal:                true,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Terminal_Reversed",
-			key:                    "key-reversed",
-			state:                  payments.StateReversed,
-			wantStatus:             http.StatusOK,
-			wantTerminal:           true,
-			wantReservationRetain: false,
+			name:                        "Terminal_Reversed",
+			key:                         "key-reversed",
+			state:                       payments.StateReversed,
+			wantStatus:                  http.StatusOK,
+			wantTerminal:                true,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: true,
 		},
 		// 2. Intermediate states -> 202 Accepted
 		{
-			name:                   "Intermediate_Created",
-			key:                    "key-created",
-			state:                  payments.StateCreated,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_Created",
+			key:                         "key-created",
+			state:                       payments.StateCreated,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Intermediate_Validating",
-			key:                    "key-validating",
-			state:                  payments.StateValidating,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_Validating",
+			key:                         "key-validating",
+			state:                       payments.StateValidating,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Intermediate_LocalSettlement",
-			key:                    "key-local-settlement",
-			state:                  payments.StateLocalSettlement,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_LocalSettlement",
+			key:                         "key-local-settlement",
+			state:                       payments.StateLocalSettlement,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Intermediate_Routing",
-			key:                    "key-routing",
-			state:                  payments.StateRouting,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_Routing",
+			key:                         "key-routing",
+			state:                       payments.StateRouting,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Intermediate_Processing",
-			key:                    "key-processing",
-			state:                  payments.StateProcessing,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_Processing",
+			key:                         "key-processing",
+			state:                       payments.StateProcessing,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Intermediate_BankSettledCentralPending",
-			key:                    "key-bank-settled-pending",
-			state:                  payments.StateBankSettledCentralPending,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_BankSettledCentralPending",
+			key:                         "key-bank-settled-pending",
+			state:                       payments.StateBankSettledCentralPending,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Intermediate_Committed",
-			key:                    "key-committed",
-			state:                  payments.StateCommitted,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_Committed",
+			key:                         "key-committed",
+			state:                       payments.StateCommitted,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:                   "Intermediate_PendingReconciliation",
-			key:                    "key-pending-recon",
-			state:                  payments.StatePendingReconciliation,
-			wantStatus:             http.StatusAccepted,
-			wantTerminal:           false,
-			wantReservationRetain: false,
+			name:                        "Intermediate_PendingReconciliation",
+			key:                         "key-pending-recon",
+			state:                       payments.StatePendingReconciliation,
+			wantStatus:                  http.StatusAccepted,
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		// 3. Unknown state -> 500 Fail closed
 		{
-			name:          "Unknown_State_FailsClosed",
-			key:           "key-unknown",
-			state:         "UNKNOWN_STATE_XYZ",
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "Unknown_State_FailsClosed",
+			key:                         "key-unknown",
+			state:                       "UNKNOWN_STATE_XYZ",
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		// 4. Offline lifecycle states -> 500 Fail closed
 		{
-			name:          "Offline_Captured_FailsClosed",
-			key:           "key-offline-captured",
-			state:         payments.StateOfflineCaptured,
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "Offline_Captured_FailsClosed",
+			key:                         "key-offline-captured",
+			state:                       payments.StateOfflineCaptured,
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Offline_Queued_FailsClosed",
-			key:           "key-offline-queued",
-			state:         payments.StateQueued,
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "Offline_Queued_FailsClosed",
+			key:                         "key-offline-queued",
+			state:                       payments.StateQueued,
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Offline_Syncing_FailsClosed",
-			key:           "key-offline-syncing",
-			state:         payments.StateSyncing,
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "Offline_Syncing_FailsClosed",
+			key:                         "key-offline-syncing",
+			state:                       payments.StateSyncing,
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Offline_ReplayFailed_FailsClosed",
-			key:           "key-offline-replay-failed",
-			state:         payments.StateReplayFailed,
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "Offline_ReplayFailed_FailsClosed",
+			key:                         "key-offline-replay-failed",
+			state:                       payments.StateReplayFailed,
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
-		// 5. Missing record -> 404 Not Found
+		// 5. Missing record -> 404 Not Found (Delayed commit: client must retain reservation; server has no record yet)
 		{
-			name:          "Missing_Record_NotFound",
-			key:           "nonexistent-key",
-			repoErr:       payments.ErrNotFound,
-			wantStatus:    http.StatusNotFound,
-			wantErrorCode: "PAYMENT_NOT_FOUND",
+			name:                        "Missing_Record_NotFound",
+			key:                         "nonexistent-key",
+			repoErr:                     payments.ErrNotFound,
+			wantStatus:                  http.StatusNotFound,
+			wantErrorCode:               "PAYMENT_NOT_FOUND",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: false,
 		},
-		// 6. Database connection error -> 500 Internal Server Error
+		// 6. Database connection error -> 500 Internal Server Error (Uncertain: client retains reservation; DB record assumed durable)
 		{
-			name:          "Database_Error_500",
-			key:           "key-db-error",
-			repoErr:       errors.New("connection reset by peer"),
-			wantStatus:    http.StatusInternalServerError,
-			wantErrorCode: "INTERNAL_ERROR",
+			name:                        "Database_Error_500",
+			key:                         "key-db-error",
+			repoErr:                     errors.New("connection reset by peer"),
+			wantStatus:                  http.StatusInternalServerError,
+			wantErrorCode:               "INTERNAL_ERROR",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		// 7. Security and Validation errors
 		{
-			name:          "Error_Unauthenticated",
-			key:           "valid-key",
-			authHeader:    "NONE",
-			wantStatus:    http.StatusUnauthorized,
-			wantErrorCode: "UNAUTHORIZED",
+			name:                        "Error_Unauthenticated",
+			key:                         "valid-key",
+			authHeader:                  "NONE",
+			wantStatus:                  http.StatusUnauthorized,
+			wantErrorCode:               "UNAUTHORIZED",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Error_ForbiddenRole_OpsAdmin",
-			key:           "valid-key",
-			role:          "OPS_ADMIN",
-			wantStatus:    http.StatusForbidden,
-			wantErrorCode: "FORBIDDEN",
+			name:                        "Error_ForbiddenRole_OpsAdmin",
+			key:                         "valid-key",
+			role:                        "OPS_ADMIN",
+			wantStatus:                  http.StatusForbidden,
+			wantErrorCode:               "FORBIDDEN",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Error_ForbiddenRole_OpsViewer",
-			key:           "valid-key",
-			role:          "OPS_VIEWER",
-			wantStatus:    http.StatusForbidden,
-			wantErrorCode: "FORBIDDEN",
+			name:                        "Error_ForbiddenRole_OpsViewer",
+			key:                         "valid-key",
+			role:                        "OPS_VIEWER",
+			wantStatus:                  http.StatusForbidden,
+			wantErrorCode:               "FORBIDDEN",
+			wantTerminal:                false,
+			activeReservationMustRemain: true,
+			idempotencyRecordMustRemain: true,
 		},
 		{
-			name:          "Error_MalformedKey_TooLong",
-			key:           strings.Repeat("k", 256),
-			wantStatus:    http.StatusBadRequest,
-			wantErrorCode: "INVALID_REQUEST",
+			name:                        "Error_MalformedKey_TooLong",
+			key:                         strings.Repeat("k", 256),
+			wantStatus:                  http.StatusBadRequest,
+			wantErrorCode:               "INVALID_REQUEST",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 		{
-			name:          "Error_MalformedKey_Whitespace",
-			key:           "   ",
-			wantStatus:    http.StatusBadRequest,
-			wantErrorCode: "INVALID_REQUEST",
+			name:                        "Error_MalformedKey_Whitespace",
+			key:                         "   ",
+			wantStatus:                  http.StatusBadRequest,
+			wantErrorCode:               "INVALID_REQUEST",
+			wantTerminal:                false,
+			activeReservationMustRemain: false,
+			idempotencyRecordMustRemain: false,
 		},
 	}
 
@@ -1067,9 +1168,14 @@ func TestPaymentAPI_HTTPStateContract_GetIdempotencyKey(t *testing.T) {
 				if isTerm != tc.wantTerminal {
 					t.Fatalf("IsTerminalState(%s) = %v, want %v", tc.state, isTerm, tc.wantTerminal)
 				}
-				isRetained := tc.state == payments.StateCompleted
-				if isRetained != tc.wantReservationRetain {
-					t.Fatalf("ReservationRetained(%s) = %v, want %v", tc.state, isRetained, tc.wantReservationRetain)
+				// In TransactX, client active reservation is released upon reaching terminal state.
+				// Non-terminal intermediate states must retain active reservation.
+				activeRemain := !payments.IsTerminalState(tc.state)
+				if activeRemain != tc.activeReservationMustRemain {
+					t.Fatalf("ActiveReservationMustRemain(%s) = %v, want %v", tc.state, activeRemain, tc.activeReservationMustRemain)
+				}
+				if !tc.idempotencyRecordMustRemain {
+					t.Fatalf("IdempotencyRecordMustRemain(%s) must be true for valid payment responses", tc.state)
 				}
 			}
 		})

@@ -347,8 +347,25 @@ export function SendMoneyPage({
         // Conflict on idempotency key with mismatched payload
         setError("Payment conflict: Idempotency key already used with different payment parameters.");
         setStage("uncertain");
+      } else if (caught instanceof ApiError && (caught.status === 401 || caught.status === 403)) {
+        // Authentication or authorization failure: preserve unresolved intent and active reservation!
+        await unresolvedStore.updateProgress(
+          requestID,
+          "UNCERTAIN",
+          undefined,
+          caught.status,
+          caught.message
+        );
+        setUnresolvedIntent({
+          ...baseIntent,
+          state: "UNCERTAIN",
+          lastHttpStatus: caught.status,
+          lastError: caught.message,
+        });
+        setError(caught.status === 401 ? "Session expired during payment dispatch. Please sign in again." : "Payment access forbidden.");
+        setStage("uncertain");
       } else {
-        // Definitive client rejection (400, 422)
+        // Definitive client rejection (400, 422) where no payment was created or accepted by backend
         if (unresolvedStore) {
           await unresolvedStore.resolveTerminal(requestID, "RESOLVED_FAILED");
         }
