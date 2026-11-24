@@ -2,209 +2,425 @@
 
 **Project:** TransactX — A Resilient Payment Infrastructure for the Next Generation of Digital Payments  
 **Document ID:** `DOC-DEMO-RUNBOOK-01`  
-**Milestone:** M20-R.6 (Final Project Freeze)  
+**Milestone:** M20-R.6 (Operational Runbook Reconciliation & Live Demonstration Acceptance)  
 **Classification:** Operational Runbook & Evaluation Guide  
 **Target Environment:** Local Single-Origin Staging Topology  
+**Date:** November 2026  
 
 ---
 
-## 1. System Requirements & Prerequisites
+## 1. System Requirements & Verified Runtimes
 
-Ensure the following runtimes and tools are installed before running TransactX:
+Ensure the following runtimes and tools are available before deploying TransactX:
 
-| Runtime / Tool | Minimum Version | Verification Command | Notes |
+| Runtime / Tool | Verified Reference Version | Minimum Engine Range | Verification Command | Operational Role |
+|---|---|---|---|---|
+| **Go** | `1.27.1` / `1.27.4` | `1.24+` (per `go.mod`) | `go version` | Central API, background recovery worker, and bank simulators |
+| **Node.js** | `22.x` (LTS, CI reference) | `>=20.0.0` (per `package.json`) | `node --version` | Frontend Vite application and Playwright test harness |
+| **npm** | `10.9.x` | `>=10.0.0` | `npm --version` | Frontend package management |
+| **PostgreSQL** | `18.6` (Local & CI) | `16.x+` | `psql --version` | Transactional ACID database and double-entry ledger |
+| **Caddy** | `v2.11.9` | `2.8+` | `.\bin\caddy.exe version` | Single-origin HTTP reverse proxy (Loopback only) |
+| **PowerShell** | `5.1` or `7.x` | Windows PowerShell | `$PSVersionTable.PSVersion` | Operational supervision and lifecycle execution scripts |
+
+> [!NOTE]
+> Node.js 22 is the verified reference runtime used in hosted continuous integration (`.github/workflows/release-validation.yml`). The frontend package engine metadata declares `>=20.0.0` compatibility.
+
+---
+
+## 2. Reconciled Local Staging Topology
+
+The authoritative local staging deployment topology runs as a single-origin HTTP loopback system:
+
+```
++----------------------------------------------------------------------------------------------------+
+|                                  TRANSACTX LOCAL STAGING TOPOLOGY                                  |
++----------------------------------------------------------------------------------------------------+
+|                                                                                                    |
+|    +------------------------------------------------------------------------------------------+    |
+|    |                         CADDY LOCAL INGRESS (http://127.0.0.1:3000)                      |    |
+|    |                      (Loopback HTTP Only - No TLS/HTTPS Termination)                     |    |
+|    +----------------------------+-----------------------------------+-------------------------+    |
+|                                 |                                   |                              |
+|           / (Static Assets)     |                                   |  /api/*, /health*, /readyz   |
+|                                 v                                   v                              |
+|    +-------------------------------------------+     +----------------------------------------+    |
+|    |            REACT 19 FRONTEND              |     |               GO REST API              |    |
+|    |        (Served from frontend/dist)        |     |           (http://127.0.0.1:8080)      |    |
+|    | - Customer Shell (Alice Demo)             |     +---+-------------------+------------+---+    |
+|    | - Merchant Receive Station (Demo Store)   |         |                   |            |        |
+|    | - Operations Console (OPS_VIEWER)         |         |                   |            |        |
+|    | - IndexedDB Active Reservation Gate       |         |                   |            |        |
+|    | - Offline Replay Queue Engine             |         |                   |            |        |
+|    +-------------------------------------------+         |                   |            |        |
+|                                                          |                   |            |        |
+|              +-------------------------------------------+                   |            |        |
+|              |                                                               |            |        |
+|              v                                                               v            v        |
+|    +-------------------+    +--------------------+                     +----------------------+    |
+|    |   POSTGRESQL 18   |    |  RECOVERY WORKER   |                     |    BANK SIMULATORS   |    |
+|    | (127.0.0.1:5432)  |<-->|  (Orphaned Sagas)  |                     | Bank A (:8081)       |    |
+|    | - 33 Migrations   |    | - Lease Fencing    |                     | Bank B (:8082)       |    |
+|    | - Double-Entry    |    | - Epoch Tracking   |                     | - Health: /healthz   |    |
+|    | - Idempotency     |    +--------------------+                     +----------------------+    |
+|    +-------------------+                                                                           |
++----------------------------------------------------------------------------------------------------+
+```
+
+### 2.1 Authoritative Address & Port Allocation
+
+| Component | Bound Address | Protocol | Primary Responsibilities |
 |---|---|---|---|
-| **Go** | `1.24+` | `go version` | Backend API, worker, and simulators |
-| **Node.js** | `20.0.0+` (LTS) | `node --version` | Frontend SPA and Playwright harness |
-| **npm** | `10.0.0+` | `npm --version` | Package manager |
-| **PostgreSQL** | `16.x` | `psql --version` | Core transactional database |
-| **Caddy** | `2.8+` | `caddy version` | Reverse proxy for single-origin staging |
-| **PowerShell** | `7.x` or `5.1` | `$PSVersionTable.PSVersion` | Staging supervision scripts |
+| **Caddy Local Ingress** | `http://127.0.0.1:3000` | HTTP (Loopback) | Single-origin entry point. Serves `frontend/dist` assets, proxies `/api/*`, `/health*`, and `/readyz` to `127.0.0.1:8080`. |
+| **Central Go API** | `http://127.0.0.1:8080` | HTTP | Central payment state machine, JWT authentication, idempotency validation, and adaptive routing. |
+| **Bank A Simulator** | `http://127.0.0.1:8081` | HTTP | Emulated banking participant (holds, credits, reversals). Health probe at `/healthz`. |
+| **Bank B Simulator** | `http://127.0.0.1:8082` | HTTP | Alternative banking participant. Health probe at `/healthz`. |
+| **Recovery Worker** | Background process | Internal / SQL | Background saga lease claimant and reconciler. |
+| **PostgreSQL Database** | `127.0.0.1:5432` | TCP (Postgres wire) | ACID transaction storage, 33 migrations, unique idempotency deduplication, and immutable ledger. |
+
+> [!WARNING]
+> **No TLS in Local Staging:** The local Caddy configuration (`deploy/caddy/Caddyfile.local-staging`) is configured strictly for HTTP loopback at `http://127.0.0.1:3000`. Do not navigate to `https://` or expect TLS certificate termination in local staging.
 
 ---
 
-## 2. Environment Configuration & Secret Management
+## 3. First-Time Setup & Startup Runbook
 
-TransactX separates configuration from credentials using environment variables. All non-sensitive defaults are documented in `deploy/env/local-staging.env.example`.
+Follow these 11 sequential steps to prepare, initialize, start, and verify the local staging environment from a clean repository clone.
 
-### 2.1 Configuration File Setup
-Create your local staging environment file `deploy/env/local-staging.env` by copying the template:
+### Step 1: Prerequisite Verification
+Verify that required runtimes and tools are installed:
+```powershell
+go version
+node --version
+npm --version
+psql --version
+```
+
+### Step 2: Environment Configuration File
+Create your local environment configuration file from the template:
 ```powershell
 Copy-Item deploy/env/local-staging.env.example deploy/env/local-staging.env
 ```
 
-### 2.2 Standard Development Variables (Non-Production)
+### Step 3: Credential Configuration
+Edit `deploy/env/local-staging.env` with your local PostgreSQL password and staging parameters:
 ```ini
-# Core Service Ports
-TRANSACTX_PORT=8080
-API_PORT=8083
-BANK_A_PORT=8081
-BANK_B_PORT=8082
+DATABASE_URL=postgres://postgres:your_password@127.0.0.1:5432/transactx_local_staging?sslmode=disable
+BANK_A_DATABASE_URL=postgres://postgres:your_password@127.0.0.1:5432/transactx_local_staging?sslmode=disable
+BANK_B_DATABASE_URL=postgres://postgres:your_password@127.0.0.1:5432/transactx_local_staging?sslmode=disable
 
-# Database Connection (Disposable local staging database)
-DATABASE_URL=postgres://postgres:postgres@localhost:5432/transactx_staging?sslmode=disable
+PGHOST=127.0.0.1
+PGPORT=5432
+PGUSER=postgres
+PGPASSWORD=your_password
+TX_SOURCE_DB=transactx_local_staging
+TX_TARGET_DB=transactx_restore_drill
 
-# Authentication Secrets (Development strings ONLY - never use in production)
-JWT_SECRET=dev-staging-jwt-secret-key-32-chars-long!!
-JWT_ISSUER=transactx-local-staging
-JWT_EXPIRATION_HOURS=24
-
-# Bank Simulator Endpoints
-BANK_A_URL=http://localhost:8081
-BANK_B_URL=http://localhost:8082
-
-# Feature Switches
-GEMINI_ENABLED=false
-RATE_LIMITING_ENABLED=false
+APP_ADDR=127.0.0.1:8080
+JWT_SECRET=supersecretjwtkeythatisatleast32byteslongforsecurity!
+JWT_ISSUER=transactx-api
+APP_DEVELOPMENT=true
+TX_SIMULATION_MODE=true
+TX_PUBLIC_DEMO_AUTH=true
+STAGING_INGRESS_URL=http://127.0.0.1:3000
 ```
 
-> [!CAUTION]
-> **Secret Hygiene:** Never commit `deploy/env/local-staging.env` or actual production credentials to version control. The repository's `.gitignore` explicitly excludes `.env` and `.env.local`.
-
----
-
-## 3. Database Initialization, Migrations & Seeding
-
-### 3.1 Initialize Database & Apply Migrations
-Execute the automated migration tool against the staging database:
+### Step 4: Backend Executable Preparation
+Because the repository does not maintain a custom build helper script, compile the four Go executables directly into `bin\` and place the Caddy executable in `bin\`:
 ```powershell
-cd backend
-go run ./cmd/migrate -database "postgres://postgres:postgres@localhost:5432/transactx_staging?sslmode=disable" up
-```
-*Expected Output:* 33 migrations applied successfully (from `000001_phase1a_payment_core` up to `000033_gemini_disable_switch`).
+# Create bin directory if not present
+New-Item -ItemType Directory -Force -Path bin | Out-Null
 
-### 3.2 Seed Staging Data
-Seed the standard demonstration accounts and bank accounts:
-```powershell
-go run ./cmd/devseed
-```
+# Build the four Go binaries
+Set-Location backend
+go build -o ../bin/api.exe ./cmd/api
+go build -o ../bin/bank-a.exe ./cmd/bank-a
+go build -o ../bin/bank-b.exe ./cmd/bank-b
+go build -o ../bin/worker.exe ./cmd/worker
+Set-Location ..
 
----
-
-## 4. Demo Login Accounts & Expected Balances
-
-The staging seed creates pre-configured personas across the three distinct product surfaces:
-
-| Role | Username / Identifier | Demo Password | Starting Balance | Initial Purpose |
-|---|---|---|---|---|
-| **Customer (Payer)** | `alice@transactx` | `Alice123!` | ₹100,000.00 (10,000,000 paise) | Customer Shell: Send money, scan QR, test offline mode |
-| **Customer (Peer)** | `charlie@transactx` | `Charlie123!` | ₹50,000.00 (5,000,000 paise) | Peer transfer recipient & cross-user isolation testing |
-| **Merchant (Payee)** | `bob@transactx` | `Bob123!` | ₹5,000.00 (500,000 paise) | Merchant Shell: Receive station, static QR, settlement feed |
-| **Operator (Admin)** | `ops@transactx` | `Admin123!` | N/A | Operations Console: Routing, circuit breakers, Merkle tree |
-
----
-
-## 5. Starting the Local Staging Environment
-
-### 5.1 Automated Supervision Script (Recommended)
-Run the automated supervisor script from the project root:
-```powershell
-./scripts/start-local-staging.ps1
-```
-This script validates prerequisites, starts the background services (Bank A, Bank B, Go API, Worker, Caddy), and monitors process health.
-
-### 5.2 Manual Multi-Process Startup
-Alternatively, start services in separate terminal tabs:
-```powershell
-# Tab 1: Bank A Simulator
-cd backend; go run ./cmd/bank-a -port 8081
-
-# Tab 2: Bank B Simulator
-cd backend; go run ./cmd/bank-b -port 8082
-
-# Tab 3: Central API
-cd backend; go run ./cmd/api -port 8083
-
-# Tab 4: Background Recovery Worker
-cd backend; go run ./cmd/worker
-
-# Tab 5: Caddy Reverse Proxy
-caddy run --config deploy/caddy/Caddyfile.local-staging
-```
-
-### 5.3 Verify Staging Health
-Open a browser or run curl to verify single-origin readiness:
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/health"
-```
-*Expected Output:* `{"status":"HEALTHY","service":"transactx-api"}`
-
----
-
-## 6. Demonstration Scenarios & Step-by-Step Script
-
-### Scenario 1: Normal Customer-to-Merchant Payment & Instant Receipt
-1. Open `http://localhost:8080` in a browser.
-2. Select **Customer Login** and enter `alice@transactx` / `Alice123!`.
-3. In the navigation bar, click **Send Money**.
-4. Enter recipient: `bob@transactx`. Click **Find**. The system verifies Bob's identity and displays the green verification badge.
-5. Enter amount: `₹250.00`. Enter note: `Coffee and pastry`.
-6. Click **Review payment**. Verify the two-phase summary dialog.
-7. Click **Confirm payment**.
-8. *Observation:* Payment resolves to `COMPLETED` in < 250ms. An instant digital receipt with cryptographic transaction ID and timestamp is generated. Alice's balance updates to `₹99,750.00`.
-
-### Scenario 2: Idempotent Duplicate Request Protection (Zero Double Debit)
-1. Using the browser developer tools (F12 Network tab), capture the `Idempotency-Key` header from Scenario 1.
-2. Using PowerShell, execute an immediate replay with the exact same key:
-```powershell
-$headers = @{
-    "Authorization" = "Bearer <Alice-Token>"
-    "Idempotency-Key" = "<Captured-Key>"
-    "Content-Type" = "application/json"
+# Ensure caddy.exe is present in bin\ (copy from installed PATH or download)
+if (-not (Test-Path "bin\caddy.exe")) {
+    $caddyCmd = Get-Command caddy -ErrorAction SilentlyContinue
+    if ($caddyCmd) {
+        Copy-Item $caddyCmd.Source "bin\caddy.exe"
+    } else {
+        Write-Error "caddy.exe must be downloaded or copied into bin\caddy.exe"
+    }
 }
-$body = '{"recipient":"bob@transactx","amountPaise":25000,"currency":"INR","note":"Coffee and pastry"}'
-Invoke-RestMethod -Uri "http://localhost:8080/api/payments" -Method Post -Headers $headers -Body $body
 ```
-3. *Observation:* Returns HTTP 200 with the identical `paymentId`. Alice's account is **not** debited a second time.
-4. Now change `"amountPaise": 50000` while keeping the same `Idempotency-Key`.
-5. *Observation:* Returns HTTP 409 `IDEMPOTENCY_CONFLICT`. The request is rejected fail-closed.
 
-### Scenario 3: Bank Outage Simulation & Adaptive Routing
-1. Sign in as `ops@transactx` / `Admin123!` to the **Operations Console** (`/console`).
-2. Navigate to **Routing & Circuits**. Observe that both Bank A and Bank B are healthy (`CLOSED` circuit state).
-3. Under Bank A, click **Simulate Outage** (or trip circuit breaker).
-4. Return to Alice's Customer tab and send `₹100.00` to `bob@transactx`.
-5. *Observation:* The backend router detects Bank A's failure, marks its circuit `OPEN`, and automatically switches the active route to Bank B. The payment succeeds with zero end-user interruption.
-6. The Operations console logs an audit event: `CIRCUIT_TRIPPED: BANK-A -> TRAFFIC DIVERTED TO BANK-B`.
+### Step 5: Frontend Production Build
+Build the React 19 single-page application into `frontend/dist`:
+```powershell
+Set-Location frontend
+npm ci
+npm run build
+Set-Location ..
+```
+Verify that `frontend/dist/index.html` exists.
 
-### Scenario 4: Unresolved Payment Recovery across Page Reload
-1. In the Network tab of Alice's browser, throttle network to "Offline" or stop the Go API right as payment is confirmed.
-2. Click **Confirm payment** for `₹500.00`.
-3. *Observation:* The payment enters the **Uncertain State** view: *"We couldn't confirm the response. Your transfer may still be processing on the ledger. We preserved your payment request ID and idempotency key."*
-4. Refresh the page (`F5`).
-5. *Observation:* The browser rehydrates from IndexedDB. The active reservation lock is intact; the send form is disabled to prevent duplicate attempts.
-6. Restore network / restart the API and click **Check status**.
-7. *Observation:* The API reconciles the payment, returns `COMPLETED`, releases the active reservation lock, and presents the completion receipt.
+### Step 6: Database Creation
+Create the local staging database:
+```powershell
+& ./scripts/load-local-staging-env.ps1
+psql -h $env:PGHOST -p $env:PGPORT -U $env:PGUSER -d postgres -c "CREATE DATABASE transactx_local_staging;"
+```
 
-### Scenario 5: Offline Edge Payment Capture & Monotonic Replay
-1. Toggle browser to Offline mode in Developer Tools.
-2. In Customer Shell, enter `bob@transactx`, amount `₹50.00`, and click **Pay**.
-3. *Observation:* The UI detects offline mode and displays: *"Payment queued locally in encrypted browser storage."*
-4. The payment is assigned a cryptographic offline nonce and held in `offline-queue`.
-5. Restore network connectivity.
-6. Click **Sync Queue** (or observe automatic background sync).
-7. *Observation:* The replay engine claims the intent with a local lease, submits it to `/api/payments`, receives confirmation, and transitions the intent to `RESOLVED_COMPLETED`.
+### Step 7: Migration Execution
+Apply the 33 canonical database schema migrations using `backend/cmd/migrate`:
+```powershell
+Set-Location backend
+go run ./cmd/migrate -database-url "postgres://postgres:$env:PGPASSWORD@127.0.0.1:5432/transactx_local_staging?sslmode=disable" -dir ./migrations up
+go run ./cmd/migrate -database-url "postgres://postgres:$env:PGPASSWORD@127.0.0.1:5432/transactx_local_staging?sslmode=disable" -dir ./migrations status
+go run ./cmd/migrate -database-url "postgres://postgres:$env:PGPASSWORD@127.0.0.1:5432/transactx_local_staging?sslmode=disable" -dir ./migrations verify
+Set-Location ..
+```
+> [!IMPORTANT]
+> The migration tool supports `-database-url` and `-dir`. Flags such as `-database` or `-path` are unsupported.
 
-### Scenario 6: Cryptographic Merkle Tree Integrity Verification
-1. In the Operations Console, navigate to **Financial Integrity**.
-2. Click **Generate Merkle Commitment**.
-3. *Observation:* The system hashes all newly settled transitions and produces a 256-bit cryptographic root.
-4. Click **Verify Ledger Consistency**.
-5. *Observation:* The engine verifies that the sum of debits equals the sum of credits across all accounts ($\sum D - \sum C = 0$) and matches the root commitment.
+### Step 8: Public Demo Initialization
+Seed the fresh database with synthetic public demo personas using the required safety guards:
+```powershell
+Set-Location backend
+$env:TX_DEMO_INITIALIZE = "I_ACKNOWLEDGE_NEW_EMPTY_DEMO_DATABASE"
+$env:TX_DEMO_EXPECTED_DATABASE = "transactx_local_staging"
+$env:TX_DEMO_PASSWORD = "DemoPassword2026!Strong"
+$env:DATABASE_URL = "postgres://postgres:$env:PGPASSWORD@127.0.0.1:5432/transactx_local_staging?sslmode=disable"
+go run ./cmd/demo-seed
+Set-Location ..
+```
 
----
+### Step 9: Staging Supervisor Startup
+Start the entire local staging stack via the supervisor. Use `-IncludeFrontend` to ensure the production build is verified:
+```powershell
+./scripts/start-local-staging.ps1 -IncludeFrontend
+```
+To run the supervisor attached in the current console for debugging, pass `-Foreground`.
 
-## 7. Shutdown Procedure & Database Cleanup
+### Step 10: Service Health & Readiness Verification
+Poll both direct and proxied readiness endpoints:
+```powershell
+# 1. Direct Go API readiness
+Invoke-RestMethod -Uri "http://127.0.0.1:8080/readyz"
+# Expected response: {"data":{"readiness":true,"service":"transactx-api","status":"ok"},"requestId":"..."}
 
-### 7.1 Graceful Staging Shutdown
-Run the stop script to terminate all staging background processes cleanly:
+# 2. Caddy ingress proxied readiness
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/readyz"
+# Expected response: identical JSON proxied through Caddy
+
+# 3. Bank A Simulator health
+Invoke-RestMethod -Uri "http://127.0.0.1:8081/healthz"
+# Expected response: {"status":"ok"}
+
+# 4. Bank B Simulator health
+Invoke-RestMethod -Uri "http://127.0.0.1:8082/healthz"
+# Expected response: {"status":"ok"}
+```
+
+### Step 11: Graceful Shutdown
+To cleanly stop all managed processes and verify that staging ports are freed:
 ```powershell
 ./scripts/stop-local-staging.ps1
 ```
 
-### 7.2 Database Reset (Disposable Staging Only)
-To restore the staging database to a clean baseline:
+---
+
+## 4. Public Demo Personas vs. Private Administrator Provisioning
+
+### 4.1 Public Demo Personas (`cmd/demo-seed`)
+The public demo environment provides pre-configured synthetic personas accessed through the `/demo` workspace selector:
+
+| Persona | Name | Role | Bank | Payment Identifier | Starting Balance |
+|---|---|---|---|---|---|
+| **Customer** | Alice Demo | `CUSTOMER` | Bank A | `alice@transactx` | `1,000,000` paise (**₹10,000.00**) |
+| **Recipient** | Bob Demo | `CUSTOMER` | Bank B | `bob@transactx` | `100,000` paise (**₹1,000.00**) |
+| **Merchant** | Demo Store | `MERCHANT` | Bank B | `store@transactx` | `0` paise (**₹0.00**) |
+| **Operator** | Demo Operator | `OPS_VIEWER` | Bank A | `viewer@transactx` | `0` paise (**₹0.00**) |
+
+> [!IMPORTANT]
+> **Authentication Mechanism:** In the public demo, users do **not** enter individual usernames and passwords. Selecting a persona card on `/demo` calls `POST /api/auth/demo` with `{"persona":"customer|merchant|operator"}`. The backend verifies the presence of the `demo_limits.budgets` table and issues a scoped JWT.
+
+### 4.2 Private Administrator Provisioning (`cmd/devseed`)
+The public demo operator persona (`viewer@transactx`) has role `OPS_VIEWER`. It can inspect live network topology, routing distribution, circuit states, and Merkle commitments, but **cannot** mutate circuit breakers or inject chaos.
+
+If a demonstration requires privileged controls (e.g. tripping circuits or starting chaos scenarios):
+1. `cmd/devseed` provisions an `OPS_ADMIN` user (`admin@transactx`).
+2. **Collision Warning:** `cmd/demo-seed` already claims phone `8888888888` and `viewer@transactx`. To avoid unique constraint collisions on `users_phone_key` and `users_upi_id_key`, set non-colliding viewer environment variables before running `devseed`:
 ```powershell
-./scripts/restore-db.ps1 -BackupFile deploy/backups/staging-clean-baseline.dump
+Set-Location backend
+$env:APP_DEVELOPMENT = "true"
+$env:DEV_ADMIN_PASSWORD = "AdminPassword2026!Secure"
+$env:DEV_VIEWER_PHONE = "8888888889"
+$env:DEV_VIEWER_PAYMENT_ID = "devops-viewer@transactx"
+go run ./cmd/devseed
+Set-Location ..
 ```
-*(Or drop and re-run migrations via `cmd/migrate up` and `cmd/devseed`)*.
+3. Sign in as Administrator using the standard login interface (`/login`) with `admin@transactx` and your configured password.
+
+---
+
+## 5. Reconciled Demonstration Scenarios
+
+### Scenario 1: Normal Customer-to-Merchant Payment & Ledger Update
+1. Open `http://127.0.0.1:3000/demo` in a web browser.
+2. Click **Customer (Alice Demo · Bank A)**.
+3. In the navigation bar, click **Send Money**.
+4. In the recipient input, enter `bob@transactx` (or `store@transactx`). Click **Find**. The green KYC verification checkmark displays.
+5. Enter amount: `₹250.00` (`25000` paise). Enter note: `Coffee and pastry`.
+6. Click **Review payment**. Confirm the review dialog displaying source account (`TX-...`), destination account, and zero fee.
+7. Click **Confirm payment**.
+8. **Observation:**
+   - The payment resolves to `COMPLETED` (observed local duration: ~192ms).
+   - Alice's balance decreases from `₹10,000.00` to `₹9,750.00`.
+   - Bob's balance increases from `₹1,000.00` to `₹1,250.00`.
+   - A digital receipt displays with the assigned UUID payment ID (e.g. `53fb77f9-...`).
+   - The PostgreSQL ledger records exactly 1 debit entry of 25,000 paise on Alice's account and 1 credit entry of 25,000 paise on Bob's account.
+
+---
+
+### Scenario 2: Idempotent Duplicate Request Protection (Zero Double Debit)
+1. Open a PowerShell terminal.
+2. Obtain Alice's demo token:
+```powershell
+$authBody = @{ persona = 'customer' } | ConvertTo-Json -Compress
+$authResp = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/auth/demo' -Method Post -Body $authBody -ContentType 'application/json'
+$token = $authResp.data.token
+```
+3. Dispatch an initial payment with a fresh `Idempotency-Key`:
+```powershell
+$headers = @{
+    'Authorization' = "Bearer $token"
+    'Idempotency-Key' = 'demo-runbook-key-1001'
+    'Content-Type' = 'application/json'
+}
+$body = @{
+    recipient = 'bob@transactx'
+    amountPaise = 25000
+    currency = 'INR'
+    note = 'Pastry run'
+} | ConvertTo-Json -Compress
+
+$pay1 = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/payments' -Method Post -Headers $headers -Body $body
+Write-Host "Initial Payment ID: $($pay1.data.id), State: $($pay1.data.state)"
+```
+4. **Identical Replay:** Immediately re-send the exact same request:
+```powershell
+$pay2 = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/payments' -Method Post -Headers $headers -Body $body
+Write-Host "Replay Payment ID: $($pay2.data.id), State: $($pay2.data.state)"
+Write-Host "Payment IDs Identical: $($pay1.data.id -eq $pay2.data.id)"
+```
+   **Observation:** Returns HTTP 200 with the exact same `paymentId`. Zero secondary debits occur.
+5. **Conflicting Replay:** Send a request with the *same* `Idempotency-Key` but modified `amountPaise: 50000`:
+```powershell
+$conflictBody = @{
+    recipient = 'bob@transactx'
+    amountPaise = 50000
+    currency = 'INR'
+    note = 'Pastry run'
+} | ConvertTo-Json -Compress
+
+try {
+    Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/payments' -Method Post -Headers $headers -Body $conflictBody
+} catch {
+    Write-Host "Caught expected conflict: $($_.Exception.Response.StatusCode)"
+}
+```
+   **Observation:** Returns HTTP 409 Conflict (`IDEMPOTENCY_CONFLICT`). The database rejects the mutation fail-closed.
+
+---
+
+### Scenario 3: Bank Outage & Health-Aware Routing Failover
+1. Navigate to `http://127.0.0.1:3000/demo` and select **Operator (Read-only viewer)**.
+2. In the console, inspect **Routing & Circuits**. Observe that Bank A and Bank B circuits are in `CLOSED` state.
+3. To demonstrate operational failover without administrative API tokens, simulate an outage by stopping the Bank A process:
+```powershell
+# Stop Bank A simulator process
+$bankA_pid = (Get-Content logs/staging-pids.json | ConvertFrom-Json).'bank-a'
+Stop-Process -Id $bankA_pid -Force
+```
+4. Return to the Customer view and dispatch a payment to `bob@transactx` for `₹100.00`.
+5. **Observation:**
+   - The Central Go API detects that Bank A's health probe (`http://127.0.0.1:8081/healthz`) fails to respond.
+   - The circuit breaker for Bank A transitions toward `OPEN`.
+   - The adaptive router excludes Bank A from the candidate set and steers execution to Bank B.
+   - The payment completes successfully on Bank B.
+6. Restart Bank A or let the supervisor restart it to observe circuit recovery.
+
+---
+
+### Scenario 4: Post-Dispatch Uncertain Payment Recovery across Page Reload
+1. In Alice's Customer view (`/customer`), fill out the Send Money form for `₹500.00` to `bob@transactx`.
+2. Open Developer Tools (F12) -> Network tab.
+3. Click **Confirm payment**. In an automated Playwright fixture (`E2E-18`), network interruption is simulated immediately upon dispatch.
+4. **Observation:**
+   - The UI enters the **Uncertain State** screen: *"We couldn't confirm the response. Your transfer may still be processing on the ledger. We preserved your payment request ID and idempotency key."*
+   - An active spend reservation lock is written to IndexedDB (`active-reservations`).
+5. Refresh the browser tab (`F5`).
+6. **Observation:**
+   - The application rehydrates the reservation from IndexedDB.
+   - The send form remains locked, preventing the customer from accidentally paying twice.
+7. Click **Check status**.
+8. **Observation:**
+   - The client queries `GET /api/payments/{id}`.
+   - Once the terminal status (`COMPLETED`) is confirmed, the IndexedDB reservation lock is released, and the completion receipt is presented.
+
+---
+
+### Scenario 5: Offline Edge Intent Capture & Monotonic Replay
+1. In Developer Tools, toggle the network to **Offline**.
+2. Select **Pay Offline (Edge Mode)**.
+3. Enter amount `₹150.00` to `store@transactx`. Click **Queue Offline Intent**.
+4. **Observation:**
+   - An offline payment intent is stored in IndexedDB (`offline-tx-queue`).
+   - *Epistemic note:* IndexedDB storage is structured and owner-scoped; AES-GCM encryption is not implemented.
+   - The local queue assigns a monotonic sequence counter (`seq=1`) and cryptographic client request ID.
+5. Toggle the network back to **Online**.
+6. Click **Sync Offline Payments**.
+7. **Observation:**
+   - The client's offline replay engine dispatches the queued intent sequentially.
+   - The server verifies monotonic order and executes the transaction on the primary ledger.
+
+---
+
+### Scenario 6: Financial Integrity & Cryptographic Merkle Auditing
+1. In the Operations Console (`/console`), navigate to **Reconciliation**.
+2. **Ledger Conservation Check:**
+   - Inspect the dual-ledger settlement summary.
+   - Confirm that total debits match total credits ($\sum \text{Debits} = \sum \text{Credits}$).
+   - Run the SQL verification in PostgreSQL:
+   ```sql
+   SELECT SUM(CASE WHEN entry_type = 'DEBIT' THEN amount_paise ELSE 0 END) AS total_debits,
+          SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_paise ELSE 0 END) AS total_credits
+   FROM ledger_entries;
+   ```
+   *Expected Outcome:* `total_debits = total_credits`.
+3. **Merkle Proof Verification Check:**
+   - In the console, navigate to **Integrity / Merkle Tree**.
+   - Select participant `BANK-A` and click **Fetch Merkle Root**.
+   - Observe the computed SHA-256 root commitment over immutable payment state transitions.
+   - Expand tree nodes to inspect cryptographic inclusion proofs for individual state transitions.
+   - *Epistemic distinction:* A valid Merkle root proves that historical state transitions have not been tampered with or rewritten; it is an audit proof, distinct from double-entry debit/credit balance conservation.
+
+---
+
+## 6. Disaster Recovery & Clean Teardown
+
+### 6.1 Database Backup
+Execute the tested database backup script:
+```powershell
+./scripts/backup-db.ps1
+```
+Backups are archived into `backups\transactx_backup_<timestamp>.dump`.
+
+### 6.2 Safe Restoration Procedure
+To restore into an explicitly designated disposable recovery database:
+```powershell
+./scripts/restore-db.ps1 -TargetDatabase "transactx_restore_drill"
+```
+The script validates that the target database is not a protected source database before restoring.
+
+### 6.3 Complete Stack Teardown
+```powershell
+./scripts/stop-local-staging.ps1
+```
+All ports (`8080`, `8081`, `8082`, `3000`) and background processes are released.

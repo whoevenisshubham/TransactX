@@ -3,7 +3,7 @@
 **Project:** TransactX — A Resilient Payment Infrastructure for the Next Generation of Digital Payments  
 **Document ID:** `DOC-ARCH-FINAL-01`  
 **Classification:** Definitive Technical Architecture & Specification  
-**Milestone:** M20-R.6 (Final Project Freeze)  
+**Milestone:** M20-R.6 (Operational Runbook Reconciliation & Live Demonstration Acceptance)  
 **Date:** November 2026  
 
 ---
@@ -34,18 +34,18 @@ TransactX employs a single-origin, multi-tier distributed architecture deployed 
 +----------------------------------------------------------------------------------------------------+
 |                                                                                                    |
 |    +------------------------------------------------------------------------------------------+    |
-|    |                                CADDY REVERSE PROXY (:8080)                               |    |
-|    |                  (Single-Origin Ingress, TLS Termination, Route Dispatch)                |    |
+|    |                         CADDY LOCAL INGRESS (http://127.0.0.1:3000)                      |    |
+|    |                      (Loopback HTTP Only - No TLS/HTTPS Termination)                     |    |
 |    +----------------------------+-----------------------------------+-------------------------+    |
 |                                 |                                   |                              |
-|           / (Static Assets)     |                                   |  /api/*, /health/*           |
+|           / (Static Assets)     |                                   |  /api/*, /health*, /readyz   |
 |                                 v                                   v                              |
 |    +-------------------------------------------+     +----------------------------------------+    |
 |    |            REACT 19 FRONTEND              |     |               GO REST API              |    |
-|    |     (Vite Single Page Application)        |     |     (HTTP / Auth / Saga Router)        |    |
-|    | - Customer Shell & Send Flow              |     +---+-------------------+------------+---+    |
-|    | - Merchant Receive Station & QR           |         |                   |            |        |
-|    | - Network Console Operations Workbench    |         |                   |            |        |
+|    |        (Served from frontend/dist)        |     |           (http://127.0.0.1:8080)      |    |
+|    | - Customer Shell (Alice Demo)             |     +---+-------------------+------------+---+    |
+|    | - Merchant Receive Station (Demo Store)   |         |                   |            |        |
+|    | - Operations Console (OPS_VIEWER)         |         |                   |            |        |
 |    | - IndexedDB Active Spend Reservation      |         |                   |            |        |
 |    | - Offline Replay Queue Engine             |         |                   |            |        |
 |    +-------------------------------------------+         |                   |            |        |
@@ -54,26 +54,25 @@ TransactX employs a single-origin, multi-tier distributed architecture deployed 
 |              |                                                               |            |        |
 |              v                                                               v            v        |
 |    +-------------------+    +--------------------+                     +----------------------+    |
-|    |   POSTGRESQL 16   |    |  RECOVERY WORKER   |                     |    BANK SIMULATORS   |    |
-|    | (Primary Ledger)  |<-->|  (Orphaned Sagas)  |                     | Bank A (:8081)       |    |
+|    |   POSTGRESQL 18   |    |  RECOVERY WORKER   |                     |    BANK SIMULATORS   |    |
+|    | (127.0.0.1:5432)  |<-->|  (Orphaned Sagas)  |                     | Bank A (:8081)       |    |
 |    | - 33 Migrations   |    | - Lease Fencing    |                     | Bank B (:8082)       |    |
-|    | - Double-Entry    |    | - Epoch Tracking   |                     | - Chaos Injection    |    |
-|    | - Idempotency     |    +--------------------+                     | - Status Webhooks    |    |
-|    | - Merkle Tree     |                                               +----------------------+    |
+|    | - Double-Entry    |    | - Epoch Tracking   |                     | - Health: /healthz   |    |
+|    | - Idempotency     |    +--------------------+                     +----------------------+    |
 |    +-------------------+                                                                           |
 +----------------------------------------------------------------------------------------------------+
 ```
 
-### Component Responsibilities Matrix
+### 2.1 Component Responsibilities Matrix
 
-| Component | Technology | Primary Responsibilities |
-|---|---|---|
-| **Ingress Proxy** | Caddy v2 | Single-origin host routing, reverse-proxying `/api/*` to the Go API, serving Vite production assets, and managing secure CORS/header policies. |
-| **Frontend Application** | React 19, TypeScript, Vite | Role-based product surfaces (Customer, Merchant, Operator), pre-dispatch IndexedDB reservation locking, offline queue storage, and QR code generation. |
-| **Central Backend API** | Go 1.26, `net/http` | JWT authentication, request validation, payment idempotency evaluation, routing decisions, ledger accounting, and outbox event publishing. |
-| **Database & Ledger** | PostgreSQL 16 | Relational persistence, transactional state machine, unique idempotency deduplication, immutable transition history, and double-entry ledger bookkeeping. |
-| **Recovery Worker** | Go 1.26 background process | Autonomous scanning of orphaned non-terminal sagas, distributed lease acquisition with epoch fencing, and crash-safe reconciliation. |
-| **Bank Simulators** | Go 1.26 HTTP microservices | Emulated banking rails exposing hold/settle endpoints, configurable latency, transient network drop simulation, and error injection. |
+| Component | Bound Address | Technology | Primary Responsibilities |
+|---|---|---|---|
+| **Caddy Local Ingress** | `http://127.0.0.1:3000` | Caddy v2.11.9 (HTTP) | Single-origin host routing, reverse-proxying `/api/*`, `/health*`, and `/readyz` to `127.0.0.1:8080`, and serving compiled `frontend/dist` assets. Loopback HTTP only. |
+| **Frontend Application** | Served via Caddy | React 19, TypeScript, Vite | Role-based product surfaces (Customer, Merchant, Operator), pre-dispatch IndexedDB reservation locking, offline queue storage, and QR code generation. |
+| **Central Backend API** | `http://127.0.0.1:8080` | Go 1.27.1 (Go 1.24+ module) | JWT authentication, request validation, payment idempotency evaluation, routing decisions, ledger accounting, and outbox event publishing. |
+| **Database & Ledger** | `127.0.0.1:5432` | PostgreSQL 18.6 | Relational persistence, transactional state machine, 33 migrations, unique idempotency deduplication, immutable transition history, and double-entry ledger bookkeeping. |
+| **Recovery Worker** | Background process | Go background goroutine | Autonomous scanning of orphaned non-terminal sagas, distributed lease acquisition with epoch fencing, and crash-safe reconciliation. |
+| **Bank Simulators** | `:8081` & `:8082` | Go HTTP microservices | Emulated banking rails exposing hold/settle endpoints, configurable latency, transient network drop simulation, and error injection. Health probe at `/healthz`. |
 
 ---
 
@@ -84,9 +83,9 @@ sequenceDiagram
     autonumber
     actor Customer as Customer / Payer
     participant Browser as React Frontend (IndexedDB)
-    participant Caddy as Caddy Ingress (:8080)
-    participant API as Go Central API
-    participant DB as PostgreSQL 16
+    participant Caddy as Caddy Ingress (http://127.0.0.1:3000)
+    participant API as Go Central API (http://127.0.0.1:8080)
+    participant DB as PostgreSQL 18
     participant Bank as Selected Bank Adapter (A/B)
     participant Worker as Background Recovery Worker
 
@@ -94,7 +93,7 @@ sequenceDiagram
     Browser->>Browser: Compute SHA-256 Hash & Reserve in IndexedDB (active-reservations)
     Note over Browser: Spend Lock Held; Form Disabled
     Browser->>Caddy: POST /api/payments (Idempotency-Key, X-Request-ID)
-    Caddy->>API: Proxy request to Go backend
+    Caddy->>API: Reverse proxy request to Go backend (:8080)
     API->>DB: BEGIN TX: Insert into payments & idempotency_records
     alt Key Conflict (Different Payload)
         DB-->>API: Unique violation / Hash mismatch
@@ -127,7 +126,7 @@ sequenceDiagram
                 Worker->>DB: Refund / Release local hold -> State: FAILED
             end
             Customer->>Browser: Clicks "Check status"
-            Browser->>API: GET /api/payments/idempotency/:key
+            Browser->>API: GET /api/payments/{id}
             API-->>Browser: HTTP 200 (State: COMPLETED or FAILED)
             Browser->>Browser: Releases active-reservations; marks intent terminal
         end
@@ -235,6 +234,7 @@ To ensure financial safety at the edge, the frontend implements a strict **Fail-
 - If IndexedDB is blocked or disabled by private browser settings, payment dispatch is **blocked fail-closed** (`StorageUnavailableError`).
 - A browser page reload while an intent is in-flight rehydrates the reservation from IndexedDB, displays the in-flight recovery view, and keeps the send form locked.
 - If a server responds with HTTP 401 (token expired) or 403 (forbidden role), the client marks the intent as `UNCERTAIN` and **preserves the reservation lock**, preventing duplicate submissions until re-authentication.
+- *Epistemic note:* IndexedDB records are owner-scoped, structured browser objects; AES-GCM encryption is not implemented in this repository.
 
 ---
 
@@ -338,6 +338,12 @@ $$\sum \text{Debits} = \sum \text{Credits}$$
 - Payer account: `DEBIT` amount $A$.
 - Payee account: `CREDIT` amount $A$.
 - All ledger entries are linked to an atomic `ledger_transactions` record.
+- In PostgreSQL, balance conservation is verified via:
+  ```sql
+  SELECT SUM(CASE WHEN entry_type = 'DEBIT' THEN amount_paise ELSE 0 END) AS total_debits,
+         SUM(CASE WHEN entry_type = 'CREDIT' THEN amount_paise ELSE 0 END) AS total_credits
+  FROM ledger_entries;
+  ```
 
 ### 9.2 Merkle Tree Cryptographic Commitments
 To prevent retroactive database tampering by database administrators:
@@ -345,3 +351,4 @@ To prevent retroactive database tampering by database administrators:
    $$H_{\text{leaf}} = \text{SHA256}(\text{id} \parallel \text{payment\_id} \parallel \text{from\_state} \parallel \text{to\_state} \parallel \text{transitioned\_at})$$
 2. Periodic commitments compute the cryptographic root over all uncommitted leaves.
 3. Commitments are stored in `merkle_commitments` and exposed via `/api/ops/merkle` for independent mathematical verification.
+4. *Epistemic distinction:* A valid Merkle root proves transition log immutability and tamper-evidence. It does not by itself prove that account balances are conserved.

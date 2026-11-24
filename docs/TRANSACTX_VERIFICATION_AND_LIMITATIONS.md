@@ -2,7 +2,7 @@
 
 **Project:** TransactX — A Resilient Payment Infrastructure for the Next Generation of Digital Payments  
 **Document ID:** `DOC-VERIF-LIMIT-01`  
-**Milestone:** M20-R.6 (Final Project Freeze)  
+**Milestone:** M20-R.6 (Operational Runbook Reconciliation & Live Demonstration Acceptance)  
 **Classification:** Scientific Verification & Limitations Disclosure  
 **Date:** November 2026  
 
@@ -11,10 +11,10 @@
 ## 1. Executive Summary & Epistemic Boundaries
 
 This document provides a rigorous, transparent account of the test evidence supporting TransactX. In alignment with academic integrity principles, this document explicitly distinguishes between:
-1. **Mocked Unit & Contract Tests:** Verifying component logic and HTTP serialization under simulated inputs.
-2. **Browser Storage & Lifecycle Fixtures:** Verifying client-side state machines, IndexedDB persistence, and user interfaces via Playwright.
-3. **Real PostgreSQL Integration Tests:** Verifying database schemas, ACID transactional boundaries, constraints, and concurrency against disposable PostgreSQL instances.
-4. **Staging System Tests:** Verifying multi-process interaction through Caddy, the Go API, PostgreSQL, and bank simulator microservices.
+1. **Mocked Unit & Contract Tests:** Verifying component logic and HTTP serialization under simulated inputs in in-memory test harnesses.
+2. **Browser Storage & Lifecycle Fixtures:** Verifying client-side state machines, IndexedDB persistence, and user interfaces via Playwright Chromium.
+3. **Real PostgreSQL Integration Tests:** Verifying database schemas, 33 migrations, ACID transactional boundaries, unique constraints, and ledger conservation against disposable PostgreSQL instances.
+4. **Staging System Tests:** Verifying multi-process interaction through Caddy (`http://127.0.0.1:3000`), the Go API (`http://127.0.0.1:8080`), PostgreSQL, and bank simulator microservices.
 
 > [!WARNING]
 > **Research Prototype Classification:** TransactX is a simulated payment infrastructure prototype developed for academic research. It is **not** an operational implementation of live Indian UPI/NPCI rails, ISO 20022 banking switches, or PCI-DSS Level 1 certified payment processors. A clean build or zero-vulnerability scan indicates code hygiene, not institutional or banking-grade regulatory certification.
@@ -29,12 +29,12 @@ To avoid conflating mocked behavior with real database guarantees, all tests acr
 |---|---|---|---|:---:|
 | **Go HTTP Contract Suite** | Go `net/http/httptest` | `go test ./internal/http` | Verifies HTTP status codes, error envelopes, and API state serialization across 48 scenarios. | **No** (Uses mocked repository hooks) |
 | **Go Domain Unit Tests** | Go `testing` | `go test ./internal/...` | Verifies transition rules, Merkle leaf hashing, circuit breakers, and rate limiting logic. | **No** (Pure in-memory unit tests) |
-| **PostgreSQL Integration Tests** | Go `testing` + `pgxpool` | `go test -run "TestRealPostgres|TestConcurrency" ./internal/payments` | Exercises real PostgreSQL 16 schema, 33 migrations, unique constraints, and ACID transactions in disposable databases. | **Yes** (Real PostgreSQL 16) |
+| **PostgreSQL Integration Tests** | Go `testing` + `pgxpool` | `go test -run "TestRealPostgres|TestConcurrency" ./internal/payments` | Exercises real PostgreSQL schema, 33 migrations, unique constraints, and ACID transactions in disposable databases. | **Yes** (Real PostgreSQL 18.6) |
 | **Go Race Detector** | Go `-race` flag | `go test -race ./...` | Proves absence of data races across all concurrent goroutines, channels, and worker pools. | **Both** (In-memory & DB tests) |
 | **Frontend Unit & Money** | Node.js Test Runner | `npm test; npm run test:money` | Verifies role routing, 64-bit integer paise arithmetic, and offline queue state machines across 134 subtests. | **No** (Node.js runtime) |
 | **Browser Fixture Suite** | Playwright (Headless Chromium) | `npx playwright test` | Verifies real IndexedDB schema, tab isolation, reload survival, and UI states across 19 lifecycle tests and 157 total tests. | **No** (Mocked network routes, real browser IndexedDB) |
 | **Offline Shell Suite** | Playwright + Preview | `npm run test:browser:offline-shell` | Verifies that production Vite bundle reloads fully offline with service worker caching. | **No** (Static web server) |
-| **Local Staging Supervised Suite** | PowerShell Staging Scripts | `./scripts/test-local-staging-lifecycle.ps1` | Verifies Caddy ingress, Go API, PostgreSQL, Bank A, Bank B, and Worker processes running concurrently. | **Yes** (Real PostgreSQL + multi-process) |
+| **Local Staging Supervised Suite** | PowerShell Staging Scripts | `./scripts/test-local-staging-lifecycle.ps1` | Verifies Caddy ingress (:3000), Go API (:8080), PostgreSQL (:5432), Bank A (:8081), Bank B (:8082), and Worker. | **Yes** (Real PostgreSQL + multi-process) |
 
 ---
 
@@ -73,13 +73,16 @@ The test `TestRealPostgres_IdempotencyDurabilityLifecycle` (in `backend/internal
 
 ## 5. Hosted GitHub Actions Continuous Integration Evidence
 
-All verification gates are automated and proven on hosted GitHub Actions runners on the feature branch commit `5a472e248d4255004d58a330dc31f721089d4654`:
+All verification gates are automated and proven on hosted GitHub Actions cloud runners for the frozen baseline commit [`81a13ddc54e99db393fb927fae1aa15755ba507e`](https://github.com/whoevenisshubham/TransactX/commit/81a13ddc54e99db393fb927fae1aa15755ba507e):
 
 | Hosted Workflow | Run ID | Status | Conclusion | URL |
 |---|---|---|---|---|
-| **Release validation** | `45253972675` | `completed` | **`success`** | [Run 45253972675](https://github.com/whoevenisshubham/TransactX/actions/runs/45253972675) |
-| **Demo host validation** | `45253972899` | `completed` | **`success`** | [Run 45253972899](https://github.com/whoevenisshubham/TransactX/actions/runs/45253972899) |
-| **Auth & PostgreSQL acceptance** | `45253972979` | `completed` | **`success`** | [Run 45253972979](https://github.com/whoevenisshubham/TransactX/actions/runs/45253972979) |
+| **Release validation** | `45317095347` | `completed` | **`success`** | [Run 45317095347](https://github.com/whoevenisshubham/TransactX/actions/runs/45317095347) |
+| **Demo host validation** | `45317095296` | `completed` | **`success`** | [Run 45317095296](https://github.com/whoevenisshubham/TransactX/actions/runs/45317095296) |
+| **Auth and optional provider PostgreSQL acceptance** | `45317095294` | `completed` | **`success`** | [Run 45317095294](https://github.com/whoevenisshubham/TransactX/actions/runs/45317095294) |
+
+> [!NOTE]
+> Distinguishing Local Execution from Hosted CI: Hosted CI proves that the codebase compiles, lints, and passes all tests in clean, isolated Ubuntu containers with fresh PostgreSQL instances. Local staging execution proves that the multi-process supervisor, Caddy proxy, Bank A/B simulators, and Windows environment function coherently.
 
 ---
 
@@ -90,9 +93,11 @@ To ensure an academically rigorous evaluation, the following architectural and e
 ### 6.1 Infrastructure & Deployment Topology Limitations
 1. **Single-Host Topology:** In the local staging environment, Caddy, Go API, PostgreSQL, and bank simulators run on a single host. Network latency between nodes is sub-millisecond, which does not reflect cross-region WAN partition behavior.
 2. **Single Point of Failure (SPOF):** The PostgreSQL database and Caddy reverse proxy represent single points of failure in the local staging topology. Multi-region Active-Active PostgreSQL clustering was outside the project scope.
-3. **Vercel Static Preview:** The Vercel preview deployment hosts static frontend assets only and connects to mock/demo endpoints. It does not interface with a live, distributed backend database cluster.
+3. **Loopback HTTP vs. Production TLS:** Local staging uses unencrypted HTTP loopback (`http://127.0.0.1:3000` and `http://127.0.0.1:8080`). Production deployments require TLS certificate termination at Caddy or an upstream ingress load balancer.
+4. **Vercel Static Preview:** The Vercel preview deployment hosts static frontend assets only and connects to mock/demo endpoints. It does not interface with a live, distributed backend database cluster.
 
 ### 6.2 Payment Protocol & Rail Limitations
 1. **Simulated Bank Rails:** Bank A and Bank B are simulated HTTP microservices with artificial latency and error injection. Real-world ISO 8583/20022 wire formats, HSM cryptographic signing, and NPCI switch clearing protocols are simplified for research tractability.
-2. **Idempotency Record Retention:** The current system does not enforce an automated time-to-live (TTL) pruning daemon for `idempotency_records`. In a multi-billion transaction production network, an archival partition strategy (e.g. 90-day retention with cold storage offload) would be required.
-3. **Offline Replay Window:** Offline payment acceptance relies on trusted local key storage in IndexedDB. In a production consumer deployment, hardware-backed secure enclaves (e.g. Android StrongBox, Apple Secure Enclave) would be necessary to prevent client clock tampering and replay attacks.
+2. **Idempotency Record Retention:** The current system retains all idempotency records indefinitely in PostgreSQL without an automated TTL pruning daemon. In a high-volume production network, an archival partition strategy (e.g. 90-day retention with cold storage offload) would be required to prevent unbounded table growth.
+3. **Offline Replay Window & Encryption:** Offline payment acceptance relies on structured local key storage in browser IndexedDB. AES-GCM encryption is not implemented at rest in IndexedDB. In a production consumer deployment, hardware-backed secure enclaves (e.g. Android StrongBox, Apple Secure Enclave) would be necessary to prevent client clock tampering and replay attacks.
+4. **Ledger Conservation vs. Merkle Commitments:** A valid Merkle root proves only that recorded state transitions are cryptographically immutable and tamper-evident. It is mathematically independent of double-entry debit/credit balance conservation, which must be verified through separate ledger accounting checks.
