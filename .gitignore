@@ -1,4 +1,9 @@
 .env
+.env.*
+deploy/env/*.env
+deploy/env/local-staging.env
+!deploy/env/*.example
+!deploy/env/*.env.example
 
 backend/bin/
 backend/*.test
@@ -14,4 +19,10 @@ frontend/dist/
 deploy/out/
 frontend/test-results/
 frontend/playwright-report/
+bin/
+logs/
+backups/
 artifacts/
+.agents/
+skills-lock.json
+TransactX_Migration_Handoff_2026-11-18/

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -264,6 +265,8 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handler.health)
 	mux.HandleFunc("GET /health/db", handler.databaseHealth)
+	mux.HandleFunc("GET /healthz", handler.healthz)
+	mux.HandleFunc("GET /readyz", handler.readyz)
 	if healthService != nil {
 		mux.Handle("GET /api/ops/health/{targetID}", auth.Authentication(jwtManager, opsReadRole(http.HandlerFunc(handler.healthSnapshot))))
 		mux.Handle("POST /api/ops/health/{targetID}/sample", auth.Authentication(jwtManager, opsWriteRole(http.HandlerFunc(handler.healthSample))))
@@ -326,6 +329,7 @@ func newHandlerWithRecon(db *pgxpool.Pool, logger *slog.Logger, authService *aut
 	mux.Handle("POST /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.createPayment))))
 	mux.Handle("GET /api/payments", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentsList))))
 	mux.Handle("GET /api/payments/{paymentID}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentDetails))))
+	mux.Handle("GET /api/payments/idempotency/{key}", auth.Authentication(jwtManager, auth.RequireRole(auth.PublicRoles()...)(http.HandlerFunc(handler.paymentByIdempotencyKey))))
 	mux.Handle("GET /api/merchant/receive-info", auth.Authentication(jwtManager, auth.RequireRole(users.RoleMerchant)(http.HandlerFunc(handler.merchantReceiveInfo))))
 	return common.RequestIDMiddleware(cors(mux, handler.corsAllowedOrigins))
 }
@@ -371,6 +375,27 @@ func (h *Handler) databaseHealth(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	writeData(writer, http.StatusOK, request, map[string]string{"status": "ok"})
+}
+
+// healthz provides process liveness without checking downstream dependencies.
+func (h *Handler) healthz(writer http.ResponseWriter, request *http.Request) {
+	writeData(writer, http.StatusOK, request, map[string]any{"status": "ok", "service": "transactx-api", "liveness": true})
+}
+
+// readyz provides dependency readiness, checking database ping with a 2-second timeout.
+func (h *Handler) readyz(writer http.ResponseWriter, request *http.Request) {
+	if h.db == nil {
+		writeAPIError(writer, request, common.NewAPIError("SERVICE_UNAVAILABLE", "database unconfigured", http.StatusServiceUnavailable))
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+	defer cancel()
+	if err := h.db.Ping(ctx); err != nil {
+		h.logger.Warn("readiness check failed", "request_id", common.GetRequestID(request), "error", err)
+		writeAPIError(writer, request, common.NewAPIError("SERVICE_UNAVAILABLE", "database unavailable", http.StatusServiceUnavailable))
+		return
+	}
+	writeData(writer, http.StatusOK, request, map[string]any{"status": "ok", "service": "transactx-api", "readiness": true})
 }
 
 func writeData(writer http.ResponseWriter, status int, request *http.Request, data any) {

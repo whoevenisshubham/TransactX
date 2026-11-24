@@ -1,0 +1,49 @@
+endpoint,scenario,internal_state,http_status,response_code,is_terminal,is_reservation_retained,handler_assertion
+POST /api/payments,New payment immediate terminal completion,COMPLETED,201,OK,true,true,assert HTTP 201 Created with JSON envelope containing completed payment and terminal flags
+POST /api/payments,New payment created in-flight,CREATED,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment validating in-flight,VALIDATING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment local settlement in-flight,LOCAL_SETTLEMENT,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment routing in-flight,ROUTING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment processing in-flight,PROCESSING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment bank settled central pending,BANK_SETTLED_CENTRAL_PENDING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment committed in-flight,COMMITTED,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment pending reconciliation in-flight,PENDING_RECONCILIATION,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,Duplicate payment terminal completed replay,COMPLETED,200,OK,true,true,assert HTTP 200 OK with JSON envelope containing existing completed payment
+POST /api/payments,Duplicate payment terminal failed replay,FAILED,200,OK,true,false,assert HTTP 200 OK with JSON envelope containing existing failed payment
+POST /api/payments,Duplicate payment terminal reversed replay,REVERSED,200,OK,true,false,assert HTTP 200 OK with JSON envelope containing existing reversed payment
+POST /api/payments,Duplicate payment processing replay,PROCESSING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,Duplicate payment bank settled pending replay,BANK_SETTLED_CENTRAL_PENDING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+POST /api/payments,New payment with unknown/indeterminate state,UNKNOWN_CORRUPT_STATE,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed without data leak
+POST /api/payments,Duplicate payment with unknown state,UNKNOWN_CORRUPT_STATE,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed without data leak
+POST /api/payments,New payment with offline lifecycle state,OFFLINE_CAPTURED,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed for offline central dispatch
+POST /api/payments,Malformed JSON body in request,N/A,400,INVALID_REQUEST,false,false,assert HTTP 400 Bad Request with code INVALID_REQUEST
+POST /api/payments,Unauthenticated payment request,N/A,401,UNAUTHORIZED,false,false,assert HTTP 401 Unauthorized with code UNAUTHORIZED
+POST /api/payments,Forbidden role dispatch (OPS_ADMIN),N/A,403,FORBIDDEN,false,false,assert HTTP 403 Forbidden role rejection
+POST /api/payments,Source account not found,N/A,404,ACCOUNT_NOT_FOUND,false,false,assert HTTP 404 Not Found with code ACCOUNT_NOT_FOUND
+POST /api/payments,Source account ambiguous primary,N/A,409,ACCOUNT_AMBIGUOUS,false,false,assert HTTP 409 Conflict with code ACCOUNT_AMBIGUOUS
+POST /api/payments,Insufficient funds in source account,N/A,409,INSUFFICIENT_FUNDS,false,false,assert HTTP 409 Conflict with code INSUFFICIENT_FUNDS
+POST /api/payments,Idempotency key payload hash mismatch conflict,N/A,409,IDEMPOTENCY_CONFLICT,false,false,assert HTTP 409 Conflict with code IDEMPOTENCY_CONFLICT
+POST /api/payments,Bank adapter route unavailable,N/A,503,BANK_UNAVAILABLE,false,false,assert HTTP 503 Service Unavailable with code BANK_UNAVAILABLE
+GET /api/payments/idempotency/{key},Committed terminal completed payment lookup,COMPLETED,200,OK,true,true,assert HTTP 200 OK with JSON envelope containing completed payment and duration
+GET /api/payments/idempotency/{key},Terminal failed payment lookup,FAILED,200,OK,true,false,assert HTTP 200 OK with JSON envelope containing failed payment and reason
+GET /api/payments/idempotency/{key},Terminal reversed payment lookup,REVERSED,200,OK,true,false,assert HTTP 200 OK with JSON envelope containing reversed payment
+GET /api/payments/idempotency/{key},In-flight payment created lookup,CREATED,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},In-flight payment validating lookup,VALIDATING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},In-flight payment local settlement lookup,LOCAL_SETTLEMENT,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},In-flight payment routing lookup,ROUTING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},In-flight payment processing lookup,PROCESSING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},In-flight payment bank settled pending lookup,BANK_SETTLED_CENTRAL_PENDING,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},In-flight payment committed lookup,COMMITTED,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},In-flight payment pending reconciliation lookup,PENDING_RECONCILIATION,202,OK,false,false,assert HTTP 202 Accepted with JSON envelope containing in-flight payment
+GET /api/payments/idempotency/{key},Unknown/indeterminate state lookup,UNKNOWN_STATE_XYZ,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed
+GET /api/payments/idempotency/{key},Offline captured state lookup,OFFLINE_CAPTURED,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed
+GET /api/payments/idempotency/{key},Offline queued state lookup,QUEUED,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed
+GET /api/payments/idempotency/{key},Offline syncing state lookup,SYNCING,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed
+GET /api/payments/idempotency/{key},Offline replay failed state lookup,REPLAY_FAILED,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error fails closed
+GET /api/payments/idempotency/{key},Missing idempotency key record,N/A,404,PAYMENT_NOT_FOUND,false,false,assert HTTP 404 Not Found with code PAYMENT_NOT_FOUND
+GET /api/payments/idempotency/{key},Database connection failure during lookup,N/A,500,INTERNAL_ERROR,false,false,assert HTTP 500 Internal Server Error (never misreported as 404)
+GET /api/payments/idempotency/{key},Unauthenticated idempotency lookup,N/A,401,UNAUTHORIZED,false,false,assert HTTP 401 Unauthorized with code UNAUTHORIZED
+GET /api/payments/idempotency/{key},Forbidden role lookup (OPS_ADMIN),N/A,403,FORBIDDEN,false,false,assert HTTP 403 Forbidden role rejection
+GET /api/payments/idempotency/{key},Forbidden role lookup (OPS_VIEWER),N/A,403,FORBIDDEN,false,false,assert HTTP 403 Forbidden role rejection
+GET /api/payments/idempotency/{key},Malformed key exceeds 255 characters,N/A,400,INVALID_REQUEST,false,false,assert HTTP 400 Bad Request with code INVALID_REQUEST
+GET /api/payments/idempotency/{key},Malformed key with whitespace/CRLF,N/A,400,INVALID_REQUEST,false,false,assert HTTP 400 Bad Request with code INVALID_REQUEST

@@ -36,10 +36,10 @@ test("production shell reloads fully offline and retains the owner's saved inten
   await expect(page.getByText("receiver@fixture", { exact: true }).first()).toBeVisible();
   await page.getByLabel("Amount in Indian rupees").fill("1.00");
   await page.getByRole("button", { name: "Review payment" }).click();
+  await context.setOffline(true);
   await page.getByRole("button", { name: "Confirm payment" }).click();
   await expect(page.getByRole("heading", { name: "Payment queued for replay" })).toBeVisible();
 
-  await context.setOffline(true);
   await page.reload();
   expect(await page.evaluate(() => navigator.onLine)).toBe(false);
   await expect(page.getByRole("heading", { name: "You're offline" })).toBeVisible();
@@ -68,4 +68,18 @@ test("an expired token clears the cached offline owner", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Sign in to continue" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "You're offline" })).toHaveCount(0);
   expect(await page.evaluate(() => [sessionStorage.getItem("transactx.token"), sessionStorage.getItem("transactx.profile")])).toEqual([null, null]);
+});
+
+test("production preview server serves deep links with SPA history fallback", async ({ page }) => {
+  // 1. /login deep link without session
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "Sign in to continue" })).toBeVisible();
+
+  // 2. /demo deep link without session
+  await page.goto("/demo");
+  await expect(page.getByRole("heading", { name: /One system/ })).toBeVisible();
+
+  // 3. /privacy deep link
+  await page.goto("/privacy");
+  await expect(page.getByRole("heading", { name: "Privacy & demo data" })).toBeVisible();
 });

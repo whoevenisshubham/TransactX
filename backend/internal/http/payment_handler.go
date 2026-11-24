@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -76,12 +77,20 @@ func (h *Handler) createPayment(writer http.ResponseWriter, request *http.Reques
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment details are temporarily unavailable", http.StatusInternalServerError))
 		return
 	}
-	status := http.StatusCreated
-	if duplicate {
-		status = http.StatusOK
-	}
-	if intermediatePaymentState(customer.State) {
+	var status int
+	switch {
+	case payments.IsTerminalState(customer.State):
+		if duplicate {
+			status = http.StatusOK
+		} else {
+			status = http.StatusCreated
+		}
+	case payments.IsIntermediateCentralState(customer.State):
 		status = http.StatusAccepted
+	default:
+		// Unknown or offline state fails closed
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment in indeterminate state", http.StatusInternalServerError))
+		return
 	}
 	if customer.State == payments.StateCompleted && h.integrityCoordinator != nil {
 		event := reconciliation.IntegrityEventCentralSettlement
@@ -134,16 +143,65 @@ func (h *Handler) paymentDetails(writer http.ResponseWriter, request *http.Reque
 		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "transaction details are temporarily unavailable", http.StatusInternalServerError))
 		return
 	}
-	writeData(writer, http.StatusOK, request, result)
+	var status int
+	switch {
+	case payments.IsTerminalState(result.State):
+		status = http.StatusOK
+	case payments.IsIntermediateCentralState(result.State):
+		status = http.StatusAccepted
+	default:
+		// Unknown or offline state fails closed
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment in indeterminate state", http.StatusInternalServerError))
+		return
+	}
+	writeData(writer, status, request, result)
+}
+
+func (h *Handler) paymentByIdempotencyKey(writer http.ResponseWriter, request *http.Request) {
+	identity, ok := auth.IdentityFromRequest(request)
+	if !ok {
+		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
+		return
+	}
+	userID, err := uuid.Parse(identity.UserID)
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("UNAUTHORIZED", "authentication is required", http.StatusUnauthorized))
+		return
+	}
+	key := strings.TrimSpace(request.PathValue("key"))
+	if key == "" || len(key) > 255 || strings.ContainsAny(key, "\r\n\t") {
+		writeAPIError(writer, request, common.NewAPIError("INVALID_REQUEST", "invalid idempotency key", http.StatusBadRequest))
+		return
+	}
+	if h.payments == nil {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payments service is not configured", http.StatusInternalServerError))
+		return
+	}
+	result, err := h.payments.GetByIdempotencyKey(request.Context(), userID, key)
+	if errors.Is(err, payments.ErrNotFound) {
+		writeAPIError(writer, request, common.NewAPIError("PAYMENT_NOT_FOUND", "transaction not found", http.StatusNotFound))
+		return
+	}
+	if err != nil {
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "transaction details are temporarily unavailable", http.StatusInternalServerError))
+		return
+	}
+	var status int
+	switch {
+	case payments.IsTerminalState(result.State):
+		status = http.StatusOK
+	case payments.IsIntermediateCentralState(result.State):
+		status = http.StatusAccepted
+	default:
+		// Unknown or offline state fails closed
+		writeAPIError(writer, request, common.NewAPIError("INTERNAL_ERROR", "payment in indeterminate state", http.StatusInternalServerError))
+		return
+	}
+	writeData(writer, status, request, result)
 }
 
 func intermediatePaymentState(state string) bool {
-	switch state {
-	case payments.StateProcessing, payments.StatePendingReconciliation, payments.StateBankSettledCentralPending:
-		return true
-	default:
-		return false
-	}
+	return payments.IsIntermediateCentralState(state)
 }
 
 func writePaymentError(writer http.ResponseWriter, request *http.Request, err error) {

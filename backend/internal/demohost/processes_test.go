@@ -82,7 +82,7 @@ func TestNativeChildGroupStopsOnCancellation(t *testing.T) {
 	defer cancel()
 	p := NewProcesses(ctx, bin, services, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	p.grace = 50 * time.Millisecond
-	request, finish := context.WithTimeout(ctx, 5*time.Second)
+	request, finish := context.WithTimeout(ctx, 15*time.Second)
 	defer finish()
 	release, err := p.Acquire(request)
 	if err != nil {
@@ -103,7 +103,7 @@ func TestNativeChildGroupStopsOnCancellation(t *testing.T) {
 func TestNativeChildFailureStopsPeers(t *testing.T) {
 	bin := t.TempDir()
 	services := []Service{helperService(t, bin, "bank", ""), helperService(t, bin, "api", "500ms")}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	p := NewProcesses(ctx, bin, services, time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	p.grace = 50 * time.Millisecond

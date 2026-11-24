@@ -42,6 +42,43 @@ const (
 
 var ErrInvalidTransition = errors.New("invalid payment state transition")
 
+// IsTerminalState returns true if the payment state is genuinely terminal.
+func IsTerminalState(state string) bool {
+	switch state {
+	case StateCompleted, StateFailed, StateReversed:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsIntermediateCentralState returns true for non-terminal central payment states that represent in-flight progress.
+func IsIntermediateCentralState(state string) bool {
+	switch state {
+	case StateCreated,
+		StateValidating,
+		StateLocalSettlement,
+		StateRouting,
+		StateProcessing,
+		StateBankSettledCentralPending,
+		StateCommitted,
+		StatePendingReconciliation:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsOfflineLifecycleState returns true for offline queue lifecycle states.
+func IsOfflineLifecycleState(state string) bool {
+	switch state {
+	case StateOfflineCaptured, StateQueued, StateSyncing, StateReplayFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 type Payment struct {
 	ID                       uuid.UUID  `json:"id"`
 	InitiatedByUserID        uuid.UUID  `json:"initiatedByUserId"`
