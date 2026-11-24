@@ -1069,4 +1069,304 @@ test.describe("M20-R.3: Unresolved Payment Lifecycle, Dispatch Reservation & Ter
     expect(durableIntents[0].state).toBe("RESOLVED_COMPLETED");
     expect(durableIntents[0].paymentId).toBe("pmt-e2e17-journey");
   });
+
+  // E2E-18: POST 401 Unauthorized preserves active reservation through reload and status check until re-auth and terminal completion (M20-R.6)
+  test("E2E-18: POST 401 Unauthorized preserves active reservation through reload and status check until re-auth and terminal completion", async ({ page }) => {
+    let getAttempt = 0;
+
+    await setupStandardMocks(page, {
+      postPaymentHandler: async (route) => {
+        // 1. POST returns 401 Unauthorized during dispatch
+        await route.fulfill({
+          status: 401,
+          headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: {
+              code: "UNAUTHORIZED",
+              message: "Session token expired during dispatch",
+            },
+          }),
+        });
+      },
+      idempotencyHandler: async (route) => {
+        getAttempt++;
+        if (getAttempt === 1) {
+          // 4. First GET returns 401 (token still unrefreshed)
+          await route.fulfill({
+            status: 401,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: {
+                code: "UNAUTHORIZED",
+                message: "Authentication required",
+              },
+            }),
+          });
+        } else {
+          // 6. After re-auth, GET returns 200 COMPLETED
+          await route.fulfill({
+            status: 200,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              data: {
+                id: "pmt-e2e18-reauth",
+                amountPaise: 10000,
+                currency: "INR",
+                origin: "ONLINE",
+                state: "COMPLETED",
+                createdAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                senderName: "Alice Tester",
+                senderPaymentIdentifier: "alice@transactx",
+                receiverName: "Merchant Bob",
+                receiverPaymentIdentifier: "bob@transactx",
+                direction: "SENT",
+              },
+            }),
+          });
+        }
+      },
+    });
+
+    // 1. Dispatch payment
+    await page.goto("/pay");
+    await page.getByLabel("Recipient TransactX payment ID").fill("bob@transactx");
+    await page.getByRole("button", { name: "Find", exact: true }).click();
+    await page.getByLabel("Amount in Indian rupees").fill("100.00");
+    await page.getByRole("button", { name: "Review payment" }).click();
+    await page.getByRole("button", { name: "Confirm payment", exact: true }).click();
+
+    // 2. POST returned 401 -> enters uncertain state with session expiration message
+    await expect(page.getByRole("heading", { name: "We couldn't confirm the response" })).toBeVisible();
+    await expect(page.getByText("Session expired during payment dispatch. Please sign in again.")).toBeVisible();
+
+    // 3. Active reservation is PRESERVED in IndexedDB
+    let reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+    expect(reservations[0].state).toBe("UNCERTAIN");
+
+    // 4. Browser reload while UNCERTAIN
+    await page.reload();
+
+    // 5. Active reservation remains present in IndexedDB and UI remains locked in uncertain view
+    await expect(page.getByRole("heading", { name: "We couldn't confirm the response" })).toBeVisible();
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+
+    // 6. Click Check status -> GET returns 401, active reservation remains locked
+    await page.getByRole("button", { name: "Check status" }).click();
+    await expect(page.getByText(/Please sign in again|The request could not be completed/)).toBeVisible();
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+
+    // 7. Click Check status again -> GET returns 200 COMPLETED (simulating re-authenticated status check)
+    await page.getByRole("button", { name: "Check status" }).click();
+    await expect(page.getByRole("heading", { name: /Payment complete/ })).toBeVisible();
+
+    // 8. Active reservation is now deleted from active-reservations
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(0);
+
+    // 9. Historical intent in unresolved-intents is marked RESOLVED_COMPLETED
+    const durableIntents = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("unresolved-intents", "readonly");
+          const getReq = tx.objectStore("unresolved-intents").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(durableIntents.length).toBe(1);
+    expect(durableIntents[0].state).toBe("RESOLVED_COMPLETED");
+    expect(durableIntents[0].paymentId).toBe("pmt-e2e18-reauth");
+  });
+
+  // E2E-19: POST 403 Forbidden and GET 403 preserve active reservation until verified terminal failure releases lock (M20-R.6)
+  test("E2E-19: POST 403 Forbidden and GET 403 preserve active reservation until verified terminal failure releases lock", async ({ page }) => {
+    let getAttempt = 0;
+
+    await setupStandardMocks(page, {
+      postPaymentHandler: async (route) => {
+        // 1. POST returns 403 Forbidden
+        await route.fulfill({
+          status: 403,
+          headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: {
+              code: "FORBIDDEN",
+              message: "Role permission restricted",
+            },
+          }),
+        });
+      },
+      idempotencyHandler: async (route) => {
+        getAttempt++;
+        if (getAttempt === 1) {
+          // 4. GET returns 403 Forbidden
+          await route.fulfill({
+            status: 403,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: {
+                code: "FORBIDDEN",
+                message: "Role permission restricted",
+              },
+            }),
+          });
+        } else {
+          // 6. GET returns 200 with terminal FAILED payment
+          await route.fulfill({
+            status: 200,
+            headers: { "access-control-allow-origin": "http://127.0.0.1:4173" },
+            contentType: "application/json",
+            body: JSON.stringify({
+              data: {
+                id: "pmt-e2e19-fail",
+                amountPaise: 10000,
+                currency: "INR",
+                origin: "ONLINE",
+                state: "FAILED",
+                failureReason: "Payment rejected due to compliance block",
+                createdAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                senderName: "Alice Tester",
+                senderPaymentIdentifier: "alice@transactx",
+                receiverName: "Merchant Bob",
+                receiverPaymentIdentifier: "bob@transactx",
+                direction: "SENT",
+              },
+            }),
+          });
+        }
+      },
+    });
+
+    // 1. Dispatch payment
+    await page.goto("/pay");
+    await page.getByLabel("Recipient TransactX payment ID").fill("bob@transactx");
+    await page.getByRole("button", { name: "Find", exact: true }).click();
+    await page.getByLabel("Amount in Indian rupees").fill("100.00");
+    await page.getByRole("button", { name: "Review payment" }).click();
+    await page.getByRole("button", { name: "Confirm payment", exact: true }).click();
+
+    // 2. POST returned 403 -> uncertain state with forbidden message
+    await expect(page.getByRole("heading", { name: "We couldn't confirm the response" })).toBeVisible();
+    await expect(page.getByText("Payment access forbidden.")).toBeVisible();
+
+    // 3. Active reservation preserved in IndexedDB
+    let reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+
+    // 4. Reload page
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "We couldn't confirm the response" })).toBeVisible();
+
+    // 5. Click Check status -> GET returns 403, reservation remains locked
+    await page.getByRole("button", { name: "Check status" }).click();
+    await expect(page.getByText(/The request could not be completed|Role permission restricted/)).toBeVisible();
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(1);
+
+    // 6. Click Check status again -> GET returns 200 FAILED
+    await page.getByRole("button", { name: "Check status" }).click();
+    await expect(page.getByText("Payment rejected due to compliance block")).toBeVisible();
+
+    // 7. Active reservation is released
+    reservations = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("active-reservations", "readonly");
+          const getReq = tx.objectStore("active-reservations").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(reservations.length).toBe(0);
+
+    // 8. Historical intent is marked RESOLVED_FAILED
+    const durableIntents = await page.evaluate(async () => {
+      return new Promise<any[]>((resolve) => {
+        const req = indexedDB.open("transactx-unresolved-intents", 2);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("unresolved-intents", "readonly");
+          const getReq = tx.objectStore("unresolved-intents").getAll();
+          getReq.onsuccess = () => resolve(getReq.result);
+        };
+      });
+    });
+    expect(durableIntents.length).toBe(1);
+    expect(durableIntents[0].state).toBe("RESOLVED_FAILED");
+    expect(durableIntents[0].paymentId).toBe("pmt-e2e19-fail");
+  });
 });

@@ -497,7 +497,7 @@ export function SendMoneyPage({
         onReturnToForm={() => setStage("form")}
         onReturnToOverview={() => onNavigate("home")}
         checkingStatus={statusChecking}
-        statusError={statusCheckError}
+        statusError={statusCheckError || error}
       />
     );
   }

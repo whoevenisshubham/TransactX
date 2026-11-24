@@ -736,3 +736,198 @@ func TestGetByIdempotencyKey_DatabaseErrorSemantics(t *testing.T) {
 		t.Fatal("expected error for nil DB repository, got nil")
 	}
 }
+
+// Case 7: Real PostgreSQL Idempotency Durability and Terminal Lifecycle Integration Test (M20-R.6)
+// Proves against a real disposable PostgreSQL database:
+// 1. Payment creation persists both payment and idempotency_records row atomically.
+// 2. The record maps to the correct user_id, key, and payment_id.
+// 3. Replaying the same key with the same payload returns original payment identity with duplicate=true.
+// 4. Replaying the key with a conflicting payload is rejected with ErrIdempotencyConflict.
+// 5. Replays do not create another debit, credit, ledger transaction, or payment row.
+// 6. The record remains retrievable after terminal completion (StateCompleted).
+// 7. The record remains retrievable after terminal failure (StateFailed) via bank failure recovery.
+// 8. Reconstructing repository/service instances or reconnecting pool does not lose the record.
+// 9. Teardown safely cleans up only the disposable database.
+func TestRealPostgres_IdempotencyDurabilityLifecycle(t *testing.T) {
+	pool, cleanup := setupM20R2DisposableDB(t)
+	defer cleanup()
+	f := seedConcurrencyFixtures(t, pool)
+	ctx := context.Background()
+
+	keyCompleted := "key-durability-completed-" + uuid.NewString()
+
+	// 1. Valid payment creation persists payment and idempotency record
+	p1, dup, err := f.service.CreateWithResult(ctx, CreateInput{
+		UserID:          f.userA,
+		SourceAccountID: f.sourceAccountA,
+		Recipient:       "bob@transactx",
+		AmountPaise:     25000,
+		Currency:        "INR",
+		Note:            "M20-R.6 durability test",
+		IdempotencyKey:  keyCompleted,
+	})
+	if err != nil {
+		t.Fatalf("failed to create payment: %v", err)
+	}
+	if dup {
+		t.Fatalf("expected dup=false for new payment, got true")
+	}
+
+	// 2. The record maps to the correct user, key and payment in PostgreSQL
+	var dbPaymentID uuid.UUID
+	var dbRequestHash string
+	err = pool.QueryRow(ctx, `
+		SELECT payment_id, request_hash 
+		FROM idempotency_records 
+		WHERE user_id = $1 AND key = $2
+	`, f.userA, keyCompleted).Scan(&dbPaymentID, &dbRequestHash)
+	if err != nil {
+		t.Fatalf("failed to query idempotency record from PostgreSQL: %v", err)
+	}
+	if dbPaymentID != p1.ID {
+		t.Fatalf("idempotency record payment_id = %s, want %s", dbPaymentID, p1.ID)
+	}
+	if dbRequestHash == "" {
+		t.Fatal("expected non-empty request_hash in idempotency_records")
+	}
+
+	// 3. Replaying the same key with the same payload returns original payment identity
+	p2, dup2, err := f.service.CreateWithResult(ctx, CreateInput{
+		UserID:          f.userA,
+		SourceAccountID: f.sourceAccountA,
+		Recipient:       "bob@transactx",
+		AmountPaise:     25000,
+		Currency:        "INR",
+		Note:            "M20-R.6 durability test",
+		IdempotencyKey:  keyCompleted,
+	})
+	if err != nil {
+		t.Fatalf("replay with same payload failed: %v", err)
+	}
+	if !dup2 {
+		t.Fatalf("expected dup=true on replay, got false")
+	}
+	if p2.ID != p1.ID {
+		t.Fatalf("replay returned payment ID %s, want %s", p2.ID, p1.ID)
+	}
+
+	// 4. Replaying the key with a conflicting payload is rejected with ErrIdempotencyConflict
+	_, _, errConflict := f.service.CreateWithResult(ctx, CreateInput{
+		UserID:          f.userA,
+		SourceAccountID: f.sourceAccountA,
+		Recipient:       "bob@transactx",
+		AmountPaise:     99999, // mismatched amount
+		Currency:        "INR",
+		Note:            "Conflicting replay",
+		IdempotencyKey:  keyCompleted,
+	})
+	if !errors.Is(errConflict, ErrIdempotencyConflict) {
+		t.Fatalf("expected ErrIdempotencyConflict for conflicting replay, got: %v", errConflict)
+	}
+
+	// 5. Replays do not create another debit, credit, ledger transaction, or payment row
+	var paymentCount, ledgerTxCount, ledgerEntryCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM payments WHERE initiated_by_user_id = $1`, f.userA).Scan(&paymentCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_transactions WHERE payment_id = $1`, p1.ID).Scan(&ledgerTxCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ledger_entries WHERE ledger_transaction_id IN (SELECT id FROM ledger_transactions WHERE payment_id = $1)`, p1.ID).Scan(&ledgerEntryCount); err != nil {
+		t.Fatal(err)
+	}
+	if paymentCount != 1 {
+		t.Fatalf("paymentCount = %d, want exactly 1", paymentCount)
+	}
+	if ledgerTxCount != 1 {
+		t.Fatalf("ledgerTxCount = %d, want exactly 1", ledgerTxCount)
+	}
+	if ledgerEntryCount != 2 { // exactly 1 debit + 1 credit
+		t.Fatalf("ledgerEntryCount = %d, want exactly 2", ledgerEntryCount)
+	}
+
+	// Verify balance changes: exactly 1 debit of 25000 paise on source (10000000 - 25000 = 9975000)
+	var sourceBal, destBal int64
+	if err := pool.QueryRow(ctx, `SELECT balance_paise FROM accounts WHERE id = $1`, f.sourceAccountA).Scan(&sourceBal); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT balance_paise FROM accounts WHERE id = $1`, f.destAccountB).Scan(&destBal); err != nil {
+		t.Fatal(err)
+	}
+	if sourceBal != 10000000-25000 {
+		t.Fatalf("source balance = %d, want %d", sourceBal, 10000000-25000)
+	}
+	if destBal != 500000+25000 {
+		t.Fatalf("dest balance = %d, want %d", destBal, 500000+25000)
+	}
+
+	// 6. The record remains retrievable after terminal completion (StateCompleted)
+	foundCompleted, err := f.service.GetByIdempotencyKey(ctx, f.userA, keyCompleted)
+	if err != nil {
+		t.Fatalf("failed to retrieve completed payment by idempotency key: %v", err)
+	}
+	if foundCompleted.ID != p1.ID || foundCompleted.State != StateCompleted {
+		t.Fatalf("retrieved payment = %+v, want ID=%s State=%s", foundCompleted, p1.ID, StateCompleted)
+	}
+
+	// 7. The record remains retrievable after terminal failure (StateFailed)
+	keyFailed := "key-durability-failed-" + uuid.NewString()
+	failedAdapter := &failedStatusBankAdapter{}
+	failAdapters := map[uuid.UUID]bank.BankAdapter{f.bankID: failedAdapter}
+	failSvc := NewServiceWithAdapters(accounts.NewRepository(pool), recipients.NewRepository(pool), f.repo, failAdapters)
+
+	failPayment, failDup, err := failSvc.CreateWithResult(ctx, CreateInput{
+		UserID:          f.userA,
+		SourceAccountID: f.sourceAccountA,
+		Recipient:       "bob@transactx",
+		AmountPaise:     5000,
+		Currency:        "INR",
+		Note:            "Failing payment",
+		IdempotencyKey:  keyFailed,
+	})
+	if err != nil {
+		t.Fatalf("create failing routed payment returned err: %v", err)
+	}
+	if failDup {
+		t.Fatalf("expected failDup=false, got true")
+	}
+
+	// Recover the payment using failedAdapter -> transitions to StateFailed
+	paymentRecord, err := f.repo.Get(ctx, failPayment.ID)
+	if err != nil {
+		t.Fatalf("failed to load payment for recovery: %v", err)
+	}
+	if err := f.repo.RecoverRoutedPayment(ctx, paymentRecord, failedAdapter, successfulBankAdapter{}); err != nil {
+		t.Fatalf("RecoverRoutedPayment failed: %v", err)
+	}
+
+	// Verify payment reached terminal StateFailed
+	termFailed, err := f.repo.Get(ctx, failPayment.ID)
+	if err != nil || termFailed.State != StateFailed {
+		t.Fatalf("expected terminal StateFailed, got state=%s err=%v", termFailed.State, err)
+	}
+
+	// Verify idempotency record is retrievable after terminal failure
+	foundFailed, err := f.service.GetByIdempotencyKey(ctx, f.userA, keyFailed)
+	if err != nil {
+		t.Fatalf("failed to retrieve failed payment by idempotency key: %v", err)
+	}
+	if foundFailed.ID != failPayment.ID || foundFailed.State != StateFailed {
+		t.Fatalf("retrieved failed payment = %+v, want ID=%s State=%s", foundFailed, failPayment.ID, StateFailed)
+	}
+
+	// 8. Reconstructing repository/service instances or reconnecting pool does not lose the record
+	reconstructedRepo := NewRepository(pool)
+	reconstructedAccounts := accounts.NewRepository(pool)
+	reconstructedRecipients := recipients.NewRepository(pool)
+	reconstructedSvc := NewServiceWithAdapters(reconstructedAccounts, reconstructedRecipients, reconstructedRepo, failAdapters)
+
+	reconnectedCompleted, err := reconstructedSvc.GetByIdempotencyKey(ctx, f.userA, keyCompleted)
+	if err != nil || reconnectedCompleted.ID != p1.ID {
+		t.Fatalf("reconstructed service failed to find completed payment: got %+v, err: %v", reconnectedCompleted, err)
+	}
+	reconnectedFailed, err := reconstructedSvc.GetByIdempotencyKey(ctx, f.userA, keyFailed)
+	if err != nil || reconnectedFailed.ID != failPayment.ID {
+		t.Fatalf("reconstructed service failed to find failed payment: got %+v, err: %v", reconnectedFailed, err)
+	}
+}
