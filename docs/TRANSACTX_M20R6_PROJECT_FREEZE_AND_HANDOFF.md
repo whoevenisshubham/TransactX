@@ -21,7 +21,7 @@ Milestone **M20-R.6** marks the formal engineering freeze of TransactX. Across 2
 - Distributed saga orchestration with epoch-fenced background recovery.
 - Health-aware adaptive routing with dynamic circuit breakers.
 - Double-entry ledger accounting verified via separate Merkle tree cryptographic commitments.
-- Offline-first payment capture with monotonic replay engine.
+- Offline-first payment capture with oldest-first lease-fenced replay engine in IndexedDB (`transactx-offline-queue`).
 
 All code modifications on the feature branch `feat/frontend-rebuild-v4` are frozen. No further engineering milestones (e.g. M20-R.7) are scheduled. Pull Request #32 remains preserved in **Draft** state awaiting independent academic peer review and faculty evaluation.
 
@@ -33,7 +33,7 @@ All code modifications on the feature branch `feat/frontend-rebuild-v4` are froz
 |---|---|---|---|
 | **Customer Product Surface** | Two-Phase Send Money Flow | Progressive 4-step payment flow with recipient lookup, KYC badge, amount review dialog, and instant receipt drawer. | `e2e-journeys.fixture.spec.ts` |
 | **Customer Product Surface** | Durable Active Reservation | Pre-dispatch spend lock in IndexedDB (`active-reservations`) preventing double debit across page reloads and network cuts. | `unresolved-payment-lifecycle.fixture.spec.ts` (19 tests) |
-| **Customer Product Surface** | Offline Edge Capture | Fail-closed offline queueing with local nonce generation and sequential replay engine (structured IndexedDB storage). | `offlineQueue.test.ts`, `offlineReplay.test.ts` |
+| **Customer Product Surface** | Offline Edge Capture | Fail-closed offline queueing in IndexedDB (`transactx-offline-queue` v2) with oldest-first lease-fenced replay engine. | `offlineQueue.test.ts`, `offlineReplay.test.ts` |
 | **Merchant Product Surface** | Dynamic / Static Receive Station | ISO 18004 standard-compliant QR code generator and decoder for instant merchant payment collection. | `qr.test.ts`, `merchant.fixture.spec.ts` |
 | **Merchant Product Surface** | Real-time Incoming Feed | Server-Sent Events (SSE) stream delivering payment confirmation and daily settlement summaries. | `operationalEvents.test.ts` |
 | **Operations Surface** | Dynamic Routing Workbench | Interactive network topology dashboard showing live latency, throughput, and error rates per bank rail. | `RoutingView.tsx`, `admin.fixture.spec.ts` |
@@ -63,7 +63,7 @@ All acceptance criteria across backend, frontend, database, and browser environm
 | **Playwright Browser Fixtures** | Unresolved lifecycle & recovery | **PASS** | 19 / 19 passed (`unresolved-payment-lifecycle`) |
 | **Playwright Offline Shell** | PWA offline bundle reloads | **PASS** | 3 / 3 passed |
 | **Production Vite Build** | TypeScript compilation & asset minification | **PASS** | 2,381 modules compiled (0 errors) |
-| **Hosted GitHub Actions CI** | Hosted cloud runners (3 workflows) | **PASS** | 3 / 3 completed with `success` (Runs `45317095347`, `45317095296`, `45317095294`) |
+| **Hosted GitHub Actions CI** | Hosted cloud runners (3 workflows) | **PASS** | 3 / 3 completed with `success` (Runs `45323578633`, `45323578573`, `45323578749`) |
 
 ---
 

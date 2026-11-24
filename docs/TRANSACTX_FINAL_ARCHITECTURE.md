@@ -13,7 +13,7 @@
 ### 1.1 Objectives
 TransactX is a financial infrastructure research prototype designed to investigate and validate engineering mechanisms for high-resilience digital payment networks. Its core objectives are:
 1. **Zero Double-Debit Invariant:** Guaranteeing that under arbitrary client drops, network timeouts, database interruptions, or server restarts, customer funds cannot be debited more than once for a given payment intent.
-2. **Fail-Closed Offline Capability:** Enabling edge payment capture in network-disconnected environments with verifiable client-side cryptographic reservation and monotonic replay protocols.
+2. **Fail-Closed Offline Capability:** Enabling edge payment capture in network-disconnected environments with verifiable client-side cryptographic reservation and oldest-first lease-fenced replay protocols.
 3. **Distributed Saga Fault Tolerance:** Orchestrating multi-party bank settlement through a recoverable saga state machine with epoch-fenced background lease reclamation.
 4. **Health-Aware Adaptive Routing:** Dynamically steering transaction volume across alternative banking nodes via real-time circuit breaking and health telemetry.
 5. **Cryptographic Financial Verifiability:** Enforcing strict double-entry ledger balancing verified against immutable state transition logs via Merkle tree commitments.
@@ -69,7 +69,7 @@ TransactX employs a single-origin, multi-tier distributed architecture deployed 
 |---|---|---|---|
 | **Caddy Local Ingress** | `http://127.0.0.1:3000` | Caddy v2.11.9 (HTTP) | Single-origin host routing, reverse-proxying `/api/*`, `/health*`, and `/readyz` to `127.0.0.1:8080`, and serving compiled `frontend/dist` assets. Loopback HTTP only. |
 | **Frontend Application** | Served via Caddy | React 19, TypeScript, Vite | Role-based product surfaces (Customer, Merchant, Operator), pre-dispatch IndexedDB reservation locking, offline queue storage, and QR code generation. |
-| **Central Backend API** | `http://127.0.0.1:8080` | Go 1.27.1 (Go 1.24+ module) | JWT authentication, request validation, payment idempotency evaluation, routing decisions, ledger accounting, and outbox event publishing. |
+| **Central Backend API** | `http://127.0.0.1:8080` | Go 1.27.4 directive (`GOTOOLCHAIN=auto`, verified Go 1.27.1) | JWT authentication, request validation, payment idempotency evaluation, routing decisions, ledger accounting, and outbox event publishing. |
 | **Database & Ledger** | `127.0.0.1:5432` | PostgreSQL 18.6 | Relational persistence, transactional state machine, 33 migrations, unique idempotency deduplication, immutable transition history, and double-entry ledger bookkeeping. |
 | **Recovery Worker** | Background process | Go background goroutine | Autonomous scanning of orphaned non-terminal sagas, distributed lease acquisition with epoch fencing, and crash-safe reconciliation. |
 | **Bank Simulators** | `:8081` & `:8082` | Go HTTP microservices | Emulated banking rails exposing hold/settle endpoints, configurable latency, transient network drop simulation, and error injection. Health probe at `/healthz`. |
@@ -126,7 +126,7 @@ sequenceDiagram
                 Worker->>DB: Refund / Release local hold -> State: FAILED
             end
             Customer->>Browser: Clicks "Check status"
-            Browser->>API: GET /api/payments/{id}
+            Browser->>API: GET /api/payments/idempotency/{key}
             API-->>Browser: HTTP 200 (State: COMPLETED or FAILED)
             Browser->>Browser: Releases active-reservations; marks intent terminal
         end
@@ -205,7 +205,10 @@ The central payment lifecycle is governed by an immutable, forward-progressing s
 
 ## 5. Client Active Reservation & Browser Storage Durability
 
-To ensure financial safety at the edge, the frontend implements a strict **Fail-Closed Storage Gate** via IndexedDB (`transactx-unresolved-intents`, database version 2):
+To ensure financial safety at the edge, the frontend implements a strict **Fail-Closed Storage Gate** via two specialized IndexedDB databases:
+
+### 5.1 In-Flight Intent & Reservation Store (`transactx-unresolved-intents`, Schema v2)
+Holds client-side balance spend locks before network transmission:
 
 ```
 +----------------------------------------------------------------------------------------------------+
@@ -230,11 +233,18 @@ To ensure financial safety at the edge, the frontend implements a strict **Fail-
 +----------------------------------------------------------------------------------------------------+
 ```
 
-### Invariant Rules
+### 5.2 Offline Payment Queue (`transactx-offline-queue`, Schema v2)
+Stores edge-captured payment intents when the browser has no network connectivity:
+- **Object Store:** `offline-intents`
+- **Fields:** `ownerUserId`, `clientRequestId`, `idempotencyKey`, `payload`, `payloadHash`, `createdAt`, `updatedAt`, `retry`, `replay`, `state` (`QUEUED`, `SYNCING`, `SYNCED`, `RETRYABLE`, `FAILED`), `leaseOwner`, `leaseExpiresAt`.
+- **Replay Protocol:** `OfflineReplayWorker` scans eligible intents and sorts them **oldest-first according to `createdAt`** (`left.createdAt.localeCompare(right.createdAt)`).
+- **Lease Fencing:** Before dispatch, the worker atomically acquires an exclusive lease (`leaseOwner`, `leaseExpiresAt`, 30,000ms duration) and transitions the intent to `SYNCING`, preventing concurrent tab replay races.
+- *Epistemic Note:* No `seq` counter or server-side monotonic sequence check exists; ordering is deterministic oldest-first by client timestamp, and the server deduplicates each intent via atomic idempotency. IndexedDB storage is structured and owner-scoped; AES-GCM encryption is not implemented at rest.
+
+### 5.3 Invariant Rules
 - If IndexedDB is blocked or disabled by private browser settings, payment dispatch is **blocked fail-closed** (`StorageUnavailableError`).
 - A browser page reload while an intent is in-flight rehydrates the reservation from IndexedDB, displays the in-flight recovery view, and keeps the send form locked.
-- If a server responds with HTTP 401 (token expired) or 403 (forbidden role), the client marks the intent as `UNCERTAIN` and **preserves the reservation lock**, preventing duplicate submissions until re-authentication.
-- *Epistemic note:* IndexedDB records are owner-scoped, structured browser objects; AES-GCM encryption is not implemented in this repository.
+- If a server responds with HTTP 401 (token expired) or 403 (forbidden role), the client marks the intent as `UNCERTAIN` and **preserves the reservation lock**, preventing duplicate submissions until re-authentication. Status reconciliation is performed via `GET /api/payments/idempotency/{key}`.
 
 ---
 

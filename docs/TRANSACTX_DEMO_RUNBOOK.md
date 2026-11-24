@@ -15,7 +15,7 @@ Ensure the following runtimes and tools are available before deploying TransactX
 
 | Runtime / Tool | Verified Reference Version | Minimum Engine Range | Verification Command | Operational Role |
 |---|---|---|---|---|
-| **Go** | `1.27.1` / `1.27.4` | `1.24+` (per `go.mod`) | `go version` | Central API, background recovery worker, and bank simulators |
+| **Go** | `go 1.27.4` directive | `go 1.24+` with toolchain auto-selection (`GOTOOLCHAIN=auto`) | `go version` | Central API, background recovery worker, and bank simulators |
 | **Node.js** | `22.x` (LTS, CI reference) | `>=20.0.0` (per `package.json`) | `node --version` | Frontend Vite application and Playwright test harness |
 | **npm** | `10.9.x` | `>=10.0.0` | `npm --version` | Frontend package management |
 | **PostgreSQL** | `18.6` (Local & CI) | `16.x+` | `psql --version` | Transactional ACID database and double-entry ledger |
@@ -23,7 +23,7 @@ Ensure the following runtimes and tools are available before deploying TransactX
 | **PowerShell** | `5.1` or `7.x` | Windows PowerShell | `$PSVersionTable.PSVersion` | Operational supervision and lifecycle execution scripts |
 
 > [!NOTE]
-> Node.js 22 is the verified reference runtime used in hosted continuous integration (`.github/workflows/release-validation.yml`). The frontend package engine metadata declares `>=20.0.0` compatibility.
+> **Toolchain Management:** The `backend/go.mod` file declares directive `go 1.27.4`. Standard Go toolchains (version 1.21+) feature automatic toolchain selection (`GOTOOLCHAIN=auto`), enabling any standard Go 1.24+ installation (such as the verified local Go 1.27.1) to compile, test, and vet without manual intervention. Node.js 22 is the verified reference runtime used in hosted continuous integration (`.github/workflows/release-validation.yml`); the frontend package engine metadata declares `>=20.0.0` compatibility.
 
 ---
 
@@ -361,24 +361,25 @@ Stop-Process -Id $bankA_pid -Force
    - The send form remains locked, preventing the customer from accidentally paying twice.
 7. Click **Check status**.
 8. **Observation:**
-   - The client queries `GET /api/payments/{id}`.
-   - Once the terminal status (`COMPLETED`) is confirmed, the IndexedDB reservation lock is released, and the completion receipt is presented.
+   - The client queries `GET /api/payments/idempotency/{key}` using the preserved `idempotencyKey`.
+   - Once the terminal status (`COMPLETED`) is confirmed, the IndexedDB reservation lock in `active-reservations` is released, and the completion receipt is presented.
 
 ---
 
-### Scenario 5: Offline Edge Intent Capture & Monotonic Replay
+### Scenario 5: Offline Edge Intent Capture & Oldest-First Replay
 1. In Developer Tools, toggle the network to **Offline**.
 2. Select **Pay Offline (Edge Mode)**.
 3. Enter amount `₹150.00` to `store@transactx`. Click **Queue Offline Intent**.
 4. **Observation:**
-   - An offline payment intent is stored in IndexedDB (`offline-tx-queue`).
-   - *Epistemic note:* IndexedDB storage is structured and owner-scoped; AES-GCM encryption is not implemented.
-   - The local queue assigns a monotonic sequence counter (`seq=1`) and cryptographic client request ID.
+   - An offline payment intent is stored in IndexedDB database `transactx-offline-queue` (schema version 2), object store `offline-intents`.
+   - *Epistemic note:* IndexedDB storage is structured and owner-scoped; AES-GCM encryption is not implemented at rest.
+   - The intent record contains a unique `clientRequestId`, generated `idempotencyKey`, normalized payload, `payloadHash`, initial state `QUEUED`, and `createdAt` timestamp. (No `seq` counter is used).
 5. Toggle the network back to **Online**.
 6. Click **Sync Offline Payments**.
 7. **Observation:**
-   - The client's offline replay engine dispatches the queued intent sequentially.
-   - The server verifies monotonic order and executes the transaction on the primary ledger.
+   - The client's `OfflineReplayWorker` processes eligible queued intents **oldest-first according to `createdAt`** (`left.createdAt.localeCompare(right.createdAt)`).
+   - An exclusive lease is acquired per intent (`leaseOwner`, `leaseExpiresAt`, 30-second duration), transitioning the intent to `SYNCING` to prevent concurrent replay races.
+   - Each intent is submitted to the API via standard atomic idempotency evaluation. Upon terminal server response, the intent state transitions to `SYNCED`.
 
 ---
 

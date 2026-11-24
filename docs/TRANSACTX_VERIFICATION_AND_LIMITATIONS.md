@@ -73,13 +73,13 @@ The test `TestRealPostgres_IdempotencyDurabilityLifecycle` (in `backend/internal
 
 ## 5. Hosted GitHub Actions Continuous Integration Evidence
 
-All verification gates are automated and proven on hosted GitHub Actions cloud runners for the frozen baseline commit [`81a13ddc54e99db393fb927fae1aa15755ba507e`](https://github.com/whoevenisshubham/TransactX/commit/81a13ddc54e99db393fb927fae1aa15755ba507e):
+All verification gates are automated and proven on hosted GitHub Actions cloud runners for the verified baseline commit [`403778fac449e5354afb22a798827f19a67a24fb`](https://github.com/whoevenisshubham/TransactX/commit/403778fac449e5354afb22a798827f19a67a24fb):
 
 | Hosted Workflow | Run ID | Status | Conclusion | URL |
 |---|---|---|---|---|
-| **Release validation** | `45317095347` | `completed` | **`success`** | [Run 45317095347](https://github.com/whoevenisshubham/TransactX/actions/runs/45317095347) |
-| **Demo host validation** | `45317095296` | `completed` | **`success`** | [Run 45317095296](https://github.com/whoevenisshubham/TransactX/actions/runs/45317095296) |
-| **Auth and optional provider PostgreSQL acceptance** | `45317095294` | `completed` | **`success`** | [Run 45317095294](https://github.com/whoevenisshubham/TransactX/actions/runs/45317095294) |
+| **Release validation** | `45323578633` | `completed` | **`success`** | [Run 45323578633](https://github.com/whoevenisshubham/TransactX/actions/runs/45323578633) |
+| **Demo host validation** | `45323578573` | `completed` | **`success`** | [Run 45323578573](https://github.com/whoevenisshubham/TransactX/actions/runs/45323578573) |
+| **Auth and optional provider PostgreSQL acceptance** | `45323578749` | `completed` | **`success`** | [Run 45323578749](https://github.com/whoevenisshubham/TransactX/actions/runs/45323578749) |
 
 > [!NOTE]
 > Distinguishing Local Execution from Hosted CI: Hosted CI proves that the codebase compiles, lints, and passes all tests in clean, isolated Ubuntu containers with fresh PostgreSQL instances. Local staging execution proves that the multi-process supervisor, Caddy proxy, Bank A/B simulators, and Windows environment function coherently.
@@ -99,5 +99,5 @@ To ensure an academically rigorous evaluation, the following architectural and e
 ### 6.2 Payment Protocol & Rail Limitations
 1. **Simulated Bank Rails:** Bank A and Bank B are simulated HTTP microservices with artificial latency and error injection. Real-world ISO 8583/20022 wire formats, HSM cryptographic signing, and NPCI switch clearing protocols are simplified for research tractability.
 2. **Idempotency Record Retention:** The current system retains all idempotency records indefinitely in PostgreSQL without an automated TTL pruning daemon. In a high-volume production network, an archival partition strategy (e.g. 90-day retention with cold storage offload) would be required to prevent unbounded table growth.
-3. **Offline Replay Window & Encryption:** Offline payment acceptance relies on structured local key storage in browser IndexedDB. AES-GCM encryption is not implemented at rest in IndexedDB. In a production consumer deployment, hardware-backed secure enclaves (e.g. Android StrongBox, Apple Secure Enclave) would be necessary to prevent client clock tampering and replay attacks.
+3. **Offline Replay Window & Encryption:** Offline payment acceptance relies on structured local key storage in browser IndexedDB database `transactx-offline-queue` (schema version 2, store `offline-intents`). Intents are replayed oldest-first according to `createdAt` using lease fencing (`leaseOwner`, `leaseExpiresAt`, 30s); no `seq` counter or server-side monotonic sequence check exists. AES-GCM encryption is not implemented at rest in IndexedDB. In a production consumer deployment, hardware-backed secure enclaves (e.g. Android StrongBox, Apple Secure Enclave) would be necessary to prevent client clock tampering and replay attacks.
 4. **Ledger Conservation vs. Merkle Commitments:** A valid Merkle root proves only that recorded state transitions are cryptographically immutable and tamper-evident. It is mathematically independent of double-entry debit/credit balance conservation, which must be verified through separate ledger accounting checks.
