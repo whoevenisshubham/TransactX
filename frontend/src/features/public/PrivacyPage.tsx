@@ -5,10 +5,10 @@ import { ShieldCheck, Database, HardDrive, Cpu, KeyRound, MessageSquare } from "
 
 export function PrivacyPage() {
   return (
-    <div className="public-site reset-public reset-access min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
       <PublicHeader />
 
-      <main className="public-container privacy-page flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16 space-y-12">
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16 space-y-12">
         <header className="space-y-3">
           <p className="eyebrow text-xs font-mono font-semibold uppercase tracking-wider text-[var(--action-accent-bg)]">
             TransactX demo

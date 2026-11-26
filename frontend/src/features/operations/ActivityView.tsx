@@ -69,15 +69,15 @@ export function ActivityView({ token, liveRevision }: { token: string; liveRevis
               <tbody>
                 {events.map((ev) => (
                   <tr key={ev.id}>
-                    <td className="mono">{formatIso(ev.occurredAt)}</td>
+                    <td className="ops-mono tabular-nums text-xs whitespace-nowrap">{formatIso(ev.occurredAt)}</td>
                     <td>
                       <span className="console-pill console-pill-neutral">{ev.category}</span>
                     </td>
                     <td>
-                      {ev.title}
-                      <div className="mono" style={{ fontSize: ".68rem" }}>{ev.eventType}</div>
+                      <span className="font-medium text-[var(--text-primary)]">{ev.title}</span>
+                      <div className="ops-mono text-[11px] text-[var(--text-tertiary)]">{ev.eventType}</div>
                     </td>
-                    <td className="mono" style={{ fontWeight: 600 }}>{ev.targetId || "—"}</td>
+                    <td className="ops-mono font-semibold">{ev.targetId || "—"}</td>
                     <td>{ev.summary}</td>
                     <td>
                       <span

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../api";
-import { Amount, Avatar, BrandMark, Button, Icon, InlineError } from "../../components";
+import { Amount, Button, Icon, InlineError } from "../../components";
+import { WorkspaceShell } from "../../components/layout/WorkspaceShell";
 import { LoadingShell } from "../../shared/ShellStates";
-import { ThemeSelect } from "../../theme";
 import { OfflineIntentQueue, type OfflineIntent } from "../../offlineQueue";
 import { OfflineReplayWorker } from "../../offlineReplay";
 import { DurableUnresolvedStore, type DurableUnresolvedIntent } from "../../unresolvedStore";
@@ -309,251 +309,151 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
 
   const account = accounts[0];
 
+  const desktopNavGroups = [
+    {
+      id: "customer-primary",
+      items: [
+        {
+          id: "home",
+          label: "Overview",
+          active: view === "home",
+          icon: <Icon name="home" size={18} />,
+          onSelect: () => navigate("home"),
+        },
+        {
+          id: "pay",
+          label: "Pay",
+          active: view === "pay",
+          icon: <Icon name="send" size={18} />,
+          onSelect: () => navigate("pay"),
+        },
+        {
+          id: "transactions",
+          label: "Transactions",
+          active: view === "transactions" || view === "details",
+          icon: <Icon name="activity" size={18} />,
+          onSelect: () => navigate("transactions"),
+        },
+      ],
+    },
+  ];
+
+  const bottomNavItems = [
+    {
+      id: "home",
+      label: "Overview",
+      active: view === "home",
+      icon: <Icon name="home" size={18} />,
+      onSelect: () => navigate("home"),
+    },
+    {
+      id: "pay",
+      label: "Pay",
+      active: view === "pay",
+      icon: <Icon name="send" size={18} />,
+      onSelect: () => navigate("pay"),
+    },
+    {
+      id: "transactions",
+      label: "Activity",
+      active: view === "transactions" || view === "details",
+      icon: <Icon name="activity" size={18} />,
+      onSelect: () => navigate("transactions"),
+    },
+  ];
+
   return (
-    <div className="product-shell customer-shell reset-workspace reset-personal reset-expanded">
-      <Sidebar view={view} user={user} onNavigate={navigate} onLogout={onLogout} />
-      <main className="main-content">
-        <MobileHeader user={user} onLogout={onLogout} />
-        <div className="content-wrap">
-          <div className="workspace-topbar">
-            <span>
-              Personal /{" "}
-              {view === "home"
-                ? "Overview"
-                : view === "pay"
-                ? "Send money"
-                : view === "details"
-                ? "Receipt"
-                : "Activity"}
-            </span>
-            <NetworkStatus online={online} />
-          </div>
-
-          {activeUnresolvedIntent && (
-            <div
-              className="p-4 mb-4 rounded-lg border border-[var(--reset-gold)] bg-[var(--surface-soft)] text-xs flex flex-wrap items-center justify-between gap-3"
-              role="alert"
-              data-testid="global-unresolved-banner"
-            >
-              <div className="flex items-center gap-2 font-medium">
-                <Icon name="activity" size={16} />
-                <span>
-                  Unresolved transfer pending: <Amount paise={activeUnresolvedIntent.amountPaise} /> to{" "}
-                  <strong>{activeUnresolvedIntent.recipient.name}</strong> (Idempotency key:{" "}
-                  <code className="font-mono text-xs">{activeUnresolvedIntent.idempotencyKey.slice(0, 8)}…</code>)
-                </span>
-              </div>
-              <Button size="sm" onClick={() => navigate("pay")}>
-                Resolve transfer
-              </Button>
-            </div>
-          )}
-
-          {view === "home" && (
-            <CustomerDashboard
-              user={user}
-              account={account}
-              payments={payments}
-              onNavigate={navigate}
-              onExploreDemo={() => {
-                onLogout();
-                window.location.assign("/demo");
-              }}
-            />
-          )}
-
-          {view === "pay" && queue && (
-            <SendMoneyPage
-              account={account}
-              token={token}
-              queue={queue}
-              unresolvedStore={unresolvedStore ?? undefined}
-              unresolvedIntent={activeUnresolvedIntent}
-              storeStatus={storeStatus}
-              onComplete={completedPayment}
-              onPaymentCompleted={refreshPayments}
-              onQueueChanged={queueChanged}
-              onNavigate={navigate}
-            />
-          )}
-
-          {view === "transactions" && (
-            <TransactionActivity payments={payments} onNavigate={navigate} />
-          )}
-
-          {view === "details" && selectedPaymentID && (
-            <ReceiptDrawer
-              paymentID={selectedPaymentID}
-              token={token}
-              onNavigate={navigate}
-            />
-          )}
-
-          <OfflineQueuePanel intents={queueIntents} onRetry={retryIntent} />
-        </div>
-      </main>
-      <MobileNav view={view} onNavigate={navigate} />
-    </div>
-  );
-}
-
-function Sidebar({
-  view,
-  user,
-  onNavigate,
-  onLogout,
-}: {
-  view: View;
-  user: User | null;
-  onNavigate: (view: View) => void;
-  onLogout: () => void;
-}) {
-  return (
-    <aside className="sidebar">
-      <div className="brand-lockup">
-        <BrandMark />
-        <span>TransactX</span>
-        <span className="customer-tag">Personal</span>
-      </div>
-      <div className="sidebar-rule" />
-      <nav aria-label="Primary navigation">
-        <NavItem
-          view="home"
-          active={view === "home"}
-          label="Overview"
-          icon="home"
-          onClick={onNavigate}
-        />
-        <NavItem
-          view="pay"
-          active={view === "pay"}
-          label="Pay"
-          icon="send"
-          onClick={onNavigate}
-        />
-        <NavItem
-          view="transactions"
-          active={view === "transactions" || view === "details"}
-          label="Transactions"
-          icon="activity"
-          onClick={onNavigate}
-        />
-      </nav>
-      <div className="sidebar-bottom">
-        <ThemeSelect />
-        <div className="user-chip">
-          <Avatar name={user?.name ?? "Customer"} />
-          <span>
-            <strong>{user?.name ?? "Customer"}</strong>
-            <small>{user?.paymentIdentifier ?? ""}</small>
-          </span>
-        </div>
-        <button
-          type="button"
-          className="logout-button"
-          onClick={onLogout}
-          aria-label="Log out of TransactX"
-        >
-          Log out
-        </button>
-      </div>
-    </aside>
-  );
-}
-
-function NavItem({
-  view,
-  active,
-  label,
-  icon,
-  onClick,
-}: {
-  view: View;
-  active: boolean;
-  label: string;
-  icon: "home" | "send" | "activity";
-  onClick: (view: View) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`nav-item ${active ? "is-active" : ""}`}
-      onClick={() => onClick(view)}
-      aria-current={active ? "page" : undefined}
+    <WorkspaceShell
+      role="customer"
+      roleLabel="Personal"
+      roleBadgeClassName="customer-tag"
+      shellClassName="customer-shell reset-workspace reset-personal reset-expanded"
+      desktopNavAriaLabel="Primary navigation"
+      mobileDialogLabel="Customer navigation"
+      menuButtonLabel="Open navigation"
+      defaultDesktopCollapsed={false}
+      navGroups={desktopNavGroups}
+      bottomNavItems={bottomNavItems}
+      user={user ? { name: user.name, secondary: user.paymentIdentifier } : null}
+      onLogout={onLogout}
+      logoutAriaLabel="Log out of TransactX"
     >
-      <Icon name={icon} />
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function MobileHeader({
-  user,
-  onLogout,
-}: {
-  user: User | null;
-  onLogout: () => void;
-}) {
-  return (
-    <header className="mobile-header">
-      <div className="mobile-brand">
-        <BrandMark />
-        <span>TransactX</span>
-        <span className="customer-tag">Personal</span>
+      <div className="workspace-topbar">
+        <span>
+          Personal /{" "}
+          {view === "home"
+            ? "Overview"
+            : view === "pay"
+            ? "Send money"
+            : view === "details"
+            ? "Receipt"
+            : "Activity"}
+        </span>
+        <NetworkStatus online={online} />
       </div>
-      <ThemeSelect />
-      <button
-        type="button"
-        className="mobile-user"
-        onClick={onLogout}
-        aria-label={`Log out ${user?.name ?? ""}`}
-        title="Log out"
-      >
-        <Avatar name={user?.name ?? "Customer"} />
-      </button>
-    </header>
-  );
-}
 
-function MobileNav({
-  view,
-  onNavigate,
-}: {
-  view: View;
-  onNavigate: (view: View) => void;
-}) {
-  return (
-    <nav className="mobile-nav" aria-label="Mobile navigation">
-      <button
-        type="button"
-        className={`mobile-nav-item ${view === "home" ? "is-active" : ""}`}
-        onClick={() => onNavigate("home")}
-        aria-current={view === "home" ? "page" : undefined}
-      >
-        <Icon name="home" size={18} />
-        <span>Overview</span>
-      </button>
-      <button
-        type="button"
-        className={`mobile-nav-item ${view === "pay" ? "is-active" : ""}`}
-        onClick={() => onNavigate("pay")}
-        aria-current={view === "pay" ? "page" : undefined}
-      >
-        <Icon name="send" size={18} />
-        <span>Pay</span>
-      </button>
-      <button
-        type="button"
-        className={`mobile-nav-item ${
-          view === "transactions" || view === "details" ? "is-active" : ""
-        }`}
-        onClick={() => onNavigate("transactions")}
-        aria-current={view === "transactions" || view === "details" ? "page" : undefined}
-      >
-        <Icon name="activity" size={18} />
-        <span>Activity</span>
-      </button>
-    </nav>
+      {activeUnresolvedIntent && (
+        <div
+          className="p-4 mb-4 rounded-lg border border-[var(--reset-gold)] bg-[var(--surface-soft)] text-xs flex flex-wrap items-center justify-between gap-3"
+          role="alert"
+          data-testid="global-unresolved-banner"
+        >
+          <div className="flex items-center gap-2 font-medium">
+            <Icon name="activity" size={16} />
+            <span>
+              Unresolved transfer pending: <Amount paise={activeUnresolvedIntent.amountPaise} /> to{" "}
+              <strong>{activeUnresolvedIntent.recipient.name}</strong> (Idempotency key:{" "}
+              <code className="font-mono text-xs">{activeUnresolvedIntent.idempotencyKey.slice(0, 8)}…</code>)
+            </span>
+          </div>
+          <Button size="sm" onClick={() => navigate("pay")}>
+            Resolve transfer
+          </Button>
+        </div>
+      )}
+
+      {view === "home" && (
+        <CustomerDashboard
+          user={user}
+          account={account}
+          payments={payments}
+          onNavigate={navigate}
+          onExploreDemo={() => {
+            onLogout();
+            window.location.assign("/demo");
+          }}
+        />
+      )}
+
+      {view === "pay" && queue && (
+        <SendMoneyPage
+          account={account}
+          token={token}
+          queue={queue}
+          unresolvedStore={unresolvedStore ?? undefined}
+          unresolvedIntent={activeUnresolvedIntent}
+          storeStatus={storeStatus}
+          onComplete={completedPayment}
+          onPaymentCompleted={refreshPayments}
+          onQueueChanged={queueChanged}
+          onNavigate={navigate}
+        />
+      )}
+
+      {view === "transactions" && (
+        <TransactionActivity payments={payments} onNavigate={navigate} />
+      )}
+
+      {view === "details" && selectedPaymentID && (
+        <ReceiptDrawer
+          paymentID={selectedPaymentID}
+          token={token}
+          onNavigate={navigate}
+        />
+      )}
+
+      <OfflineQueuePanel intents={queueIntents} onRetry={retryIntent} />
+    </WorkspaceShell>
   );
 }
 

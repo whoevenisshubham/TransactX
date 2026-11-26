@@ -72,7 +72,7 @@ export function CustomerDashboard({
             </div>
             <button
               type="button"
-              className="balance-visibility"
+              className="balance-visibility !border !border-white/25 !rounded-full !px-3 !py-1.5 !bg-white/10 hover:!bg-white/15 !text-xs !font-medium !text-white transition-colors cursor-pointer shrink-0"
               aria-pressed={masked}
               onClick={() => setMasked((value) => !value)}
             >
@@ -103,7 +103,7 @@ export function CustomerDashboard({
         </section>
 
         {/* Identity & Receive Card */}
-        <section className="personal-receive-note" aria-label="Your payment identity">
+        <section className="personal-receive-note rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6" aria-label="Your payment identity">
           <span className="personal-note-symbol" aria-hidden="true">
             ↙
           </span>
@@ -113,7 +113,7 @@ export function CustomerDashboard({
             <br />
             Ready to share.
           </h2>
-          <strong className="personal-payment-id">
+          <strong className="personal-payment-id font-mono tabular-nums">
             {user?.paymentIdentifier ?? "Unavailable"}
           </strong>
           {user && <CopyValue value={user.paymentIdentifier} label="Copy payment ID" />}

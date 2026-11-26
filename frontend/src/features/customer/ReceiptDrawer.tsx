@@ -141,7 +141,7 @@ export function ReceiptDrawer({
           {payment.note && <Record label="Note" value={payment.note} />}
           <Record label="Network origin" value={payment.origin} />
           <Record label="Payment reference" mono>
-            <span className="receipt-reference">
+            <span className="receipt-reference font-mono tabular-nums break-all">
               {payment.id}
               <CopyValue value={payment.id} label="Copy payment reference" />
             </span>

@@ -90,7 +90,7 @@ export function ReceiveStation({ token }: ReceiveStationProps) {
 
           {qrSvg ? (
             <div
-              className="merchant-qr-frame"
+              className="merchant-qr-frame bg-white text-[#0f172a] p-3 rounded-xl"
               role="img"
               aria-label={`QR code containing payment ID ${info.paymentIdentifier}`}
               dangerouslySetInnerHTML={{ __html: qrSvg }}

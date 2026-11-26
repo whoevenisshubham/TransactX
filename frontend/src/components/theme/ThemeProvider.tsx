@@ -8,10 +8,10 @@ type ThemeProviderState = {
   setTheme: (theme: Theme) => void;
 };
 
-const THEME_STORAGE_KEY = "transactx.theme";
+export const THEME_STORAGE_KEY = "transactx.theme";
 let memoryPreference: Theme | null = null;
 
-function safeReadTheme(key: string, defaultTheme: Theme): Theme {
+export function readStoredTheme(key = THEME_STORAGE_KEY, defaultTheme: Theme = "system"): Theme {
   if (memoryPreference) return memoryPreference;
   if (typeof window === "undefined") return defaultTheme;
   try {
@@ -23,13 +23,36 @@ function safeReadTheme(key: string, defaultTheme: Theme): Theme {
   return defaultTheme;
 }
 
-function safeWriteTheme(key: string, theme: Theme): void {
+export function writeStoredTheme(theme: Theme, key = THEME_STORAGE_KEY): void {
   try {
     localStorage.setItem(key, theme);
     memoryPreference = null;
   } catch {
     memoryPreference = theme;
   }
+}
+
+export function resolveActiveTheme(theme: Theme): "light" | "dark" {
+  if (theme === "light" || theme === "dark") return theme;
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return "light";
+}
+
+export function applyThemeToDocument(theme: Theme): "light" | "dark" {
+  const activeTheme = resolveActiveTheme(theme);
+  if (typeof document !== "undefined") {
+    const root = document.documentElement;
+    root.setAttribute("data-theme", activeTheme);
+    root.style.colorScheme = activeTheme;
+    if (activeTheme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }
+  return activeTheme;
 }
 
 const ThemeContext = createContext<ThemeProviderState | undefined>(undefined);
@@ -43,20 +66,16 @@ export function ThemeProvider({
   defaultTheme?: Theme;
   storageKey?: string;
 }) {
-  const [theme, setThemeState] = useState<Theme>(() => safeReadTheme(storageKey, defaultTheme));
-
-  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() => {
-    if (typeof window !== "undefined") {
-      if (theme === "light" || theme === "dark") return theme;
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    }
-    return "light";
-  });
+  const [theme, setThemeState] = useState<Theme>(() => readStoredTheme(storageKey, defaultTheme));
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() =>
+    resolveActiveTheme(readStoredTheme(storageKey, defaultTheme))
+  );
 
   useEffect(() => {
     const syncTheme = () => {
-      const current = safeReadTheme(storageKey, defaultTheme);
+      const current = readStoredTheme(storageKey, defaultTheme);
       setThemeState(current);
+      setResolvedTheme(applyThemeToDocument(current));
     };
     window.addEventListener("transactx:theme", syncTheme);
     window.addEventListener("storage", syncTheme);
@@ -67,39 +86,23 @@ export function ThemeProvider({
   }, [storageKey, defaultTheme]);
 
   useEffect(() => {
-    const root = document.documentElement;
-
-    const applyTheme = () => {
-      let activeTheme: "light" | "dark" = "light";
-      if (theme === "system") {
-        activeTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-      } else {
-        activeTheme = theme;
-      }
-
-      setResolvedTheme(activeTheme);
-      root.setAttribute("data-theme", activeTheme);
-      root.style.colorScheme = activeTheme;
-      if (activeTheme === "dark") {
-        root.classList.add("dark");
-      } else {
-        root.classList.remove("dark");
-      }
+    const syncAndApply = () => {
+      setResolvedTheme(applyThemeToDocument(theme));
     };
 
-    applyTheme();
+    syncAndApply();
 
-    if (theme === "system") {
+    if (theme === "system" && typeof window !== "undefined" && typeof window.matchMedia === "function") {
       const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      const listener = () => applyTheme();
-      mediaQuery.addEventListener("change", listener);
-      return () => mediaQuery.removeEventListener("change", listener);
+      mediaQuery.addEventListener("change", syncAndApply);
+      return () => mediaQuery.removeEventListener("change", syncAndApply);
     }
   }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
-    safeWriteTheme(storageKey, newTheme);
+    writeStoredTheme(newTheme, storageKey);
     setThemeState(newTheme);
+    setResolvedTheme(applyThemeToDocument(newTheme));
     window.dispatchEvent(new Event("transactx:theme"));
   };
 

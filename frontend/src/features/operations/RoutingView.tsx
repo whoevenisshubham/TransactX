@@ -111,28 +111,32 @@ export function RoutingView({ token, liveRevision }: { token: string; liveRevisi
         }
       />
 
-      <div className="console-card">
-        <h3>Executed route selections · last 24 hours</h3>
-        <Button variant="secondary" onClick={loadDistribution}>Refresh distribution</Button>
+      <div className="console-card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="!m-0">Executed route selections · last 24 hours</h3>
+          <Button variant="secondary" onClick={loadDistribution}>Refresh distribution</Button>
+        </div>
         {distributionError && <InlineError message={distributionError} />}
-        {!distributionError && distribution.length === 0 && <p>No route decisions recorded in this window.</p>}
-        {distribution.map((item) => (
-          <div className="console-spec-item" key={item.targetId}>
-            <span>{item.targetId}</span>
-            <span style={{ minWidth: "40%" }}>
-              <span
-                style={{
-                  display: "inline-block",
-                  height: ".6rem",
-                  background: "var(--accent)",
-                  width: `${Math.round((item.payments / Math.max(1, ...distribution.map((x) => x.payments))) * 100)}%`,
-                  marginRight: ".5rem",
-                }}
-              />
-              {item.payments} payments
-            </span>
-          </div>
-        ))}
+        {!distributionError && distribution.length === 0 && <p className="ops-muted">No route decisions recorded in this window.</p>}
+        {distribution.map((item) => {
+          const pct = Math.round((item.payments / Math.max(1, ...distribution.map((x) => x.payments))) * 100);
+          return (
+            <div className="console-spec-item" key={item.targetId}>
+              <span className="ops-mono font-semibold text-[var(--text-primary)]">{item.targetId}</span>
+              <span className="flex items-center gap-3 min-w-[220px] flex-1 max-w-md justify-end">
+                <span className="flex-1 h-2.5 rounded-full bg-[var(--bg-surface-raised)] border border-[var(--border-hairline)] overflow-hidden">
+                  <span
+                    className="block h-full rounded-full bg-[var(--action-accent-bg)]"
+                    style={{ width: `${pct}%` }}
+                  />
+                </span>
+                <span className="ops-mono tabular-nums text-xs text-[var(--text-secondary)] shrink-0">
+                  {item.payments} payments
+                </span>
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {error && <InlineError message={error} />}

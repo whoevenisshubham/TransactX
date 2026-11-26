@@ -39,7 +39,7 @@ export function MerchantPaymentRow({ payment, expanded = false }: MerchantPaymen
       <div className="merchant-payment-expanded">
         <div>
           <span className="section-kicker">Payment reference</span>
-          <span className="merchant-full-reference">{payment.id}</span>
+          <span className="merchant-full-reference font-mono tabular-nums break-all">{payment.id}</span>
           <CopyValue value={payment.id} label="Copy reference" />
         </div>
         <div>

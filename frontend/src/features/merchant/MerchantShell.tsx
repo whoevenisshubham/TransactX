@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../../api";
-import { Avatar, BrandMark, Button, InlineError } from "../../components";
-import { ThemeSelect } from "../../theme";
+import { Button, InlineError } from "../../components";
+import { WorkspaceShell } from "../../components/layout/WorkspaceShell";
 import { LoadingShell } from "../../shared/ShellStates";
 import { MerchantDashboard } from "./MerchantDashboard";
 import { ReceiveStation } from "./ReceiveStation";
@@ -114,231 +114,156 @@ export function MerchantShell({ token, user, onLogout }: MerchantShellProps) {
       ? "Settlement"
       : "Search";
 
+  const navGroups = [
+    {
+      id: "merchant-primary",
+      items: [
+        {
+          id: "m-home",
+          label: "Dashboard",
+          active: view === "m-home",
+          icon: <MerchantIcon name="home" />,
+          onSelect: () => navigate("m-home"),
+        },
+        {
+          id: "m-receive",
+          label: "Receive / QR",
+          active: view === "m-receive",
+          icon: <MerchantIcon name="qr" />,
+          onSelect: () => navigate("m-receive"),
+        },
+        {
+          id: "m-incoming",
+          label: "Incoming",
+          active: view === "m-incoming",
+          icon: <MerchantIcon name="activity" />,
+          onSelect: () => navigate("m-incoming"),
+        },
+        {
+          id: "m-settlement",
+          label: "Settlement",
+          active: view === "m-settlement",
+          icon: <MerchantIcon name="check" />,
+          onSelect: () => navigate("m-settlement"),
+        },
+        {
+          id: "m-search",
+          label: "Search",
+          active: view === "m-search",
+          icon: <MerchantIcon name="search" />,
+          onSelect: () => navigate("m-search"),
+        },
+      ],
+    },
+  ];
+
+  const bottomNavItems = [
+    {
+      id: "m-home",
+      label: "Dashboard",
+      active: view === "m-home",
+      icon: <MerchantIcon name="home" size={16} />,
+      onSelect: () => navigate("m-home"),
+    },
+    {
+      id: "m-receive",
+      label: "Receive",
+      active: view === "m-receive",
+      icon: <MerchantIcon name="qr" size={16} />,
+      onSelect: () => navigate("m-receive"),
+    },
+    {
+      id: "m-incoming",
+      label: "Incoming",
+      active: view === "m-incoming",
+      icon: <MerchantIcon name="activity" size={16} />,
+      onSelect: () => navigate("m-incoming"),
+    },
+    {
+      id: "m-settlement",
+      label: "Settlement",
+      active: view === "m-settlement",
+      icon: <MerchantIcon name="check" size={16} />,
+      onSelect: () => navigate("m-settlement"),
+    },
+    {
+      id: "m-search",
+      label: "Search",
+      active: view === "m-search",
+      icon: <MerchantIcon name="search" size={16} />,
+      onSelect: () => navigate("m-search"),
+    },
+  ];
+
   return (
-    <div className="product-shell merchant-shell reset-workspace reset-merchant reset-expanded">
-      <MerchantSidebar
-        view={view}
-        user={user}
-        onNavigate={navigate}
-        onLogout={onLogout}
-      />
-      <main className="main-content">
-        <MerchantMobileHeader user={user} onLogout={onLogout} />
-        <div className="content-wrap">
-          <div className="workspace-topbar">
-            <span>Merchant / {viewTitle}</span>
-            <span>
-              {!isOnline ? (
-                <span style={{ color: "var(--warning-strong, #b45309)" }}>
-                  ● Offline (cached observations)
-                </span>
-              ) : (
-                "Simulated payment network"
-              )}
+    <WorkspaceShell
+      role="merchant"
+      roleLabel="Merchant"
+      roleBadgeClassName="merchant-badge"
+      shellClassName="merchant-shell reset-workspace reset-merchant reset-expanded"
+      desktopNavAriaLabel="Merchant navigation"
+      mobileDialogLabel="Merchant navigation"
+      menuButtonLabel="Open navigation"
+      defaultDesktopCollapsed={false}
+      navGroups={navGroups}
+      bottomNavItems={bottomNavItems}
+      user={{ name: user.name, secondary: user.paymentIdentifier }}
+      onLogout={onLogout}
+    >
+      <div className="workspace-topbar">
+        <span>Merchant / {viewTitle}</span>
+        <span>
+          {!isOnline ? (
+            <span style={{ color: "var(--warning-strong)" }}>
+              ● Offline (cached observations)
             </span>
-          </div>
-
-          {!isOnline && (
-            <div
-              style={{
-                background: "var(--warning-pale, #fffbeb)",
-                color: "var(--warning-strong, #92400e)",
-                border: "1px solid var(--warning-line, #fef3c7)",
-                borderRadius: "8px",
-                padding: "10px 16px",
-                fontSize: "13px",
-                marginBottom: "16px",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-              role="status"
-            >
-              <span>⚠</span>
-              <span>
-                Offline mode — displaying cached ledger observations. Automatic refresh paused until connection is restored.
-              </span>
-            </div>
+          ) : (
+            "Simulated payment network"
           )}
-
-          {view === "m-home" && (
-            <MerchantDashboard
-              user={user}
-              account={account}
-              payments={payments}
-              onNavigate={navigate}
-              onRefresh={refreshPayments}
-            />
-          )}
-          {view === "m-receive" && <ReceiveStation token={token} />}
-          {view === "m-incoming" && (
-            <IncomingPayments payments={payments} onRefresh={refreshPayments} />
-          )}
-          {view === "m-settlement" && (
-            <SettlementOverview payments={payments} onRefresh={refreshPayments} />
-          )}
-          {view === "m-search" && <MerchantSearch payments={payments} />}
-        </div>
-      </main>
-      <MerchantMobileNav view={view} onNavigate={navigate} />
-    </div>
-  );
-}
-
-function MerchantSidebar({
-  view,
-  user,
-  onNavigate,
-  onLogout,
-}: {
-  view: MerchantView;
-  user: User;
-  onNavigate: (v: MerchantView) => void;
-  onLogout: () => void;
-}) {
-  return (
-    <aside className="sidebar merchant-sidebar">
-      <div className="brand-lockup">
-        <BrandMark />
-        <span>TransactX</span>
-        <span className="merchant-badge">Merchant</span>
+        </span>
       </div>
-      <div className="sidebar-rule" />
-      <nav aria-label="Merchant navigation">
-        <MerchantNavItem
-          view="m-home"
-          active={view === "m-home"}
-          label="Dashboard"
-          icon="home"
-          onClick={onNavigate}
-        />
-        <MerchantNavItem
-          view="m-receive"
-          active={view === "m-receive"}
-          label="Receive / QR"
-          icon="qr"
-          onClick={onNavigate}
-        />
-        <MerchantNavItem
-          view="m-incoming"
-          active={view === "m-incoming"}
-          label="Incoming"
-          icon="activity"
-          onClick={onNavigate}
-        />
-        <MerchantNavItem
-          view="m-settlement"
-          active={view === "m-settlement"}
-          label="Settlement"
-          icon="check"
-          onClick={onNavigate}
-        />
-        <MerchantNavItem
-          view="m-search"
-          active={view === "m-search"}
-          label="Search"
-          icon="search"
-          onClick={onNavigate}
-        />
-      </nav>
-      <div className="sidebar-bottom">
-        <ThemeSelect />
-        <div className="user-chip">
-          <Avatar name={user.name} />
+
+      {!isOnline && (
+        <div
+          style={{
+            background: "var(--warning-pale)",
+            color: "var(--warning-strong)",
+            border: "1px solid var(--warning-line)",
+            borderRadius: "8px",
+            padding: "10px 16px",
+            fontSize: "13px",
+            marginBottom: "16px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+          role="status"
+        >
+          <span>⚠</span>
           <span>
-            <strong>{user.name}</strong>
-            <small>{user.paymentIdentifier}</small>
+            Offline mode — displaying cached ledger observations. Automatic refresh paused until connection is restored.
           </span>
         </div>
-        <button type="button" className="logout-button" onClick={onLogout}>
-          Log out
-        </button>
-      </div>
-    </aside>
-  );
-}
+      )}
 
-function MerchantNavItem({
-  view,
-  active,
-  label,
-  icon,
-  onClick,
-}: {
-  view: MerchantView;
-  active: boolean;
-  label: string;
-  icon: "home" | "qr" | "activity" | "check" | "search";
-  onClick: (v: MerchantView) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`nav-item ${active ? "is-active" : ""}`}
-      aria-current={active ? "page" : undefined}
-      onClick={() => onClick(view)}
-    >
-      <MerchantIcon name={icon} />
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function MerchantMobileNav({
-  view,
-  onNavigate,
-}: {
-  view: MerchantView;
-  onNavigate: (v: MerchantView) => void;
-}) {
-  return (
-    <nav className="mobile-nav merchant-mobile-nav" aria-label="Mobile merchant navigation">
-      <button
-        type="button"
-        className={`mobile-nav-item ${view === "m-home" ? "is-active" : ""}`}
-        aria-current={view === "m-home" ? "page" : undefined}
-        onClick={() => onNavigate("m-home")}
-      >
-        <MerchantIcon name="home" size={16} />
-        <span>Dashboard</span>
-      </button>
-      <button
-        type="button"
-        className={`mobile-nav-item ${view === "m-receive" ? "is-active" : ""}`}
-        aria-current={view === "m-receive" ? "page" : undefined}
-        onClick={() => onNavigate("m-receive")}
-      >
-        <MerchantIcon name="qr" size={16} />
-        <span>Receive</span>
-      </button>
-      <button
-        type="button"
-        className={`mobile-nav-item ${view === "m-incoming" ? "is-active" : ""}`}
-        aria-current={view === "m-incoming" ? "page" : undefined}
-        onClick={() => onNavigate("m-incoming")}
-      >
-        <MerchantIcon name="activity" size={16} />
-        <span>Incoming</span>
-      </button>
-      <button
-        type="button"
-        className={`mobile-nav-item ${view === "m-settlement" ? "is-active" : ""}`}
-        aria-current={view === "m-settlement" ? "page" : undefined}
-        onClick={() => onNavigate("m-settlement")}
-      >
-        <MerchantIcon name="check" size={16} />
-        <span>Settlement</span>
-      </button>
-      <button
-        type="button"
-        className={`mobile-nav-item ${view === "m-search" ? "is-active" : ""}`}
-        aria-current={view === "m-search" ? "page" : undefined}
-        onClick={() => onNavigate("m-search")}
-      >
-        <MerchantIcon name="search" size={16} />
-        <span>Search</span>
-      </button>
-    </nav>
+      {view === "m-home" && (
+        <MerchantDashboard
+          user={user}
+          account={account}
+          payments={payments}
+          onNavigate={navigate}
+          onRefresh={refreshPayments}
+        />
+      )}
+      {view === "m-receive" && <ReceiveStation token={token} />}
+      {view === "m-incoming" && (
+        <IncomingPayments payments={payments} onRefresh={refreshPayments} />
+      )}
+      {view === "m-settlement" && (
+        <SettlementOverview payments={payments} onRefresh={refreshPayments} />
+      )}
+      {view === "m-search" && <MerchantSearch payments={payments} />}
+    </WorkspaceShell>
   );
 }
 
@@ -381,7 +306,7 @@ function MerchantIcon({
   return (
     <svg
       aria-hidden="true"
-      className="icon"
+      className="icon shrink-0"
       width={size}
       height={size}
       viewBox="0 0 18 18"
@@ -393,33 +318,6 @@ function MerchantIcon({
     >
       {paths[name]}
     </svg>
-  );
-}
-
-function MerchantMobileHeader({
-  user,
-  onLogout,
-}: {
-  user: User;
-  onLogout: () => void;
-}) {
-  return (
-    <header className="mobile-header merchant-mobile-header">
-      <div className="mobile-brand">
-        <BrandMark />
-        <span>TransactX</span>
-        <span className="merchant-badge-mobile">Merchant</span>
-      </div>
-      <ThemeSelect />
-      <button
-        type="button"
-        className="mobile-user"
-        onClick={onLogout}
-        aria-label={`Log out ${user.name}`}
-      >
-        <Avatar name={user.name} size="sm" />
-      </button>
-    </header>
   );
 }
 

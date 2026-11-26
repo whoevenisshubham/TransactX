@@ -111,6 +111,29 @@ export function MerkleView({ token }: { token: string }) {
         {error && <InlineError message={error} />}
       </div>
 
+      {!root && !loading && !error && (
+        <div className="console-card space-y-3">
+          <h3>How Merkle bucket verification works</h3>
+          <p className="ops-muted m-0">
+            Enter a participant ID and UTC time scope above to inspect its committed root hash and walk bucket partition children.
+          </p>
+          <div className="console-spec-list">
+            <div className="console-spec-item">
+              <span className="console-spec-label">Accumulator specification</span>
+              <span className="console-spec-val">merkle-v1 · SHA-256</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Domain separation</span>
+              <span className="console-spec-val">TXNODE|v1|&lt;left&gt;|&lt;right&gt;</span>
+            </div>
+            <div className="console-spec-item">
+              <span className="console-spec-label">Scope format</span>
+              <span className="console-spec-val">ISO8601 UTC (e.g. 2026-10-18T00:00:00Z)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {root && (
         <div className="console-card">
           <h3>Merkle Root</h3>
@@ -180,15 +203,15 @@ function MerkleNodeBranch({
   const key = `${node.ref.Generation}:${node.ref.Path}`;
   const children = childrenMap[key];
   return (
-    <div
-      className="console-spec-list"
-      style={{
-        background: "var(--bg-subtle)",
-        padding: "0.65rem",
-        margin: "0.5rem 0 0.5rem 1rem",
-        borderLeft: "2px solid var(--border-color)",
-      }}
-    >
+      <div
+        className="console-spec-list rounded-xl border border-[var(--border-hairline)]"
+        style={{
+          background: "var(--bg-surface-raised)",
+          padding: "0.75rem 1rem",
+          margin: "0.625rem 0 0.625rem 1rem",
+          borderLeft: "3px solid var(--action-accent-bg)",
+        }}
+      >
       <div className="console-spec-item">
         <span className="console-spec-label">Depth / path</span>
         <span className="console-spec-val mono">

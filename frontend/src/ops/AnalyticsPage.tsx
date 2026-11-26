@@ -42,9 +42,9 @@ export function AnalyticsPage({ token, liveRevision }: { token: string; liveRevi
         <DataTable<AnalyticsWindow> caption="Measured operational windows with a table alternative to charts" rows={page.items} rowKey={(item) => item.id} columns={[
           { key: "entity", heading: "Entity", render: (item) => `${item.entityType.replaceAll("_", " ")} · ${item.entityId}` },
           { key: "window", heading: "Window (UTC)", render: (item) => <>{utc(item.from)} → {utc(item.to)}</> },
-          { key: "sample", heading: "Samples", render: (item) => item.sampleCount },
-          { key: "rates", heading: "Timeout / failure", render: (item) => `${rate(item.features.timeoutRate)} / ${rate(item.features.failureRate)}` },
-          { key: "latency", heading: "P95 latency", render: (item) => metric(item.features.p95LatencyMs, "ms") },
+          { key: "sample", heading: "Samples", render: (item) => <span className="ops-mono tabular-nums">{item.sampleCount}</span> },
+          { key: "rates", heading: "Timeout / failure", render: (item) => <span className="ops-mono tabular-nums">{rate(item.features.timeoutRate)} / {rate(item.features.failureRate)}</span> },
+          { key: "latency", heading: "P95 latency", render: (item) => <span className="ops-mono tabular-nums">{metric(item.features.p95LatencyMs, "ms")}</span> },
           { key: "model", heading: "Advisory model", render: (item) => <>{item.model.status.replaceAll("_", " ")} · {item.model.version ?? "no version"}{item.model.score === null ? "" : ` · score ${item.model.score.toFixed(3)}`}</> },
           { key: "baseline", heading: "Baseline", render: (item) => item.baselineAlert?.message ?? "No baseline alert recorded" },
         ]} />}

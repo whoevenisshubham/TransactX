@@ -66,16 +66,15 @@ export function MerchantDashboard({
                 {account?.accountNumber ?? "Account unavailable"} · Simulated INR
               </small>
             </div>
-            <div className="merchant-position-mark" aria-hidden="true">
-              <span>↙</span>
-              <BrandMark />
-            </div>
+            <span className="inline-flex items-center gap-1.5 self-start rounded-full border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-2.5 py-1 text-[11px] font-mono font-semibold text-[var(--status-success-fg)] shrink-0">
+              Receiving
+            </span>
           </section>
 
           <div className="merchant-receipt-totals">
             <div>
               <span>Completed receipts</span>
-              <strong>{formatPaiseDecimal(total)}</strong>
+              <strong className="font-mono tabular-nums">{formatPaiseDecimal(total)}</strong>
               <small>
                 {completed.length} completed{" "}
                 {completed.length === 1 ? "payment" : "payments"} in this page
@@ -83,7 +82,7 @@ export function MerchantDashboard({
             </div>
             <div>
               <span>Awaiting confirmation</span>
-              <strong>{pending.length.toString().padStart(2, "0")}</strong>
+              <strong className="font-mono tabular-nums">{pending.length.toString().padStart(2, "0")}</strong>
               <button
                 type="button"
                 className="text-link"
@@ -181,7 +180,7 @@ function DashboardReceiveStation({
       {active ? (
         <>
           <div
-            className="merchant-qr-frame station-qr"
+            className="merchant-qr-frame station-qr bg-white text-[#0f172a] p-3 rounded-xl"
             role="img"
             aria-label={`QR code containing payment ID ${user.paymentIdentifier}`}
           >

@@ -17,7 +17,7 @@ export function LoadingState({
       aria-live="polite"
       className={`flex flex-col items-center justify-center p-12 text-center rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] ${className}`}
     >
-      <Loader2 className="w-8 h-8 animate-spin text-[var(--action-accent-bg)] mb-4" />
+      <Loader2 className="w-8 h-8 animate-spin motion-reduce:animate-none text-[var(--action-accent-bg)] mb-4" />
       <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">{title}</h3>
       <p className="text-xs text-[var(--text-secondary)] max-w-sm">{description}</p>
     </div>

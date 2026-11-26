@@ -98,10 +98,10 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
   }
 
   return (
-    <div className="public-site reset-public reset-access min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
       <PublicHeader />
 
-      <main className="public-container demo-page flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 space-y-10">
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 space-y-10">
         {/* Page Heading */}
         <div className="space-y-3 max-w-2xl">
           <p className="eyebrow text-xs font-mono font-semibold uppercase tracking-wider text-[var(--action-accent-bg)]">
@@ -225,17 +225,24 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/40 text-xs">
           <p className="demo-progress text-xs font-mono text-[var(--text-secondary)]" role="status">
             {busy ? (
-              <span className="flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-[var(--action-accent-bg)] animate-spin" />
+              <span className="flex flex-wrap items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-[var(--action-accent-bg)] animate-spin motion-reduce:animate-none" />
                 <span>
-                  {elapsed < 8
-                    ? "Connecting to the demo"
-                    : "Still waiting for the demo service"}{" "}
-                  · {elapsed}s elapsed. Please keep this page open.
+                  {elapsed < 5
+                    ? "Waking sandbox…"
+                    : `Checking backend health (${elapsed}s)`}{" "}
+                  ·{" "}
+                  <a
+                    href="/showcase"
+                    className="font-semibold text-[var(--action-accent-bg)] underline hover:opacity-80"
+                  >
+                    Browse read-only scenarios (/showcase)
+                  </a>{" "}
+                  while waiting.
                 </span>
               </span>
             ) : (
-              "Shared demo accounts are separate from private sign-in."
+              "Shared demo accounts are separate from private sign-in. Public operator demo is strictly read-only (OPS_VIEWER)."
             )}
           </p>
 

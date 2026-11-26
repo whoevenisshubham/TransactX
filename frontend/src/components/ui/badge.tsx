@@ -44,7 +44,7 @@ export function Badge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border font-mono tracking-tight select-none ${variants[variant].container} ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border font-mono tracking-tight whitespace-nowrap select-none shrink-0 ${variants[variant].container} ${className}`}
       {...props}
     >
       {dot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${variants[variant].dot}`} />}

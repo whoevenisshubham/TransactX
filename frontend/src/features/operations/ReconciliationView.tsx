@@ -138,12 +138,24 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
               <tbody>
                 {runs.map((run) => (
                   <tr key={run.id}>
-                    <td>{run.startedAt}</td>
-                    <td>{run.participantId}</td>
-                    <td>{run.status}</td>
-                    <td>{run.discrepancyCount}</td>
+                    <td className="ops-mono tabular-nums text-xs">{run.startedAt}</td>
+                    <td className="ops-mono font-semibold">{run.participantId}</td>
                     <td>
-                      <button type="button" className="text-link" onClick={() => choose(run)}>
+                      <span
+                        className={`console-pill ${
+                          run.status === "COMPLETED" && run.discrepancyCount === 0
+                            ? "console-pill-success"
+                            : run.discrepancyCount > 0 || run.status === "FAILED"
+                            ? "console-pill-warning"
+                            : "console-pill-neutral"
+                        }`}
+                      >
+                        {run.status}
+                      </span>
+                    </td>
+                    <td className="ops-mono tabular-nums font-semibold">{run.discrepancyCount}</td>
+                    <td>
+                      <button type="button" className="text-link ops-link" onClick={() => choose(run)}>
                         View
                       </button>
                     </td>
@@ -226,16 +238,34 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
           ) : (
             <>
               {totalDiscrepancies !== null && (
-                <p className="text-sm text-muted-foreground mb-2">
+                <p className="ops-muted mb-2">
                   Showing {offset + 1}–{offset + discrepancies.length} of {totalDiscrepancies} discrepancies
                 </p>
               )}
-              {discrepancies.map((item, index) => (
-                <div className="console-spec-item" key={item.id ?? index}>
-                  <span>{item.mismatchCategory} · {item.bucketKey}</span>
-                  <span>{item.evidence?.operation_id ?? "bucket-level"}</span>
-                </div>
-              ))}
+              <div className="console-table-wrap mb-3" tabIndex={0} role="region" aria-label="Reconciliation discrepancies">
+                <table className="console-table">
+                  <thead>
+                    <tr>
+                      <th>Mismatch category</th>
+                      <th>Bucket key</th>
+                      <th>Operation / Evidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {discrepancies.map((item, index) => (
+                      <tr key={item.id ?? index}>
+                        <td>
+                          <span className="console-pill console-pill-warning">{item.mismatchCategory}</span>
+                        </td>
+                        <td className="ops-mono tabular-nums text-xs">{item.bucketKey}</td>
+                        <td className="ops-mono tabular-nums text-xs">
+                          {item.evidence?.operation_id ?? "bucket-level"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <div className="flex gap-2 mt-4 items-center">
                 <Button
                   type="button"

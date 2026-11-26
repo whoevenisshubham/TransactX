@@ -47,7 +47,7 @@ export function SettlementOverview({ payments, onRefresh }: SettlementOverviewPr
           description="Settlement status will appear here once payments are received."
         />
       ) : (
-        <div className="merchant-settlement-layout">
+        <div className="merchant-settlement-layout space-y-4">
           <SettlementGroup
             title="Completed"
             count={completed.length}
@@ -100,17 +100,17 @@ function SettlementGroup({
   const [open, setOpen] = useState(tone === "success" || tone === "warning");
 
   return (
-    <div className={`settlement-group settlement-group-${tone}`}>
+    <div className={`settlement-group settlement-group-${tone} rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden`}>
       <button
         type="button"
-        className="settlement-group-header"
+        className="settlement-group-header w-full text-left"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
-        <span className="settlement-group-title">
+        <span className="settlement-group-title font-semibold text-[var(--text-primary)]">
           <span className={`status-dot status-${tone}-dot`} />
           {title}
-          <span className="settlement-count">{count}</span>
+          <span className="settlement-count font-mono tabular-nums">{count}</span>
         </span>
         <span className="settlement-description">{description}</span>
         <Icon name="chevron" size={16} />

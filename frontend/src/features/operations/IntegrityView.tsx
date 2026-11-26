@@ -140,13 +140,15 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
         title="Ledger Integrity Engine"
         description="Run and review persisted financial invariant checks."
       />
-      <div className="console-card">
+      <div className="console-card space-y-3">
         <h3>Financial integrity</h3>
-        <p>Run the general checks, or fill participant and scope below to include Merkle commitment consistency.</p>
-        <Button onClick={runIntegrity} disabled={checking}>
-          {checking ? "Checking..." : "Run integrity checks"}
-        </Button>
-        <Button variant="secondary" onClick={loadIntegrity}>Refresh history</Button>
+        <p className="ops-muted">Run the general checks, or fill participant and scope below to include Merkle commitment consistency.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={runIntegrity} disabled={checking}>
+            {checking ? "Checking..." : "Run integrity checks"}
+          </Button>
+          <Button variant="secondary" onClick={loadIntegrity}>Refresh history</Button>
+        </div>
         {integrityError && <InlineError message={integrityError} />}
         {integrityRuns.length === 0 && <p>No integrity checks recorded.</p>}
         {integrityRuns.map((run) => (
@@ -179,8 +181,21 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
             <h4>Run {integrityDetail.runId}</h4>
             {(integrityDetail.checks ?? []).map((check: IntegrityCheckResult) => (
               <div className="console-spec-item" key={check.code}>
-                <span>{check.code}</span>
-                <span>{check.status} · {check.message}</span>
+                <span className="ops-mono font-semibold">{check.code}</span>
+                <span className="flex flex-wrap items-center gap-2 text-xs">
+                  <span
+                    className={`console-pill ${
+                      check.status === "PASS"
+                        ? "console-pill-success"
+                        : check.status === "FAIL" || check.status === "ERROR"
+                        ? "console-pill-error"
+                        : "console-pill-warning"
+                    }`}
+                  >
+                    {check.status}
+                  </span>
+                  <span>{check.message}</span>
+                </span>
               </div>
             ))}
           </div>

@@ -5,13 +5,13 @@ export function OfflineQueuePanel({ intents, onRetry }: OfflineQueuePanelProps) 
   if (intents.length === 0) return null;
 
   return (
-    <section className="offline-queue-panel">
+    <section className="offline-queue-panel rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 space-y-3">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Local sync</p>
           <h2>Offline payment intents</h2>
         </div>
-        <span className="toolbar-note">{intents.length} retained on device</span>
+        <span className="toolbar-note font-mono tabular-nums">{intents.length} retained on device</span>
       </div>
 
       <div className="offline-intent-list">

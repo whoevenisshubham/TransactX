@@ -39,10 +39,10 @@ export function GoogleCallbackPage({
   }, [onAuthenticated]);
 
   return (
-    <div className="public-site reset-public reset-access min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
       <PublicHeader />
 
-      <main className="google-callback public-container flex-1 w-full max-w-xl mx-auto px-4 sm:px-6 py-16 flex items-center justify-center">
+      <main className="flex-1 w-full max-w-xl mx-auto px-4 sm:px-6 py-16 flex items-center justify-center">
         <Card className="w-full shadow-lg">
           <CardContent className="pt-6 space-y-6 text-center">
             <p className="eyebrow text-xs font-mono font-semibold uppercase tracking-wider text-[var(--action-accent-bg)]">
@@ -101,7 +101,7 @@ export function GoogleCallbackPage({
 
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                   <a
-                    className="button button-primary w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 rounded-lg bg-[var(--action-primary-bg)] text-[var(--action-primary-fg)] text-xs font-semibold hover:opacity-90 transition-opacity shadow-sm"
+                    className="button button-primary w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 rounded-lg bg-[var(--action-primary-bg)] !text-[var(--action-primary-fg)] text-xs font-semibold hover:opacity-90 transition-opacity shadow-sm"
                     href="/login"
                   >
                     Try sign-in again

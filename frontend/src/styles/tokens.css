@@ -1,41 +1,53 @@
 /**
- * TransactX Dual-Theme Semantic Design Tokens
- * Direction A: Modern Corporate Precision (Light)
- * Direction B: Refined Enterprise Financial Infrastructure (Dark)
+ * TransactX Canonical Dual-Theme Design Tokens
+ * Light: "TransactX Financial" (#f8fafc canvas, #ffffff surface, #0f172a ink, #1d4ed8 accent)
+ * Dark:  "TransactX Precision Dark" (#0b0f19 canvas, #131b2e surface, #f8fafc ink, #2563eb accent)
+ * Note: Zero pure #000000 backgrounds, zero neon glows, matte WCAG AA semantic badges.
  */
 
 :root {
-  /* Fonts */
-  --font-sans: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* Typography */
+  --font-sans: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  /* Geometry & Radius (4px / 8px scale) */
+  /* Radii & Spacing Scale */
   --radius-sm: 0.25rem;   /* 4px */
   --radius-md: 0.5rem;    /* 8px */
   --radius-lg: 0.75rem;   /* 12px */
   --radius-xl: 1rem;      /* 16px */
   --radius-full: 9999px;
 
-  /* Shadows */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* Elevation Shadows */
   --shadow-subtle: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px 0 rgba(15, 23, 42, 0.02);
   --shadow-raised: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
   --shadow-modal: 0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
 
-  /* Light Theme Colors (Default) */
+  /* Surfaces (Light Default) */
   --bg-canvas: #f8fafc;
   --bg-surface: #ffffff;
   --bg-surface-raised: #f1f5f9;
   --bg-surface-overlay: #ffffff;
 
+  /* Borders & Focus */
   --border-hairline: #e2e8f0;
   --border-active: #cbd5e1;
   --border-focus: #2563eb;
 
+  /* Typography Colors */
   --text-primary: #0f172a;
   --text-secondary: #334155;
   --text-tertiary: #475569;
   --text-inverse: #ffffff;
 
+  /* Interactive Actions */
   --action-primary-bg: #0f172a;
   --action-primary-fg: #ffffff;
   --action-primary-hover: #1e293b;
@@ -49,6 +61,7 @@
   --action-accent-fg: #ffffff;
   --action-accent-hover: #1e40af;
 
+  /* Matte Semantic Status Colors (WCAG AA) */
   --status-success-fg: #166534;
   --status-success-bg: #dcfce7;
   --status-success-border: #bbf7d0;
@@ -65,17 +78,55 @@
   --status-info-bg: #dbeafe;
   --status-info-border: #bfdbfe;
 
+  /* Data Visualization & Tables */
   --table-row-hover: #f8fafc;
   --table-border: #f1f5f9;
-
   --chart-grid: #e2e8f0;
   --chart-axis: #64748b;
   --chart-bar-primary: #2563eb;
   --chart-bar-secondary: #dc2626;
   --chart-missing: #94a3b8;
+
+  /* Audit-verified Legacy & Utility Variable Mappings (7 formerly undefined vars fixed) */
+  --foreground: var(--text-primary);
+  --bg-subtle: var(--bg-surface-raised);
+  --border-color: var(--border-hairline);
+  --reset-gold: #b45309;
+  --warning-strong: var(--status-warning-fg);
+  --warning-pale: var(--status-warning-bg);
+  --warning-line: var(--status-warning-border);
+
+  /* Compatibility aliases for unconverted Stage 2-6 views */
+  --bg-page: var(--bg-canvas);
+  --surface: var(--bg-surface);
+  --surface-soft: var(--bg-surface-raised);
+  --surface-elevated: var(--bg-surface-overlay);
+  --line: var(--border-hairline);
+  --line-strong: var(--border-active);
+  --border: var(--border-hairline);
+  --border-strong: var(--border-active);
+  --ink: var(--text-primary);
+  --muted: var(--text-tertiary);
+  --faint: #64748b;
+  --text-muted: var(--text-tertiary);
+  --accent: var(--action-accent-bg);
+  --accent-strong: var(--action-accent-hover);
+  --accent-dark: var(--action-accent-hover);
+  --accent-pale: var(--status-info-bg);
+  --accent-soft: var(--status-info-bg);
+  --on-accent: var(--action-accent-fg);
+  --success: var(--status-success-fg);
+  --success-bg: var(--status-success-bg);
+  --warning: var(--status-warning-fg);
+  --warning-bg: var(--status-warning-bg);
+  --error: var(--status-danger-fg);
+  --error-bg: var(--status-danger-bg);
+  --pending: var(--status-warning-fg);
+  --focus-color: var(--border-focus);
+  --focus-ring: 0 0 0 2px var(--border-focus);
 }
 
-/* Dark Theme (Explicit or via Class) */
+/* Dark Theme ("TransactX Precision Dark") */
 [data-theme="dark"],
 .dark {
   --bg-canvas: #0b0f19;
@@ -103,7 +154,7 @@
 
   --action-accent-bg: #2563eb;
   --action-accent-fg: #ffffff;
-  --action-accent-hover: #1d4ed8;
+  --action-accent-hover: #3b82f6;
 
   --status-success-fg: #6ee7b7;
   --status-success-bg: #064e3b;
@@ -133,4 +184,40 @@
   --shadow-subtle: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px 0 rgba(0, 0, 0, 0.2);
   --shadow-raised: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
   --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+
+  /* Dark-mode mappings for the 7 repaired vars + compatibility aliases */
+  --foreground: var(--text-primary);
+  --bg-subtle: var(--bg-surface-raised);
+  --border-color: var(--border-hairline);
+  --reset-gold: #fbbf24;
+  --warning-strong: var(--status-warning-fg);
+  --warning-pale: var(--status-warning-bg);
+  --warning-line: var(--status-warning-border);
+
+  --bg-page: var(--bg-canvas);
+  --surface: var(--bg-surface);
+  --surface-soft: var(--bg-surface-raised);
+  --surface-elevated: var(--bg-surface-overlay);
+  --line: var(--border-hairline);
+  --line-strong: var(--border-active);
+  --border: var(--border-hairline);
+  --border-strong: var(--border-active);
+  --ink: var(--text-primary);
+  --muted: var(--text-tertiary);
+  --faint: #94a3b8;
+  --text-muted: var(--text-tertiary);
+  --accent: #60a5fa;
+  --accent-strong: #93c5fd;
+  --accent-dark: #93c5fd;
+  --accent-pale: var(--status-info-bg);
+  --accent-soft: var(--status-info-bg);
+  --on-accent: #0f172a;
+  --success: var(--status-success-fg);
+  --success-bg: var(--status-success-bg);
+  --warning: var(--status-warning-fg);
+  --warning-bg: var(--status-warning-bg);
+  --error: var(--status-danger-fg);
+  --error-bg: var(--status-danger-bg);
+  --pending: var(--status-warning-fg);
+  --focus-color: var(--border-focus);
 }

@@ -767,51 +767,56 @@ export function SendMoneyPage({
           </form>
 
           {/* Saga Sequence Architectural asset */}
-          <div className="p-4 rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] text-xs text-[var(--muted)] space-y-2">
+          <div className="p-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/60 text-xs text-[var(--text-secondary)] space-y-2">
             <div className="flex items-center justify-between font-mono">
-              <span className="uppercase tracking-wider">Under The Hood · Saga Flow</span>
-              <span>2PC Atomic Consensus</span>
+              <span className="font-semibold text-[var(--text-primary)]">Payment settlement flow</span>
+              <span>Two-phase commit</span>
             </div>
-            <div className="w-full overflow-x-auto py-2">
+            <div className="w-full overflow-x-auto py-1">
               <svg
-                className="w-full max-w-xl mx-auto h-16 text-[var(--foreground)]"
+                className="w-full max-w-xl mx-auto h-16"
                 fill="none"
-                viewBox="0 0 620 80"
+                viewBox="0 0 640 80"
                 xmlns="http://www.w3.org/2000/svg"
+                role="img"
+                aria-label="Four-stage settlement flow: Intent Staged, Debit Bank A, Credit Bank B, Authoritative Finality"
               >
-                <rect fill="currentColor" fillOpacity="0.05" height="40" rx="8" width="120" x="10" y="20" />
-                <text className="font-mono text-[10px] font-semibold" fill="currentColor" textAnchor="middle" x="70" y="38">
-                  1. Enclave Lock
+                <rect fill="var(--bg-surface)" stroke="var(--border-hairline)" height="44" rx="8" width="130" x="8" y="18" />
+                <text className="font-mono text-[10px] font-semibold" fill="var(--text-primary)" textAnchor="middle" x="73" y="37">
+                  1. Intent Staged
                 </text>
-                <text className="font-mono text-[8px]" fill="currentColor" fillOpacity="0.6" textAnchor="middle" x="70" y="50">
-                  Debit Staged
+                <text className="font-mono text-[8.5px]" fill="var(--text-secondary)" textAnchor="middle" x="73" y="51">
+                  Client UUIDv4
                 </text>
-                <path d="M130 40H170" stroke="currentColor" strokeDasharray="3 3" strokeOpacity="0.3" strokeWidth="1.5" />
-                <polygon fill="currentColor" fillOpacity="0.5" points="172,40 167,37 167,43" />
-                <rect fill="currentColor" fillOpacity="0.05" height="40" rx="8" width="125" x="175" y="20" />
-                <text className="font-mono text-[10px] font-semibold" fill="currentColor" textAnchor="middle" x="237" y="38">
-                  2. RPC Prepare
+                <path d="M138 40H166" stroke="var(--border-active)" strokeDasharray="3 3" strokeWidth="1.5" />
+                <polygon fill="var(--text-tertiary)" points="168,40 163,37 163,43" />
+
+                <rect fill="var(--bg-surface)" stroke="var(--border-hairline)" height="44" rx="8" width="130" x="170" y="18" />
+                <text className="font-mono text-[10px] font-semibold" fill="var(--text-primary)" textAnchor="middle" x="235" y="37">
+                  2. Debit / Bank A
                 </text>
-                <text className="font-mono text-[8px]" fill="currentColor" fillOpacity="0.6" textAnchor="middle" x="237" y="50">
-                  Counterparty ACK
+                <text className="font-mono text-[8.5px]" fill="var(--text-secondary)" textAnchor="middle" x="235" y="51">
+                  Isolated Hold
                 </text>
-                <path d="M300 40H340" stroke="currentColor" strokeDasharray="3 3" strokeOpacity="0.3" strokeWidth="1.5" />
-                <polygon fill="currentColor" fillOpacity="0.5" points="342,40 337,37 337,43" />
-                <rect fill="#316bf3" fillOpacity="0.12" height="48" rx="8" width="125" x="345" y="16" />
-                <text className="font-mono text-[10px] font-bold" fill="#0051d5" textAnchor="middle" x="407" y="37">
-                  3. 2PC Commit
+                <path d="M300 40H328" stroke="var(--border-active)" strokeDasharray="3 3" strokeWidth="1.5" />
+                <polygon fill="var(--text-tertiary)" points="330,40 325,37 325,43" />
+
+                <rect fill="var(--status-info-bg)" stroke="var(--accent-strong)" height="46" rx="8" width="135" x="332" y="17" />
+                <text className="font-mono text-[10px] font-bold" fill="var(--accent-strong)" textAnchor="middle" x="399" y="37">
+                  3. Credit / Bank B
                 </text>
-                <text className="font-mono text-[8px] font-semibold" fill="#0051d5" textAnchor="middle" x="407" y="51">
-                  Atomic Finality
+                <text className="font-mono text-[8.5px] font-semibold" fill="var(--accent-strong)" textAnchor="middle" x="399" y="51">
+                  2PC Prepare / Commit
                 </text>
-                <path d="M470 40H505" stroke="currentColor" strokeOpacity="0.3" strokeWidth="1.5" />
-                <polygon fill="currentColor" fillOpacity="0.5" points="507,40 502,37 502,43" />
-                <rect fill="currentColor" fillOpacity="0.05" height="40" rx="8" width="100" x="510" y="20" />
-                <text className="font-mono text-[10px] font-semibold" fill="#166534" textAnchor="middle" x="560" y="38">
-                  4. Merkle Leaf
+                <path d="M467 40H495" stroke="var(--border-active)" strokeWidth="1.5" />
+                <polygon fill="var(--text-tertiary)" points="497,40 492,37 492,43" />
+
+                <rect fill="var(--status-success-bg)" stroke="var(--status-success-border)" height="44" rx="8" width="132" x="499" y="18" />
+                <text className="font-mono text-[10px] font-semibold" fill="var(--status-success-fg)" textAnchor="middle" x="565" y="37">
+                  4. Authoritative Finality
                 </text>
-                <text className="font-mono text-[8px]" fill="currentColor" fillOpacity="0.6" textAnchor="middle" x="560" y="50">
-                  Receipt Minted
+                <text className="font-mono text-[8.5px]" fill="var(--status-success-fg)" textAnchor="middle" x="565" y="51">
+                  Evidence Recorded
                 </text>
               </svg>
             </div>
@@ -820,20 +825,22 @@ export function SendMoneyPage({
 
         {/* Right Sidebar Guarantees & Funding Rail */}
         <aside className="lg:col-span-4 flex flex-col gap-4">
-          <div className="p-4 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] space-y-3">
-            <div className="flex items-center justify-between text-xs font-mono text-[var(--muted)]">
-              <span className="uppercase tracking-wider">Source Funding Rail</span>
-              <span className="text-[var(--reset-teal)] font-medium">Verified Active</span>
+          <div className="p-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] space-y-3">
+            <div className="flex items-center justify-between text-xs font-mono text-[var(--text-secondary)]">
+              <span className="font-semibold">Source funding rail</span>
+              <span className="text-[var(--status-success-fg)] font-medium">Verified active</span>
             </div>
             <div>
-              <h4 className="font-semibold text-base">{account?.bankName ?? "Bank Station"}</h4>
-              <p className="text-xs font-mono text-[var(--muted)]">
+              <h4 className="font-semibold text-base text-[var(--text-primary)]">{account?.bankName ?? "Bank Station"}</h4>
+              <p className="text-xs font-mono text-[var(--text-tertiary)]">
                 {account?.accountNumber ?? "TX-CORE-001"} · {account?.bankCode ?? "BANK-A"}
               </p>
             </div>
-            <div className="p-3 rounded-lg bg-[var(--surface)] border border-[var(--line)]">
-              <span className="text-xs text-[var(--muted)] block">Available Balance</span>
-              <Amount paise={availableBalance} prominent />
+            <div className="px-3.5 py-3 rounded-lg bg-[var(--bg-surface-raised)] border border-[var(--border-hairline)]">
+              <span className="text-xs text-[var(--text-secondary)] block">Available Balance</span>
+              <span className="mt-1 block font-mono text-[clamp(1.35rem,2vw,1.75rem)] font-bold tracking-tight tabular-nums text-[var(--text-primary)]">
+                <Amount paise={availableBalance} />
+              </span>
             </div>
           </div>
 

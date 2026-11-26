@@ -51,64 +51,64 @@ export function AuthPage({
   const registering = mode === "register" && options?.registrationEnabled === true;
 
   return (
-    <div className="public-site reset-public reset-access min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
       <PublicHeader />
 
-      <main className="auth-layout experience-auth flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex items-center justify-center">
-        <div className="w-full grid grid-cols-1 lg:grid-cols-12 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-lg overflow-hidden">
-          {/* Left Architectural Brand & Security Overview (lg:col-span-5) */}
-          <section className="auth-intro lg:col-span-5 bg-[var(--bg-surface-raised)]/70 p-6 sm:p-10 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-[var(--border-hairline)] space-y-8">
+      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 flex items-center justify-center">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-12 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-[var(--shadow-raised)] overflow-hidden">
+          {/* Left Architectural Brand & Security Overview (lg:col-span-5, 45/55 split) */}
+          <section className="lg:col-span-5 bg-[#0f172a] text-[#f8fafc] p-6 sm:p-10 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-[var(--border-hairline)] space-y-8">
             <div className="space-y-6">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[var(--status-success-fg)] animate-pulse" />
-                <span className="font-mono text-xs uppercase font-semibold text-[var(--status-success-fg)] tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-[#34d399]" />
+                <span className="font-mono text-xs uppercase font-semibold text-[#34d399] tracking-wider">
                   DEMO PLATFORM · ISOLATED ENVIRONMENT
                 </span>
               </div>
 
-              <div className="auth-intro-copy space-y-2">
-                <p className="eyebrow text-xs font-mono font-semibold uppercase tracking-wider text-[var(--action-accent-bg)]">
+              <div className="space-y-2">
+                <p className="text-xs font-mono font-semibold uppercase tracking-wider !text-[#60a5fa] m-0">
                   Clear at every step
                 </p>
-                <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[var(--text-primary)] leading-tight">
+                <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight !text-white leading-tight m-0">
                   Your payments.<br />
-                  <span className="text-[var(--text-secondary)]">The complete picture.</span>
+                  <span className="!text-[#94a3b8]">The complete picture.</span>
                 </h2>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed pt-1">
+                <p className="text-xs !text-[#cbd5e1] leading-relaxed pt-1 m-0">
                   See what happened, what is known, and what needs another look. Balances are derived from double-entry ledger entries and verifiable transaction evidence.
                 </p>
               </div>
 
-              <div className="auth-evidence-note p-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-xs space-y-1 shadow-sm">
-                <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
-                  <span className="auth-note-icon text-[var(--action-accent-bg)] font-bold">↳</span>
+              <div className="p-4 rounded-xl border border-white/10 bg-white/5 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-semibold !text-white">
+                  <span className="!text-[#60a5fa] font-bold">↳</span>
                   <span>Built around evidence.</span>
                 </div>
-                <p className="text-[var(--text-secondary)] leading-relaxed">
+                <p className="!text-[#cbd5e1] leading-relaxed m-0">
                   A bank timeout is never treated as proof of failure. Central outcomes and participant bank observations stay distinct.
                 </p>
               </div>
 
               {/* Architecture Capabilities */}
               <div className="grid grid-cols-3 gap-2 pt-2 text-center font-mono">
-                <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-                  <div className="font-bold text-sm text-[var(--text-primary)]">Integer</div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Paise</div>
+                <div className="p-2.5 rounded-lg border border-white/10 bg-white/5">
+                  <div className="font-bold text-sm text-white">Integer</div>
+                  <div className="text-[10px] text-[#94a3b8] uppercase mt-0.5">Paise</div>
                 </div>
-                <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-                  <div className="font-bold text-sm text-[var(--text-primary)]">SQL Sum</div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Conservation</div>
+                <div className="p-2.5 rounded-lg border border-white/10 bg-white/5">
+                  <div className="font-bold text-sm text-white">SQL Sum</div>
+                  <div className="text-[10px] text-[#94a3b8] uppercase mt-0.5">Conservation</div>
                 </div>
-                <div className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)]">
-                  <div className="font-bold text-sm text-[var(--status-success-fg)]">UUIDv4</div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] uppercase mt-0.5">Idempotency</div>
+                <div className="p-2.5 rounded-lg border border-white/10 bg-white/5">
+                  <div className="font-bold text-sm text-[#34d399]">UUIDv4</div>
+                  <div className="text-[10px] text-[#94a3b8] uppercase mt-0.5">Idempotency</div>
                 </div>
               </div>
             </div>
 
-            <div className="intro-foot pt-6 border-t border-[var(--border-hairline)] flex items-center justify-between text-[11px] font-mono text-[var(--text-tertiary)]">
+            <div className="pt-6 border-t border-white/10 flex items-center justify-between text-[11px] font-mono text-[#94a3b8]">
               <span className="flex items-center gap-1.5">
-                <span className="network-pulse w-2 h-2 rounded-full bg-[var(--action-accent-bg)]" />
+                <span className="w-2 h-2 rounded-full bg-[#60a5fa]" />
                 <span>Simulated payment network</span>
               </span>
               <span>No real money</span>
@@ -116,8 +116,8 @@ export function AuthPage({
           </section>
 
           {/* Right Authentication Form Panel (lg:col-span-7) */}
-          <section className="auth-panel lg:col-span-7 p-6 sm:p-10 flex flex-col justify-between space-y-6" aria-label="Account access">
-            <div className="auth-form-wrap space-y-6 max-w-md mx-auto w-full">
+          <section className="lg:col-span-7 p-6 sm:p-10 flex flex-col justify-center space-y-6 bg-[var(--bg-surface)]" aria-label="Account access">
+            <div className="space-y-6 max-w-md mx-auto w-full">
               <div className="auth-form-context flex items-center justify-between pb-2 border-b border-[var(--border-hairline)] text-xs">
                 <span className="px-2.5 py-0.5 rounded-full font-mono text-[11px] font-semibold bg-[var(--bg-surface-raised)] text-[var(--text-secondary)] border border-[var(--border-hairline)]">
                   Private account access
