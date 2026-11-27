@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen, LogOut, X } from "lucide-react";
 import { Avatar, BrandMark, Button } from "../../components";
 import { ThemeToggle } from "../theme/ThemeToggle";
+import { SoundToggle, useAudioEngine } from "../effects";
 
 export interface WorkspaceNavItem {
   id: string;
@@ -146,11 +147,17 @@ export function WorkspaceShell({
         </nav>
 
         <div
-          className={`pt-4 border-t border-[var(--border-hairline)] flex flex-col gap-3 w-full ${
+          className={`pt-4 border-t border-[var(--border-hairline)] flex flex-col gap-2.5 w-full ${
             collapsed ? "items-center" : ""
           }`}
         >
           {collapsed ? <ThemeToggle iconOnly /> : <ThemeToggle fullWidth />}
+          <div className={collapsed ? "" : "flex items-center justify-between gap-2"}>
+            {!collapsed && (
+              <span className="text-[11px] font-mono text-[var(--text-tertiary)]">Synth audio</span>
+            )}
+            <SoundToggle compact />
+          </div>
 
           <div
             className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"} min-w-0`}

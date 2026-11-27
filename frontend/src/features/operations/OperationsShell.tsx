@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../../api";
 import { WorkspaceShell } from "../../components/layout/WorkspaceShell";
+import { DotSentinel } from "../../components/effects";
 import { subscribeOperationalEvents, type StreamStatus } from "../../operationalEvents";
 import type { ConsoleView, User } from "./types";
 import {
@@ -155,7 +156,7 @@ export function OperationsShell({
         </span>
         {simulationMode && <span className="console-pill console-pill-warning">SIMULATION MODE</span>}
         <span
-          className={`console-pill ${
+          className={`console-pill inline-flex items-center gap-1.5 ${
             streamStatus === "connected"
               ? "console-pill-success"
               : streamStatus === "connecting"
@@ -163,6 +164,15 @@ export function OperationsShell({
               : "console-pill-error"
           }`}
         >
+          <DotSentinel
+            state={
+              streamStatus === "connected"
+                ? "success"
+                : streamStatus === "connecting"
+                ? "probing"
+                : "error"
+            }
+          />
           EVENT STREAM {streamStatus.toUpperCase()}
         </span>
       </div>

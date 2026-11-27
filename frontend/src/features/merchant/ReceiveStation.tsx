@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Button, Icon, InlineError, PageHeader, Skeleton } from "../../components";
+import { useAudioEngine } from "../../components/effects";
 import { CopyValue } from "../../shared/CopyValue";
+import { toast } from "sonner";
 import { DetailsSkeleton } from "../../shared/ShellStates";
 import { encodeQRSvg } from "../../qr";
 import { downloadQR } from "../../merchant/downloadQR";
@@ -17,6 +19,7 @@ export function ReceiveStation({ token }: ReceiveStationProps) {
   const [error, setError] = useState("");
   const [qrSvg, setQrSvg] = useState("");
   const [downloadError, setDownloadError] = useState("");
+  const { play } = useAudioEngine();
 
   useEffect(() => {
     let active = true;
@@ -117,9 +120,12 @@ export function ReceiveStation({ token }: ReceiveStationProps) {
                 key={format}
                 onClick={() => {
                   setDownloadError("");
-                  void downloadQR(qrSvg, format).catch(() =>
-                    setDownloadError("Download unavailable. Please try again.")
-                  );
+                  play("packet");
+                  void downloadQR(qrSvg, format)
+                    .then(() => toast.success(`Merchant QR ${format.toUpperCase()} downloaded`))
+                    .catch(() =>
+                      setDownloadError("Download unavailable. Please try again.")
+                    );
                 }}
               >
                 Download {format.toUpperCase()}

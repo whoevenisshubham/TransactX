@@ -10,6 +10,7 @@ import {
   paymentResultCopy,
   StatusBadge,
 } from "../../components";
+import { DotSentinel, SpotlightCard } from "../../components/effects";
 import { DetailsSkeleton } from "../../shared/ShellStates";
 import { CopyValue } from "../../shared/CopyValue";
 import type { Payment } from "../../types";
@@ -85,9 +86,30 @@ export function ReceiptDrawer({
         <StatusBadge state={payment.state} />
       </div>
 
-      <section className="details-hero">
+      <SpotlightCard
+        as="section"
+        accent={
+          payment.state === "COMPLETED"
+            ? "emerald"
+            : payment.state === "FAILED" || payment.state === "REVERSED"
+            ? "crimson"
+            : "cobalt"
+        }
+        className="details-hero"
+      >
         <div>
-          <span className="detail-label">Amount</span>
+          <span className="detail-label flex items-center gap-2">
+            <DotSentinel
+              state={
+                payment.state === "COMPLETED"
+                  ? "success"
+                  : payment.state === "FAILED" || payment.state === "REVERSED"
+                  ? "error"
+                  : "warning"
+              }
+            />
+            Amount
+          </span>
           <Amount paise={payment.amountPaise} sign={sign} prominent />
           <p className="detail-state">{copy.description}</p>
         </div>
@@ -99,7 +121,7 @@ export function ReceiptDrawer({
             <span>{identifier}</span>
           </span>
         </div>
-      </section>
+      </SpotlightCard>
 
       <section className="record-section">
         <p className="eyebrow">Record</p>

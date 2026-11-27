@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Amount, BrandMark, Button, EmptyState, Icon, PageHeader } from "../../components";
+import { DotSentinel, useAudioEngine } from "../../components/effects";
 import { CopyValue } from "../../shared/CopyValue";
 import { firstName } from "../../shared/presentation";
 import { formatPaiseDecimal } from "../../design/OpsPrimitives";
@@ -7,6 +8,7 @@ import { encodeQRSvg } from "../../qr";
 import { downloadQR } from "../../merchant/downloadQR";
 import { MerchantPaymentRow } from "./MerchantPaymentRow";
 import type { Account, MerchantView, Payment, User } from "./types";
+import { toast } from "sonner";
 
 export interface MerchantDashboardProps {
   user: User;
@@ -149,6 +151,7 @@ function DashboardReceiveStation({
 }) {
   const [qr, setQR] = useState("");
   const [error, setError] = useState("");
+  const { play } = useAudioEngine();
 
   useEffect(() => {
     let current = true;
@@ -165,10 +168,13 @@ function DashboardReceiveStation({
   }, [user.paymentIdentifier]);
 
   return (
-    <aside className="merchant-receive-station" aria-label="Receive station">
+    <aside className="merchant-receive-station relative overflow-hidden" aria-label="Receive station">
       <div className="receive-station-top">
         <BrandMark />
-        <span>RECEIVE STATION</span>
+        <span className="inline-flex items-center gap-2">
+          <DotSentinel state={active ? "success" : "warning"} />
+          <span>RECEIVE STATION</span>
+        </span>
       </div>
       <h2>
         Open for <br />receiving.
@@ -179,16 +185,22 @@ function DashboardReceiveStation({
 
       {active ? (
         <>
-          <div
-            className="merchant-qr-frame station-qr bg-white text-[#0f172a] p-3 rounded-xl"
-            role="img"
-            aria-label={`QR code containing payment ID ${user.paymentIdentifier}`}
-          >
-            {qr ? (
-              <span dangerouslySetInnerHTML={{ __html: qr }} />
-            ) : (
-              <span>{error || "Preparing QR…"}</span>
-            )}
+          <div className="relative mx-auto w-fit p-1 rounded-2xl border border-[var(--border-hairline)] shadow-[var(--shadow-raised)] bg-white">
+            <span aria-hidden="true" className="pointer-events-none absolute -top-1 -left-1 h-3 w-3 border-t-2 border-l-2 border-[var(--blueprint-cobalt,#2563eb)] rounded-tl" />
+            <span aria-hidden="true" className="pointer-events-none absolute -top-1 -right-1 h-3 w-3 border-t-2 border-r-2 border-[var(--blueprint-cobalt,#2563eb)] rounded-tr" />
+            <span aria-hidden="true" className="pointer-events-none absolute -bottom-1 -left-1 h-3 w-3 border-b-2 border-l-2 border-[var(--blueprint-cobalt,#2563eb)] rounded-bl" />
+            <span aria-hidden="true" className="pointer-events-none absolute -bottom-1 -right-1 h-3 w-3 border-b-2 border-r-2 border-[var(--blueprint-cobalt,#2563eb)] rounded-br" />
+            <div
+              className="merchant-qr-frame station-qr bg-white text-[#0f172a] p-3 rounded-xl !m-0"
+              role="img"
+              aria-label={`QR code containing payment ID ${user.paymentIdentifier}`}
+            >
+              {qr ? (
+                <span dangerouslySetInnerHTML={{ __html: qr }} />
+              ) : (
+                <span>{error || "Preparing QR…"}</span>
+              )}
+            </div>
           </div>
           <strong className="station-merchant-name">{user.name}</strong>
           <span className="station-identifier">{user.paymentIdentifier}</span>
@@ -196,11 +208,12 @@ function DashboardReceiveStation({
           <Button
             variant="secondary"
             disabled={!qr}
-            onClick={() =>
-              void downloadQR(qr, "png").catch(() =>
-                setError("Download unavailable. Open receive QR to try again.")
-              )
-            }
+            onClick={() => {
+              play("packet");
+              void downloadQR(qr, "png")
+                .then(() => toast.success("Merchant QR PNG downloaded"))
+                .catch(() => setError("Download unavailable. Open receive QR to try again."));
+            }}
           >
             Download QR <Icon name="arrow" />
           </Button>

@@ -7,8 +7,19 @@
 
 :root {
   /* Typography */
+  --font-display: "Space Grotesk", "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-sans: "Inter Variable", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Blueprint & Multi-Hue Functional Telemetry Tokens */
+  --blueprint-bg: #eef4ff;
+  --blueprint-grid: rgba(29, 78, 216, 0.12);
+  --blueprint-cobalt: #2563eb;
+  --blueprint-ice: #1d4ed8;
+  --blueprint-emerald: #059669;
+  --blueprint-amber: #d97706;
+  --blueprint-crimson: #dc2626;
+  --blueprint-violet: #7c3aed;
 
   /* Radii & Spacing Scale */
   --radius-sm: 0.25rem;   /* 4px */
@@ -129,6 +140,15 @@
 /* Dark Theme ("TransactX Precision Dark") */
 [data-theme="dark"],
 .dark {
+  --blueprint-bg: #090d1a;
+  --blueprint-grid: rgba(147, 180, 255, 0.14);
+  --blueprint-cobalt: #60a5fa;
+  --blueprint-ice: #93b4ff;
+  --blueprint-emerald: #10b981;
+  --blueprint-amber: #f59e0b;
+  --blueprint-crimson: #ef4444;
+  --blueprint-violet: #8b5cf6;
+
   --bg-canvas: #0b0f19;
   --bg-surface: #131b2e;
   --bg-surface-raised: #1e293b;

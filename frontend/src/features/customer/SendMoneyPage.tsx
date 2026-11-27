@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { api, ApiError } from "../../api";
 import {
   Amount,
@@ -10,7 +11,14 @@ import {
   PageHeader,
   paymentResultCopy,
 } from "../../components";
+import {
+  AnimatedCheckmark,
+  DotSentinel,
+  emitCelebrationBurst,
+  useAudioEngine,
+} from "../../components/effects";
 import { parsePaise } from "../../money";
+import { toast } from "sonner";
 import type { Payment, Recipient } from "../../types";
 import {
   ActiveReservationConflictError,
@@ -971,13 +979,16 @@ function ProcessingPayment({
 }) {
   return (
     <div className="focused-state centered-state">
+      <div className="mb-2 flex justify-center">
+        <DotSentinel state="probing" />
+      </div>
       <div className="processing-mark">
         <span />
         <span />
         <span />
       </div>
       <p className="eyebrow">Payment network</p>
-      <h1>Confirming your payment</h1>
+      <h1 className="font-display">Confirming your payment</h1>
       <p className="state-description">
         We're routing your transfer through the payment rails. Please keep this window open for a moment.
       </p>
@@ -1116,8 +1127,24 @@ function PaymentResult({
 }) {
   const copy = paymentResultCopy(payment);
   const [refreshing, setRefreshing] = useState(false);
+  const reduce = useReducedMotion();
+  const { play } = useAudioEngine();
+  const celebratedRef = useRef<string | null>(null);
   const counterparty =
     payment.direction === "RECEIVED" ? payment.senderName : payment.receiverName;
+
+  useEffect(() => {
+    if (payment.state === "COMPLETED" && celebratedRef.current !== payment.id) {
+      celebratedRef.current = payment.id;
+      emitCelebrationBurst();
+      play("success");
+      toast.success("Payment completed cleanly", {
+        description: `Settled with ${counterparty}`,
+      });
+    } else if (payment.state === "FAILED") {
+      play("error");
+    }
+  }, [counterparty, payment.id, payment.state, play]);
 
   async function refresh() {
     setRefreshing(true);
@@ -1134,15 +1161,24 @@ function PaymentResult({
     payment.state !== "REVERSED";
 
   return (
-    <div className="focused-state centered-state">
+    <motion.div
+      initial={reduce ? undefined : { opacity: 0.98, scale: 0.985, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="focused-state centered-state"
+    >
       <div className={`result-mark result-${copy.tone}`}>
-        <Icon
-          name={copy.tone === "success" ? "check" : copy.tone === "error" ? "close" : "activity"}
-          size={24}
-        />
+        {copy.tone === "success" ? (
+          <AnimatedCheckmark size={24} />
+        ) : (
+          <Icon
+            name={copy.tone === "error" ? "close" : "activity"}
+            size={24}
+          />
+        )}
       </div>
       <p className="eyebrow">Payment update</p>
-      <h1>{copy.title}</h1>
+      <h1 className="font-display">{copy.title}</h1>
       <p className="state-description">{copy.description}</p>
       <Amount paise={payment.amountPaise} prominent />
       <div className="result-recipient">
@@ -1167,7 +1203,7 @@ function PaymentResult({
           View transaction <Icon name="arrow" />
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

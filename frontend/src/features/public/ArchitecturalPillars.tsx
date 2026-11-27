@@ -1,5 +1,8 @@
 import React, { useState } from "react";
+import { motion } from "motion/react";
 import { Scale, RefreshCw, GitBranch, ShieldCheck, WifiOff } from "lucide-react";
+import { BlueprintExplorerSection } from "./BlueprintExplorerModal";
+import { Reveal, useAudioEngine } from "../../components/effects";
 
 interface InvariantSpec {
   id: string;
@@ -93,6 +96,7 @@ const ICONS: Record<string, React.ReactNode> = {
 
 export function ArchitecturalPillars() {
   const [selectedId, setSelectedId] = useState(INVARIANTS[0].id);
+  const { play } = useAudioEngine();
   const current = INVARIANTS.find((item) => item.id === selectedId) ?? INVARIANTS[0];
 
   return (
@@ -100,12 +104,12 @@ export function ArchitecturalPillars() {
       id="architectural-pillars"
       className="border-t border-[var(--border-hairline)] bg-[var(--bg-surface)]/50"
     >
-      <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20 space-y-8">
+      <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20 space-y-12">
         <div className="max-w-2xl space-y-2">
           <p className="text-xs font-mono font-semibold text-[var(--accent-strong)] m-0">
             System guarantees
           </p>
-          <h2 className="text-3xl font-bold tracking-tight text-[var(--text-primary)] sm:text-4xl m-0">
+          <h2 className="font-display text-3xl font-bold tracking-tight text-[var(--text-primary)] sm:text-4xl m-0">
             Built for unreliable distributed networks.
           </h2>
           <p className="text-sm leading-relaxed text-[var(--text-secondary)] m-0">
@@ -129,13 +133,22 @@ export function ArchitecturalPillars() {
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => setSelectedId(item.id)}
-                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-semibold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] ${
+                  onClick={() => {
+                    play("tab");
+                    setSelectedId(item.id);
+                  }}
+                  className={`relative flex items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-semibold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] ${
                     active
                       ? "border-[var(--accent-strong)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[var(--shadow-subtle)]"
                       : "border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)]"
                   }`}
                 >
+                  {active && (
+                    <motion.span
+                      layoutId="invariant-active-bar"
+                      className="w-1 h-5 rounded-full bg-[var(--action-accent-bg)] shrink-0"
+                    />
+                  )}
                   <span className={active ? "text-[var(--accent-strong)]" : "text-[var(--text-tertiary)]"}>
                     {ICONS[item.id]}
                   </span>
@@ -148,10 +161,11 @@ export function ArchitecturalPillars() {
           {/* Right Specification & Illustrative Proof Pane */}
           <div
             role="tabpanel"
-            className="lg:col-span-8 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6 sm:p-7 shadow-[var(--shadow-subtle)] space-y-5"
+            aria-label={current.label}
+            className="lg:col-span-8 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6 shadow-[var(--shadow-subtle)] space-y-5"
           >
             <div className="space-y-2">
-              <h3 className="text-xl font-bold tracking-tight text-[var(--text-primary)] m-0">
+              <h3 className="font-display text-xl font-bold tracking-tight text-[var(--text-primary)] m-0">
                 {current.headline}
               </h3>
               <p className="text-sm leading-relaxed text-[var(--text-secondary)] m-0">
@@ -160,30 +174,35 @@ export function ArchitecturalPillars() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {current.guarantees.map((tag) => (
+              {current.guarantees.map((item) => (
                 <span
-                  key={tag}
-                  className="rounded-md border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)] px-2.5 py-1 text-xs font-mono text-[var(--text-primary)]"
+                  key={item}
+                  className="inline-flex items-center rounded-full border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)] px-3 py-1 text-xs font-mono font-medium text-[var(--text-primary)]"
                 >
-                  {tag}
+                  {item}
                 </span>
               ))}
             </div>
 
-            <div className="rounded-xl border border-[var(--border-hairline)] bg-[#0f172a] text-[#f8fafc] overflow-hidden">
-              <div className="border-b border-white/10 px-4 py-2 text-[11px] font-mono text-[#94a3b8]">
-                {current.artifactTitle}
+            <div className="rounded-xl border border-[var(--border-hairline)] bg-[#0b101d] text-[#e2e8f0] overflow-hidden">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-[11px] font-mono text-[#94a3b8]">
+                <span>{current.artifactTitle}</span>
+                <span>read-only specification</span>
               </div>
               <pre
                 tabIndex={0}
-                aria-label={current.artifactTitle}
-                className="m-0 overflow-x-auto p-4 font-mono text-xs leading-relaxed text-[#e2e8f0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+                aria-label={`${current.artifactTitle} code preview`}
+                className="p-4 text-xs font-mono leading-relaxed overflow-x-auto m-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
               >
                 <code>{current.artifactBody}</code>
               </pre>
             </div>
           </div>
         </div>
+
+        <Reveal>
+          <BlueprintExplorerSection />
+        </Reveal>
       </div>
     </section>
   );

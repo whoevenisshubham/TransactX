@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button, InlineError } from "../components";
+import { DotSentinel, useAudioEngine } from "../components/effects";
 import { DataTable } from "../design/OpsPrimitives";
 import { liveOpsClient } from "./client";
 import type { Investigation } from "./contracts";
@@ -16,12 +18,14 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
   const [error, setError] = useState<string | null>(null);
   const attempt = useRef<{ paymentId: string; question: string; key: string } | null>(null);
   const inFlight = useRef(false);
+  const { play } = useAudioEngine();
 
   async function submit() {
     const normalized = question.trim();
     if (!normalized || normalized.length > 1000 || inFlight.current) return;
     if (jobId && submittedQuestion === normalized) return;
     inFlight.current = true; setSubmitting(true); setError(null);
+    play("tab");
     try {
       if (attempt.current?.paymentId !== paymentId || attempt.current.question !== normalized) {
         attempt.current = { paymentId, question: normalized, key: crypto.randomUUID() };
@@ -30,8 +34,10 @@ export function InvestigationPanel({ paymentId, snapshotId, evidenceIds, token, 
       setJobId(accepted.investigationId);
       setSubmittedQuestion(normalized);
       attempt.current = null;
+      toast.message("Investigation queued");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not start an investigation.");
+      play("error");
     } finally { inFlight.current = false; setSubmitting(false); }
   }
 
@@ -128,11 +134,24 @@ export function InvestigationJob({ id, snapshotId, evidenceIds, token, paymentId
   const report = job.data?.report;
   const citationIds = [...new Set([...(report?.facts ?? []), ...(report?.inferences ?? [])].flatMap(item => item.evidenceIds))];
   const citationLabel = (id: string) => `${id.startsWith("operation:") ? "Bank operation" : id.startsWith("transition:") ? "State transition" : id.startsWith("payment:") ? "Payment record" : "Evidence"} [${citationIds.indexOf(id) + 1}]`;
+  const sentinelState =
+    status === "queued" || status === "running"
+      ? "probing"
+      : job.data?.error
+      ? "error"
+      : report
+      ? "success"
+      : "idle";
   return <div className="ops-investigation">
 
     {job.loading && <p role="status">Loading investigation…</p>}
     {job.error && <InlineError message={job.error} />}
-    {job.data && <p role="status">Status: {job.data.status} · Mode: {(report?.mode ?? job.data.mode) === "evidence_only" ? "Evidence summary" : "LLM investigation"}</p>}
+    {job.data && (
+      <p role="status" className="inline-flex items-center gap-2 font-medium text-[var(--text-primary)]">
+        <DotSentinel state={sentinelState} />
+        Status: {job.data.status} · Mode: {(report?.mode ?? job.data.mode) === "evidence_only" ? "Evidence summary" : "LLM investigation"}
+      </p>
+    )}
     {status === "queued" || status === "running" ? <p>Evidence gathering is in progress. This view will refresh.</p> : null}
     {job.data?.error && <InlineError message={job.data.error.message} />}
     {job.data && (report?.mode ?? job.data.mode) === "evidence_only" && <p className="ops-muted">This is a report from collected records, not a Gemini-generated answer. {job.data.usage.model ? "See execution details for recorded model usage." : "This report contains no accepted model answer; a provider attempt may still have occurred."}</p>}

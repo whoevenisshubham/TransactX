@@ -2,9 +2,15 @@ import React, { useEffect, useState, useRef } from "react";
 import { authClient, type DemoPersona } from "../../public/authClient";
 import { PublicHeader } from "../public/PublicHeader";
 import { Button } from "../../components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "../../components/ui/card";
-import { Badge } from "../../components/ui/badge";
-import { ArrowRight, Send, QrCode, Activity, ShieldAlert, AlertCircle, Clock, X, RefreshCw } from "lucide-react";
+import {
+  SpotlightCard,
+  StaggerGroup,
+  StaggerItem,
+  ScrambleText,
+  DotSentinel,
+  useAudioEngine,
+} from "../../components/effects";
+import { ArrowRight, Send, QrCode, Activity, AlertCircle, Clock, X, RefreshCw } from "lucide-react";
 
 interface PersonaConfig {
   key: DemoPersona;
@@ -12,6 +18,7 @@ interface PersonaConfig {
   name: string;
   description: string;
   roleScope: string;
+  accentColor: string;
   icon: React.ReactNode;
 }
 
@@ -22,7 +29,8 @@ const personas: PersonaConfig[] = [
     name: "Alice · Bank A",
     description: "Send a payment, review your balance, view a payment receipt and inspect the available transaction evidence.",
     roleScope: "Consumer Participant · Bank A",
-    icon: <Send className="w-5 h-5 text-[var(--action-accent-bg)]" />,
+    accentColor: "rgba(59, 130, 246, 0.2)",
+    icon: <Send className="w-5 h-5 text-[var(--blueprint-cobalt,#2563eb)]" />,
   },
   {
     key: "merchant",
@@ -30,7 +38,8 @@ const personas: PersonaConfig[] = [
     name: "Demo Store · Bank B",
     description: "Share your QR, review recent incoming payments and refresh to fetch current observations.",
     roleScope: "Merchant Receiving Station · Bank B",
-    icon: <QrCode className="w-5 h-5 text-[var(--action-accent-bg)]" />,
+    accentColor: "rgba(16, 185, 129, 0.2)",
+    icon: <QrCode className="w-5 h-5 text-[var(--blueprint-emerald,#059669)]" />,
   },
   {
     key: "operator",
@@ -38,16 +47,19 @@ const personas: PersonaConfig[] = [
     name: "Read-only viewer",
     description: "Follow payment journeys, compare bank evidence and investigate ambiguous outcomes.",
     roleScope: "Forensic View · Read-Only (OPS_VIEWER)",
-    icon: <Activity className="w-5 h-5 text-[var(--action-accent-bg)]" />,
+    accentColor: "rgba(139, 92, 246, 0.2)",
+    icon: <Activity className="w-5 h-5 text-[var(--blueprint-violet,#7c3aed)]" />,
   },
 ];
 
 export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string) => void }) {
   const requested = new URLSearchParams(window.location.search).get("role");
   const [busy, setBusy] = useState<DemoPersona | null>(null);
+  const [lastAttempt, setLastAttempt] = useState<DemoPersona | null>(null);
   const [error, setError] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const { play } = useAudioEngine();
 
   useEffect(() => {
     if (!busy) return;
@@ -61,7 +73,9 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
 
   async function enter(persona: DemoPersona) {
     if (busy) return;
+    play("tab");
     setBusy(persona);
+    setLastAttempt(persona);
     setError("");
     setElapsed(0);
 
@@ -69,12 +83,14 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
     abortControllerRef.current = controller;
 
     try {
-      const response = await authClient.demo(persona);
+      const response = await authClient.demo(persona, controller.signal);
       if (controller.signal.aborted) return;
+      play("success");
       onAuthenticated(response.token);
     } catch (failure) {
+      play("error");
       if (controller.signal.aborted) {
-        setError("Sign-in cancelled. The request was aborted.");
+        setError("Sign-in cancelled. The connection wait was aborted.");
       } else {
         setError(
           failure instanceof Error
@@ -97,17 +113,21 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
     setBusy(null);
   }
 
+  const progressFraction = Math.min(1, elapsed / 60);
+
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors">
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased transition-colors relative">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 tx-aurora-horizon" aria-hidden="true" />
       <PublicHeader />
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 space-y-10">
+      <main className="relative z-10 flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14 space-y-10">
         {/* Page Heading */}
         <div className="space-y-3 max-w-2xl">
-          <p className="eyebrow text-xs font-mono font-semibold uppercase tracking-wider text-[var(--action-accent-bg)]">
-            Explore the live simulated network
-          </p>
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--text-primary)]">
+          <div className="inline-flex items-center gap-2 font-mono text-xs font-semibold text-[var(--blueprint-cobalt,#2563eb)]">
+            <DotSentinel state={busy ? "probing" : error ? "error" : "idle"} />
+            <ScrambleText text="EXPLORE THE LIVE SIMULATED NETWORK" />
+          </div>
+          <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-[var(--text-primary)]">
             One system.<br />
             <span className="text-[var(--text-secondary)]">Choose your perspective.</span>
           </h1>
@@ -117,11 +137,11 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
         </div>
 
         {/* Demo Notice Banner */}
-        <div className="demo-notice p-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-xs flex items-start gap-3 shadow-sm">
+        <div className="demo-notice p-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)]/90 backdrop-blur-sm text-xs flex items-start gap-3 shadow-[var(--shadow-subtle)]">
           <span className="text-[var(--action-accent-bg)] font-bold text-sm" aria-hidden="true">
             ↳
           </span>
-          <p className="text-[var(--text-secondary)] leading-relaxed">
+          <p className="text-[var(--text-secondary)] leading-relaxed m-0">
             The free backend sleeps between visits. Your first sign-in may take longer while it wakes.{" "}
             <strong className="text-[var(--text-primary)]">
               Public demo access never grants administrator controls.
@@ -134,99 +154,129 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
         {error && (
           <div
             role="alert"
-            className="p-4 rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-xs text-[var(--status-danger-fg)] flex items-start justify-between gap-3 shadow-sm"
+            className="p-4 rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-xs text-[var(--status-danger-fg)] flex flex-col sm:flex-row sm:items-start justify-between gap-3 shadow-sm"
           >
             <div className="flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">{error}</p>
-                <p className="mt-1 opacity-90">
-                  You can retry the connection or sign in with private credentials.
+              <div className="space-y-1">
+                <p className="font-semibold m-0">{error}</p>
+                <p className="opacity-90 m-0">
+                  You can retry the connection, inspect <a href="/showcase" className="underline font-semibold">/showcase</a> offline scenarios, or sign in with private credentials.
                 </p>
               </div>
             </div>
             {busy === null && (
-              <button
-                type="button"
-                onClick={() => setError("")}
-                className="text-[var(--status-danger-fg)] hover:opacity-75 cursor-pointer text-xs font-mono"
-              >
-                Dismiss
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {lastAttempt && (
+                  <button
+                    type="button"
+                    onClick={() => void enter(lastAttempt)}
+                    className="inline-flex items-center gap-1 rounded-md border border-[var(--status-danger-border)] bg-[var(--bg-surface)]/80 px-2.5 py-1 text-[var(--status-danger-fg)] font-mono text-xs font-semibold hover:opacity-90 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" aria-hidden="true" />
+                    Retry
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setError("")}
+                  className="text-[var(--status-danger-fg)] hover:opacity-75 cursor-pointer text-xs font-mono px-2 py-1"
+                >
+                  Dismiss
+                </button>
+              </div>
             )}
           </div>
         )}
 
         {/* 3 Primary Persona Cards */}
-        <div className="role-cards grid grid-cols-1 md:grid-cols-3 gap-6">
+        <StaggerGroup className="role-cards grid grid-cols-1 md:grid-cols-3 gap-6">
           {personas.map((persona, index) => {
             const isRecommended = requested === persona.key;
             const isThisBusy = busy === persona.key;
 
             return (
-              <section
-                key={persona.key}
-                className={`role-card demo-role flex flex-col justify-between p-6 rounded-2xl border transition-all ${
-                  isRecommended
-                    ? "is-recommended border-[var(--action-accent-bg)] bg-[var(--bg-surface)] shadow-md ring-2 ring-[var(--action-accent-bg)]/20"
-                    : "border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-sm hover:shadow-md"
-                }`}
-              >
-                <div className="space-y-4">
-                  <div className="role-card-top flex items-center justify-between">
-                    <span className="role-icon p-2.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]">
-                      {persona.icon}
-                    </span>
-                    <span className="role-number font-mono text-xs font-bold text-[var(--text-tertiary)]">
-                      0{index + 1}
-                    </span>
+              <StaggerItem key={persona.key}>
+                <SpotlightCard
+                  as="section"
+                  accent={persona.accentColor}
+                  data-cursor="Select Role"
+                  className={`role-card demo-role h-full flex flex-col justify-between p-6 rounded-2xl border transition-all ${
+                    isRecommended
+                      ? "is-recommended border-[var(--action-accent-bg)] bg-[var(--bg-surface)] shadow-md ring-2 ring-[var(--action-accent-bg)]/20"
+                      : "border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-[var(--shadow-subtle)] hover:border-[var(--border-active)]"
+                  }`}
+                >
+                  <div className="relative z-10 space-y-4">
+                    <div className="role-card-top flex items-center justify-between">
+                      <span className="role-icon p-2.5 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]">
+                        {persona.icon}
+                      </span>
+                      <span className="role-number font-mono text-xs font-bold text-[var(--text-secondary)]">
+                        0{index + 1}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="role-name text-[11px] font-mono text-[var(--text-secondary)] block">
+                        {persona.name}
+                      </span>
+                      <h2 className="font-display text-xl font-bold tracking-tight text-[var(--text-primary)] mt-0.5">
+                        {persona.title}
+                      </h2>
+                    </div>
+
+                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                      {persona.description}
+                    </p>
+
+                    <div className="pt-1">
+                      <span className="inline-block text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--bg-surface-raised)] border border-[var(--border-hairline)] text-[var(--text-secondary)]">
+                        {persona.roleScope}
+                      </span>
+                    </div>
                   </div>
 
-                  <div>
-                    <span className="role-name text-[11px] font-mono text-[var(--text-tertiary)] block">
-                      {persona.name}
-                    </span>
-                    <h2 className="text-xl font-bold tracking-tight text-[var(--text-primary)] mt-0.5">
-                      {persona.title}
-                    </h2>
+                  <div className="relative z-10 pt-6">
+                    <Button
+                      variant="primary"
+                      className="w-full justify-center gap-2 group/btn"
+                      disabled={busy !== null}
+                      onClick={() => void enter(persona.key)}
+                    >
+                      <span>
+                        {isThisBusy ? "Connecting…" : `Explore ${persona.title.toLowerCase()}`}
+                      </span>
+                      {!isThisBusy && (
+                        <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/btn:translate-x-0.5" />
+                      )}
+                    </Button>
                   </div>
-
-                  <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                    {persona.description}
-                  </p>
-
-                  <div className="pt-1">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--bg-surface-raised)] border border-[var(--border-hairline)] text-[var(--text-tertiary)]">
-                      {persona.roleScope}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="pt-6">
-                  <Button
-                    variant="primary"
-                    className="w-full justify-center gap-2"
-                    disabled={busy !== null}
-                    loading={isThisBusy}
-                    onClick={() => void enter(persona.key)}
-                  >
-                    <span>
-                      {isThisBusy ? "Connecting…" : `Explore ${persona.title.toLowerCase()}`}
-                    </span>
-                    {!isThisBusy && <ArrowRight className="w-3.5 h-3.5" />}
-                  </Button>
-                </div>
-              </section>
+                </SpotlightCard>
+              </StaggerItem>
             );
           })}
-        </div>
+        </StaggerGroup>
 
-        {/* Live Elapsed Progress & Cancellation */}
+        {/* Live Elapsed Progress Ring & Cancellation */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/40 text-xs">
-          <p className="demo-progress text-xs font-mono text-[var(--text-secondary)]" role="status">
+          <div className="demo-progress flex items-center gap-3 text-xs font-mono text-[var(--text-secondary)]" role="status">
             {busy ? (
-              <span className="flex flex-wrap items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-[var(--action-accent-bg)] animate-spin motion-reduce:animate-none" />
+              <>
+                <svg className="w-5 h-5 shrink-0 -rotate-90" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" fill="none" stroke="var(--border-hairline)" strokeWidth="2.5" />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    fill="none"
+                    stroke="var(--action-accent-bg)"
+                    strokeWidth="2.5"
+                    strokeDasharray={56.5}
+                    strokeDashoffset={56.5 * (1 - progressFraction)}
+                    strokeLinecap="round"
+                  />
+                </svg>
                 <span>
                   {elapsed < 5
                     ? "Waking sandbox…"
@@ -240,11 +290,16 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
                   </a>{" "}
                   while waiting.
                 </span>
-              </span>
+              </>
             ) : (
-              "Shared demo accounts are separate from private sign-in. Public operator demo is strictly read-only (OPS_VIEWER)."
+              <span className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-[var(--text-tertiary)] shrink-0" aria-hidden="true" />
+                <span>
+                  Shared demo accounts are separate from private sign-in. Public operator demo is strictly read-only (OPS_VIEWER).
+                </span>
+              </span>
             )}
-          </p>
+          </div>
 
           {busy !== null && (
             <Button
@@ -260,8 +315,11 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
         </div>
 
         {/* Secondary Recipient Option & Private Sign In */}
-        <div className="demo-secondary p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
+        <SpotlightCard
+          tilt={false}
+          className="demo-secondary p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] flex flex-col sm:flex-row items-center justify-between gap-4"
+        >
+          <div className="relative z-10">
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">
               Need the other side of a transfer?
             </h3>
@@ -270,11 +328,10 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="relative z-10 flex items-center gap-3">
             <Button
               variant="secondary"
               disabled={busy !== null}
-              loading={busy === "recipient"}
               onClick={() => void enter("recipient")}
             >
               <span>{busy === "recipient" ? "Connecting…" : "Open Bob · Bank B"}</span>
@@ -287,7 +344,7 @@ export function DemoPage({ onAuthenticated }: { onAuthenticated: (token: string)
               <span aria-hidden="true">↗</span>
             </a>
           </div>
-        </div>
+        </SpotlightCard>
       </main>
     </div>
   );

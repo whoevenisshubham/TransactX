@@ -2,17 +2,17 @@ import { lazy, Suspense, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "motion/react";
+import { Toaster } from "sonner";
 import { api, ApiError } from "./api";
 import { Amount, BrandMark, Button } from "./components";
 import { OfflineIntentQueue, type OfflineIntent } from "./offlineQueue";
 import type { User } from "./types";
 import { LoadingShell } from "./shared/ShellStates";
-import { LandingPage, PrivacyPage } from "./features/public";
-import { AuthPage } from "./features/auth";
-import { DemoPage } from "./features/demo";
-import { ThemeProvider } from "./components/theme/ThemeProvider";
+import { LandingPage } from "./features/public";
+import { ThemeProvider, useTheme } from "./components/theme/ThemeProvider";
 import { RootLayout } from "./components/layout/RootLayout";
-import { ComponentShowcase } from "./showcase/ComponentShowcase";
+import { AudioProvider, CelebrationOverlay, CommandPalette, CursorFollower } from "./components/effects";
 import "./styles/globals.css";
 import "./styles.css";
 import "./design/ops.css";
@@ -39,6 +39,10 @@ const MerchantShell = lazy(() => import("./merchant/MerchantShell").then(module 
 const ConsoleShell = lazy(() => import("./console").then(module => ({ default: module.ConsoleShell })));
 const ShowcasePage = lazy(() => import("./showcase/ShowcasePage").then(module => ({ default: module.ShowcasePage })));
 const GoogleCallbackPage = lazy(() => import("./features/auth/GoogleCallbackPage").then(module => ({ default: module.GoogleCallbackPage })));
+const AuthPage = lazy(() => import("./features/auth").then(module => ({ default: module.AuthPage })));
+const DemoPage = lazy(() => import("./features/demo").then(module => ({ default: module.DemoPage })));
+const PrivacyPage = lazy(() => import("./features/public/PrivacyPage").then(module => ({ default: module.PrivacyPage })));
+const ComponentShowcase = lazy(() => import("./showcase/ComponentShowcase").then(module => ({ default: module.ComponentShowcase })));
 
 type OfflineOwner = Pick<User, "id" | "role">;
 
@@ -113,12 +117,12 @@ function App() {
   }
 
   if (window.location.pathname === "/auth/callback") return <Suspense fallback={<LoadingShell />}><GoogleCallbackPage onAuthenticated={authenticated} /></Suspense>;
-  if (window.location.pathname === "/design-system") return <RootLayout role={user?.role ?? "CUSTOMER"} userName={user?.name} onLogout={token ? logout : undefined}><ComponentShowcase /></RootLayout>;
+  if (window.location.pathname === "/design-system") return <Suspense fallback={<LoadingShell />}><RootLayout role={user?.role ?? "CUSTOMER"} userName={user?.name} onLogout={token ? logout : undefined}><ComponentShowcase /></RootLayout></Suspense>;
   if (window.location.pathname === "/showcase") return <Suspense fallback={<LoadingShell />}><ShowcasePage /></Suspense>;
-  if (window.location.pathname === "/privacy") return <PrivacyPage />;
+  if (window.location.pathname === "/privacy") return <Suspense fallback={<LoadingShell />}><PrivacyPage /></Suspense>;
   if (!token && window.location.pathname === "/") return <LandingPage />;
-  if (!token && window.location.pathname === "/demo") return <DemoPage onAuthenticated={authenticated} />;
-  if (!token) return <AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} />;
+  if (!token && window.location.pathname === "/demo") return <Suspense fallback={<LoadingShell />}><DemoPage onAuthenticated={authenticated} /></Suspense>;
+  if (!token) return <Suspense fallback={<LoadingShell />}><AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} /></Suspense>;
   if (offlineMode) return <OfflineRecoveryShell user={offlineUser} onLogout={logout} onRetry={() => window.dispatchEvent(new Event("online"))} />;
   if (roleLoading || !user) return <LoadingShell />;
 
@@ -193,12 +197,40 @@ function OfflineRecoveryShell({ user, onLogout, onRetry }: { user: OfflineOwner 
 // Customer Shell
 // ---------------------------------------------------------------------------
 
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+  return (
+    <Toaster
+      position="bottom-right"
+      theme={resolvedTheme}
+      closeButton
+      toastOptions={{
+        style: {
+          background: "var(--bg-surface)",
+          color: "var(--text-primary)",
+          border: "1px solid var(--border-active)",
+          boxShadow: "var(--shadow-raised)",
+          fontFamily: "var(--font-sans)",
+        },
+      }}
+    />
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ThemeProvider>
-          <App />
+          <MotionConfig reducedMotion="user">
+            <AudioProvider>
+              <App />
+              <CommandPalette />
+              <CelebrationOverlay />
+              <CursorFollower />
+              <ThemedToaster />
+            </AudioProvider>
+          </MotionConfig>
         </ThemeProvider>
       </BrowserRouter>
     </QueryClientProvider>

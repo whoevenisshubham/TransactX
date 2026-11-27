@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api } from "../../api";
 import { Button, InlineError, PageHeader, Skeleton } from "../../components";
+import { DotSentinel, useAudioEngine } from "../../components/effects";
 import type { ChaosScenario } from "./types";
 import { ConsoleIcon } from "./ConsoleIcon";
 import { formatIso } from "./format";
@@ -14,6 +16,7 @@ export function ChaosView({ token, liveRevision }: { token: string; liveRevision
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const { play } = useAudioEngine();
 
   const [scenarioId, setScenarioId] = useState(`chaos-${Date.now().toString(36)}`);
   const [targetId, setTargetId] = useState("");
@@ -66,6 +69,8 @@ export function ChaosView({ token, liveRevision }: { token: string; liveRevision
     api.opsChaosStart(payload, token)
       .then((created) => {
         setFeedback(`Scenario ${created.scenarioId} engaged on target ${created.targetId}.`);
+        play("error");
+        toast.warning(`Fault injected: ${created.scenarioId} (${created.targetId})`);
         setScenarioId(`chaos-${Date.now().toString(36)}`);
         loadData();
       })
@@ -79,6 +84,8 @@ export function ChaosView({ token, liveRevision }: { token: string; liveRevision
     api.opsChaosStop(id, token)
       .then(() => {
         setFeedback(`Scenario ${id} stopped.`);
+        play("tab");
+        toast.success(`Scenario ${id} stopped`);
         loadData();
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to stop scenario."));
@@ -90,6 +97,8 @@ export function ChaosView({ token, liveRevision }: { token: string; liveRevision
     api.opsChaosReset(undefined, token)
       .then(() => {
         setFeedback("All active chaos faults reset.");
+        play("success");
+        toast.success("All chaos faults cleared");
         loadData();
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to reset chaos."));
@@ -271,7 +280,10 @@ export function ChaosView({ token, liveRevision }: { token: string; liveRevision
           <section className="section-block">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Active Scenarios</p>
+                <p className="eyebrow flex items-center gap-2">
+                  <DotSentinel state={activeList.length > 0 ? "error" : "idle"} />
+                  Active Scenarios
+                </p>
                 <h2>Currently Running Injections ({activeList.length})</h2>
               </div>
             </div>

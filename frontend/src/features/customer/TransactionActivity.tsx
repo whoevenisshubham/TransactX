@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { motion } from "motion/react";
 import { Button, EmptyState, Icon, PageHeader, PaymentRow } from "../../components";
+import { useAudioEngine } from "../../components/effects";
 import type { Payment } from "../../types";
 import type { TransactionActivityProps } from "./types";
 
@@ -9,6 +11,7 @@ export function TransactionActivity({ payments, onNavigate }: TransactionActivit
   const [status, setStatus] = useState("ALL");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const { play } = useAudioEngine();
 
   const sentCount = payments.filter((p) => p.direction === "SENT").length;
   const receivedCount = payments.filter((p) => p.direction === "RECEIVED").length;
@@ -66,33 +69,40 @@ export function TransactionActivity({ payments, onNavigate }: TransactionActivit
         <section className="transactions-section">
           <div className="transactions-filter-bar">
             <div className="filter-tabs" role="tablist" aria-label="Transaction filters">
-              <button
-                type="button"
-                className={`filter-tab ${filter === "ALL" ? "is-active" : ""}`}
-                onClick={() => setFilter("ALL")}
-                role="tab"
-                aria-selected={filter === "ALL"}
-              >
-                All <span className="filter-count">{payments.length}</span>
-              </button>
-              <button
-                type="button"
-                className={`filter-tab ${filter === "SENT" ? "is-active" : ""}`}
-                onClick={() => setFilter("SENT")}
-                role="tab"
-                aria-selected={filter === "SENT"}
-              >
-                Sent <span className="filter-count">{sentCount}</span>
-              </button>
-              <button
-                type="button"
-                className={`filter-tab ${filter === "RECEIVED" ? "is-active" : ""}`}
-                onClick={() => setFilter("RECEIVED")}
-                role="tab"
-                aria-selected={filter === "RECEIVED"}
-              >
-                Received <span className="filter-count">{receivedCount}</span>
-              </button>
+              {(
+                [
+                  { id: "ALL", label: "All", count: payments.length },
+                  { id: "SENT", label: "Sent", count: sentCount },
+                  { id: "RECEIVED", label: "Received", count: receivedCount },
+                ] as const
+              ).map((tab) => {
+                const active = filter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`filter-tab relative overflow-hidden ${active ? "is-active" : ""}`}
+                    onClick={() => {
+                      play("tab");
+                      setFilter(tab.id);
+                    }}
+                    role="tab"
+                    aria-selected={active}
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="tx-filter-pill"
+                        transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                        className="absolute inset-0 rounded-[inherit] bg-[var(--bg-surface)] shadow-[var(--shadow-subtle)]"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span className="relative z-10 inline-flex items-center gap-1.5">
+                      {tab.label} <span className="filter-count">{tab.count}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="transactions-search">

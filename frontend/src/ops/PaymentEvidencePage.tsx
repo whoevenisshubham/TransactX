@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { toast } from "sonner";
 import { Button, EmptyState, InlineError, PageHeader } from "../components";
+import { DotSentinel, SpotlightCard, useAudioEngine } from "../components/effects";
 import { DataTable, formatPaiseDecimal, OpsStatusBadge, Timeline } from "../design/OpsPrimitives";
 import { liveOpsClient } from "./client";
 import type { EvidenceOperation, EvidenceTransition, RecoveryAttempt } from "./contracts";
@@ -173,6 +176,16 @@ export function PaymentEvidencePage({
     }
   }
 
+  const { play } = useAudioEngine();
+  const reduceMotion = useReducedMotion();
+  const isSettled = evidence?.payment.state === "COMPLETED";
+  const isAmbiguous =
+    evidence?.payment.state === "PENDING_RECONCILIATION" ||
+    evidence?.payment.state === "BANK_SETTLED_CENTRAL_PENDING" ||
+    evidence?.payment.state === "PROCESSING";
+  const bannerAccent = isSettled ? "emerald" : isAmbiguous ? "amber" : "crimson";
+  const sentinelState = isSettled ? "success" : isAmbiguous ? "probing" : "error";
+
   return (
     <div className="ops-page reset-journey">
       <PageHeader
@@ -220,7 +233,11 @@ export function PaymentEvidencePage({
                 className="rounded-md border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)] px-2.5 py-1 text-xs font-semibold text-[var(--text-primary)] hover:border-[var(--border-active)] cursor-pointer"
                 onClick={() => {
                   navigator.clipboard.writeText(paymentId).then(
-                    () => setCopyStatus("Reference copied"),
+                    () => {
+                      setCopyStatus("Reference copied");
+                      play("tick");
+                      toast.success("Payment reference copied");
+                    },
                     () => setCopyStatus("Copy unavailable. Select the reference to copy it.")
                   );
                 }}
@@ -297,12 +314,15 @@ export function PaymentEvidencePage({
           <div className="journey-layout">
             <div className="journey-body">
               <div className="journey-overview space-y-4">
-                <section
-                  className="journey-payment-banner grid grid-cols-1 md:grid-cols-2 gap-4 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 shadow-[var(--shadow-subtle)]"
+                <SpotlightCard
+                  as="section"
+                  accent={bannerAccent}
+                  className="journey-payment-banner !grid !grid-cols-1 md:!grid-cols-2 !gap-4 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] !p-4 sm:!p-5 shadow-[var(--shadow-subtle)]"
                   id={`evidence-${evidence.payment.evidenceId}`}
                 >
                   <div className="journey-payment-outcome space-y-2">
-                    <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[var(--accent-strong)] m-0">
+                    <p className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[var(--accent-strong)] flex items-center gap-2 m-0">
+                      <DotSentinel state={sentinelState} />
                       Central payment
                     </p>
                     <p className="amount amount-prominent ops-mono text-3xl font-bold tracking-tight text-[var(--text-primary)] m-0">
@@ -321,33 +341,97 @@ export function PaymentEvidencePage({
                     </details>
                   </div>
 
-                  <div className="journey-bank-route rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/60 p-4 space-y-3">
-                    <h2 className="text-xs font-mono uppercase tracking-wider text-[var(--text-secondary)] m-0">
-                      Original route
-                    </h2>
-                    <div className="journey-bank-stations flex items-center justify-between gap-2">
-                      <div className="flex flex-col items-start min-w-0">
-                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-hairline)] bg-[var(--bg-surface)] font-mono text-xs font-bold text-[var(--text-primary)]">
+                  <div className="journey-bank-route rounded-xl !border border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/60 !p-3.5 sm:!p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-xs font-mono uppercase tracking-wider text-[var(--text-secondary)] m-0">
+                        Original route
+                      </h2>
+                      <span className="text-[10px] font-mono uppercase text-[var(--text-secondary)]">
+                        {isSettled ? "Two-bank committed" : isAmbiguous ? "Switch awaiting confirmation" : "Halted route"}
+                      </span>
+                    </div>
+                    <div className="journey-bank-stations !flex !items-center !justify-between !gap-2 sm:!gap-3">
+                      <div className="flex flex-col items-start shrink-0">
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-hairline)] bg-[var(--bg-surface)] font-mono text-xs font-bold text-[var(--text-primary)] shadow-xs">
                           {bankMark(evidence.route.sourceBankCode)}
                         </span>
-                        <strong className="mt-1 text-sm font-semibold text-[var(--text-primary)] truncate">
+                        <strong className="mt-1 text-sm font-semibold text-[var(--text-primary)] whitespace-nowrap">
                           {optional(evidence.route.sourceBankCode)}
                         </strong>
-                        <small className="text-[11px] text-[var(--text-tertiary)]">
+                        <small className="text-[11px] text-[var(--text-secondary)]">
                           Source bank
                         </small>
                       </div>
-                      <span className="journey-route-line font-mono text-[var(--text-tertiary)]" aria-hidden="true">
-                        →
-                      </span>
-                      <div className="flex flex-col items-end min-w-0 text-right">
-                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-hairline)] bg-[var(--bg-surface)] font-mono text-xs font-bold text-[var(--text-primary)]">
+
+                      {/* Animated Bank A -> Switch -> Bank B Packet Rail */}
+                      <div className="flex-1 min-w-[68px] px-1 flex flex-col items-center gap-1" aria-hidden="true">
+                        <svg viewBox="0 0 180 28" className="w-full h-7 overflow-visible">
+                          <line
+                            x1="8"
+                            y1="14"
+                            x2="172"
+                            y2="14"
+                            stroke="var(--border-active)"
+                            strokeWidth="2"
+                            strokeDasharray={isSettled ? undefined : "4 4"}
+                          />
+                          <circle
+                            cx="90"
+                            cy="14"
+                            r="9"
+                            fill="var(--bg-surface)"
+                            stroke={
+                              isSettled
+                                ? "var(--status-success-fg)"
+                                : isAmbiguous
+                                ? "var(--status-warning-fg)"
+                                : "var(--status-danger-fg)"
+                            }
+                            strokeWidth="2"
+                          />
+                          <text
+                            x="90"
+                            y="17"
+                            textAnchor="middle"
+                            fontSize="8"
+                            fontFamily="var(--font-mono)"
+                            fill="var(--text-primary)"
+                          >
+                            TX
+                          </text>
+                          {!reduceMotion && isSettled && (
+                            <motion.circle
+                              r="4"
+                              fill="var(--status-success-fg)"
+                              initial={{ cx: 12, cy: 14 }}
+                              animate={{ cx: [12, 168], cy: 14 }}
+                              transition={{ repeat: Infinity, duration: 1.9, ease: "easeInOut" }}
+                            />
+                          )}
+                          {!reduceMotion && isAmbiguous && (
+                            <motion.circle
+                              r="4"
+                              fill="var(--status-warning-fg)"
+                              cx="90"
+                              cy="14"
+                              animate={{ opacity: [0.35, 1, 0.35] }}
+                              transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
+                            />
+                          )}
+                        </svg>
+                        <span className="journey-route-line font-mono text-[10px] text-[var(--text-secondary)] sr-only">
+                          →
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col items-end shrink-0 text-right">
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-hairline)] bg-[var(--bg-surface)] font-mono text-xs font-bold text-[var(--text-primary)] shadow-xs">
                           {bankMark(evidence.route.destinationBankCode)}
                         </span>
-                        <strong className="mt-1 text-sm font-semibold text-[var(--text-primary)] truncate">
+                        <strong className="mt-1 text-sm font-semibold text-[var(--text-primary)] whitespace-nowrap">
                           {optional(evidence.route.destinationBankCode)}
                         </strong>
-                        <small className="text-[11px] text-[var(--text-tertiary)]">
+                        <small className="text-[11px] text-[var(--text-secondary)]">
                           Destination bank
                         </small>
                       </div>
@@ -364,7 +448,7 @@ export function PaymentEvidencePage({
                       </small>
                     </details>
                   </div>
-                </section>
+                </SpotlightCard>
 
                 {(evidence.payment.state === "PENDING_RECONCILIATION" ||
                   evidence.payment.state === "BANK_SETTLED_CENTRAL_PENDING") && (

@@ -57,6 +57,10 @@ function safeErrorMessage(code: string | undefined, fallback: string): string {
       return "Payments are temporarily unavailable. Try again shortly.";
     case "NETWORK_ERROR":
       return "We couldn't reach TransactX. Check your connection and try again.";
+    case "API_ROUTE_MISCONFIGURED":
+      return "The API endpoint returned a web page instead of JSON. Check that VITE_API_BASE_URL is configured for this deployment.";
+    case "DEMO_GATEWAY_WAKEUP":
+      return "The backend service is waking up from idle or temporarily timed out at the gateway. Wait a few seconds and retry.";
     default:
       return fallback;
   }
@@ -83,12 +87,31 @@ export async function apiRequestWithStatus<T>(path: string, options: RequestInit
     throw new ApiError(safeErrorMessage("NETWORK_ERROR", "The request could not be completed."), "NETWORK_ERROR", 0);
   }
 
-  const body = (await response.json().catch(() => ({}))) as ApiResponse<T> | ErrorResponse;
+  const contentType = response.headers?.get?.("content-type")?.toLowerCase() ?? "";
+  const isHtmlResponse = contentType.includes("text/html");
+  if (isHtmlResponse || (response.status === 405 && path.startsWith("/api/"))) {
+    const code = "API_ROUTE_MISCONFIGURED";
+    throw new ApiError(safeErrorMessage(code, "The request could not be completed."), code, response.status || 502);
+  }
+
+  const body = (await response.json().catch(() => null)) as ApiResponse<T> | ErrorResponse | null;
   if (!response.ok) {
-    const error = body as ErrorResponse;
-    const code = error.error?.code ?? (response.status === 503 ? "DEMO_STARTING" : response.status === 429 ? "RATE_LIMITED" : "REQUEST_FAILED");
+    const error = (body ?? {}) as ErrorResponse;
+    const code =
+      error.error?.code ??
+      (response.status === 503
+        ? "DEMO_STARTING"
+        : response.status === 502 || response.status === 504
+        ? "DEMO_GATEWAY_WAKEUP"
+        : response.status === 429
+        ? "RATE_LIMITED"
+        : "REQUEST_FAILED");
     const message = safeErrorMessage(code, "The request could not be completed.");
     throw new ApiError(message, code, response.status);
+  }
+  if (path.startsWith("/api/") && (body === null || typeof body !== "object" || !("data" in body))) {
+    const code = "API_ROUTE_MISCONFIGURED";
+    throw new ApiError(safeErrorMessage(code, "The request could not be completed."), code, 502);
   }
   return { data: (body as ApiResponse<T>).data, status: response.status };
 }

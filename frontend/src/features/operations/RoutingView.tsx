@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
 import { api } from "../../api";
 import { Button, InlineError, PageHeader, Skeleton } from "../../components";
+import { DotSentinel, useAudioEngine } from "../../components/effects";
 import type { CircuitTargetSnapshot, CircuitTransitionEvent } from "./types";
 import { ConsoleIcon } from "./ConsoleIcon";
 import { formatIso } from "./format";
@@ -19,6 +21,7 @@ export function RoutingView({ token, liveRevision }: { token: string; liveRevisi
   const distributionGeneration = useRef(0);
   const eventTarget = useRef("");
   const [error, setError] = useState("");
+  const { play } = useAudioEngine();
 
   function loadDistribution() {
     const generation = ++distributionGeneration.current;
@@ -150,21 +153,113 @@ export function RoutingView({ token, liveRevision }: { token: string; liveRevisi
         </div>
       ) : (
         <>
-          <div className="console-tabs">
-            {targetKeys.map((k) => (
-              <button
-                key={k}
-                type="button"
-                className={`console-tab ${selectedTarget === k ? "is-active" : ""}`}
-                onClick={() => setSelectedTarget(k)}
-              >
-                Target: {k}
-              </button>
-            ))}
+          <div className="console-tabs" role="tablist" aria-label="Execution target selector">
+            {targetKeys.map((k) => {
+              const active = selectedTarget === k;
+              const targetState = circuits[k]?.state;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`console-tab relative overflow-hidden inline-flex items-center gap-2 ${active ? "is-active" : ""}`}
+                  onClick={() => {
+                    play("tab");
+                    setSelectedTarget(k);
+                  }}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="routing-target-pill"
+                      transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                      className="absolute inset-0 rounded-[inherit] bg-[var(--bg-surface-raised)] border border-[var(--border-active)]"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="relative z-10 inline-flex items-center gap-2">
+                    <DotSentinel
+                      state={
+                        targetState === "CLOSED"
+                          ? "success"
+                          : targetState === "OPEN"
+                          ? "error"
+                          : "warning"
+                      }
+                    />
+                    Target: {k}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {currentCircuit && (
-            <section className="console-grid-4">
+            <>
+              {/* Interactive Circuit-Breaker State Machine Visualizer */}
+              <div className="rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-subtle)] mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                    Circuit state machine · {selectedTarget}
+                  </span>
+                  <span className="text-[11px] font-mono text-[var(--text-tertiary)]">
+                    Recovery progress {(currentCircuit.restorationProgress * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 sm:gap-3 items-center text-center">
+                  {(
+                    [
+                      {
+                        state: "CLOSED",
+                        title: "CLOSED",
+                        desc: "Full routing eligible",
+                        tone: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success-fg)]",
+                      },
+                      {
+                        state: "HALF_OPEN",
+                        title: "HALF_OPEN",
+                        desc: "Limited canary probes",
+                        tone: "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning-fg)]",
+                      },
+                      {
+                        state: "OPEN",
+                        title: "OPEN",
+                        desc: "Fast-fail isolated",
+                        tone: "border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger-fg)]",
+                      },
+                    ] as const
+                  ).map((node) => {
+                    const isCurrent = currentCircuit.state === node.state;
+                    return (
+                      <div
+                        key={node.state}
+                        className={`rounded-xl border px-2.5 py-2.5 transition-all ${
+                          isCurrent
+                            ? `${node.tone} ring-2 ring-current/20 shadow-sm`
+                            : "border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/60 text-[var(--text-secondary)]"
+                        }`}
+                      >
+                        <div className="font-mono text-xs font-bold tracking-tight">
+                          {node.title}
+                        </div>
+                        <div className="text-[10px] mt-0.5 hidden sm:block">
+                          {node.desc}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 h-1.5 w-full rounded-full bg-[var(--bg-surface-raised)] border border-[var(--border-hairline)] overflow-hidden" aria-hidden="true">
+                  <motion.div
+                    className="h-full rounded-full bg-[var(--action-accent-bg)]"
+                    initial={false}
+                    animate={{ width: `${Math.max(4, Math.min(100, currentCircuit.restorationProgress * 100))}%` }}
+                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                  />
+                </div>
+              </div>
+
+              <section className="console-grid-4">
               <div className="console-card">
                 <span className="console-card-kicker">Circuit State</span>
                 <span
@@ -212,6 +307,7 @@ export function RoutingView({ token, liveRevision }: { token: string; liveRevisi
                 </span>
               </div>
             </section>
+            </>
           )}
 
           <section className="section-block">

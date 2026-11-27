@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { Button, InlineError, PageHeader } from "../../components";
+import { DotSentinel } from "../../components/effects";
 
 export function ReconciliationView({ token, liveRevision }: { token: string; liveRevision: number }) {
   const [runs, setRuns] = useState<any[]>([]);
@@ -169,7 +170,18 @@ export function ReconciliationView({ token, liveRevision }: { token: string; liv
 
       {selected && (
         <div className="console-card">
-          <h3>Run {selected.id}</h3>
+          <h3 className="inline-flex items-center gap-2">
+            <DotSentinel
+              state={
+                selected.status === "COMPLETED" && selected.discrepancyCount === 0
+                  ? "success"
+                  : selected.discrepancyCount > 0 || selected.status === "FAILED"
+                  ? "warning"
+                  : "probing"
+              }
+            />
+            Run {selected.id}
+          </h3>
           <p>Scope: {selected.scopeFrom} to {selected.scopeTo}</p>
           <p>Records: {selected.recordCount} · Status: {selected.status} · Discrepancies: {selected.discrepancyCount}</p>
           <div className="console-spec-list">

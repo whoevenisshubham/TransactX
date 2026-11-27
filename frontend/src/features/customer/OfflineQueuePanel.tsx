@@ -1,14 +1,18 @@
 import { Amount, Button, formatDate, StatusBadge } from "../../components";
+import { DotSentinel, SpotlightCard } from "../../components/effects";
 import type { OfflineQueuePanelProps } from "./types";
 
 export function OfflineQueuePanel({ intents, onRetry }: OfflineQueuePanelProps) {
   if (intents.length === 0) return null;
 
   return (
-    <section className="offline-queue-panel rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 space-y-3">
+    <SpotlightCard as="section" accent="amber" className="offline-queue-panel rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 space-y-3 shadow-[var(--shadow-subtle)]">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Local sync</p>
+          <p className="eyebrow flex items-center gap-2">
+            <DotSentinel state="warning" />
+            Local sync
+          </p>
           <h2>Offline payment intents</h2>
         </div>
         <span className="toolbar-note font-mono tabular-nums">{intents.length} retained on device</span>
@@ -39,6 +43,6 @@ export function OfflineQueuePanel({ intents, onRetry }: OfflineQueuePanelProps) 
           </div>
         ))}
       </div>
-    </section>
+    </SpotlightCard>
   );
 }

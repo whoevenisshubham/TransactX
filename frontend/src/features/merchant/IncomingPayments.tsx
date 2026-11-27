@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { Amount, Button, EmptyState, formatDate, Icon, PageHeader, StatusBadge } from "../../components";
+import { DotSentinel, useAudioEngine } from "../../components/effects";
 import { CopyValue } from "../../shared/CopyValue";
 import type { Payment } from "./types";
 
@@ -10,6 +12,7 @@ export interface IncomingPaymentsProps {
 
 export function IncomingPayments({ payments, onRefresh }: IncomingPaymentsProps) {
   const [filter, setFilter] = useState("ALL");
+  const { play } = useAudioEngine();
   const received = payments.filter((p) => p.direction === "RECEIVED");
   const activeFilter = filter !== "ALL" && !received.some((p) => p.state === filter) ? "ALL" : filter;
   const filtered = received.filter(
@@ -23,7 +26,15 @@ export function IncomingPayments({ payments, onRefresh }: IncomingPaymentsProps)
         title="Payments received"
         description="Incoming payments in the latest 50 loaded account records. Refresh to fetch current observations."
         action={
-          <Button variant="secondary" onClick={onRefresh} disabled={typeof navigator !== "undefined" && !navigator.onLine}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              play("tab");
+              toast.message("Refreshing incoming payments feed…");
+              onRefresh();
+            }}
+            disabled={typeof navigator !== "undefined" && !navigator.onLine}
+          >
             <Icon name="activity" size={16} />
             Refresh
           </Button>
@@ -38,7 +49,8 @@ export function IncomingPayments({ payments, onRefresh }: IncomingPaymentsProps)
       ) : (
         <section className="transactions-section">
           <div className="transactions-toolbar">
-            <span>
+            <span className="inline-flex items-center gap-2">
+              <DotSentinel state="idle" />
               {received.length} {received.length === 1 ? "payment" : "payments"} in recent feed
             </span>
             <span className="toolbar-note">

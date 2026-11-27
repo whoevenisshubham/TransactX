@@ -1,9 +1,13 @@
 @import "tailwindcss";
 @import "./tokens.css";
 @import "@fontsource-variable/inter";
+@import "@fontsource/space-grotesk/500.css";
+@import "@fontsource/space-grotesk/600.css";
+@import "@fontsource/space-grotesk/700.css";
 @import "@fontsource/jetbrains-mono";
 
 @theme {
+  --font-display: var(--font-display);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 
@@ -337,4 +341,81 @@
 .customer-shell .confirm-amount .amount-prominent {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Creative Showcase Utilities — Overflow-Safe Atmospheric Depth & Motion */
+html,
+body {
+  overflow-x: clip;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.tx-blueprint-grid {
+  background-color: var(--blueprint-bg);
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--blueprint-grid) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.tx-aurora-horizon {
+  background:
+    radial-gradient(62% 55% at 18% 15%, rgba(59, 130, 246, 0.14), transparent 72%),
+    radial-gradient(50% 48% at 84% 20%, rgba(16, 185, 129, 0.11), transparent 70%),
+    radial-gradient(48% 50% at 52% 92%, rgba(139, 92, 246, 0.1), transparent 72%);
+}
+
+[data-theme="dark"] .tx-aurora-horizon {
+  background:
+    radial-gradient(60% 55% at 18% 12%, rgba(59, 130, 246, 0.2), transparent 72%),
+    radial-gradient(48% 46% at 84% 18%, rgba(16, 185, 129, 0.14), transparent 70%),
+    radial-gradient(52% 52% at 50% 94%, rgba(139, 92, 246, 0.16), transparent 72%);
+}
+
+@keyframes tx-marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.tx-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: tx-marquee 32s linear infinite;
+}
+
+.tx-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-marquee-track {
+    animation: none !important;
+  }
+}
+
+/* Guarantee immediate full-opacity contrast on Sonner toasts across themes */
+[data-sonner-toaster] [data-sonner-toast] {
+  opacity: 1 !important;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  background-color: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-active) !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-title],
+[data-sonner-toaster] [data-sonner-toast] [data-content] {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-description],
+[data-sonner-toaster] [data-sonner-toast] [data-close-button] {
+  color: var(--text-secondary) !important;
+  opacity: 1 !important;
 }

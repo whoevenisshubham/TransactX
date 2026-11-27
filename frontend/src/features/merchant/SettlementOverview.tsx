@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { Button, EmptyState, Icon, PageHeader } from "../../components";
+import { DotSentinel, useAudioEngine } from "../../components/effects";
 import { MerchantPaymentRow } from "./MerchantPaymentRow";
 import type { Payment, SettlementTone } from "./types";
 
@@ -98,34 +100,50 @@ function SettlementGroup({
   description: string;
 }) {
   const [open, setOpen] = useState(tone === "success" || tone === "warning");
+  const { play } = useAudioEngine();
+  const sentinelState =
+    tone === "success" ? "success" : tone === "warning" ? "warning" : tone === "error" ? "error" : "idle";
 
   return (
-    <div className={`settlement-group settlement-group-${tone} rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden`}>
+    <div className={`settlement-group settlement-group-${tone} rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] overflow-hidden transition-colors hover:border-[var(--border-active)]`}>
       <button
         type="button"
         className="settlement-group-header w-full text-left"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          play("tab");
+          setOpen((o) => !o);
+        }}
         aria-expanded={open}
       >
-        <span className="settlement-group-title font-semibold text-[var(--text-primary)]">
-          <span className={`status-dot status-${tone}-dot`} />
+        <span className="settlement-group-title font-semibold text-[var(--text-primary)] inline-flex items-center gap-2">
+          <DotSentinel state={sentinelState} />
           {title}
           <span className="settlement-count font-mono tabular-nums">{count}</span>
         </span>
         <span className="settlement-description">{description}</span>
-        <Icon name="chevron" size={16} />
+        <span className={`inline-flex transition-transform duration-200 ${open ? "rotate-90" : ""}`}>
+          <Icon name="chevron" size={16} />
+        </span>
       </button>
-      {open && (
-        <div className="settlement-group-body">
-          {payments.length === 0 ? (
-            <p className="settlement-empty">No payments in this category.</p>
-          ) : (
-            payments.map((p) => (
-              <MerchantPaymentRow key={p.id} payment={p} expanded />
-            ))
-          )}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0.96, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0.96, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="settlement-group-body"
+          >
+            {payments.length === 0 ? (
+              <p className="settlement-empty">No payments in this category.</p>
+            ) : (
+              payments.map((p) => (
+                <MerchantPaymentRow key={p.id} payment={p} expanded />
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

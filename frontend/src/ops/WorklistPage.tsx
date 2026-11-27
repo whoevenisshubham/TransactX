@@ -227,21 +227,22 @@ export function WorklistPage({
             page · Projection as of {new Date(page.asOf).toLocaleString()}
           </p>
 
-          <div className="worklist-page-summary flex flex-wrap gap-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--text-secondary)]">
-            <span>
+          <div className="worklist-page-summary flex flex-wrap items-center gap-4 rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--text-secondary)] shadow-[var(--shadow-subtle)]">
+            <span className="inline-flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-[var(--action-accent-bg)]" aria-hidden="true" />
               <strong className="font-mono tabular-nums text-[var(--text-primary)]">
                 {page.items.length}
               </strong>{" "}
               loaded payments
             </span>
             <span>
-              <strong className="font-mono tabular-nums text-[var(--text-primary)]">
+              <strong className="font-mono tabular-nums text-[var(--status-success-fg)]">
                 {page.items.filter((item) => item.state === "COMPLETED").length}
               </strong>{" "}
               completed on this page
             </span>
             <span>
-              <strong className="font-mono tabular-nums text-[var(--text-primary)]">
+              <strong className="font-mono tabular-nums text-[var(--status-warning-fg)]">
                 {page.items.filter((item) => item.recoveryStatus !== "none").length}
               </strong>{" "}
               with recorded recovery status

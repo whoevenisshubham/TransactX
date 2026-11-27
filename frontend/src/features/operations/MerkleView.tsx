@@ -1,6 +1,8 @@
 import React, { useRef, useState } from "react";
+import { toast } from "sonner";
 import { api, ApiError } from "../../api";
 import { Button, InlineError, PageHeader } from "../../components";
+import { DotSentinel, useAudioEngine } from "../../components/effects";
 import type { MerkleTreeChild, MerkleTreeRoot } from "./types";
 
 export function MerkleView({ token }: { token: string }) {
@@ -11,6 +13,8 @@ export function MerkleView({ token }: { token: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [root, setRoot] = useState<MerkleTreeRoot | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const { play } = useAudioEngine();
   const [rootContext, setRootContext] = useState<{
     participantId: string;
     scopeFrom: string;
@@ -170,14 +174,38 @@ export function MerkleView({ token }: { token: string }) {
           </div>
 
           {childrenMap[`${root.ref.Generation}:${root.ref.Path}`] && (
-            <div style={{ marginTop: "1rem" }}>
-              <h4>Tree nodes</h4>
+            <div style={{ marginTop: "1.25rem" }} className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="inline-flex items-center gap-2 m-0">
+                  <DotSentinel state="success" />
+                  Tree nodes
+                </h4>
+                {selectedPath && (
+                  <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-[var(--bg-surface-raised)] border border-[var(--border-hairline)] text-[var(--accent-strong)]">
+                    Focused path: {selectedPath}
+                  </span>
+                )}
+              </div>
               {childrenMap[`${root.ref.Generation}:${root.ref.Path}`].map((c, i) => (
                 <MerkleNodeBranch
                   key={`${c.ref.Generation}:${c.ref.Path}:${i}`}
                   node={c}
                   depth={1}
                   childrenMap={childrenMap}
+                  selectedPath={selectedPath}
+                  onSelectPath={(path) => {
+                    setSelectedPath(path);
+                    play("tab");
+                  }}
+                  onCopyHash={(hex) => {
+                    navigator.clipboard.writeText(hex).then(
+                      () => {
+                        play("tick");
+                        toast.success("Merkle node hash copied");
+                      },
+                      () => toast.error("Clipboard copy unavailable")
+                    );
+                  }}
                   fetchChildren={fetchChildren}
                 />
               ))}
@@ -193,23 +221,42 @@ function MerkleNodeBranch({
   node,
   depth,
   childrenMap,
+  selectedPath,
+  onSelectPath,
+  onCopyHash,
   fetchChildren,
 }: {
   node: MerkleTreeChild;
   depth: number;
   childrenMap: Record<string, MerkleTreeChild[]>;
+  selectedPath: string | null;
+  onSelectPath: (path: string) => void;
+  onCopyHash: (hex: string) => void;
   fetchChildren: (generation: string, path: string) => Promise<void>;
 }) {
   const key = `${node.ref.Generation}:${node.ref.Path}`;
   const children = childrenMap[key];
+  const isSelected = selectedPath === node.ref.Path;
+  const isAncestor = selectedPath !== null && selectedPath.startsWith(`${node.ref.Path}/`);
+
   return (
       <div
-        className="console-spec-list rounded-xl border border-[var(--border-hairline)]"
+        className={`console-spec-list rounded-xl border transition-colors ${
+          isSelected
+            ? "border-[var(--action-accent-bg)] ring-1 ring-[var(--action-accent-bg)]/30"
+            : isAncestor
+            ? "border-[var(--border-active)]"
+            : "border-[var(--border-hairline)]"
+        }`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelectPath(node.ref.Path);
+        }}
         style={{
           background: "var(--bg-surface-raised)",
           padding: "0.75rem 1rem",
           margin: "0.625rem 0 0.625rem 1rem",
-          borderLeft: "3px solid var(--action-accent-bg)",
+          borderLeft: `3px solid ${isSelected ? "var(--blueprint-emerald)" : "var(--action-accent-bg)"}`,
         }}
       >
       <div className="console-spec-item">
@@ -226,8 +273,18 @@ function MerkleNodeBranch({
       </div>
       <div className="console-spec-item">
         <span className="console-spec-label">Hash</span>
-        <span className="console-spec-val mono" style={{ fontSize: "0.85rem", wordBreak: "break-all" }}>
-          {node.hashHex}
+        <span className="console-spec-val mono inline-flex items-center gap-2 flex-wrap" style={{ fontSize: "0.85rem", wordBreak: "break-all" }}>
+          <span>{node.hashHex}</span>
+          <button
+            type="button"
+            className="text-[10px] font-mono px-2 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCopyHash(node.hashHex);
+            }}
+          >
+            Copy hash
+          </button>
         </span>
       </div>
       <div className="console-spec-item">
@@ -248,6 +305,9 @@ function MerkleNodeBranch({
           node={child}
           depth={depth + 1}
           childrenMap={childrenMap}
+          selectedPath={selectedPath}
+          onSelectPath={onSelectPath}
+          onCopyHash={onCopyHash}
           fetchChildren={fetchChildren}
         />
       ))}

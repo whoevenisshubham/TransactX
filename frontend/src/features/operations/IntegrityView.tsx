@@ -260,20 +260,24 @@ export function IntegrityView({ token, liveRevision }: { token: string; liveRevi
           {verifyError && <InlineError message={verifyError} />}
           {verifyResult && (
             <div
-              className="console-notice-box"
+              className="console-notice-box rounded-xl border p-4 mb-6 flex items-start gap-3"
               style={{
-                marginBottom: "1.5rem",
-                padding: "1rem",
-                borderColor: verifyResult.valid ? "var(--success)" : "var(--error)",
-                color: verifyResult.valid ? "var(--success)" : "var(--error)",
+                borderColor: verifyResult.valid ? "var(--status-success-border)" : "var(--status-danger-border)",
+                color: verifyResult.valid ? "var(--status-success-fg)" : "var(--status-danger-fg)",
+                background: verifyResult.valid ? "var(--status-success-bg)" : "var(--status-danger-bg)",
               }}
             >
-              <h4 style={{ margin: "0 0 0.5rem 0" }}>
-                {verifyResult.valid ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED"}
-              </h4>
-              <p className="integrity-reconstructed-root" style={{ margin: 0, fontSize: "0.85rem" }}>
-                Reconstructed Root: <span style={{ fontFamily: "monospace" }}>{verifyResult.reconstructedRoot}</span>
-              </p>
+              <span className="mt-0.5 shrink-0">
+                {verifyResult.valid ? "✓" : "!"}
+              </span>
+              <div>
+                <h4 className="font-display font-bold tracking-tight" style={{ margin: "0 0 0.35rem 0" }}>
+                  {verifyResult.valid ? "VERIFICATION SUCCESSFUL" : "VERIFICATION FAILED"}
+                </h4>
+                <p className="integrity-reconstructed-root" style={{ margin: 0, fontSize: "0.85rem" }}>
+                  Reconstructed Root: <span className="ops-mono">{verifyResult.reconstructedRoot}</span>
+                </p>
+              </div>
             </div>
           )}
 
