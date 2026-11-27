@@ -1,18 +1,17 @@
 # TransactX Frontend Release-Readiness Audit
 
-**Audit Date:** 2026-11-27 *(Updated post Pre-Preview Cleanup)*  
-**Audited Branch:** `feat/uiux-redesign` (working tree vs `HEAD`, no commits or pushes executed)  
-**Scope:** Evidence-based release-readiness audit of the completed frontend redesign and targeted pre-preview cleanup (`gsap` removal, `BlueprintExplorerModal` keyboard accessibility, new Playwright coverage, corrected coverage/design docs, and route-level lazy loading). Zero `backend/**` files were modified; no commits, pushes, merges, or deployments were performed.
+**Audit Date:** 2026-11-28 *(Updated post CodeRabbit Audit, Vercel Preview Deploy, Render CORS Config & Live E2E)*
+**Audited Branch:** `feat/uiux-redesign` (commit `c8dfe523f7e352b0384f3bcaa0cacc0562d1a7f4` pushed to `origin/feat/uiux-redesign`)
+**Scope:** Complete release-readiness evidence across local tests, CodeRabbit CLI review, Vercel Preview (`transactx-frontend`), Render API (`transactx-demo-api`), and live Preview + Render end-to-end verification. Zero `backend/**` application files were modified; Production (`release/transactx-v2` / `https://transactx-frontend.vercel.app`) was not modified or promoted.
 
 ---
 
 ## 1. Executive Verdict
 
-**Verdict: READY FOR VERCEL PREVIEW VERIFICATION (CONDITIONAL ON ENVIRONMENT CONFIG & LIVE E2E CHECKS); NOT YET CLEARED FOR PRODUCTION MERGE.**
+**Verdict: READY FOR PRODUCTION PROMOTION WITH MINOR CAVEATS (NOT PROMOTED; AWAITING AUTHORIZATION).**
 
-- **What is verified cleanly:** TypeScript + Vite production build passes (`tsc -b && vite build`, `1.44s`), with route-level lazy loading trimming the main entry chunk from `531.94 kB` (`155.86 kB` gzip) down to **`383.61 kB` (`113.11 kB` gzip)** and eliminating the Vite `> 500 kB` chunk warning. All **`134/134`** unit tests, `money parsePaise checks`, **`160/160`** mocked-API Playwright + Axe tests (including dedicated `BlueprintExplorerModal` keyboard focus/Escape/restore and `ShowcasePlayground` 3D prism, particle canvas, audio opt-in, and ambient checks), and **`3/3`** built offline PWA shell tests passed after the final code edit. `backend/**` remains completely untouched (`0` changed or untracked files).
-- **Pre-Preview Cleanup Completed:** Removed unused `gsap` from `frontend/package.json` and `frontend/package-lock.json`, fixed `BlueprintExplorerModal` initial focus, `Tab`/`Shift+Tab` containment, `Escape` dismissal, and trigger focus restoration, added Playwright assertions for both `BlueprintExplorerModal` and `ShowcasePlayground`, corrected `effect-coverage-matrix.md`, `reference-study.md`, and `transformation-progress.md`, and added route-level `React.lazy` splitting for `AuthPage`, `DemoPage`, `PrivacyPage`, `ComponentShowcase`, and `ShowcasePlayground`.
-- **Why Production merge is conditional:** Live browser verification against an actual deployed Vercel Preview + live Render API (`https://transactx-demo-api.onrender.com`) has **not** been executed yet. Vercel Preview requires exact `VITE_API_BASE_URL` configuration (and rebuild) plus exact preview-origin allowlisting in Render `CORS_ALLOWED_ORIGINS` (backend startup forbids wildcard `*`).
+- **Local & CodeRabbit Verification:** TypeScript (`tsc -b --pretty false`) and Vite production build pass (`1.44s`, main entry `383.61 kB` / `113.11 kB` gzip); `134/134` unit tests, `money parsePaise checks`, `160/160` mocked-API Playwright + Axe tests, and `3/3` offline PWA shell tests pass. CodeRabbit CLI (`0.9.7`, `coderabbit review --agent --include-untracked`) completed with **`0` findings** across the full changeset (`baseBranch: release/transactx-v2`).
+- **Hosted Preview & Render Verification:** Vercel Preview (`https://transactx-frontend-git-feat-u-52c6cd-whoevenisshubhams-projects.vercel.app`) is `READY` with `VITE_API_BASE_URL=https://transactx-demo-api.onrender.com`. Render `transactx-demo-api` (`release/transactx-v2`, Auto-Deploy `Off`, `TX_PUBLIC_DEMO_AUTH=true`) has `CORS_ALLOWED_ORIGINS` updated to include the Preview origin (`dep-dc501ih5efls73evhj0g` `Live`, `/healthz` `200`, `OPTIONS /api/auth/demo` `204`). Live Playwright E2E verified `Preview load`, `Landing / Blueprint / CommandPalette`, `Showcase`, `Reduced motion/audio`, `API connectivity`, `Authentication`, `Customer dashboard`, `Paise precision`, `Payment simulation (HTTP 201 COMPLETED)`, `Duplicate/idempotency`, `Merchant`, `QR`, `Settlement`, `Operations console (OPS_VIEWER RBAC)`, `SSE`, `Responsive (320–1440px, 0 overflows)`, `Accessibility (0 serious/critical Axe violations)`, and `Offline/replay` (`replayStatus=201`; script `isVisible()` 0ms timing check missed the pre-replay queued heading before `OfflineReplayWorker` replayed to `201`). Zero console or page errors occurred.
 
 ---
 
@@ -111,36 +110,33 @@ All commands below were observed in the recorded post-cleanup verification log (
 
 ---
 
-## 8. Preview Deployment & Live Render Integration Test Plan
+## 8. Live Preview & Render Integration Verification Results
 
-**Already Verified Locally (Mocked/Offline):** Landing & Showcase isolation, `/demo` HTML `405` / gateway `502` UI, Auth split screens, Customer send/unresolved IndexedDB states, Merchant QR/settlement, Operator (`OPS_VIEWER`) & Admin (`OPS_ADMIN`) worklist/evidence/charts/Merkle/Integrity/Chaos UIs, Axe accessibility, and built `/sw.js` offline shell (`134` unit + `159` fixture Playwright + `3` offline-shell).  
-**Not Yet Verified Against Live Backend:** Live Vercel Preview routing + cross-origin Render TLS/CORS preflight, real PostgreSQL/JWT `/demo` provisioning, real Bank A <-> Switch <-> Bank B saga transitions, SSE `/api/ops/events` stream, or live Gemini/OAuth endpoints.
+**Preview URL Tested:** `https://transactx-frontend-git-feat-u-52c6cd-whoevenisshubhams-projects.vercel.app` (via Vercel protected share session; Deployment `dpl_AZtmUmJqwoayZTNnedbRsi3ss8n4`, commit `c8dfe523f7e352b0384f3bcaa0cacc0562d1a7f4`)  
+**Render Backend:** `https://transactx-demo-api.onrender.com` (`srv-dba7lm8m7kps73fq3fp0`, branch `release/transactx-v2`, Auto-Deploy `Off`, `CORS_ALLOWED_ORIGINS` updated to `https://transactx-frontend.vercel.app,https://transactx-frontend-git-feat-u-52c6cd-whoevenisshubhams-projects.vercel.app`, deploy `dep-dc501ih5efls73evhj0g` `Live`)
 
-| # | Preview Test Scenario | Execution Steps & Expected Verification |
+| Scenario | Result | Evidence / Notes |
 |---|---|---|
-| **1** | **Preview Env & CORS Wiring** | Set `VITE_API_BASE_URL=https://transactx-demo-api.onrender.com` in Vercel Preview env -> redeploy `feat/uiux-redesign` -> add exact Vercel Preview origin to Render `CORS_ALLOWED_ORIGINS` (comma-separated, no trailing slash, no `*`). Verify `GET /health` responds `200` with `Access-Control-Allow-Origin` matching preview origin. |
-| **2** | **Cold-Start `/demo` Login, Cancel & Retry** | Open Preview `/demo` in fresh incognito session. Click **Explore customer** when Render is cold: confirm progress ring advances cleanly without console errors; click **Cancel wait** mid-request and confirm network fetch aborts cleanly and shows cancelled alert. Click **Retry** and confirm session enters `/` (`CUSTOMER`) once Render warms up; repeat for **Explore merchant** and **Explore operator**. |
-| **3** | **Auth, Registration & Google OAuth (if enabled)** | Test `/login` invalid credentials (`INVALID_CREDENTIALS` shake + error copy) and `/register` field errors. If `GOOGLE_OAUTH_ENABLED=true` on Render with Preview origin registered, test `/auth/callback` no-store code exchange; otherwise verify expected disabled/restricted state. |
-| **4** | **Landing `/`, Simulator, Modal & `⌘K` Palette** | On `/`, verify `0` `/api/*` calls on load, run `WireDropSimulator` (`Naive` vs `TransactX`), open `BlueprintExplorerModal`, test zoom/pan/node inspection & close button, and open `⌘K` / `Ctrl+K` Command Palette + Konami `↑↑↓↓←→←→BA` burst. |
-| **5** | **`/showcase` Stories & Playground Tab** | Visit `/showcase`, verify `"Illustrative scenario — not the live network"`, cycle stories, switch to **Playground** tab, drag the CSS 3D vault cube, click `NetworkCanvas` nodes, and test explicit `SoundToggle` + `Ambient` drone toggle (confirm silence before click). |
-| **6** | **Live Customer Payment & Receipt Precision** | Logged in as Demo Customer (`Alice · Bank A`), send exact paise amount (e.g. `12.50` -> `1250 paise`) to `store@fixture`: confirm confirmation sheet, real `/api/payments` `201`/`200` settlement, balance decrement matching integer paise, celebration burst only after `COMPLETED`, and `/transactions/:id` `ReceiptDrawer`. |
-| **7** | **Duplicate-Submit Lock & Offline Queue/Replay** | Verify double-click on Confirm sends only `1` `POST /api/payments` with preserved `Idempotency-Key`. Switch browser DevTools to **Offline** before submit -> submit payment -> verify entry lands in `OfflineQueuePanel` (`QUEUED`) -> restore **Online** and confirm `OfflineReplayWorker` replays to `SYNCED` with zero duplicate debits. |
-| **8** | **Merchant Receive QR & Settlement View** | Switch to Demo Merchant (`Store · Bank B`): verify scannable QR code render + PNG/SVG download on `/merchant/receive`, incoming payment row in `/merchant/incoming`, and settlement totals in `/merchant/settlement`. |
-| **9** | **Operator (`OPS_VIEWER`) Console & SSE** | Switch to Demo Operator (`OPS_VIEWER`): open `/console/worklist` and a live `/console/payments/:id` from step 6, inspect Bank A -> Switch -> Bank B telemetry diagram & `/console/analytics` charts, verify SSE stream status updates, and confirm attempting `/console/chaos` or `/console/routing` redirects cleanly / disallows viewer mutations. |
-| **10** | **Responsive Viewports & Theme Persistence** | Check Preview routes at `1440x900`, `390x844`, and `320x568` in Light & Dark themes: verify `0px` horizontal overflow (`scrollWidth <= innerWidth`), legible chart scroll wrappers, mobile nav drawer, and `localStorage` theme persistence across reload. |
-| **11** | **Web Audio Safety & Reduced Motion** | Enable `prefers-reduced-motion: reduce` in DevTools and verify hero, canvas, counters, and celebration particles degrade cleanly. Reload with default fresh storage and verify `SoundToggle` initializes `aria-pressed="false"` with zero autoplay warnings. |
-| **12** | **Misconfigured API Diagnostic Check** | Temporarily build/serve with unset or wrong `VITE_API_BASE_URL` on a SPA host and click `/demo`: verify HTML `405`/fallback triggers `API_ROUTE_MISCONFIGURED` (`"Check that VITE_API_BASE_URL is configured for this deployment."`) with actionable `Retry` & `Sign in`. |
+| Preview load | **PASS** | Loaded `https://transactx-frontend-git-feat-u-52c6cd-whoevenisshubhams-projects.vercel.app/`, H1 `"Money moves. The facts stay."`, `0` failed assets |
+| Landing / Blueprint / CommandPalette | **PASS** | `WireDropSimulator` play/reset, `BlueprintExplorerModal` focus containment + `Escape` + trigger focus restore, `CommandPalette` `Escape` |
+| Showcase & Reduced motion/audio | **PASS** | `"Illustrative scenario — not the live network"`, SFX & Ambient default `aria-pressed="false"` (no autoplay), explicit toggles, 3D vault prism drag + reset, `reducedMotion: reduce` tested |
+| API connectivity & Auth | **PASS** | `POST /api/auth/demo` -> `200`, `Access-Control-Allow-Origin` matched Preview origin, `GET /api/accounts` -> `200` |
+| Customer dashboard, Paise & Payment | **PASS** | Live account/balance loaded; `1.25 INR -> 125 paise` integer display; live `POST /api/payments` -> `HTTP 201, state=COMPLETED` with 36-char `Idempotency-Key` |
+| Offline / replay | **PARTIAL / SCRIPT TIMING** | `OfflineReplayWorker` replayed queued payment to `HTTP 201` on reconnect (`replayStatus=201`); script `isVisible()` 0ms call missed `"Payment queued for replay"` heading before async IndexedDB render |
+| Merchant, QR & Settlement | **PASS** | Demo Merchant dashboard, `/merchant/receive` QR code, and `/merchant/settlement` loaded from live API |
+| Operations console & SSE | **PASS** | Demo `OPS_VIEWER` loaded `/console/worklist` + `/console/analytics`, live SSE `/api/ops/events` observed, `/console/chaos` blocked & redirected to `/console/worklist` |
+| Responsive & Accessibility | **PASS** | `0` horizontal overflows across `320`, `375`, `430`, `768`, `1024`, `1280`, `1440` px on `/` and `/demo`; `0` serious/critical Axe violations on Landing & Showcase; `0` console/page errors |
 
 ---
 
 ## 9. Confirmed Blockers & Gaps
 
-### Hard Code Blockers (Local Build / Fixtures)
-- **None found.** Local build (`tsc -b && vite build`), unit tests (`134/134`), money precision (`parsePaise`), mocked Playwright + Axe (`160/160`), and offline PWA shell (`3/3`) all pass cleanly with `backend/**` untouched.
+### Hard Code Blockers
+- **None found.** Local build (`tsc -b && vite build`), unit tests (`134/134`), money precision (`parsePaise`), mocked Playwright + Axe (`160/160`), offline PWA shell (`3/3`), CodeRabbit CLI (`0` findings), and live Vercel Preview + Render E2E (`0` console/page/overflow errors) all succeeded with `backend/**` application code untouched.
 
-### Release-Blocking Prerequisites for Hosted Preview / Production
-1. **Live Preview + Render End-to-End Run Not Executed:** All browser verification to date is offline/fixture-mocked against local Vite servers.
-2. **Environment Alignment Required Before Preview Test:** `VITE_API_BASE_URL` must be set (and rebuilt) on Vercel Preview, and the exact Vercel Preview origin must be added to `CORS_ALLOWED_ORIGINS` on Render.
+### Remaining Caveats / Untested External Paths
+1. **Google OAuth `/auth/callback`:** Not exercised against live Preview (requires adding the Preview origin as an authorized Google OAuth origin/redirect if `GOOGLE_OAUTH_ENABLED=true`).
+2. **Production Origin Parity:** Before merging `feat/uiux-redesign` into Production (`release/transactx-v2`), verify whether `VITE_API_BASE_URL` on Production scope needs to be set explicitly (currently only Preview `feat/uiux-redesign` has `VITE_API_BASE_URL=https://transactx-demo-api.onrender.com` in `filter_project_envs`).
 
 ---
 
@@ -169,9 +165,5 @@ All commands below were observed in the recorded post-cleanup verification log (
 
 ## 12. Recommended Exact Next Action
 
-1. **Stage & push `feat/uiux-redesign` intentionally (when ready to preview):**
-   - Review `git status` and commit only intended `frontend/**` and `docs/frontend/**` files on `feat/uiux-redesign`, then push `feat/uiux-redesign` to open a Vercel Preview deployment.
-2. **Wire Preview <-> Render CORS & `VITE_API_BASE_URL`:**
-   - In Vercel Project Settings -> Environment Variables (Preview scope), set `VITE_API_BASE_URL=https://transactx-demo-api.onrender.com` (confirm active hostname in Render dashboard) and trigger a **Preview rebuild/redeploy**.
-   - In Render `transactx-demo-api` Environment Variables, append the exact `https://<preview-host>.vercel.app` origin to `CORS_ALLOWED_ORIGINS` (comma-separated, no `*`, confirm `TX_PUBLIC_DEMO_AUTH=true`).
-3. **Execute the Section 8 Live Preview Checklist (Scenarios 1–12)** before approving any merge into `main`.
+1. **Production Promotion (when authorized):** Merge `feat/uiux-redesign` into `release/transactx-v2` (the verified Vercel Production branch) after confirming Production `VITE_API_BASE_URL` is configured on Vercel Production scope if decoupled from `pageOrigin`.
+2. **Post-Verification Cleanup (optional):** Once the Preview branch is merged or retired, remove the Preview origin from Render `CORS_ALLOWED_ORIGINS` if no longer needed, preserving `https://transactx-frontend.vercel.app`.
