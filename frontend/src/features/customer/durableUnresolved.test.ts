@@ -434,4 +434,20 @@ describe("Milestone 20-R.3 Pre-Dispatch Reservation, Terminal States & Cross-Tab
     const hashC = await computePayloadHash({ ...payloadA, amountPaise: 20000 });
     assert.notStrictEqual(hashA, hashC, "Different payload amounts must produce distinct hashes");
   });
+
+  it("P0-13: Delayed updateProgress(UNCERTAIN) cannot overwrite a terminal RESOLVED_COMPLETED intent", async () => {
+    const store = new DurableUnresolvedStore("user-alice", "test-db-terminal-guard", undefined);
+    const intent = makeMockIntent("user-alice");
+    await store.save(intent);
+    await store.resolveTerminal(intent.clientRequestId, "RESOLVED_COMPLETED", "pmt-settled-1");
+
+    // Simulate a late 404 or background tab status check trying to regress to UNCERTAIN
+    await store.updateProgress(intent.clientRequestId, "UNCERTAIN", undefined, 404, "Late 404");
+
+    const active = await store.getActive();
+    assert.strictEqual(active, null, "Active reservation must remain cleared after terminal resolution");
+    const record = await store.get(intent.clientRequestId);
+    assert.strictEqual(record?.state, "RESOLVED_COMPLETED");
+    store.close();
+  });
 });

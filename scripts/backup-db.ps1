@@ -30,8 +30,8 @@ $root = (Get-Item $PSScriptRoot\..).FullName
 $targetDir = Join-Path $root $BackupDir
 New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
 
-$timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
-$backupFile = Join-Path $targetDir "transactx-backup-$timestamp.sql"
+$timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
+$backupFile = Join-Path $targetDir "transactx-backup-$timestamp-$PID.sql"
 
 Write-Host "Creating backup of $SourceDb to $backupFile..."
 

@@ -233,4 +233,41 @@ All commands below were observed in the recorded post-cleanup verification log (
   - `OPTIONS /api/auth/demo`: `204` (`Access-Control-Allow-Origin` matched for both `https://transactx-frontend.vercel.app` and the Preview branch alias)
   - Idempotency (`101` paise to `bob@transactx`): `POST #1 -> 201 COMPLETED` (`71cc0d38-c4cd-4ebf-89d6-00b403720f40`), `POST #2` (same key & payload) `-> 200 COMPLETED` (`sameId=true`, `matchingTxCount=1`, single `-101` paise delta `978047 -> 977946`), `POST #3` (same key, `202` paise) `-> 409 IDEMPOTENCY_CONFLICT` (balance unchanged at `977946`). *(Limitation: Direct SQL inspection of hosted PostgreSQL double-entry ledger rows is unavailable from this sandbox.)*
 - **Required Pre-Merge Production Configuration:**
-  - Vercel Project Settings (`Production` scope) currently show **no `VITE_API_BASE_URL` configured**. Because `frontend/vercel.json` has no `/api/*` proxy rewrite to Render, **`VITE_API_BASE_URL=https://transactx-demo-api.onrender.com` MUST be added to Vercel Production Environment Variables before merging PR #33 / rebuilding Production.**
+  - Vercel Project Settings (`Production` scope) previously had no `VITE_API_BASE_URL` configured. **`VITE_API_BASE_URL=https://transactx-demo-api.onrender.com` has now been added to Vercel `Production` scope ONLY** (without triggering a Production deployment, keeping `release/transactx-v2` and Preview intact).
+
+---
+
+## 15. PR #33 Final Merge Preparation (`task-2104`)
+
+- **Vercel Production & Preview Configuration:**
+  - `VITE_API_BASE_URL=https://transactx-demo-api.onrender.com` added to `transactx-frontend` **Production** scope only; Preview scope untouched.
+  - Production Branch remains `release/transactx-v2`; Render `transactx-demo-api` remains on `release/transactx-v2` with Auto-Deploy disabled and both Production + Preview CORS returning `204`.
+- **Disposition of All 17 `24f53c25` Major CodeRabbit Comments (`pullrequestreview-6096060316`):**
+  - **8 Frontend Payment / Offline Findings — FIXED + Regression Test (`P0-13`):**
+    1. `CustomerShell.tsx` (L143): `scheduleNextReplay` now also monitors `SYNCING` `leaseExpiresAt` timers.
+    2. `CustomerShell.tsx` (L194–195): `runReplayAndSchedule` unconditionally calls `refreshQueue(queue)` so retained `FAILED` intents stay visible.
+    3. `CustomerShell.tsx` (L288–290): `retryIntent` now re-arms `replayRef.current()` when online so transient errors (`RETRYABLE`) schedule follow-up retries.
+    4. `SendMoneyPage.tsx` (L82): Guarded `initialUnresolvedIntent` sync effect with `if (submitLock.current) return;` to prevent switching to `"uncertain"` mid-dispatch.
+    5. `SendMoneyPage.tsx` (L306–320): Cleared `idempotencyKey` and `clientRequestId` on `TERMINAL_FAILED` and `TERMINAL_REVERSED` before returning to `"form"`.
+    6. `SendMoneyPage.tsx` (L296, L375–410): Added fail-closed `response?.data` null guard and restricted `resolveTerminal("RESOLVED_FAILED")` strictly to definitive 4xx rejections (`400`–`499` excluding `401`/`403`/`409`/`429`), keeping `429` and unexpected errors safely `UNCERTAIN`.
+    7. `unresolvedStore.ts` (L386–431): `resolveTerminal` only falls back to memory when `open()` fails (IndexedDB unavailable), propagating real transaction aborts/errors.
+    8. `unresolvedStore.ts` (L475–530) + `durableUnresolved.test.ts` (`P0-13`): `updateProgress` refuses to overwrite terminal `RESOLVED_COMPLETED` / `RESOLVED_FAILED` / `RESOLVED_REVERSED` intents in both IndexedDB and `memoryFallback`.
+  - **8 Local Staging Infra / Script Findings — FIXED:**
+    9. `deploy/caddy/Caddyfile.local-staging` (L5): Added `bind 127.0.0.1` (`CWE-668`).
+    10. `scripts/backup-db.ps1` (L33–34): Added millisecond precision + `-$PID` to backup filenames.
+    11–12. `scripts/start-local-staging.ps1` (L21–28, L58–61): Wrapped `npm run build` in `try/finally { Pop-Location }` with `$LASTEXITCODE` check, and checked `$p.HasExited` before reporting launch success.
+    13. `scripts/supervise-local-staging.ps1` (L17–34): Applied/re-asserted CLI `-DbUrl` around `load-local-staging-env.ps1`.
+    14–15. `scripts/test-local-staging-lifecycle.ps1` (L45, L106–112): URI-encoded `$User`/`$Password` and moved polling sleep/elapsed increment outside `catch`.
+    16. `scripts/test-restore-safety.ps1` (L94, L102): Forwarded `-HostName $HostName -Port $Port -User $User` to `restore-db.ps1`.
+  - **1 Backend Test Finding — DEFERRED (Out of Frontend Scope):**
+    17. `backend/internal/recovery/scheduler_test.go` (L731): Pre-existing M20-R.5 Go test setup; backend business logic is untouched on the UI/UX redesign (`Release validation / backend` CI passed).
+- **Full PR #33 Scope (`release/transactx-v2..feat/uiux-redesign`, 31+ commits):**
+  - Includes both the M20-R.5/R.6 hardening baseline (`a8cb050..64ddb2b`, 15 backend files + staging scripts/docs) and the UI/UX redesign (`c8bf05b..HEAD`, zero backend edits). Render (`transactx-demo-api`) already runs `release/transactx-v2` with Auto-Deploy `Off`; merging PR #33 updates `release/transactx-v2` in Git (and triggers Vercel Production build only, NOT Render unless manually deployed).
+- **Post-Fix Full Regression Suite (`task-2104`, exit `0`):**
+  - `npm run test`: **`135 / 135` passed** (`0` failed, `0` skipped)
+  - `npm run test:money`: **`money parsePaise checks passed`**
+  - `npm run lint`: Exited **`0`**
+  - `npm run build`: Exited **`0`**
+  - `npx playwright test --workers=2`: **`160 passed (7.6m)`** (`0` failed, `0` skipped, `0` serious/critical Axe violations)
+  - `npm run test:browser:offline-shell`: **`3 passed (13.3s)`**
+  - `git status --short backend/`: Empty; `git diff --check`: Exited **`0`**.

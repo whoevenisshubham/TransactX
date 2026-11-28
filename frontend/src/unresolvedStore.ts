@@ -389,8 +389,14 @@ export class DurableUnresolvedStore {
     paymentId?: string
   ): Promise<void> {
     const now = new Date().toISOString();
+    let db: IDBDatabase | null = null;
     try {
-      const db = await this.open();
+      db = await this.open();
+    } catch {
+      db = null;
+    }
+
+    if (db) {
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(
           [ACTIVE_RESERVATIONS_STORE_NAME, UNRESOLVED_STORE_NAME],
@@ -403,7 +409,11 @@ export class DurableUnresolvedStore {
         getReq.onerror = () => reject(getReq.error ?? new Error("Intent fetch failed"));
         getReq.onsuccess = () => {
           const existing = getReq.result as DurableUnresolvedIntent | undefined;
-          if (existing && existing.ownerUserId === this.ownerUserId) {
+          const isAlreadyTerminal =
+            existing?.state === "RESOLVED_COMPLETED" ||
+            existing?.state === "RESOLVED_FAILED" ||
+            existing?.state === "RESOLVED_REVERSED";
+          if (existing && existing.ownerUserId === this.ownerUserId && !isAlreadyTerminal) {
             const updated: DurableUnresolvedIntent = {
               ...existing,
               state: outcomeState,
@@ -426,12 +436,14 @@ export class DurableUnresolvedStore {
         tx.onerror = () => reject(tx.error ?? new Error("Terminal resolution transaction failed"));
         tx.onabort = () => reject(tx.error ?? new Error("Terminal resolution transaction aborted"));
       });
-    } catch {
-      // Memory fallback if DB unavailable
     }
 
     const memExisting = this.memoryFallback.get(clientRequestId);
-    if (memExisting && memExisting.ownerUserId === this.ownerUserId) {
+    const memTerminal =
+      memExisting?.state === "RESOLVED_COMPLETED" ||
+      memExisting?.state === "RESOLVED_FAILED" ||
+      memExisting?.state === "RESOLVED_REVERSED";
+    if (memExisting && memExisting.ownerUserId === this.ownerUserId && !memTerminal) {
       this.memoryFallback.set(clientRequestId, {
         ...memExisting,
         state: outcomeState,
@@ -472,7 +484,11 @@ export class DurableUnresolvedStore {
         getReq.onerror = () => reject(getReq.error ?? new Error("Intent fetch failed"));
         getReq.onsuccess = () => {
           const existing = getReq.result as DurableUnresolvedIntent | undefined;
-          if (existing && existing.ownerUserId === this.ownerUserId) {
+          const isAlreadyTerminal =
+            existing?.state === "RESOLVED_COMPLETED" ||
+            existing?.state === "RESOLVED_FAILED" ||
+            existing?.state === "RESOLVED_REVERSED";
+          if (existing && existing.ownerUserId === this.ownerUserId && !isAlreadyTerminal) {
             const updated: DurableUnresolvedIntent = {
               ...existing,
               state,
@@ -507,7 +523,11 @@ export class DurableUnresolvedStore {
     }
 
     const memExisting = this.memoryFallback.get(clientRequestId);
-    if (memExisting && memExisting.ownerUserId === this.ownerUserId) {
+    const memTerminal =
+      memExisting?.state === "RESOLVED_COMPLETED" ||
+      memExisting?.state === "RESOLVED_FAILED" ||
+      memExisting?.state === "RESOLVED_REVERSED";
+    if (memExisting && memExisting.ownerUserId === this.ownerUserId && !memTerminal) {
       this.memoryFallback.set(clientRequestId, {
         ...memExisting,
         state,

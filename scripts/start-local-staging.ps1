@@ -19,8 +19,14 @@ if ($IncludeFrontend) {
     if (-not (Test-Path "$root\frontend\dist\index.html")) {
         Write-Host "Building frontend assets..."
         Push-Location "$root\frontend"
-        & npm run build
-        Pop-Location
+        try {
+            & npm run build
+            if ($LASTEXITCODE -ne 0) {
+                throw "Frontend build failed with exit code $LASTEXITCODE"
+            }
+        } finally {
+            Pop-Location
+        }
     }
 }
 
@@ -48,6 +54,9 @@ if ($Foreground) {
         }
         Start-Sleep -Milliseconds 500
         $elapsed += 0.5
+    }
+    if ($p.HasExited) {
+        throw "Supervisor process exited prematurely with exit code $($p.ExitCode)."
     }
     Write-Host "Supervisor launched with PID $($p.Id). Check logs/supervisor.pid."
 }

@@ -3,6 +3,7 @@
 }
 
 http://127.0.0.1:3000 {
+	bind 127.0.0.1
 	# Security headers
 	header {
 		X-Content-Type-Options "nosniff"

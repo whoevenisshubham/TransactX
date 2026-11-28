@@ -14,7 +14,12 @@ $stagingPidsFile = Join-Path $logsDir "staging-pids.json"
 
 New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
 
-# 1. Load environment configuration via shared loader
+# 1. Apply CLI $DbUrl override first if explicitly supplied, then load/validate env
+if ($DbUrl) {
+    $env:DATABASE_URL = $DbUrl
+    $env:BANK_A_DATABASE_URL = $DbUrl
+    $env:BANK_B_DATABASE_URL = $DbUrl
+}
 $loaderArgs = @{}
 if ($EnvFile) { $loaderArgs["EnvFile"] = $EnvFile }
 try {
@@ -24,7 +29,7 @@ try {
     exit 1
 }
 
-# 2. CLI parameter precedence: $DbUrl overrides loaded database URLs if explicitly supplied
+# 2. Re-assert CLI parameter precedence after env loader
 if ($DbUrl) {
     $env:DATABASE_URL = $DbUrl
     $env:BANK_A_DATABASE_URL = $DbUrl

@@ -143,45 +143,57 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
       try {
         const queued = await queue.listByState("QUEUED");
         const retryable = await queue.listByState("RETRYABLE");
+        const syncing = await queue.listByState("SYNCING");
 
         if (queued.length > 0) {
           void runReplayAndSchedule();
           return;
         }
 
-        if (retryable.length === 0) return;
-
         const now = Date.now();
         let earliestDueTime = Infinity;
 
-        for (const item of retryable) {
-          const nextAttempt = item.retry?.nextAttemptAt;
-          if (!nextAttempt) {
+        for (const item of syncing) {
+          const leaseUntil = item.leaseExpiresAt ? new Date(item.leaseExpiresAt).getTime() : 0;
+          if (!leaseUntil || isNaN(leaseUntil) || leaseUntil <= now) {
             earliestDueTime = 0;
             break;
           }
-          const time = new Date(nextAttempt).getTime();
-          if (isNaN(time) || time <= now) {
-            earliestDueTime = 0;
-            break;
-          }
-          if (time < earliestDueTime) {
-            earliestDueTime = time;
+          if (leaseUntil < earliestDueTime) {
+            earliestDueTime = leaseUntil;
           }
         }
+
+        if (earliestDueTime > 0 && retryable.length > 0) {
+          for (const item of retryable) {
+            const nextAttempt = item.retry?.nextAttemptAt;
+            if (!nextAttempt) {
+              earliestDueTime = 0;
+              break;
+            }
+            const time = new Date(nextAttempt).getTime();
+            if (isNaN(time) || time <= now) {
+              earliestDueTime = 0;
+              break;
+            }
+            if (time < earliestDueTime) {
+              earliestDueTime = time;
+            }
+          }
+        }
+
+        if (earliestDueTime === Infinity) return;
 
         if (earliestDueTime === 0) {
           void runReplayAndSchedule();
           return;
         }
 
-        if (earliestDueTime < Infinity) {
-          const delay = Math.max(0, earliestDueTime - now);
-          scheduleTimeoutId = window.setTimeout(() => {
-            scheduleTimeoutId = null;
-            void runReplayAndSchedule();
-          }, delay);
-        }
+        const delay = Math.max(0, earliestDueTime - now);
+        scheduleTimeoutId = window.setTimeout(() => {
+          scheduleTimeoutId = null;
+          void runReplayAndSchedule();
+        }, delay);
       } catch {
         // queue closed or storage error
       }
@@ -191,11 +203,9 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
       if (!active || !navigator.onLine) return;
       const results = await worker.run();
       if (active) {
-        if (results.length > 0) {
-          await refreshQueue(queue);
-          if (results.some((r) => r.outcome === "SYNCED" || r.outcome === "FAILED")) {
-            refreshPayments();
-          }
+        await refreshQueue(queue);
+        if (results.some((r) => r.outcome === "SYNCED" || r.outcome === "FAILED")) {
+          refreshPayments();
         }
         await scheduleNextReplay();
       }
@@ -288,6 +298,9 @@ export function CustomerShell({ token, onLogout }: CustomerShellProps) {
     await worker.run();
     await refreshQueue(queue);
     refreshPayments();
+    if (navigator.onLine) {
+      void replayRef.current();
+    }
   }
 
   function queueChanged() {

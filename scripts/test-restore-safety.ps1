@@ -91,7 +91,7 @@ INSERT INTO test_ledger (user_id, amount) VALUES ('a0000000-0000-0000-0000-00000
 
     # TEST-RESTORE-01: Valid restore into fresh disposable database
     $createdDbs += $freshRestoreDb
-    $out1 = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$scriptsDir\restore-db.ps1" -BackupFile $validBackupFile -TargetDb $freshRestoreDb -Password $Password 2>&1
+    $out1 = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$scriptsDir\restore-db.ps1" -BackupFile $validBackupFile -TargetDb $freshRestoreDb -HostName $HostName -Port $Port -User $User -Password $Password 2>&1
     $rowCountStr = & psql -h $HostName -p $Port -U $User -d $freshRestoreDb -tAc "SELECT count(*) FROM test_ledger;" 2>$null
     $pass1 = ($LASTEXITCODE -eq 0) -and (($out1 | Out-String) -match "completed successfully") -and ("$rowCountStr".Trim() -eq "1")
     Record-TestResult -TestID "TEST-RESTORE-01" -Description "Valid restore into a fresh disposable database with data integrity" -Passed $pass1 -Details ($out1 -join "`n")
@@ -99,7 +99,7 @@ INSERT INTO test_ledger (user_id, amount) VALUES ('a0000000-0000-0000-0000-00000
     # TEST-RESTORE-02: Restore into existing disposable database with explicit -Force
     $createdDbs += $existingDb
     & createdb -h $HostName -p $Port -U $User $existingDb 2>&1 | Out-Null
-    $out2 = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$scriptsDir\restore-db.ps1" -BackupFile $validBackupFile -TargetDb $existingDb -Force -Password $Password 2>&1
+    $out2 = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$scriptsDir\restore-db.ps1" -BackupFile $validBackupFile -TargetDb $existingDb -Force -HostName $HostName -Port $Port -User $User -Password $Password 2>&1
     $pass2 = ($LASTEXITCODE -eq 0) -and (($out2 | Out-String) -match "exists and -Force specified") -and (($out2 | Out-String) -match "completed successfully")
     Record-TestResult -TestID "TEST-RESTORE-02" -Description "Restore into an existing disposable database with explicit -Force" -Passed $pass2 -Details ($out2 -join "`n")
 

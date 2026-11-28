@@ -79,6 +79,7 @@ export function SendMoneyPage({
   const lookupGeneration = useRef(0);
 
   useEffect(() => {
+    if (submitLock.current) return;
     if (initialUnresolvedIntent) {
       setUnresolvedIntent(initialUnresolvedIntent);
       setRecipient(initialUnresolvedIntent.recipient);
@@ -293,6 +294,17 @@ export function SendMoneyPage({
     // Now dispatch to backend via createPaymentWithStatus
     try {
       const response = await api.createPaymentWithStatus(payload, token, key, requestID);
+      if (!response?.data) {
+        await unresolvedStore.updateProgress(requestID, "UNCERTAIN", undefined, response?.status ?? 200, "Empty response payload");
+        setUnresolvedIntent({
+          ...baseIntent,
+          state: "UNCERTAIN",
+          lastHttpStatus: response?.status ?? 200,
+          lastError: "Empty response payload",
+        });
+        setStage("uncertain");
+        return;
+      }
       const outcome = classifyPaymentOutcome(response.data);
 
       if (outcome === "TERMINAL_COMPLETED") {
@@ -304,11 +316,15 @@ export function SendMoneyPage({
       } else if (outcome === "TERMINAL_FAILED") {
         await unresolvedStore.resolveTerminal(requestID, "RESOLVED_FAILED", response.data.id);
         setUnresolvedIntent(null);
+        setIdempotencyKey(null);
+        setClientRequestId(null);
         setError(response.data.failureReason || "Payment failed.");
         setStage("form");
       } else if (outcome === "TERMINAL_REVERSED") {
         await unresolvedStore.resolveTerminal(requestID, "RESOLVED_REVERSED", response.data.id);
         setUnresolvedIntent(null);
+        setIdempotencyKey(null);
+        setClientRequestId(null);
         setError("Payment was reversed.");
         setStage("form");
       } else {
@@ -372,8 +388,13 @@ export function SendMoneyPage({
         });
         setError(caught.status === 401 ? "Session expired during payment dispatch. Please sign in again." : "Payment access forbidden.");
         setStage("uncertain");
-      } else {
-        // Definitive client rejection (400, 422) where no payment was created or accepted by backend
+      } else if (
+        caught instanceof ApiError &&
+        caught.status >= 400 &&
+        caught.status < 500 &&
+        caught.status !== 429
+      ) {
+        // Definitive client rejection (400, 422, etc.) where no payment was created or accepted by backend
         if (unresolvedStore) {
           await unresolvedStore.resolveTerminal(requestID, "RESOLVED_FAILED");
         }
@@ -382,6 +403,23 @@ export function SendMoneyPage({
         setIdempotencyKey(null);
         setClientRequestId(null);
         setStage("form");
+      } else {
+        // Rate limit (429) or unexpected non-ApiError post-dispatch: preserve active reservation safely
+        await unresolvedStore.updateProgress(
+          requestID,
+          "UNCERTAIN",
+          undefined,
+          caught instanceof ApiError ? caught.status : 0,
+          paymentError(caught)
+        );
+        setUnresolvedIntent({
+          ...baseIntent,
+          state: "UNCERTAIN",
+          lastHttpStatus: caught instanceof ApiError ? caught.status : 0,
+          lastError: paymentError(caught),
+        });
+        setError(paymentError(caught));
+        setStage("uncertain");
       }
     } finally {
       submitLock.current = false;

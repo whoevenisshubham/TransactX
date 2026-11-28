@@ -42,7 +42,9 @@ function Record-Gate {
 
 $runId = (Get-Random -Minimum 100000 -Maximum 999999).ToString()
 $disposableDb = "transactx_staging_lifecycle_$runId"
-$disposableDbUrl = "postgres://${User}:${Password}@${HostName}:${Port}/${disposableDb}?sslmode=disable"
+$encodedUser = [System.Uri]::EscapeDataString($User)
+$encodedPass = [System.Uri]::EscapeDataString($Password)
+$disposableDbUrl = "postgres://${encodedUser}:${encodedPass}@${HostName}:${Port}/${disposableDb}?sslmode=disable"
 $stagingPorts = @(8080, 8081, 8082, 3000)
 
 Write-Host "=== TransactX Local Staging Lifecycle Acceptance (Run $runId) ==="
@@ -102,9 +104,10 @@ try {
                 break
             }
         } catch {
-            Start-Sleep -Milliseconds 800
-            $elapsed += 0.8
+            # Transient polling error; sleep below
         }
+        Start-Sleep -Milliseconds 800
+        $elapsed += 0.8
     }
     Record-Gate -GateID "GATE-LIFE-04" -Description "Direct API /readyz returns readiness=true (HTTP 200)" -Passed $apiReady -Details "Response: $($apiResp | ConvertTo-Json -Compress)"
 
@@ -121,9 +124,10 @@ try {
                 break
             }
         } catch {
-            Start-Sleep -Milliseconds 800
-            $elapsed += 0.8
+            # Transient polling error; sleep below
         }
+        Start-Sleep -Milliseconds 800
+        $elapsed += 0.8
     }
     Record-Gate -GateID "GATE-LIFE-05" -Description "Caddy-proxied /readyz returns readiness=true (HTTP 200)" -Passed $caddyReady -Details "Response: $($caddyResp | ConvertTo-Json -Compress)"
 
@@ -195,9 +199,10 @@ try {
                 break
             }
         } catch {
-            Start-Sleep -Milliseconds 800
-            $elapsed += 0.8
+            # Transient polling error; sleep below
         }
+        Start-Sleep -Milliseconds 800
+        $elapsed += 0.8
     }
 
     # Stop second time
