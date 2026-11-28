@@ -1,0 +1,9 @@
+flowchart LR
+    Customer[Customer / Merchant / Operator] -->|HTTPS| Vercel[Vercel SPA<br/>React + TypeScript + Vite]
+    Vercel -->|REST + SSE + JWT| Render[Render Gateway / API<br/>Go HTTP Services]
+    Render -->|SQL| Neon[(Neon PostgreSQL<br/>central, bank_a, bank_b)]
+    Render -->|HTTP| BankA[Bank A Service]
+    Render -->|HTTP| BankB[Bank B Service]
+    Worker[Recovery & Outbox Worker] -->|SQL| Neon
+    Worker -->|HTTP Status Check| BankA
+    Worker -->|HTTP Status Check| BankB
