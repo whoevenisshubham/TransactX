@@ -1,0 +1,4 @@
+flowchart LR
+    User[Browser] -->|HTTPS| Vercel["Vercel<br/>transactx-frontend.vercel.app"]
+    Vercel -->|VITE_API_BASE_URL| Render["Render Web Service<br/>transactx-demo-api<br/>(API + Bank A/B + Worker)"]
+    Render -->|TLS + SQL| Neon[("Neon PostgreSQL 18<br/>central, bank_a, bank_b")]

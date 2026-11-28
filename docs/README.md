@@ -3,7 +3,7 @@
 ## Start here
 
 - [Product overview and live demo](../README.md)
-- [Architecture](architecture.md) and [design decisions](decisions.md)
+- [Architecture](architecture.md), [design decisions](decisions.md), and [Mermaid diagrams](diagrams/system-context.mmd)
 - [Local development](runbooks/local-development.md)
 - [Hosted deployment](../deploy/render/README.md)
 - [Current delivery evidence and limitations](next-gen/DELIVERY_REPORT.md)

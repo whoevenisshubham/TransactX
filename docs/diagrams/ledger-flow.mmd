@@ -1,0 +1,6 @@
+flowchart LR
+    Payment["Payment Intent<br/>(amount_paise: int64)"] --> Debit["Debit Entry<br/>(Sender Account, -amount_paise)"]
+    Payment --> Credit["Credit Entry<br/>(Recipient Account, +amount_paise)"]
+    Debit --> Invariant["Ledger Invariant:<br/>SUM(debits) == SUM(credits)"]
+    Credit --> Invariant
+    Invariant --> Integrity["Integrity Check &<br/>Merkle Bucket Commitment"]

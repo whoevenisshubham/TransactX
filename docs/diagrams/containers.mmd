@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph Client["Frontend SPA (Vercel)"]
+        Public["features/public + auth + demo"]
+        Customer["features/customer (IndexedDB + SW)"]
+        Merchant["features/merchant (QR + Settlement)"]
+        Ops["features/operations + ops/"]
+    end
+
+    subgraph API["Go API & Participant Processes"]
+        HTTP["internal/http (JWT + RBAC + SSE)"]
+        Payments["internal/payments (Saga + Idempotency)"]
+        Ledger["internal/ledger + accounts"]
+        Health["internal/health + circuit + chaos"]
+        Recon["internal/reconciliation (Merkle + Integrity)"]
+        Investigator["internal/investigator + analytics"]
+        BankA["cmd/bank-a (bank_a schema)"]
+        BankB["cmd/bank-b (bank_b schema)"]
+        Worker["cmd/worker (recovery + outbox)"]
+    end
+
+    DB[(Neon PostgreSQL 18)]
+
+    Public & Customer & Merchant & Ops --> HTTP
+    HTTP --> Payments & Health & Recon & Investigator
+    Payments --> Ledger
+    Payments -->|HTTP BankAdapter| BankA & BankB
+    Worker --> Payments & Recon
+    Ledger & Health & Recon & Investigator --> DB
+    BankA & BankB --> DB

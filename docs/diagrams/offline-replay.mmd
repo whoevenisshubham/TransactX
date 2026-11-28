@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> QUEUED: User submits offline
+    QUEUED --> SYNCING: Online + verified session + lease
+    SYNCING --> COMPLETED: API 200/201 terminal
+    SYNCING --> RETRYABLE: 5xx / network / lease expired
+    RETRYABLE --> SYNCING: Backoff + online
+    SYNCING --> FAILED: Definitive 4xx
+    FAILED --> [*]
+    COMPLETED --> [*]

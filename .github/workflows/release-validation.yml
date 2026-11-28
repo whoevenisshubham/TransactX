@@ -94,9 +94,9 @@ jobs:
       - name: Offline replay
         working-directory: frontend
         run: npm run test:offline-replay
-      - name: Lint
+      - name: Typecheck
         working-directory: frontend
-        run: npm run lint
+        run: npm run typecheck
       - name: Build
         working-directory: frontend
         run: npm run build
