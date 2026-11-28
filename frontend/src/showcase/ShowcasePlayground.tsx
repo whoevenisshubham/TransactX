@@ -219,18 +219,24 @@ export function ShowcasePlayground() {
             <div
               data-testid="vault-prism-card"
               style={{
-                transform: `perspective(800px) rotateX(${prismAngle.rx}deg) rotateY(${prismAngle.ry}deg)`,
+                transform: `perspective(900px) rotateX(${prismAngle.rx}deg) rotateY(${prismAngle.ry}deg)`,
+                transformStyle: "preserve-3d",
               }}
-              className="w-64 rounded-xl border border-[var(--action-accent-bg)]/50 bg-[#0b101f] p-4 text-[#f8fafc] shadow-[var(--shadow-modal)] transition-transform duration-150 select-none cursor-grab active:cursor-grabbing"
+              className="relative w-64 rounded-xl border border-[var(--action-accent-bg)]/55 bg-[#090a0c] p-4 text-[#f2f2ef] shadow-[var(--shadow-modal)] transition-transform duration-150 select-none cursor-grab active:cursor-grabbing"
             >
-              <div className="flex items-center justify-between text-[10px] font-mono text-[#93c5fd]">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 rounded-xl border border-white/10 bg-gradient-to-br from-[#9bb9ff]/12 via-transparent to-[#34d399]/10"
+                style={{ transform: "translateZ(-10px)" }}
+              />
+              <div className="relative flex items-center justify-between text-[10px] font-mono text-[#9bb9ff]" style={{ transform: "translateZ(14px)" }}>
                 <span>TRANSACTX ENGINE</span>
                 <span>DOUBLE-ENTRY</span>
               </div>
-              <div className="mt-2 font-mono text-lg font-bold tracking-tight">
+              <div className="relative mt-2 font-mono text-lg font-bold tracking-tight text-[#f2f2ef]" style={{ transform: "translateZ(20px)" }}>
                 SQL SUM = 0
               </div>
-              <div className="mt-1 text-[11px] font-mono text-[#cbd5e1]">
+              <div className="relative mt-1 text-[11px] font-mono text-[#a7acb5]" style={{ transform: "translateZ(10px)" }}>
                 Drag pointer across frame to orbit 3D view
               </div>
             </div>

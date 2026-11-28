@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Maximize2, ZoomIn, ZoomOut, RotateCcw, Play, Pause, X, GitBranch } from "lucide-react";
 import { useAudioEngine } from "../../components/effects";
 
@@ -448,99 +449,102 @@ export function BlueprintExplorerSection() {
         </ul>
       </div>
 
-      {/* Expanded Blueprint Pan/Zoom Modal */}
-      {modalOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Expanded system architecture blueprint explorer"
-          className="fixed inset-0 z-50 flex flex-col bg-[#060911]/85 p-4 sm:p-6 backdrop-blur-md"
-          onClick={() => setModalOpen(false)}
-        >
+      {/* Expanded Blueprint Pan/Zoom Modal (portaled to body to escape clip-path/transform stacking contexts) */}
+      {modalOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            ref={modalContainerRef}
-            tabIndex={-1}
-            className="mx-auto flex w-full max-w-6xl flex-1 flex-col rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-[var(--shadow-modal)] overflow-hidden focus:outline-none"
-            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Expanded system architecture blueprint explorer"
+            className="fixed inset-0 z-50 flex flex-col bg-[#060911]/85 p-4 sm:p-6 backdrop-blur-md"
+            onClick={() => setModalOpen(false)}
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-hairline)] px-4 py-3">
-              <div className="flex items-center gap-3">
-                <span className="font-display text-sm font-bold text-[var(--text-primary)]">
-                  {blueprint.label}
-                </span>
-                <span className="font-mono text-xs text-[var(--text-tertiary)]">
-                  {Math.round(zoom * 100)}% zoom · Click any node to trace edges
-                </span>
+            <div
+              ref={modalContainerRef}
+              tabIndex={-1}
+              className="mx-auto flex w-full max-w-6xl flex-1 flex-col rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] shadow-[var(--shadow-modal)] overflow-hidden focus:outline-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-hairline)] px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="font-display text-sm font-bold text-[var(--text-primary)]">
+                    {blueprint.label}
+                  </span>
+                  <span className="font-mono text-xs text-[var(--text-tertiary)]">
+                    {Math.round(zoom * 100)}% zoom · Click any node to trace edges
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setZoom((z) => Math.max(0.75, +(z - 0.15).toFixed(2)))}
+                    aria-label="Zoom out diagram"
+                    className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoom((z) => Math.min(1.65, +(z + 0.15).toFixed(2)))}
+                    aria-label="Zoom in diagram"
+                    className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setZoom(1);
+                      setPan({ x: 0, y: 0 });
+                      setSelectedNodeId(null);
+                    }}
+                    aria-label="Reset diagram view"
+                    className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalOpen(false)}
+                    aria-label="Close blueprint modal"
+                    className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer ml-1"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setZoom((z) => Math.max(0.75, +(z - 0.15).toFixed(2)))}
-                  aria-label="Zoom out diagram"
-                  className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer"
-                >
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoom((z) => Math.min(1.65, +(z + 0.15).toFixed(2)))}
-                  aria-label="Zoom in diagram"
-                  className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setZoom(1);
-                    setPan({ x: 0, y: 0 });
-                    setSelectedNodeId(null);
+
+              <div className="flex-1 min-h-0 p-4 flex flex-col justify-center overflow-hidden">
+                <BlueprintCanvasSvg
+                  blueprint={blueprint}
+                  live={live}
+                  hoveredNode={hoveredNodeId}
+                  selectedNode={selectedNodeId}
+                  onSelectNode={(id) => {
+                    play("packet");
+                    setSelectedNodeId(id);
                   }}
-                  aria-label="Reset diagram view"
-                  className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(false)}
-                  aria-label="Close blueprint modal"
-                  className="rounded-lg border border-[var(--border-hairline)] p-1.5 text-[var(--text-primary)] hover:bg-[var(--bg-surface-raised)] cursor-pointer ml-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                  onHoverNode={setHoveredNodeId}
+                  zoom={zoom}
+                  pan={pan}
+                />
+              </div>
+
+              <div className="border-t border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/60 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                <span>
+                  <strong className="text-[var(--text-primary)]">{inspectedNode.label}:</strong>{" "}
+                  <span className="text-[var(--text-secondary)]">{inspectedNode.role}</span>
+                </span>
+                <div className="flex gap-1.5">
+                  <button type="button" onClick={() => setPan((p) => ({ ...p, x: p.x - 30 }))} className="px-2 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] cursor-pointer">←</button>
+                  <button type="button" onClick={() => setPan((p) => ({ ...p, x: p.x + 30 }))} className="px-2 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] cursor-pointer">→</button>
+                </div>
               </div>
             </div>
-
-            <div className="flex-1 min-h-0 p-4 flex flex-col justify-center overflow-hidden">
-              <BlueprintCanvasSvg
-                blueprint={blueprint}
-                live={live}
-                hoveredNode={hoveredNodeId}
-                selectedNode={selectedNodeId}
-                onSelectNode={(id) => {
-                  play("packet");
-                  setSelectedNodeId(id);
-                }}
-                onHoverNode={setHoveredNodeId}
-                zoom={zoom}
-                pan={pan}
-              />
-            </div>
-
-            <div className="border-t border-[var(--border-hairline)] bg-[var(--bg-surface-raised)]/60 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-              <span>
-                <strong className="text-[var(--text-primary)]">{inspectedNode.label}:</strong>{" "}
-                <span className="text-[var(--text-secondary)]">{inspectedNode.role}</span>
-              </span>
-              <div className="flex gap-1.5">
-                <button type="button" onClick={() => setPan((p) => ({ ...p, x: p.x - 30 }))} className="px-2 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] cursor-pointer">←</button>
-                <button type="button" onClick={() => setPan((p) => ({ ...p, x: p.x + 30 }))} className="px-2 py-0.5 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] cursor-pointer">→</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

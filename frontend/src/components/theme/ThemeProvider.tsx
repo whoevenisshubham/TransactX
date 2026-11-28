@@ -100,10 +100,31 @@ export function ThemeProvider({
   }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
-    writeStoredTheme(newTheme, storageKey);
-    setThemeState(newTheme);
-    setResolvedTheme(applyThemeToDocument(newTheme));
-    window.dispatchEvent(new Event("transactx:theme"));
+    const apply = () => {
+      writeStoredTheme(newTheme, storageKey);
+      setThemeState(newTheme);
+      setResolvedTheme(applyThemeToDocument(newTheme));
+      window.dispatchEvent(new Event("transactx:theme"));
+    };
+
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const docWithTransition = document as Document & {
+      startViewTransition?: (cb: () => void) => { finished: Promise<void> };
+    };
+
+    if (!reduceMotion && typeof docWithTransition?.startViewTransition === "function") {
+      try {
+        docWithTransition.startViewTransition(apply);
+        return;
+      } catch {
+        // Fallback cleanly if view transition is unavailable
+      }
+    }
+    apply();
   };
 
   return (

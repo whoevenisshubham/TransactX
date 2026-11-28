@@ -7,58 +7,8 @@
 }
 
 :root {
-  --bg-page: #f7f9fc;
-  --surface: #fff;
-  --surface-soft: #eff3fa;
-  --surface-elevated: #fff;
-  --line: #dce4ef;
-  --line-strong: #bdcadd;
-  --ink: #10213a;
-  --muted: #53647a;
-  --faint: #617289;
-  --accent: #244de5;
-  --accent-dark: #193bb7;
-  --accent-strong: #193bb7;
-  --accent-pale: #e9eeff;
-  --on-accent: #fff;
-  --success: #13734b;
-  --success-bg: #e7f5ed;
-  --warning: #865300;
-  --warning-bg: #fff4dc;
-  --error: #b32a3b;
-  --error-bg: #fff0f2;
-  --focus-color: #5479fb;
   --font-size-caption: .75rem;
   --font-size-h1: clamp(1.75rem, 3vw, 2.25rem);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
-}
-
-:root[data-theme="dark"] {
-  --bg-page: #090f1c;
-  --surface: #111b2e;
-  --surface-soft: #18243a;
-  --surface-elevated: #1e2c45;
-  --line: #2a3953;
-  --line-strong: #405573;
-  --ink: #f0f5ff;
-  --muted: #a5b4cc;
-  --faint: #95a7c1;
-  --accent: #9db3ff;
-  --accent-dark: #bdcdff;
-  --accent-strong: #bdcdff;
-  --accent-pale: #23345b;
-  --on-accent: #0a173a;
-  --success: #7ee0b0;
-  --success-bg: #13392e;
-  --warning: #f3c774;
-  --warning-bg: #392e19;
-  --error: #ffacb9;
-  --error-bg: #401e2d;
-  --focus-color: #9db3ff;
-  --shadow-md: 0 8px 30px #0002;
 }
 
 html { scroll-behavior: smooth; scroll-padding-top: 24px; }

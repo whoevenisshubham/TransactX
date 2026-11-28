@@ -10,6 +10,9 @@ export {
   DotSentinel,
   CelebrationOverlay,
   emitCelebrationBurst,
+  ClipReveal,
+  BlurReveal,
+  ScrollScrubBand,
   type SentinelState,
 } from "./MotionPrimitives";
 export { SpotlightCard } from "./SpotlightCard";

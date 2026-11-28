@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { motion, useReducedMotion, useScroll, useSpring } from "motion/react";
+import { motion, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
 
 export function ScrollProgressBar() {
   const { scrollYProgress } = useScroll();
@@ -451,5 +451,90 @@ export function CelebrationOverlay() {
       aria-hidden="true"
       className="fixed inset-0 z-50 pointer-events-none"
     />
+  );
+}
+
+/** Genuine CSS clip-path curtain reveal respecting reduced motion. */
+export function ClipReveal({
+  children,
+  className = "",
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+}) {
+  const reduce = useReducedMotion();
+  if (reduce) {
+    return <div className={className}>{children}</div>;
+  }
+
+  return (
+    <motion.div
+      initial={{ clipPath: "inset(14% 0% 0% 0%)", opacity: 0.96, y: 10 }}
+      whileInView={{ clipPath: "inset(0% 0% 0% 0%)", opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.14 }}
+      transition={{ duration: 0.48, delay, ease: [0.22, 1, 0.36, 1] }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/** Genuine Blur-to-sharp reveal for masked disclosures & focused callouts. */
+export function BlurReveal({
+  children,
+  className = "",
+  delay = 0,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+}) {
+  const reduce = useReducedMotion();
+  if (reduce) {
+    return <div className={className}>{children}</div>;
+  }
+
+  return (
+    <motion.div
+      initial={{ filter: "blur(6px)", opacity: 0.96, y: 6 }}
+      whileInView={{ filter: "blur(0px)", opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.15 }}
+      transition={{ duration: 0.35, delay, ease: [0.22, 1, 0.36, 1] }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/** Scroll-scrubbed horizontal drift/scale band tied to element scroll progress. */
+export function ScrollScrubBand({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const reduce = useReducedMotion();
+  const ref = useRef<HTMLDivElement | null>(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "end start"],
+  });
+  const x = useTransform(scrollYProgress, [0, 0.5, 1], [-14, 0, 14]);
+
+  if (reduce) {
+    return <div className={className}>{children}</div>;
+  }
+
+  return (
+    <div ref={ref} className="overflow-x-clip">
+      <motion.div style={{ x }} className={className}>
+        {children}
+      </motion.div>
+    </div>
   );
 }

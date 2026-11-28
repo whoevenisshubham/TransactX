@@ -360,18 +360,61 @@ body {
   background-size: 24px 24px;
 }
 
+.tx-grain-overlay {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.032'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+.tx-eyebrow-rule {
+  display: inline-block;
+  width: 20px;
+  height: 1px;
+  background-color: var(--action-accent-bg);
+  vertical-align: middle;
+}
+
+.tx-card-hover {
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+.tx-card-hover:hover {
+  border-color: color-mix(in srgb, var(--action-accent-bg) 42%, var(--border-hairline));
+}
+
 .tx-aurora-horizon {
   background:
-    radial-gradient(62% 55% at 18% 15%, rgba(59, 130, 246, 0.14), transparent 72%),
-    radial-gradient(50% 48% at 84% 20%, rgba(16, 185, 129, 0.11), transparent 70%),
-    radial-gradient(48% 50% at 52% 92%, rgba(139, 92, 246, 0.1), transparent 72%);
+    radial-gradient(62% 55% at 16% 12%, rgba(29, 78, 216, 0.08), transparent 72%),
+    radial-gradient(48% 46% at 84% 18%, rgba(15, 118, 110, 0.06), transparent 70%),
+    radial-gradient(46% 48% at 52% 92%, rgba(109, 40, 217, 0.05), transparent 72%);
 }
 
 [data-theme="dark"] .tx-aurora-horizon {
   background:
-    radial-gradient(60% 55% at 18% 12%, rgba(59, 130, 246, 0.2), transparent 72%),
-    radial-gradient(48% 46% at 84% 18%, rgba(16, 185, 129, 0.14), transparent 70%),
-    radial-gradient(52% 52% at 50% 94%, rgba(139, 92, 246, 0.16), transparent 72%);
+    radial-gradient(58% 52% at 18% 10%, rgba(155, 185, 255, 0.11), transparent 70%),
+    radial-gradient(46% 44% at 84% 16%, rgba(52, 211, 153, 0.07), transparent 68%),
+    radial-gradient(48% 48% at 50% 94%, rgba(167, 139, 250, 0.07), transparent 72%);
+}
+
+@keyframes tx-theme-clip-reveal {
+  from {
+    clip-path: polygon(50% 50%, 50% 50%, 50% 50%);
+  }
+  to {
+    clip-path: polygon(50% -100%, -50% 100%, 150% 100%);
+  }
+}
+
+::view-transition-old(root) {
+  animation: none;
+}
+
+::view-transition-new(root) {
+  animation: tx-theme-clip-reveal 0.65s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
 }
 
 @keyframes tx-marquee {

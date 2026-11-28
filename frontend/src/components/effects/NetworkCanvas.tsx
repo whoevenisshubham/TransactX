@@ -45,6 +45,7 @@ export function NetworkCanvas({
   const hoveredRef = useRef<number | null>(null);
   const pointerRef = useRef<{ x: number; y: number; active: boolean }>({ x: 0, y: 0, active: false });
   const ripplesRef = useRef<{ x: number; y: number; r: number; alpha: number; color: string }[]>([]);
+  const trailRef = useRef<{ x: number; y: number; alpha: number }[]>([]);
   const { play } = useAudioEngine();
 
   useEffect(() => {
@@ -117,12 +118,30 @@ export function NetworkCanvas({
               if (dist < 110) alpha += (1 - dist / 110) * 0.35;
             }
             ctx.fillStyle = isDark
-              ? `rgba(147, 180, 255, ${alpha.toFixed(2)})`
+              ? `rgba(155, 185, 255, ${alpha.toFixed(2)})`
               : `rgba(29, 78, 216, ${alpha.toFixed(2)})`;
             ctx.fillRect(gx - 0.75, gy - 0.75, 1.5, 1.5);
           }
         }
         void dotBase;
+
+        // 1b. Cursor trail particles (fading pointer vector trace)
+        if (!reduceMotion && trailRef.current.length > 0) {
+          for (let i = trailRef.current.length - 1; i >= 0; i--) {
+            const pt = trailRef.current[i];
+            pt.alpha -= 0.045;
+            if (pt.alpha <= 0) {
+              trailRef.current.splice(i, 1);
+              continue;
+            }
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 1.8 + pt.alpha * 2.2, 0, Math.PI * 2);
+            ctx.fillStyle = isDark
+              ? `rgba(155, 185, 255, ${(pt.alpha * 0.55).toFixed(2)})`
+              : `rgba(29, 78, 216, ${(pt.alpha * 0.45).toFixed(2)})`;
+            ctx.fill();
+          }
+        }
 
         // 2. Ambient cursor-reactive physics particles
         for (const p of ambientParticles) {
@@ -138,7 +157,7 @@ export function NetworkCanvas({
               py += (dy / dist) * push;
             }
           }
-          ctx.fillStyle = isDark ? "rgba(147, 180, 255, 0.25)" : "rgba(37, 99, 235, 0.18)";
+          ctx.fillStyle = isDark ? "rgba(155, 185, 255, 0.22)" : "rgba(29, 78, 216, 0.16)";
           ctx.beginPath();
           ctx.arc(px, py, p.size, 0, Math.PI * 2);
           ctx.fill();
@@ -312,11 +331,13 @@ export function NetworkCanvas({
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!interactive) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    pointerRef.current = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      active: true,
-    };
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    pointerRef.current = { x, y, active: true };
+    trailRef.current.push({ x, y, alpha: 0.9 });
+    if (trailRef.current.length > 14) {
+      trailRef.current.shift();
+    }
   };
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {

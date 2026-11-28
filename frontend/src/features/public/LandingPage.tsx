@@ -9,7 +9,8 @@ import { ArchitecturalPillars } from "./ArchitecturalPillars";
 import { PublicFooter } from "./PublicFooter";
 import {
   ScrollProgressBar,
-  Reveal,
+  ClipReveal,
+  ScrollScrubBand,
   AnimatedCounter,
   MagneticButton,
   ScrambleText,
@@ -29,7 +30,7 @@ const PROTOCOL_MARQUEE = [
 
 const EVIDENCE_BENCHMARKS = [
   { label: "Unit & domain invariant checks", value: 134, suffix: "", note: "Money, outbox & state machines" },
-  { label: "Browser + Axe automated specs", value: 157, suffix: "+", note: "WCAG AA verified 320px–1440px" },
+  { label: "Browser + Axe automated specs", value: 160, suffix: "+", note: "WCAG AA verified 320px–1440px" },
   { label: "Deterministic scenario records", value: 192, suffix: "", note: "8 guided stories in /showcase" },
   { label: "Floating-point rupee drift", value: 0, suffix: "", note: "Strict integer paise math end-to-end" },
 ];
@@ -47,11 +48,12 @@ export function LandingPage() {
       <PublicHeader />
 
       <main id="main" className="flex-1">
-        {/* Hero with Aurora Horizon & Structural Guide Lines */}
+        {/* Hero with Aurora Horizon, Grain Texture & Structural Guide Lines */}
         <section className="relative overflow-hidden border-b border-[var(--border-hairline)]">
           <div className="pointer-events-none absolute inset-0 tx-aurora-horizon" aria-hidden="true" />
+          <div className="pointer-events-none absolute inset-0 tx-grain-overlay" aria-hidden="true" />
           <div
-            className="pointer-events-none mx-auto max-w-7xl border-x border-[var(--border-hairline)]/40 absolute inset-0"
+            className="pointer-events-none mx-auto max-w-7xl border-x border-[var(--border-hairline)]/45 absolute inset-0"
             aria-hidden="true"
           />
 
@@ -63,7 +65,8 @@ export function LandingPage() {
                 transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
                 className="lg:col-span-6 space-y-6"
               >
-                <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-hairline)] bg-[var(--bg-surface)]/90 px-3 py-1 text-xs font-mono font-semibold text-[var(--blueprint-cobalt,#2563eb)] shadow-[var(--shadow-subtle)]">
+                <div className="inline-flex items-center gap-2.5 rounded-full border border-[var(--border-hairline)] bg-[var(--bg-surface)]/90 px-3 py-1 text-xs font-mono font-semibold text-[var(--blueprint-cobalt,#9bb9ff)] shadow-[var(--shadow-subtle)]">
+                  <span className="tx-eyebrow-rule" aria-hidden="true" />
                   <span className="h-1.5 w-1.5 rounded-full bg-[var(--blueprint-emerald,#10b981)] animate-pulse" aria-hidden="true" />
                   <ScrambleText text="Payments, with perspective" />
                 </div>
@@ -151,7 +154,7 @@ export function LandingPage() {
                 <SpotlightCard
                   key={stat.label}
                   tilt={false}
-                  className="rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/70 p-4"
+                  className="tx-card-hover rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/75 p-4"
                 >
                   <div className="relative z-10 space-y-1">
                     <div className="font-display text-2xl sm:text-3xl font-bold text-[var(--text-primary)]">
@@ -166,23 +169,23 @@ export function LandingPage() {
           </div>
         </section>
 
-        <Reveal>
+        <ClipReveal>
           <WorkspaceExplorer />
-        </Reveal>
+        </ClipReveal>
 
-        <Reveal>
+        <ScrollScrubBand>
           <TwoPhaseNarrative />
-        </Reveal>
+        </ScrollScrubBand>
 
-        <Reveal>
+        <ClipReveal>
           <ArchitecturalPillars />
-        </Reveal>
+        </ClipReveal>
 
         {/* Closing CTA */}
         <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
           <SpotlightCard
-            accent="rgba(37, 99, 235, 0.16)"
-            className="flex flex-col items-start justify-between gap-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-raised)] sm:flex-row sm:items-center sm:p-10"
+            accent="rgba(155, 185, 255, 0.16)"
+            className="tx-card-hover relative overflow-hidden flex flex-col items-start justify-between gap-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-raised)] sm:flex-row sm:items-center sm:p-10"
           >
             <div className="relative z-10 space-y-2">
               <p className="text-xs font-mono font-semibold text-[var(--action-accent-bg)] m-0">

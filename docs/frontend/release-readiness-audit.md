@@ -168,3 +168,40 @@ All commands below were observed in the recorded post-cleanup verification log (
 
 1. **Production Promotion (when authorized):** Merge `feat/uiux-redesign` into `release/transactx-v2` (the verified Vercel Production branch) after confirming Production `VITE_API_BASE_URL` is configured on Vercel Production scope if decoupled from `pageOrigin`.
 2. **Post-Verification Cleanup (optional):** Once the Preview branch is merged or retired, remove the Preview origin from Render `CORS_ALLOWED_ORIGINS` if no longer needed, preserving `https://transactx-frontend.vercel.app`.
+
+---
+
+## 13. Visual Transformation Overhaul Verification & Section 19 Scorecard (`Pass 12`)
+
+**Post-Overhaul Local Regression Run (`task-1795`, exit `0`):**
+- `npm run test`: **`134/134` passed** (`0` failed, `0` skipped)
+- `npm run test:money`: **`money parsePaise checks passed`** (exit `0`)
+- `npm run lint`: Exited **`0`**
+- `npm run build` (`tsc -b && vite build`): Exited **`0`** (`built in 1.43s`), main entry `dist/assets/index-DXKLm1wy.js` = **`383.95 kB`** (`113.20 kB` gzip) — meets `<= 400 kB` minified / `<= 120 kB` gzip
+- `npx playwright test --workers=2`: **`160 passed (7.2m)`** (`0` failed, `0` skipped), `0` serious/critical Axe violations across Light & Dark modes
+- `npm run test:browser:offline-shell`: **`3 passed (13.3s)`** (`0` failed, `0` skipped)
+- `git status --short backend/`: Empty (`0` modified or untracked files under `backend/**`)
+- `git diff --check`: Exited `0`
+
+**Key Visual & Technical Upgrades in Pass 12:**
+- **Canonical Theme Cascade (`tokens.css`, `experience.css`, `visual-reset.css`, `styles.css`):** Removed competing `:root` / `body` overrides so Obsidian Carbon (`#090a0c` canvas, `#121316` surface, `#1a1c21` raised, `#272a30` border, `#f2f2ef` ink, `#9bb9ff` accent) and Warm Editorial Alabaster (`#f5f3ed` canvas, `#fcfbf8` surface, `#ebe7dd` raised, `#111215` ink, `#1d4ed8` accent, `#0b5e58` WCAG-AA teal) render cleanly across every route.
+- **View Transitions & Global Surface Polish (`ThemeProvider.tsx`, `globals.css`):** Added `document.startViewTransition` clip-path triangle reveal (`tx-theme-clip-reveal`, `0.65s`, respects `prefers-reduced-motion`), subtle `.tx-grain-overlay`, `.tx-eyebrow-rule`, `.tx-card-hover`, and refined `.tx-aurora-horizon`.
+- **Upgraded Motion, Canvas & 3D Primitives (`MotionPrimitives.tsx`, `NetworkCanvas.tsx`, `ShowcasePlayground.tsx`, `BlueprintExplorerModal.tsx`, `LandingPage.tsx`):** Added `ClipReveal` (`#24`), `BlurReveal`, `ScrollScrubBand` (`#26` via `useScroll` + `useTransform`), `CelebrationOverlay` `activeRafRef` lifecycle cleanup, `NetworkCanvas` 14-point fading pointer vector trail, multi-layer `preserve-3d` vault prism (`translateZ`), and `createPortal` stacking-context isolation on `BlueprintExplorerModal`.
+- **Effect Coverage Matrix (`docs/frontend/effect-coverage-matrix.md`):** **`100 / 100`** (`P1: 26/26 = 100%`, `P2: 47/47 = 100%`, `P3: 24/24 = 100%`, `P4: 3/3 = 100%`).
+- **Multi-Route Visual Inspection & 8-Width Overflow Check (`screenshots-v2`):** Inspected `Landing`, `Showcase Playground`, `Login`, `Demo`, `Customer`, `Merchant`, and `Operations Worklist / Analytics` in Obsidian Dark and Warm Editorial Alabaster Light at `1440x900` (and `390x844`); `0` horizontal overflows across `[320, 375, 390, 430, 768, 1024, 1280, 1440]` in both themes.
+
+### Section 19 Acceptance Scorecard
+
+| Criterion | Target | Observed Status | Evidence |
+|---|---|---|---|
+| Routes & Features Preserved | `100%` | **PASS** (`100%`) | All public, auth, demo, showcase, customer, merchant, and ops routes intact |
+| P1 Effects | `100%` | **PASS** (`26 / 26 = 100%`) | `docs/frontend/effect-coverage-matrix.md` |
+| P2 Effects | `>= 95%` | **PASS** (`47 / 47 = 100%`) | `docs/frontend/effect-coverage-matrix.md` |
+| P3 Effects | `>= 75%` | **PASS** (`24 / 24 = 100%`) | `docs/frontend/effect-coverage-matrix.md` |
+| P4 Effects Evaluated | `100%` | **PASS** (`3 / 3 = 100%`) | `ShowcasePlayground` + `creative-ui.fixture.spec.ts` |
+| Distinct Effects / New-Upgraded | `>= 40` (`>= 20` new/upgraded) | **PASS** | `100` documented effects; View Transitions, `ClipReveal`, `BlurReveal`, `ScrollScrubBand`, pointer trail, 3D prism, etc. |
+| Signature Experiences | `>= 3` | **PASS** | Aurora/Network Hero + WireDropSimulator + Interactive Showcase Playground & 3D Prism |
+| Responsive Breakpoints | `8` widths (`320`–`1440`), `0` overflow | **PASS** | `Overflows across 8 widths x 2 themes: []` |
+| Accessibility (Axe) | `0` serious/critical | **PASS** | `160/160` Playwright + Axe checks (`0` violations) |
+| Bundle Size | `<= 400 kB` min / `<= 120 kB` gzip | **PASS** | `index-DXKLm1wy.js` = `383.95 kB` (`113.20 kB` gzip) |
+| Backend Untouched & Diff Clean | `0` backend edits, `diff --check` `0` | **PASS** | `git status --short backend/` empty; `git diff --check` exited `0` |
