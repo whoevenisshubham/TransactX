@@ -74,11 +74,18 @@ test("landing interactive simulation, blueprint modal, audio opt-in, and command
   await expect(blueprintDialog).toHaveCount(0);
   await expect(expandTrigger).toBeFocused();
 
-  // Command palette open & Escape close
+  // Command palette open, celebration burst trigger, & Escape close
   await page.getByRole("button", { name: "Open command palette" }).first().click();
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /Trigger Simulated Settlement Wave/i }).click();
   await expect(page.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
+
+  // Audio preference persistence across reload (was explicitly enabled above)
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Mute interactive sound effects" }).first()).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
 
   expect(apiRequests).toEqual([]);
 });

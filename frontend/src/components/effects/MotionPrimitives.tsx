@@ -370,9 +370,14 @@ export function emitCelebrationBurst(origin?: { x?: number; y?: number }) {
 
 export function CelebrationOverlay() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const activeRafRef = useRef<number>(0);
 
   useEffect(() => {
     const onCelebrate = (event: Event) => {
+      if (activeRafRef.current) {
+        cancelAnimationFrame(activeRafRef.current);
+        activeRafRef.current = 0;
+      }
       const detail = (event as CustomEvent<{ x?: number; y?: number }>).detail ?? {};
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -404,7 +409,6 @@ export function CelebrationOverlay() {
       });
 
       let frame = 0;
-      let raf = 0;
       const draw = () => {
         frame++;
         ctx.clearRect(0, 0, width, height);
@@ -422,17 +426,23 @@ export function CelebrationOverlay() {
         }
         ctx.globalAlpha = 1;
         if (frame < 56) {
-          raf = requestAnimationFrame(draw);
+          activeRafRef.current = requestAnimationFrame(draw);
         } else {
+          activeRafRef.current = 0;
           ctx.clearRect(0, 0, width, height);
         }
       };
-      raf = requestAnimationFrame(draw);
-      return () => cancelAnimationFrame(raf);
+      activeRafRef.current = requestAnimationFrame(draw);
     };
 
     window.addEventListener("transactx:celebrate", onCelebrate);
-    return () => window.removeEventListener("transactx:celebrate", onCelebrate);
+    return () => {
+      window.removeEventListener("transactx:celebrate", onCelebrate);
+      if (activeRafRef.current) {
+        cancelAnimationFrame(activeRafRef.current);
+        activeRafRef.current = 0;
+      }
+    };
   }, []);
 
   return (
