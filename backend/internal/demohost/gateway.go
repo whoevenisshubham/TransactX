@@ -88,6 +88,19 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"gateway":"alive","databaseReadiness":"not-probed"}`))
 		return
 	}
+	if r.URL.Path == "/readyz" && r.Method == http.MethodGet {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		release, err := g.services.Acquire(ctx)
+		if err != nil {
+			failure(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Services initializing or unavailable.")
+			return
+		}
+		defer release()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"gateway":"ready","status":"ok"}`))
+		return
+	}
 	if !strings.HasPrefix(r.URL.Path, "/api/") {
 		http.NotFound(w, r)
 		return

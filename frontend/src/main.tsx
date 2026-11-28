@@ -1,14 +1,19 @@
 import { lazy, Suspense, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "motion/react";
+import { Toaster } from "sonner";
 import { api, ApiError } from "./api";
 import { Amount, BrandMark, Button } from "./components";
 import { OfflineIntentQueue, type OfflineIntent } from "./offlineQueue";
 import type { User } from "./types";
 import { LoadingShell } from "./shared/ShellStates";
-import { LandingPage } from "./public/LandingPage";
-import { AuthPage } from "./public/AuthPage";
-import { DemoPage } from "./public/DemoPage";
-import { PrivacyPage } from "./public/PrivacyPage";
+import { LandingPage } from "./features/public";
+import { ThemeProvider, useTheme } from "./components/theme/ThemeProvider";
+import { RootLayout } from "./components/layout/RootLayout";
+import { AudioProvider, CelebrationOverlay, CommandPalette, CursorFollower } from "./components/effects";
+import "./styles/globals.css";
 import "./styles.css";
 import "./design/ops.css";
 import "./design/experience.css";
@@ -16,17 +21,30 @@ import "./design/visual-reset.css";
 
 export { parsePaise } from "./money";
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 10_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      retry: false, // Critical invariant: zero automatic retry for financial mutations
+    },
+  },
+});
+
 const CustomerShell = lazy(() => import("./customer/CustomerShell").then(module => ({ default: module.CustomerShell })));
 const MerchantShell = lazy(() => import("./merchant/MerchantShell").then(module => ({ default: module.MerchantShell })));
 const ConsoleShell = lazy(() => import("./console").then(module => ({ default: module.ConsoleShell })));
 const ShowcasePage = lazy(() => import("./showcase/ShowcasePage").then(module => ({ default: module.ShowcasePage })));
-const GoogleCallbackPage = lazy(() => import("./public/GoogleCallbackPage").then(module => ({ default: module.GoogleCallbackPage })));
+const GoogleCallbackPage = lazy(() => import("./features/auth/GoogleCallbackPage").then(module => ({ default: module.GoogleCallbackPage })));
+const AuthPage = lazy(() => import("./features/auth").then(module => ({ default: module.AuthPage })));
+const DemoPage = lazy(() => import("./features/demo").then(module => ({ default: module.DemoPage })));
+const PrivacyPage = lazy(() => import("./features/public/PrivacyPage").then(module => ({ default: module.PrivacyPage })));
+const ComponentShowcase = lazy(() => import("./showcase/ComponentShowcase").then(module => ({ default: module.ComponentShowcase })));
 
 type OfflineOwner = Pick<User, "id" | "role">;
-
-// ---------------------------------------------------------------------------
-// Root App — role-based routing
-// ---------------------------------------------------------------------------
 
 function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem("transactx.token"));
@@ -48,7 +66,7 @@ function App() {
       api.me(token).then((profile) => {
         if (!active || current !== generation) return;
         const path = window.location.pathname;
-        const allowedPath = profile.role === "CUSTOMER" ? path === "/" || /^\/(pay|transactions)(\/|$)/.test(path) : profile.role === "MERCHANT" ? /^\/merchant(\/|$)/.test(path) : /^\/console(\/|$)/.test(path);
+        const allowedPath = path === "/design-system" || (profile.role === "CUSTOMER" ? path === "/" || /^\/(pay|transactions)(\/|$)/.test(path) : profile.role === "MERCHANT" ? /^\/merchant(\/|$)/.test(path) : /^\/console(\/|$)/.test(path));
         if (!allowedPath) window.history.replaceState({}, "", profile.role === "CUSTOMER" ? "/" : profile.role === "MERCHANT" ? "/merchant" : "/console/worklist");
         sessionStorage.setItem("transactx.profile", JSON.stringify({ token, profile: { id: profile.id, role: profile.role } }));
         setUser(profile);
@@ -78,15 +96,29 @@ function App() {
     return () => { active = false; window.removeEventListener("online", verify); };
   }, [token]);
 
-  function authenticated(nextToken: string) { sessionStorage.setItem("transactx.token", nextToken); setToken(nextToken); }
-  function logout() { sessionStorage.removeItem("transactx.token"); sessionStorage.removeItem("transactx.profile"); window.history.replaceState({}, "", "/login"); setToken(null); setUser(null); setOfflineUser(null); setOfflineMode(false); }
+  function authenticated(nextToken: string) {
+    queryClient.clear();
+    sessionStorage.setItem("transactx.token", nextToken);
+    setToken(nextToken);
+  }
+  function logout() {
+    queryClient.clear();
+    sessionStorage.removeItem("transactx.token");
+    sessionStorage.removeItem("transactx.profile");
+    window.history.replaceState({}, "", "/login");
+    setToken(null);
+    setUser(null);
+    setOfflineUser(null);
+    setOfflineMode(false);
+  }
 
   if (window.location.pathname === "/auth/callback") return <Suspense fallback={<LoadingShell />}><GoogleCallbackPage onAuthenticated={authenticated} /></Suspense>;
+  if (window.location.pathname === "/design-system") return <Suspense fallback={<LoadingShell />}><RootLayout role={user?.role ?? "CUSTOMER"} userName={user?.name} onLogout={token ? logout : undefined}><ComponentShowcase /></RootLayout></Suspense>;
   if (window.location.pathname === "/showcase") return <Suspense fallback={<LoadingShell />}><ShowcasePage /></Suspense>;
-  if (window.location.pathname === "/privacy") return <PrivacyPage />;
+  if (window.location.pathname === "/privacy") return <Suspense fallback={<LoadingShell />}><PrivacyPage /></Suspense>;
   if (!token && window.location.pathname === "/") return <LandingPage />;
-  if (!token && window.location.pathname === "/demo") return <DemoPage onAuthenticated={authenticated} />;
-  if (!token) return <AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} />;
+  if (!token && window.location.pathname === "/demo") return <Suspense fallback={<LoadingShell />}><DemoPage onAuthenticated={authenticated} /></Suspense>;
+  if (!token) return <Suspense fallback={<LoadingShell />}><AuthPage mode={authMode} onModeChange={setAuthMode} onAuthenticated={authenticated} /></Suspense>;
   if (offlineMode) return <OfflineRecoveryShell user={offlineUser} onLogout={logout} onRetry={() => window.dispatchEvent(new Event("online"))} />;
   if (roleLoading || !user) return <LoadingShell />;
 
@@ -153,15 +185,45 @@ function OfflineRecoveryShell({ user, onLogout, onRetry }: { user: OfflineOwner 
   );
 }
 
-// ---------------------------------------------------------------------------
-// Auth page
-// ---------------------------------------------------------------------------
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+  return (
+    <Toaster
+      position="bottom-right"
+      theme={resolvedTheme}
+      closeButton
+      toastOptions={{
+        style: {
+          background: "var(--bg-surface)",
+          color: "var(--text-primary)",
+          border: "1px solid var(--border-active)",
+          boxShadow: "var(--shadow-raised)",
+          fontFamily: "var(--font-sans)",
+        },
+      }}
+    />
+  );
+}
 
-// ---------------------------------------------------------------------------
-// Customer Shell
-// ---------------------------------------------------------------------------
-
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <ThemeProvider>
+          <MotionConfig reducedMotion="user">
+            <AudioProvider>
+              <App />
+              <CommandPalette />
+              <CelebrationOverlay />
+              <CursorFollower />
+              <ThemedToaster />
+            </AudioProvider>
+          </MotionConfig>
+        </ThemeProvider>
+      </BrowserRouter>
+    </QueryClientProvider>
+  </StrictMode>
+);
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {

@@ -1,0 +1,7 @@
+flowchart LR
+    API["Go API & Worker"] -->|Outbox Events| Outbox[(outbox_events)]
+    Outbox -->|Projector| Worklist[(worklist_projection)]
+    API -->|SSE /api/v1/ops/stream| Console["Operations Console"]
+    API -->|Health Samples| Health[(health_samples)]
+    Health -->|Scoring| Router["Route & Circuit Breaker"]
+    API -->|Traces| OTel["OpenTelemetry Spans"]

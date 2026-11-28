@@ -1,5 +1,5 @@
 # Render Free demo packaging. Build context is the repository root.
-FROM golang:1.27.1-bookworm AS build
+FROM golang:1.27.4-bookworm AS build
 WORKDIR /src/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download

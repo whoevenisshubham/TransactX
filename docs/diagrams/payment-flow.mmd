@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> VALIDATING
+    VALIDATING --> ROUTING
+    ROUTING --> PROCESSING
+    PROCESSING --> COMMITTED: Bank + Central settled
+    COMMITTED --> COMPLETED
+    PROCESSING --> PENDING_RECONCILIATION: Timeout / unknown outcome
+    PROCESSING --> BANK_SETTLED_CENTRAL_PENDING: Bank settled, central DB failed
+    BANK_SETTLED_CENTRAL_PENDING --> COMPLETED: Central repair succeeded
+    PENDING_RECONCILIATION --> COMPLETED: Bank confirmed settled
+    PENDING_RECONCILIATION --> REVERSED: Definite failure + compensation
+    PENDING_RECONCILIATION --> FAILED: Definite failure before hold

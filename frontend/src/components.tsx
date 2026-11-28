@@ -15,10 +15,16 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     close: <><path d="m5 5 8 8M13 5l-8 8" /></>,
     qr: <><path d="M2 2h5v5H2zM11 2h5v5h-5zM2 11h5v5H2zM11 11h2v2h3v3h-5v-2M16 10v1" /></>,
   };
-  return <svg aria-hidden="true" className="icon" width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+  return <svg aria-hidden="true" className="icon shrink-0" width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-export function BrandMark() { return <span className="brand-mark" aria-hidden="true"><span /><span /><span /></span>; }
+export function BrandMark() {
+  return (
+    <span className="brand-mark shrink-0" aria-hidden="true">
+      <span /><span /><span />
+    </span>
+  );
+}
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "quiet" | "danger";
@@ -28,7 +34,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export function Button({ variant = "primary", size = "md", children, className = "", ...props }: ButtonProps) {
   const sizeClass = size === "sm" ? "button-sm" : size === "lg" ? "button-lg" : "";
-  return <button className={`button button-${variant} ${sizeClass} ${className}`.trim()} {...props}>{children}</button>;
+  return (
+    <button
+      className={`button button-${variant} ${sizeClass} whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-surface)] ${className}`.trim()}
+      {...props}
+    >
+      {children}
+    </button>
+  );
 }
 
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -41,7 +54,13 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
 
 export function IconButton({ icon, label, variant = "quiet", size = 18, className = "", disabled, ...props }: IconButtonProps) {
   return (
-    <button className={`icon-button icon-button-${variant} ${className}`.trim()} aria-label={label} title={label} disabled={disabled} {...props}>
+    <button
+      className={`icon-button icon-button-${variant} shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] ${className}`.trim()}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      {...props}
+    >
       <Icon name={icon} size={size} />
     </button>
   );
@@ -54,14 +73,39 @@ export interface BadgeProps {
 }
 
 export function Badge({ children, tone = "neutral", className = "" }: BadgeProps) {
-  return <span className={`badge badge-${tone} ${className}`.trim()}>{children}</span>;
+  return (
+    <span className={`badge badge-${tone} whitespace-nowrap font-mono ${className}`.trim()}>
+      {children}
+    </span>
+  );
 }
 
 export function StatusBadge({ state }: { state: string }) {
   const normalized = state.toLowerCase();
-  const label = normalized === "completed" ? "Completed" : normalized === "failed" ? "Not completed" : normalized === "pending_reconciliation" || normalized === "bank_settled_central_pending" ? "Confirming" : normalized === "processing" ? "Processing" : state.replaceAll("_", " ").toLowerCase();
-  const tone = normalized === "completed" ? "success" : normalized === "failed" || normalized === "reversed" ? "error" : normalized.includes("pending") || normalized === "processing" ? "warning" : "neutral";
-  return <span className={`status-badge status-${tone}`}><span className="status-dot" />{label}</span>;
+  const label =
+    normalized === "completed"
+      ? "Completed"
+      : normalized === "failed"
+      ? "Not completed"
+      : normalized === "pending_reconciliation" || normalized === "bank_settled_central_pending"
+      ? "Confirming"
+      : normalized === "processing"
+      ? "Processing"
+      : state.replaceAll("_", " ").toLowerCase();
+  const tone =
+    normalized === "completed"
+      ? "success"
+      : normalized === "failed" || normalized === "reversed"
+      ? "error"
+      : normalized.includes("pending") || normalized === "processing"
+      ? "warning"
+      : "neutral";
+  return (
+    <span className={`status-badge status-${tone} whitespace-nowrap`}>
+      <span className="status-dot shrink-0" />
+      {label}
+    </span>
+  );
 }
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
@@ -77,7 +121,7 @@ export function Card({ variant = "default", children, className = "", ...props }
 export function PageHeader({ eyebrow, title, description, action, className = "" }: { eyebrow?: string; title: string; description?: string; action?: ReactNode; className?: string }) {
   return (
     <div className={`page-header ${className}`.trim()}>
-      <div>
+      <div className="min-w-0">
         {eyebrow && <p className="eyebrow">{eyebrow}</p>}
         <h1>{title}</h1>
         {description && <p className="page-description">{description}</p>}
@@ -96,13 +140,25 @@ export function formatPaise(paise: number) {
 }
 
 export function Amount({ paise, sign = "", prominent = false }: { paise: number; sign?: string; prominent?: boolean }) {
-  return <span className={`amount ${prominent ? "amount-prominent" : ""}`.trim()}>{sign}{formatPaise(paise)}</span>;
+  return <span className={`amount tabular-nums ${prominent ? "amount-prominent" : ""}`.trim()}>{sign}{formatPaise(paise)}</span>;
 }
 
 export function Avatar({ name, size = "md", className = "" }: { name: string; size?: "sm" | "md" | "lg"; className?: string }) {
   const initials = name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  const sizeClass = size === "sm" ? "avatar-sm" : size === "lg" ? "avatar-lg" : "";
-  return <span className={`avatar ${sizeClass} ${className}`.trim()} aria-hidden="true">{initials || "TX"}</span>;
+  const sizeClass =
+    size === "sm"
+      ? "avatar-sm w-[26px] h-[26px] min-w-[26px]"
+      : size === "lg"
+      ? "avatar-lg w-[44px] h-[44px] min-w-[44px]"
+      : "w-[34px] h-[34px] min-w-[34px]";
+  return (
+    <span
+      className={`avatar shrink-0 aspect-square inline-flex items-center justify-center rounded-full select-none ${sizeClass} ${className}`.trim()}
+      aria-hidden="true"
+    >
+      {initials || "TX"}
+    </span>
+  );
 }
 
 export function Skeleton({ variant = "block", className = "" }: { variant?: "block" | "text" | "circle"; className?: string }) {

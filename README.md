@@ -18,6 +18,9 @@ recover a payment safely when different services have different observations?**
 [Deployment](deploy/render/README.md) ·
 [Payment kernel reference](docs/reference/payment-kernel.md)
 
+> [!NOTE]
+> The hosted demo at `https://transactx-frontend.vercel.app` tracks `release/transactx-v2`. The redesigned frontend and pre-production release candidate (PR #33) are maintained on `feat/uiux-redesign`.
+
 ![TransactX payment receipt, original bank path and cited investigation](docs/images/experience-landing.png)
 
 ## What makes the project interesting
@@ -182,6 +185,15 @@ not bank-health verdicts.
 | Investigation | Canonical evidence, lexical runbook retrieval, structured validation and optional Gemini |
 | Analytics | Durable measured windows and a statistical baseline; IsolationForest remains experimental |
 | Operations | Reconciliation, integrity/Merkle checks, audit records and telemetry context |
+
+### Verified Engineering Toolchain
+
+| Component | Standard / Version | Scope & Verification |
+| --- | --- | --- |
+| Go Runtime | Go 1.27.4 | All microservices (`api`, `bank-a`, `bank-b`, `worker`, `migrate`, `seed`); tested with `-race` |
+| Node.js Engine | Node.js 22 LTS | Frontend build, Vite, Vitest suite, Playwright money fixture tests |
+| Database Engine | PostgreSQL 18 | Central schema, bank-a, bank-b schemas, 33 canonical migrations |
+| Security Scanner | govulncheck v1.10.0 | CI dependency and vulnerability verification |
 
 ## Engineering evidence
 

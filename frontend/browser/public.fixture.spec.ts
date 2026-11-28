@@ -38,14 +38,14 @@ for (const theme of ["light", "dark"] as const) {
 test("explicit appearance survives reload and system changes until System is selected", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
-  await page.getByLabel("Appearance").selectOption("dark");
+  await page.getByRole("radiogroup", { name: "Theme selection" }).first().getByRole("radio", { name: "Dark mode" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
-  await expect(page.getByLabel("Appearance")).toHaveValue("dark");
+  await expect(page.getByRole("radiogroup", { name: "Theme selection" }).first().getByRole("radio", { name: "Dark mode" })).toHaveAttribute("aria-checked", "true");
   await page.emulateMedia({ colorScheme: "dark" });
   await page.emulateMedia({ colorScheme: "light" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.getByLabel("Appearance").selectOption("system");
+  await page.getByRole("radiogroup", { name: "Theme selection" }).first().getByRole("radio", { name: "System sync" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -54,7 +54,7 @@ test("explicit appearance survives reload and system changes until System is sel
 test("blocked preference storage leaves the public page usable", async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(window, "localStorage", { get() { throw new DOMException("Disabled", "SecurityError"); } }));
   await page.goto("/");
-  await page.getByLabel("Appearance").selectOption("dark");
+  await page.getByRole("radiogroup", { name: "Theme selection" }).first().getByRole("radio", { name: "Dark mode" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.getByRole("link", { name: "Explore the demo" })).toBeVisible();
 });

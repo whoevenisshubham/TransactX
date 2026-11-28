@@ -215,3 +215,66 @@ export type IntegrityProof = {
     serializedSizeBytes?: number;
   };
 };
+
+export type IntegritySeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+
+export type CheckStatus = "PASS" | "FAIL" | "ERROR" | "NOT_APPLICABLE";
+
+export type CheckViolation = {
+  entityId?: string;
+  description: string;
+  details?: Record<string, unknown>;
+};
+
+export type IntegrityCheckResult = {
+  runId: string;
+  code: string;
+  severity: IntegritySeverity;
+  status: CheckStatus;
+  message: string;
+  observed?: string;
+  violations?: CheckViolation[];
+  error?: string;
+  startedAt: string;
+  completedAt: string;
+};
+
+export type IntegrityRunSummary = {
+  totalChecks: number;
+  passed: number;
+  failed: number;
+  errors: number;
+  notApplicable: number;
+};
+
+export type IntegrityRunStatus = "RUNNING" | "COMPLETED" | "FAILED";
+
+export type IntegrityRunResult = {
+  runId: string;
+  scope?: { from: string; to: string };
+  participantId?: string;
+  status: IntegrityRunStatus;
+  summary: IntegrityRunSummary;
+  checks: IntegrityCheckResult[];
+  errorMessage?: string;
+  startedAt: string;
+  completedAt: string;
+};
+
+export type IntegrityStatusResponse = {
+  runs: IntegrityRunResult[];
+  total: number;
+};
+
+export type ProofVerificationMetrics = {
+  durationNs: number;
+  stepsEvaluated: number;
+  rootVerified: boolean;
+};
+
+export type IntegrityVerifyProofResult = {
+  valid: boolean;
+  reconstructedBucketRoot?: string;
+  reconstructedRoot: string;
+  metrics?: ProofVerificationMetrics;
+};

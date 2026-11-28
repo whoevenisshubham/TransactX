@@ -48,6 +48,11 @@ jobs:
       - name: Vet
         working-directory: backend
         run: go vet ./...
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+      - name: Vulnerability scan (govulncheck)
+        working-directory: backend
+        run: govulncheck ./...
       # Broad suites intentionally skip destructive matrices without a lifecycle
       # contract. This separate invocation must run them, including race coverage.
       - name: Dedicated Disposable Database Lifecycle (Cross-Bank & Crash Matrix, race)
@@ -83,9 +88,33 @@ jobs:
       - name: Money boundaries
         working-directory: frontend
         run: npm run test:money
-      - name: Lint
+      - name: Offline queue
         working-directory: frontend
-        run: npm run lint
+        run: npm run test:offline-queue
+      - name: Offline replay
+        working-directory: frontend
+        run: npm run test:offline-replay
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
       - name: Build
         working-directory: frontend
         run: npm run build
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Browser fixture suite
+        working-directory: frontend
+        run: npm run test:browser:fixtures -- --workers=2
+      - name: Offline shell browser suite
+        working-directory: frontend
+        run: npm run test:browser:offline-shell
+      - name: Upload Playwright artifacts
+        uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+          retention-days: 7

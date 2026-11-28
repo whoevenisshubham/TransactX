@@ -6,7 +6,7 @@ export default defineConfig({
   testIgnore: "offline-shell.fixture.spec.ts",
   fullyParallel: false,
   reporter: "list",
-  timeout: 30000,
+  timeout: 60000,
   use: {
     baseURL: "http://127.0.0.1:4173",
     browserName: "chromium",

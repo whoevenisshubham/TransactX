@@ -3,6 +3,7 @@ package recovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"testing"
@@ -209,6 +210,7 @@ func TestRecovery_TwoClaimers_NoDoubleExecution(t *testing.T) {
 }
 
 // 3. Lease Expiry & Epoch progression allows second worker claim
+// Deterministically proves Property A (active lease cannot be stolen) and Property B (expired lease reclaimed).
 func TestRecovery_LeaseExpiryAndEpoch_AllowsSecondWorkerClaim(t *testing.T) {
 	td := setupTestDB(t)
 	defer td.cleanFn()
@@ -219,8 +221,9 @@ func TestRecovery_LeaseExpiryAndEpoch_AllowsSecondWorkerClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Worker 1 claims with very short lease (100ms)
-	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 10, 100*time.Millisecond)
+	// Property A: Worker 1 claims with robust lease (30s).
+	// Under race detector or runner contention, 30s ensures the lease remains active.
+	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 10, 30*time.Second)
 	if err != nil {
 		t.Fatalf("worker-1 claim failed: %v", err)
 	}
@@ -237,6 +240,19 @@ func TestRecovery_LeaseExpiryAndEpoch_AllowsSecondWorkerClaim(t *testing.T) {
 	if w1Job.LeaseEpoch != 1 {
 		t.Fatalf("expected epoch 1, got %d", w1Job.LeaseEpoch)
 	}
+	if w1Job.LeaseOwner == nil || *w1Job.LeaseOwner != "worker-1" {
+		t.Fatalf("expected owner worker-1, got %v", w1Job.LeaseOwner)
+	}
+
+	// Verify lease is active in PostgreSQL
+	var isActive bool
+	err = td.pool.QueryRow(ctx, "SELECT lease_until > NOW() FROM recovery_jobs WHERE payment_id = $1", pID).Scan(&isActive)
+	if err != nil {
+		t.Fatalf("check active lease: %v", err)
+	}
+	if !isActive {
+		t.Fatal("expected lease_until to be in the future")
+	}
 
 	// Immediately, Worker 2 cannot claim it (lease active)
 	w2JobsEarly, err := td.repo.ClaimDueJobs(ctx, "worker-2", 10, 30*time.Second)
@@ -249,15 +265,13 @@ func TestRecovery_LeaseExpiryAndEpoch_AllowsSecondWorkerClaim(t *testing.T) {
 		}
 	}
 
-	// Wait authoritatively for lease to expire in PostgreSQL
-	if w1Job.LeaseUntil != nil {
-		if remain := time.Until(*w1Job.LeaseUntil); remain > 0 {
-			time.Sleep(remain + 50*time.Millisecond)
-		} else {
-			time.Sleep(50 * time.Millisecond)
-		}
-	} else {
-		time.Sleep(200 * time.Millisecond)
+	// Property B: Expire the lease deterministically in PostgreSQL
+	tag, err := td.pool.Exec(ctx, "UPDATE recovery_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE payment_id = $1", pID)
+	if err != nil {
+		t.Fatalf("deterministic lease expire: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("expected 1 row expired, got %d", tag.RowsAffected())
 	}
 
 	// Worker 2 claims it now
@@ -281,6 +295,53 @@ func TestRecovery_LeaseExpiryAndEpoch_AllowsSecondWorkerClaim(t *testing.T) {
 	if w2Job.LeaseOwner == nil || *w2Job.LeaseOwner != "worker-2" {
 		t.Fatalf("expected owner worker-2, got %v", w2Job.LeaseOwner)
 	}
+	if w2Job.AttemptCount != 2 {
+		t.Fatalf("expected attempt count 2, got %d", w2Job.AttemptCount)
+	}
+
+	// Stale Worker 1 heartbeat is rejected
+	hbOk, err := td.repo.HeartbeatLease(ctx, pID, "worker-1", 1, 30*time.Second)
+	if err != nil {
+		t.Fatalf("worker-1 stale heartbeat error: %v", err)
+	}
+	if hbOk {
+		t.Fatal("worker-1 stale heartbeat should have been rejected")
+	}
+
+	// Stale Worker 1 completion is rejected
+	lateReq := CompleteAttemptRequest{
+		AttemptID:  *w1Job.LastAttemptID,
+		PaymentID:  pID,
+		LeaseEpoch: 1,
+		WorkerID:   "worker-1",
+		NewStatus:  JobStatusResolved,
+		DueAt:      time.Now().UTC(),
+		StateAfter: "COMPLETED",
+		Result:     "COMPLETED",
+		ReasonCode: ReasonCompleted,
+	}
+	compOk, err := td.repo.CompleteAttempt(ctx, lateReq)
+	if err != nil {
+		t.Fatalf("worker-1 stale complete attempt error: %v", err)
+	}
+	if compOk {
+		t.Fatal("worker-1 stale complete attempt should have been rejected")
+	}
+
+	// Worker 2's lease remains valid
+	job, err := td.repo.GetJob(ctx, pID)
+	if err != nil {
+		t.Fatalf("get job after stale attempts: %v", err)
+	}
+	if job.Status != JobStatusRunning {
+		t.Fatalf("job status = %s, want running", job.Status)
+	}
+	if job.LeaseEpoch != 2 {
+		t.Fatalf("job epoch = %d, want 2", job.LeaseEpoch)
+	}
+	if job.LeaseOwner == nil || *job.LeaseOwner != "worker-2" {
+		t.Fatalf("job owner = %v, want worker-2", job.LeaseOwner)
+	}
 }
 
 // 4. Late Result Rejected when lease lost
@@ -294,8 +355,8 @@ func TestRecovery_LateResultRejected_WhenLeaseLost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Worker 1 claims with short lease (100ms)
-	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 10, 100*time.Millisecond)
+	// Worker 1 claims with robust lease (30s)
+	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 10, 30*time.Second)
 	if err != nil {
 		t.Fatalf("worker-1 claim failed: %v", err)
 	}
@@ -310,15 +371,10 @@ func TestRecovery_LateResultRejected_WhenLeaseLost(t *testing.T) {
 		t.Fatalf("worker-1 claim failed: job for payment %s not found (claimed %d jobs)", pID, len(w1Jobs))
 	}
 
-	// Wait authoritatively for lease to expire in PostgreSQL, Worker 2 claims it
-	if w1Job.LeaseUntil != nil {
-		if remain := time.Until(*w1Job.LeaseUntil); remain > 0 {
-			time.Sleep(remain + 50*time.Millisecond)
-		} else {
-			time.Sleep(50 * time.Millisecond)
-		}
-	} else {
-		time.Sleep(200 * time.Millisecond)
+	// Expire the lease deterministically in PostgreSQL, allowing Worker 2 to supersede
+	_, err = td.pool.Exec(ctx, "UPDATE recovery_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE payment_id = $1", pID)
+	if err != nil {
+		t.Fatalf("deterministic lease expire: %v", err)
 	}
 
 	w2Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-2", 10, 30*time.Second)
@@ -368,8 +424,431 @@ func TestRecovery_LateResultRejected_WhenLeaseLost(t *testing.T) {
 	if job.LeaseEpoch != 2 {
 		t.Fatalf("job epoch = %d, want 2", job.LeaseEpoch)
 	}
-	if *job.LeaseOwner != "worker-2" {
-		t.Fatalf("job owner = %s, want worker-2", *job.LeaseOwner)
+	if job.LeaseOwner == nil || *job.LeaseOwner != "worker-2" {
+		t.Fatalf("job owner = %v, want worker-2", job.LeaseOwner)
+	}
+}
+
+// 4a. Proof of natural PostgreSQL wall-clock expiration without racing early claims
+func TestRecovery_LeaseExpiry_WallClockPassage(t *testing.T) {
+	td := setupTestDB(t)
+	defer td.cleanFn()
+	ctx := context.Background()
+
+	pID := td.createTestPayment(t, "PROCESSING", time.Now().UTC())
+	if err := td.repo.UpsertJob(ctx, pID, time.Now().UTC().Add(-10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Worker 1 claims with 250ms lease
+	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 10, 250*time.Millisecond)
+	if err != nil || len(w1Jobs) == 0 {
+		t.Fatalf("worker-1 claim failed: %v", err)
+	}
+
+	// Poll PostgreSQL's own clock until NOW() > lease_until
+	deadline := time.Now().Add(5 * time.Second)
+	var expired bool
+	for time.Now().Before(deadline) {
+		err := td.pool.QueryRow(ctx, "SELECT NOW() > lease_until FROM recovery_jobs WHERE payment_id = $1", pID).Scan(&expired)
+		if err == nil && expired {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !expired {
+		t.Fatal("timed out waiting for PostgreSQL to expire lease via wall-clock passage")
+	}
+
+	// Worker 2 claims after natural PostgreSQL expiration
+	w2Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-2", 10, 30*time.Second)
+	if err != nil {
+		t.Fatalf("worker-2 claim failed: %v", err)
+	}
+	var w2Job *Job
+	for _, j := range w2Jobs {
+		if j.PaymentID == pID {
+			w2Job = j
+			break
+		}
+	}
+	if w2Job == nil {
+		t.Fatalf("expected worker-2 to claim expired job, but got none")
+	}
+	if w2Job.LeaseEpoch != 2 {
+		t.Fatalf("expected epoch 2, got %d", w2Job.LeaseEpoch)
+	}
+	if w2Job.LeaseOwner == nil || *w2Job.LeaseOwner != "worker-2" {
+		t.Fatalf("expected owner worker-2, got %v", w2Job.LeaseOwner)
+	}
+}
+
+// 4b. Epoch increments monotonically across successive claims and never decreases or repeats
+func TestRecovery_EpochProgression_Monotonic(t *testing.T) {
+	td := setupTestDB(t)
+	defer td.cleanFn()
+	ctx := context.Background()
+
+	pID := td.createTestPayment(t, "PROCESSING", time.Now().UTC())
+	if err := td.repo.UpsertJob(ctx, pID, time.Now().UTC().Add(-10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	for epoch := int64(1); epoch <= 3; epoch++ {
+		workerName := fmt.Sprintf("worker-%d", epoch)
+		jobs, err := td.repo.ClaimDueJobs(ctx, workerName, 1, 30*time.Second)
+		if err != nil {
+			t.Fatalf("epoch %d claim failed: %v", epoch, err)
+		}
+		if len(jobs) != 1 || jobs[0].PaymentID != pID {
+			t.Fatalf("expected 1 claimed job for payment %s at epoch %d, got %d", pID, epoch, len(jobs))
+		}
+		if jobs[0].LeaseEpoch != epoch {
+			t.Fatalf("expected epoch %d, got %d", epoch, jobs[0].LeaseEpoch)
+		}
+		if jobs[0].LeaseOwner == nil || *jobs[0].LeaseOwner != workerName {
+			t.Fatalf("expected owner %s, got %v", workerName, jobs[0].LeaseOwner)
+		}
+
+		// Expire deterministically before next claim
+		_, err = td.pool.Exec(ctx, "UPDATE recovery_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE payment_id = $1", pID)
+		if err != nil {
+			t.Fatalf("expire epoch %d failed: %v", epoch, err)
+		}
+	}
+}
+
+// 4c. Strict ownership invariants: heartbeat and complete rejection for invalid worker, epoch, or expired lease
+func TestRecovery_OwnershipInvariants_HeartbeatAndComplete(t *testing.T) {
+	td := setupTestDB(t)
+	defer td.cleanFn()
+	ctx := context.Background()
+
+	pID := td.createTestPayment(t, "PROCESSING", time.Now().UTC())
+	if err := td.repo.UpsertJob(ctx, pID, time.Now().UTC().Add(-10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	jobs, err := td.repo.ClaimDueJobs(ctx, "worker-owner", 1, 30*time.Second)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("initial claim failed: %v", err)
+	}
+	job := jobs[0]
+
+	// 1. Valid heartbeat extends lease
+	ok, err := td.repo.HeartbeatLease(ctx, pID, "worker-owner", job.LeaseEpoch, 45*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("valid heartbeat failed: ok=%v, err=%v", ok, err)
+	}
+
+	// 2. Imposter worker ID cannot heartbeat
+	ok, err = td.repo.HeartbeatLease(ctx, pID, "worker-imposter", job.LeaseEpoch, 30*time.Second)
+	if err != nil || ok {
+		t.Fatalf("imposter heartbeat should fail: ok=%v, err=%v", ok, err)
+	}
+
+	// 3. Invalid epoch cannot heartbeat
+	ok, err = td.repo.HeartbeatLease(ctx, pID, "worker-owner", job.LeaseEpoch+10, 30*time.Second)
+	if err != nil || ok {
+		t.Fatalf("invalid epoch heartbeat should fail: ok=%v, err=%v", ok, err)
+	}
+
+	// 4. Imposter worker ID cannot complete attempt
+	reqWrongWorker := CompleteAttemptRequest{
+		AttemptID:  *job.LastAttemptID,
+		PaymentID:  pID,
+		LeaseEpoch: job.LeaseEpoch,
+		WorkerID:   "worker-imposter",
+		NewStatus:  JobStatusResolved,
+		DueAt:      time.Now().UTC(),
+		StateAfter: "COMPLETED",
+		Result:     "COMPLETED",
+		ReasonCode: ReasonCompleted,
+	}
+	ok, err = td.repo.CompleteAttempt(ctx, reqWrongWorker)
+	if err != nil || ok {
+		t.Fatalf("imposter complete attempt should fail: ok=%v, err=%v", ok, err)
+	}
+
+	// 5. Stale epoch cannot complete attempt
+	reqWrongEpoch := CompleteAttemptRequest{
+		AttemptID:  *job.LastAttemptID,
+		PaymentID:  pID,
+		LeaseEpoch: job.LeaseEpoch + 5,
+		WorkerID:   "worker-owner",
+		NewStatus:  JobStatusResolved,
+		DueAt:      time.Now().UTC(),
+		StateAfter: "COMPLETED",
+		Result:     "COMPLETED",
+		ReasonCode: ReasonCompleted,
+	}
+	ok, err = td.repo.CompleteAttempt(ctx, reqWrongEpoch)
+	if err != nil || ok {
+		t.Fatalf("stale epoch complete attempt should fail: ok=%v, err=%v", ok, err)
+	}
+
+	// 6. Expired lease cannot heartbeat
+	_, err = td.pool.Exec(ctx, "UPDATE recovery_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE payment_id = $1", pID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err = td.repo.HeartbeatLease(ctx, pID, "worker-owner", job.LeaseEpoch, 30*time.Second)
+	if err != nil || ok {
+		t.Fatalf("expired lease heartbeat should fail: ok=%v, err=%v", ok, err)
+	}
+}
+
+// 4d. Concurrent contention: 5 simultaneous workers competing for 1 job -> exactly 1 claims
+func TestRecovery_ConcurrentWorkers_Contention(t *testing.T) {
+	td := setupTestDB(t)
+	defer td.cleanFn()
+	ctx := context.Background()
+
+	pID := td.createTestPayment(t, "PROCESSING", time.Now().UTC())
+	if err := td.repo.UpsertJob(ctx, pID, time.Now().UTC().Add(-10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	const workerCount = 5
+	var wg sync.WaitGroup
+	claims := make([][]*Job, workerCount)
+	errs := make([]error, workerCount)
+
+	startBarrier := make(chan struct{})
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-startBarrier
+			wName := fmt.Sprintf("contention-worker-%d", idx)
+			claims[idx], errs[idx] = td.repo.ClaimDueJobs(ctx, wName, 1, 30*time.Second)
+		}(i)
+	}
+
+	close(startBarrier)
+	wg.Wait()
+
+	totalClaimed := 0
+	for i := 0; i < workerCount; i++ {
+		if errs[i] != nil {
+			t.Fatalf("worker %d claim failed: %v", i, errs[i])
+		}
+		totalClaimed += len(claims[i])
+	}
+
+	if totalClaimed != 1 {
+		t.Fatalf("expected exactly 1 claimed job across %d workers, got %d", workerCount, totalClaimed)
+	}
+
+	// Verify exactly 1 attempt row created in recovery_attempts
+	var attemptCount int
+	err := td.pool.QueryRow(ctx, "SELECT count(*) FROM recovery_attempts WHERE payment_id = $1", pID).Scan(&attemptCount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attemptCount != 1 {
+		t.Fatalf("expected exactly 1 attempt record, got %d", attemptCount)
+	}
+}
+
+// 4e. Financial business scenario: Interrupted saga recovery and single central ledger settlement conservation
+func TestRecovery_BusinessScenario_InterruptedSaga_LedgerConservation(t *testing.T) {
+	td := setupTestDB(t)
+	defer td.cleanFn()
+	ctx := context.Background()
+
+	// 1. Seed accounts with initial balance
+	initialBalance := int64(10000)
+	paymentAmount := int64(2500) // ₹25.00
+	_, err := td.pool.Exec(ctx, "UPDATE accounts SET balance_paise = $1 WHERE id IN ($2, $3)", initialBalance, td.acc1ID, td.acc2ID)
+	if err != nil {
+		t.Fatalf("seed balance: %v", err)
+	}
+
+	// 2. Create routed payment in PROCESSING state
+	pID := uuid.New()
+	query := `
+		INSERT INTO payments (id, initiated_by_user_id, sender_account_id, receiver_account_id, amount_paise, currency, origin, state, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'INR', 'ONLINE', 'PROCESSING', NOW(), NOW())`
+	_, err = td.pool.Exec(ctx, query, pID, td.userID, td.acc1ID, td.acc2ID, paymentAmount)
+	if err != nil {
+		t.Fatalf("insert test payment: %v", err)
+	}
+
+	// Upsert recovery job
+	if err := td.repo.UpsertJob(ctx, pID, time.Now().UTC().Add(-5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Worker 1 claims job (epoch 1)
+	w1Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-1", 1, 30*time.Second)
+	if err != nil || len(w1Jobs) != 1 {
+		t.Fatalf("worker-1 claim failed: %v", err)
+	}
+	w1Job := w1Jobs[0]
+	if w1Job.LeaseEpoch != 1 {
+		t.Fatalf("expected epoch 1, got %d", w1Job.LeaseEpoch)
+	}
+
+	// 4. Worker 1 is interrupted: lease expires deterministically in PostgreSQL
+	_, err = td.pool.Exec(ctx, "UPDATE recovery_jobs SET lease_until = NOW() - INTERVAL '1 second' WHERE payment_id = $1", pID)
+	if err != nil {
+		t.Fatalf("expire lease: %v", err)
+	}
+
+	// 5. Worker 2 claims job with epoch 2
+	w2Jobs, err := td.repo.ClaimDueJobs(ctx, "worker-2", 1, 30*time.Second)
+	if err != nil || len(w2Jobs) != 1 {
+		t.Fatalf("worker-2 claim failed: %v", err)
+	}
+	w2Job := w2Jobs[0]
+	if w2Job.LeaseEpoch != 2 {
+		t.Fatalf("expected epoch 2, got %d", w2Job.LeaseEpoch)
+	}
+
+	// 6. Worker 1 wakes up and attempts to complete using stale epoch 1
+	w1LateReq := CompleteAttemptRequest{
+		AttemptID:  *w1Job.LastAttemptID,
+		PaymentID:  pID,
+		LeaseEpoch: 1,
+		WorkerID:   "worker-1",
+		NewStatus:  JobStatusResolved,
+		DueAt:      time.Now().UTC(),
+		StateAfter: "COMPLETED",
+		Result:     "COMPLETED",
+		ReasonCode: ReasonCompleted,
+	}
+	staleOk, err := td.repo.CompleteAttempt(ctx, w1LateReq)
+	if err != nil {
+		t.Fatalf("worker-1 stale complete attempt error: %v", err)
+	}
+	if staleOk {
+		t.Fatal("worker-1 stale attempt completion must be rejected")
+	}
+
+	// 7. Worker 2 resumes payment, executes atomic settlement, and completes attempt with epoch 2
+	tx, err := td.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	ledgerTxID := uuid.New()
+	_, err = tx.Exec(ctx, "INSERT INTO ledger_transactions (id, payment_id, created_at) VALUES ($1, $2, NOW())", ledgerTxID, pID)
+	if err != nil {
+		t.Fatalf("insert ledger_transactions: %v", err)
+	}
+
+	// 1 debit for sender
+	_, err = tx.Exec(ctx, "INSERT INTO ledger_entries (id, ledger_transaction_id, account_id, entry_type, amount_paise, created_at) VALUES ($1, $2, $3, 'DEBIT', $4, NOW())",
+		uuid.New(), ledgerTxID, td.acc1ID, paymentAmount)
+	if err != nil {
+		t.Fatalf("insert debit: %v", err)
+	}
+
+	// 1 credit for receiver
+	_, err = tx.Exec(ctx, "INSERT INTO ledger_entries (id, ledger_transaction_id, account_id, entry_type, amount_paise, created_at) VALUES ($1, $2, $3, 'CREDIT', $4, NOW())",
+		uuid.New(), ledgerTxID, td.acc2ID, paymentAmount)
+	if err != nil {
+		t.Fatalf("insert credit: %v", err)
+	}
+
+	// Update payment state to COMPLETED
+	_, err = tx.Exec(ctx, "UPDATE payments SET state = 'COMPLETED', completed_at = NOW(), updated_at = NOW() WHERE id = $1", pID)
+	if err != nil {
+		t.Fatalf("update payment to completed: %v", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit settlement: %v", err)
+	}
+
+	// Complete attempt with Worker 2 (epoch 2)
+	w2Req := CompleteAttemptRequest{
+		AttemptID:  *w2Job.LastAttemptID,
+		PaymentID:  pID,
+		LeaseEpoch: 2,
+		WorkerID:   "worker-2",
+		NewStatus:  JobStatusResolved,
+		DueAt:      time.Now().UTC(),
+		StateAfter: "COMPLETED",
+		Result:     "COMPLETED",
+		ReasonCode: ReasonCompleted,
+	}
+	w2Ok, err := td.repo.CompleteAttempt(ctx, w2Req)
+	if err != nil {
+		t.Fatalf("worker-2 complete attempt error: %v", err)
+	}
+	if !w2Ok {
+		t.Fatal("worker-2 attempt completion should succeed")
+	}
+
+	// 8. Financial Business Invariant Verifications:
+	// a. Exactly 1 payment record
+	var paymentCount int
+	var paymentState string
+	err = td.pool.QueryRow(ctx, "SELECT count(*), max(state) FROM payments WHERE id = $1", pID).Scan(&paymentCount, &paymentState)
+	if err != nil || paymentCount != 1 || paymentState != "COMPLETED" {
+		t.Fatalf("expected 1 completed payment, got count=%d, state=%s, err=%v", paymentCount, paymentState, err)
+	}
+
+	// b. Exactly 1 central ledger transaction
+	var ledgerTxCount int
+	err = td.pool.QueryRow(ctx, "SELECT count(*) FROM ledger_transactions WHERE payment_id = $1", pID).Scan(&ledgerTxCount)
+	if err != nil || ledgerTxCount != 1 {
+		t.Fatalf("expected 1 ledger transaction, got %d, err=%v", ledgerTxCount, err)
+	}
+
+	// c. Exactly 1 effective DEBIT and 1 effective CREDIT
+	var debitCount, creditCount int
+	var debitSum, creditSum int64
+	err = td.pool.QueryRow(ctx, `
+		SELECT 
+			count(*) FILTER (WHERE entry_type = 'DEBIT'),
+			coalesce(sum(amount_paise) FILTER (WHERE entry_type = 'DEBIT'), 0),
+			count(*) FILTER (WHERE entry_type = 'CREDIT'),
+			coalesce(sum(amount_paise) FILTER (WHERE entry_type = 'CREDIT'), 0)
+		FROM ledger_entries WHERE ledger_transaction_id = $1`, ledgerTxID).
+		Scan(&debitCount, &debitSum, &creditCount, &creditSum)
+	if err != nil {
+		t.Fatalf("query ledger entries: %v", err)
+	}
+
+	if debitCount != 1 || debitSum != paymentAmount {
+		t.Fatalf("debit invariant violated: count=%d, sum=%d, want count=1 sum=%d", debitCount, debitSum, paymentAmount)
+	}
+	if creditCount != 1 || creditSum != paymentAmount {
+		t.Fatalf("credit invariant violated: count=%d, sum=%d, want count=1 sum=%d", creditCount, creditSum, paymentAmount)
+	}
+	if debitSum != creditSum {
+		t.Fatalf("double-entry invariant violated: debit=%d != credit=%d", debitSum, creditSum)
+	}
+
+	// d. Correct attempt history: 2 attempts (Worker 1 epoch 1, Worker 2 epoch 2)
+	attempts, err := td.repo.GetAttempts(ctx, pID)
+	if err != nil || len(attempts) != 2 {
+		t.Fatalf("expected 2 attempts in history, got %d, err=%v", len(attempts), err)
+	}
+	var a1, a2 *Attempt
+	for _, a := range attempts {
+		if a.LeaseEpoch == 1 {
+			a1 = a
+		} else if a.LeaseEpoch == 2 {
+			a2 = a
+		}
+	}
+	if a1 == nil || a1.WorkerIdentity != "worker-1" {
+		t.Fatalf("expected attempt 1 with worker-1, got %v", a1)
+	}
+	if a2 == nil || a2.WorkerIdentity != "worker-2" || a2.Result == nil || *a2.Result != "COMPLETED" {
+		t.Fatalf("expected attempt 2 with worker-2 COMPLETED, got %v", a2)
+	}
+
+	// e. Job status is resolved
+	finalJob, err := td.repo.GetJob(ctx, pID)
+	if err != nil || finalJob.Status != JobStatusResolved {
+		t.Fatalf("expected job resolved, got status=%v, err=%v", finalJob.Status, err)
 	}
 }
 

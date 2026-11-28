@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant C as Customer
+    participant API as Go API (Coordinator)
+    participant PG as Central PostgreSQL
+    participant B as Participant Bank
+    participant W as Recovery Worker
+
+    C->>API: POST /payments (Idempotency-Key)
+    API->>PG: Create payment + durable saga state
+    API->>B: HOLD / PROVISIONAL_CREDIT (deterministic op_id)
+    Note over API,B: Response lost / timeout
+    API-->>C: 202 / PENDING_RECONCILIATION
+    W->>PG: Claim stale recovery job (lease + epoch)
+    W->>B: GetOperationStatus(op_id)
+    alt Bank confirmed settled
+        B-->>W: SETTLED
+        W->>PG: Repair central ledger -> COMPLETED
+    else Definite failure
+        B-->>W: FAILED
+        W->>B: Release / Reverse hold
+        W->>PG: Mark REVERSED / FAILED
+    else Still unknown
+        B-->>W: UNKNOWN
+        W->>PG: Retain PENDING_RECONCILIATION
+    end

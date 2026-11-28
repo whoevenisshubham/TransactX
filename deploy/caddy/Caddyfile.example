@@ -1,8 +1,75 @@
-# Replace this reserved example name only after DNS points to your VM.
-api.example.invalid {
-    encode zstd gzip
-    reverse_proxy 127.0.0.1:8080 {
-        # Flush SSE frames as they arrive; do not expose bank services.
-        flush_interval -1
-    }
+# Production / Staging Caddyfile Example for TransactX Unified Single-Origin
+# Replace example.com with your verified staging domain.
+# In staging, Caddy automatically acquires and renews Let's Encrypt / ZeroSSL certificates.
+
+example.com {
+	# Security headers
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-poYupL+JEj4K+IqzEg9vP1XMqflOnkTetwyVneFjlWI='; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Staging HSTS policy: Start with a short max-age without preload to prevent accidental permanent HSTS lockouts.
+		# For production apex domain after testing: Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		Strict-Transport-Security "max-age=86400"
+		-Server
+	}
+
+	encode zstd gzip
+
+	# Route /api/* to Go backend with unbuffered SSE (flush_interval -1)
+	handle /api/* {
+		header {
+			Cache-Control "no-store, no-cache, must-revalidate"
+		}
+		reverse_proxy 127.0.0.1:8080 {
+			flush_interval -1
+		}
+	}
+
+	# Route /health and /health/db to Go backend
+	handle /health* {
+		header {
+			Cache-Control "no-cache"
+		}
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# Route /readyz to Go backend
+	handle /readyz {
+		header {
+			Cache-Control "no-cache"
+		}
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# Static assets cache rules (hashed immutable files)
+	handle /assets/* {
+		root * /opt/transactx/current/frontend
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Service worker & offline manifest revalidation rules
+	handle /sw.js {
+		root * /opt/transactx/current/frontend
+		header Cache-Control "no-cache, no-store, must-revalidate"
+		file_server
+	}
+
+	handle /offline-assets.json {
+		root * /opt/transactx/current/frontend
+		header Cache-Control "no-cache, no-store, must-revalidate"
+		file_server
+	}
+
+	# Root and SPA fallback (for non-API paths)
+	handle {
+		root * /opt/transactx/current/frontend
+		try_files {path} /index.html
+		file_server
+	}
 }
