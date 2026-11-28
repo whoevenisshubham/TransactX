@@ -46,10 +46,6 @@ const ComponentShowcase = lazy(() => import("./showcase/ComponentShowcase").then
 
 type OfflineOwner = Pick<User, "id" | "role">;
 
-// ---------------------------------------------------------------------------
-// Root App — role-based routing
-// ---------------------------------------------------------------------------
-
 function App() {
   const [token, setToken] = useState(() => sessionStorage.getItem("transactx.token"));
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -188,14 +184,6 @@ function OfflineRecoveryShell({ user, onLogout, onRetry }: { user: OfflineOwner 
     </main>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Auth page
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Customer Shell
-// ---------------------------------------------------------------------------
 
 function ThemedToaster() {
   const { resolvedTheme } = useTheme();

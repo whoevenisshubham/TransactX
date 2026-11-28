@@ -19,7 +19,7 @@ recover a payment safely when different services have different observations?**
 [Payment kernel reference](docs/reference/payment-kernel.md)
 
 > [!NOTE]
-> The hosted demo at `https://transactx-frontend.vercel.app` reflects an earlier baseline deployment on Render/Vercel/Neon (`release/transactx-v2`). The current hardened release candidate (M20-R.5.2) — featuring durable unresolved payment intent preservation, PostgreSQL idempotency failure isolation, lease epoch concurrency protection, and local staging supervision — is maintained on branch `feat/frontend-rebuild-v4` (Pull Request #32).
+> The hosted demo at `https://transactx-frontend.vercel.app` tracks `release/transactx-v2`. The redesigned frontend and pre-production release candidate (PR #33) are maintained on `feat/uiux-redesign`.
 
 ![TransactX payment receipt, original bank path and cited investigation](docs/images/experience-landing.png)
 
