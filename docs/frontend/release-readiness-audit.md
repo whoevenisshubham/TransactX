@@ -206,3 +206,31 @@ All commands below were observed in the recorded post-cleanup verification log (
 | Accessibility (Axe) | `0` serious/critical | **PASS** | `160/160` Playwright + Axe checks (`0` violations) |
 | Bundle Size | `<= 400 kB` min / `<= 120 kB` gzip | **PASS** | `index` chunk `<= 384 kB` (`~113 kB` gzip) |
 | Backend Untouched & Diff Clean | `0` backend edits, `diff --check` `0` | **PASS** | `git status --short backend/` empty; `git diff --check` exited `0` |
+
+---
+
+## 14. Final Release Candidate Certification (`a0b8be2` / PR #33)
+
+**Release Candidate Verified:** `a0b8be2c10ff2c1c1cb0006066d77ceeaa3a913c` on `feat/uiux-redesign` (`PR #33` Open -> `release/transactx-v2`, `6/6` CI/status checks green).
+
+- **Full Post-Final-Edit Local Suite (`task-1986` on `a0b8be2`, exit `0`):**
+  - `npm run test`: **`134 / 134` passed**
+  - `npm run test:money`: **`money parsePaise checks passed`**
+  - `npm run lint` (`tsc -b --pretty false`): Exited **`0`**
+  - `npm run build`: Exited **`0`** (`index` chunk `383.95 kB` / `113.20 kB` gzip)
+  - `npx playwright test --workers=2`: **`160 passed (7.9m)`** (`0` failed, `0` skipped, `0` serious/critical Axe violations)
+  - `npm run test:browser:offline-shell`: **`3 passed (14.4s)`**
+  - `git status --short backend/`: Empty (since `64ddb2b`; note the 31-commit PR #33 diff from `origin/release/transactx-v2` includes `15` backend files from pre-redesign M20-R.5/R.6 commits); `git diff --check`: Exited **`0`**.
+- **Latest Vercel Preview (`9q8cLLjqCUMzdWt4eoqpitPUQEgX`, commit `a0b8be2`, Status: `Ready`):**
+  - Branch alias: `https://transactx-frontend-git-feat-u-52c6cd-whoevenisshubhams-projects.vercel.app/`
+  - Immutable URL: `https://transactx-frontend-d16vznbtc-whoevenisshubhams-projects.vercel.app/`
+  - Verified live across `/`, `/login`, `/demo`, `/showcase` + Playground, Customer (`/`), Merchant (`/merchant`, `/merchant/receive`, `/merchant/settlement`), and `OPS_VIEWER` Console (`/console/worklist`, `/console/analytics`, plus RBAC redirect from `/console/routing` & `/console/chaos`) in Light & Dark modes (`1440px` & `390px`), with `0` console errors, `0` failed API/asset requests, `0` horizontal overflow, View Transitions wipe, Blueprint modal + `Escape` + focus restore, `⌘K` Command Palette, 3D Vault Cube drag + Reset, `NetworkCanvas`, and opt-in SFX/ambient audio (`aria-pressed="false"` default). *(Limitation: `prefers-reduced-motion` emulation unavailable in hosted browser sandbox; verified locally via Playwright.)*
+- **CodeRabbit PR #33 Audit (`a0b8be2`):**
+  - Latest CodeRabbit check (`c2769441-ea79-432e-a1df-6ae13a15576c`) completed with **0 new actionable comments on `a0b8be2`** (`bf6fb29` `ScrollScrubBand` finding resolved).
+  - **17 older Major comments** from pre-overhaul `24f53c25` (`pullrequestreview-6096060316`) remain unresolved on PR #33 across pre-redesign files (`CustomerShell.tsx` [3], `SendMoneyPage.tsx` [3], `unresolvedStore.ts` [2], `backend/internal/recovery/scheduler_test.go` [1], `deploy/caddy/Caddyfile.local-staging` [1], `scripts/*.ps1` [7]). None originate from the UI/UX visual overhaul (`c8bf05b..a0b8be2`).
+- **Controlled Backend Idempotency & Render Verification (`task-1995`):**
+  - `GET /healthz`: `200` (`{"gateway":"alive","databaseReadiness":"not-probed"}`)
+  - `OPTIONS /api/auth/demo`: `204` (`Access-Control-Allow-Origin` matched for both `https://transactx-frontend.vercel.app` and the Preview branch alias)
+  - Idempotency (`101` paise to `bob@transactx`): `POST #1 -> 201 COMPLETED` (`71cc0d38-c4cd-4ebf-89d6-00b403720f40`), `POST #2` (same key & payload) `-> 200 COMPLETED` (`sameId=true`, `matchingTxCount=1`, single `-101` paise delta `978047 -> 977946`), `POST #3` (same key, `202` paise) `-> 409 IDEMPOTENCY_CONFLICT` (balance unchanged at `977946`). *(Limitation: Direct SQL inspection of hosted PostgreSQL double-entry ledger rows is unavailable from this sandbox.)*
+- **Required Pre-Merge Production Configuration:**
+  - Vercel Project Settings (`Production` scope) currently show **no `VITE_API_BASE_URL` configured**. Because `frontend/vercel.json` has no `/api/*` proxy rewrite to Render, **`VITE_API_BASE_URL=https://transactx-demo-api.onrender.com` MUST be added to Vercel Production Environment Variables before merging PR #33 / rebuilding Production.**
