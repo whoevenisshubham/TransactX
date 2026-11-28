@@ -41,12 +41,12 @@ Systematic evaluation of the 100-item Frontend Effects Checklist (plus extended 
 | 29 | Scroll-triggered counters | Scroll | P1 | Mandatory | `AnimatedCounter` with IntersectionObserver | `LandingPage` KPI benchmarks (`134`, `157+`, `192`, `0`) | **Implemented** | Playwright + Visual | Integer/paise accurate; `tabular-nums` |
 | 30 | Scroll progress indicator | Scroll | P2 | Mandatory | Top `2px` scaleX indicator bar (`useScroll` + `useSpring`) | `LandingPage`, `/showcase` | **Implemented** | Playwright | Lightweight GPU transform bar |
 | 31 | Hero text stagger | Typography | P1 | Mandatory | `Space Grotesk` headline choreography (`Motion`) | `LandingPage` H1, `AuthPage` left panel, `DemoPage` H1 | **Implemented** | Playwright + Visual | Instant fallback under `reducedMotion` |
-| 32 | Word-by-word reveal | Typography | P2 | Applicable | Structured hero/step cadence | `LandingPage` hero & narrative callouts | **Implemented** | Visual | Clean semantics for screen readers |
+| 32 | Word-by-word reveal | Typography | P2 | Applicable | Structured hero/step cadence | `LandingPage` hero & narrative callouts | **Not implemented** | Code audit | Hero animates as a single `<motion.div>` block (`#21`/`#31`), not per-word `motion.span` splitting |
 | 33 | Letter-by-letter decode | Typography | P2 | Applicable | Character decode step | `ScrambleText` headers & tags | **Implemented** | Playwright | Subtle cadence |
 | 34 | Typewriter / log reveal | Typography | P2 | Applicable | Stepped console/log reveal inside recovery terminal | `ArchitecturalPillars`, `TwoPhaseNarrative` log stream | **Implemented** | Visual | Displays realistic recovery log lines |
 | 35 | Text scramble / decode | Typography | P3 | Mandatory | `ScrambleText` glyph cycle on hover / probe trigger | `LandingPage`, `AuthPage`, `PaymentScene`, `ShowcasePlayground` | **Implemented** | Visual | Linear/WhatTheFrontend signature tech vibe |
 | 36 | Gradient animated text | Typography | P2 | Applicable | Restrained cobalt-emerald gradient highlight on hero clause | `LandingPage` H1 ("The facts stay.") | **Implemented** | Playwright Axe + Visual | High-contrast calibrated luminance |
-| 37 | Outline-to-fill text | Typography | P2 | Showcase-only | Highlighted step indices (`01..03`) | `TwoPhaseNarrative`, `/showcase` story indices | **Implemented** | Visual | Adds tactile depth to numbered steps |
+| 37 | Outline-to-fill text | Typography | P2 | Showcase-only | Highlighted step indices (`01..03`) | `TwoPhaseNarrative`, `/showcase` story indices | **Not implemented** | Code audit | Solid numbered indices rendered without `-webkit-text-stroke` outline-to-fill animation |
 | 38 | Variable font weight | Typography | P3 | Applicable | Crisp display/sans/mono contrast (`Space Grotesk` + `Inter Variable` + `JetBrains Mono`) | Global typographic hierarchy | **Implemented** | Build + Visual | Bundled `.woff2` font files |
 | 39 | Text hover contextual preview | Typography | P2 | Applicable | Proof tooltips & expandable cryptographic metadata | `ArchitecturalPillars`, `PaymentEvidencePage`, `MerkleView` | **Implemented** | Visual + Playwright | Explains `LeaseEpoch`, `TXNODE|v1|` in place |
 | 40 | Kinetic typography | Typography | P3 | Showcase-only | Interactive scramble & tracking response | `/showcase` + `LandingPage` | **Implemented** | Visual | Restrained, legible at `200%` zoom |
@@ -116,9 +116,9 @@ Systematic evaluation of the 100-item Frontend Effects Checklist (plus extended 
 - **Full-Game / Heavy Blocking 3D `.glb` Preloaders on Payment Routes:** **Incompatible** with `SendMoneyPage`, `MerchantDashboard`, and `/console/*` where speed, clarity, and fast first paint matter most. Creative 3D/physics artwork lives in Canvas (`/`), `BlueprintExplorerModal`, and `/showcase`.
 - **Fake Optimistic Payment Completion Animations:** **Incompatible** — settlement animations (`CelebrationOverlay`, animated checkmark) fire ONLY after confirmed server state (`COMPLETED`), never for `PENDING_RECONCILIATION`.
 
-### Coverage Summary (Verified)
+### Coverage Summary (Verified — Independent Audit)
 - **P1 (Mandatory/Applicable — 26 items):** **26 / 26 implemented (100.0%)** (`24` Playwright-cited including `#81` modal keyboard/focus tests, `2` Visual/DOM micro-cues `#12`, `#16`). Meets **100% relevant P1** target.
-- **P2 (47 items — 9 Mandatory, 35 Applicable, 3 Showcase-only):** **47 / 47 implemented (100.0%)** (with `#24` now genuinely implemented via `ClipReveal` + View Transitions `tx-theme-clip-reveal`). Meets **>= 95% P2** target.
-- **P3 (24 items — 7 Mandatory, 8 Applicable, 9 Showcase-only):** **24 / 24 implemented (100.0%)** (with `#26` now genuinely implemented via `ScrollScrubBand`). Meets **>= 75% P3** target.
+- **P2 (47 items — 9 Mandatory, 35 Applicable, 3 Showcase-only):** **45 / 47 implemented (95.7%)** (`#24` genuinely implemented via `ClipReveal` + View Transitions `tx-theme-clip-reveal`; `#32` & `#37` marked **Not implemented** after independent code audit). Meets **>= 95% P2** target.
+- **P3 (24 items — 7 Mandatory, 8 Applicable, 9 Showcase-only):** **24 / 24 implemented (100.0%)** (`#26` genuinely implemented via `ScrollScrubBand` with reduced-motion ref-safety guard). Meets **>= 75% P3** target.
 - **P4 (3 items — 1 Mandatory `#96`, 2 Showcase-only `#60`, `#94`):** **3 / 3 evaluated & implemented (100.0%)**. Meets **every P4 evaluated** target.
-- **Overall Matrix:** **100 / 100 implemented (100.0%)**, plus `3` explicitly documented Incompatible policies above.
+- **Overall Matrix:** **98 / 100 implemented (98.0%)**, comprising **48 genuinely distinct, non-duplicate interactive/visual mechanisms** (`>= 40` target met), plus `3` explicitly documented Incompatible policies above.

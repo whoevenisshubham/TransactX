@@ -11,7 +11,6 @@ export {
   CelebrationOverlay,
   emitCelebrationBurst,
   ClipReveal,
-  BlurReveal,
   ScrollScrubBand,
   type SentinelState,
 } from "./MotionPrimitives";

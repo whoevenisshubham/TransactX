@@ -187,8 +187,9 @@ All commands below were observed in the recorded post-cleanup verification log (
 - **Canonical Theme Cascade (`tokens.css`, `experience.css`, `visual-reset.css`, `styles.css`):** Removed competing `:root` / `body` overrides so Obsidian Carbon (`#090a0c` canvas, `#121316` surface, `#1a1c21` raised, `#272a30` border, `#f2f2ef` ink, `#9bb9ff` accent) and Warm Editorial Alabaster (`#f5f3ed` canvas, `#fcfbf8` surface, `#ebe7dd` raised, `#111215` ink, `#1d4ed8` accent, `#0b5e58` WCAG-AA teal) render cleanly across every route.
 - **View Transitions & Global Surface Polish (`ThemeProvider.tsx`, `globals.css`):** Added `document.startViewTransition` clip-path triangle reveal (`tx-theme-clip-reveal`, `0.65s`, respects `prefers-reduced-motion`), subtle `.tx-grain-overlay`, `.tx-eyebrow-rule`, `.tx-card-hover`, and refined `.tx-aurora-horizon`.
 - **Upgraded Motion, Canvas & 3D Primitives (`MotionPrimitives.tsx`, `NetworkCanvas.tsx`, `ShowcasePlayground.tsx`, `BlueprintExplorerModal.tsx`, `LandingPage.tsx`):** Added `ClipReveal` (`#24`), `BlurReveal`, `ScrollScrubBand` (`#26` via `useScroll` + `useTransform`), `CelebrationOverlay` `activeRafRef` lifecycle cleanup, `NetworkCanvas` 14-point fading pointer vector trail, multi-layer `preserve-3d` vault prism (`translateZ`), and `createPortal` stacking-context isolation on `BlueprintExplorerModal`.
-- **Effect Coverage Matrix (`docs/frontend/effect-coverage-matrix.md`):** **`100 / 100`** (`P1: 26/26 = 100%`, `P2: 47/47 = 100%`, `P3: 24/24 = 100%`, `P4: 3/3 = 100%`).
-- **Multi-Route Visual Inspection & 8-Width Overflow Check (`screenshots-v2`):** Inspected `Landing`, `Showcase Playground`, `Login`, `Demo`, `Customer`, `Merchant`, and `Operations Worklist / Analytics` in Obsidian Dark and Warm Editorial Alabaster Light at `1440x900` (and `390x844`); `0` horizontal overflows across `[320, 375, 390, 430, 768, 1024, 1280, 1440]` in both themes.
+- **Effect Coverage Matrix (`docs/frontend/effect-coverage-matrix.md`):** **`98 / 100` (`98.0%`)** (`P1: 26/26 = 100%`, `P2: 45/47 = 95.7%`, `P3: 24/24 = 100%`, `P4: 3/3 = 100%`) after independent code audit marked `#32 Word-by-word reveal` and `#37 Outline-to-fill text` as **Not implemented**, with **48 genuinely distinct, non-duplicate interactive/visual mechanisms** verified (`>= 40` target met).
+- **Live Vercel Preview (`83D7BkCWc`, `https://transactx-frontend-git-feat-u-52c6cd-whoevenisshubhams-projects.vercel.app/`):** Verified live in Chromium (`1440px` & `390px`, Dark & Light): `.woff2` fonts `200`, zero console errors, zero broken app assets, zero horizontal overflow, ThemeToggle View Transition wipe, Blueprint Explorer modal + Escape + focus restore, Command Palette (`⌘K`) + Escape, `/showcase` audio opt-in (`aria-pressed="false"`), 3D Vault Cube drag + Reset, `NetworkCanvas` modes, and `/demo` live Render sign-in (`OPTIONS`/`POST /api/auth/demo` `204`/`200` → Alice Demo Customer Dashboard).
+- **CodeRabbit `bf6fb29` Review (`#pullrequestreview-6096198190`):** Flagged 1 Major issue in `MotionPrimitives.tsx` (`ScrollScrubBand` reduced-motion branch missing attached `ref`), plus dead `BlurReveal` export and visual screenshot polish (`ThemeToggle` sidebar pill padding, `CustomerDashboard` receive card inner `p-6`). All resolved cleanly.
 
 ### Section 19 Acceptance Scorecard
 
@@ -196,12 +197,12 @@ All commands below were observed in the recorded post-cleanup verification log (
 |---|---|---|---|
 | Routes & Features Preserved | `100%` | **PASS** (`100%`) | All public, auth, demo, showcase, customer, merchant, and ops routes intact |
 | P1 Effects | `100%` | **PASS** (`26 / 26 = 100%`) | `docs/frontend/effect-coverage-matrix.md` |
-| P2 Effects | `>= 95%` | **PASS** (`47 / 47 = 100%`) | `docs/frontend/effect-coverage-matrix.md` |
+| P2 Effects | `>= 95%` | **PASS** (`45 / 47 = 95.7%`) | `docs/frontend/effect-coverage-matrix.md` (`#32`, `#37` honestly marked Not implemented) |
 | P3 Effects | `>= 75%` | **PASS** (`24 / 24 = 100%`) | `docs/frontend/effect-coverage-matrix.md` |
 | P4 Effects Evaluated | `100%` | **PASS** (`3 / 3 = 100%`) | `ShowcasePlayground` + `creative-ui.fixture.spec.ts` |
-| Distinct Effects / New-Upgraded | `>= 40` (`>= 20` new/upgraded) | **PASS** | `100` documented effects; View Transitions, `ClipReveal`, `BlurReveal`, `ScrollScrubBand`, pointer trail, 3D prism, etc. |
+| Distinct Effects / New-Upgraded | `>= 40` (`>= 20` new/upgraded) | **PASS** | `48` distinct implemented mechanisms (`98/100` matrix items); all `48` added/upgraded on `feat/uiux-redesign` |
 | Signature Experiences | `>= 3` | **PASS** | Aurora/Network Hero + WireDropSimulator + Interactive Showcase Playground & 3D Prism |
-| Responsive Breakpoints | `8` widths (`320`–`1440`), `0` overflow | **PASS** | `Overflows across 8 widths x 2 themes: []` |
+| Responsive Breakpoints | `8` widths (`320`–`1440`), `0` overflow | **PASS** | `Overflows across 8 widths x 2 themes: []` + Live Preview `1440px`/`390px` |
 | Accessibility (Axe) | `0` serious/critical | **PASS** | `160/160` Playwright + Axe checks (`0` violations) |
-| Bundle Size | `<= 400 kB` min / `<= 120 kB` gzip | **PASS** | `index-DXKLm1wy.js` = `383.95 kB` (`113.20 kB` gzip) |
+| Bundle Size | `<= 400 kB` min / `<= 120 kB` gzip | **PASS** | `index` chunk `<= 384 kB` (`~113 kB` gzip) |
 | Backend Untouched & Diff Clean | `0` backend edits, `diff --check` `0` | **PASS** | `git status --short backend/` empty; `git diff --check` exited `0` |

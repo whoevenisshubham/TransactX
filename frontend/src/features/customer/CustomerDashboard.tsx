@@ -136,9 +136,9 @@ export function CustomerDashboard({
         <SpotlightCard
           as="section"
           tilt={false}
-          className="personal-receive-note rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6"
+          className="personal-receive-note rounded-2xl border border-[var(--border-hairline)] bg-[var(--bg-surface)]"
         >
-          <section aria-label="Your payment identity" className="relative z-10">
+          <section aria-label="Your payment identity" className="relative z-10 p-6">
             <span className="personal-note-symbol" aria-hidden="true">
               ↙
             </span>

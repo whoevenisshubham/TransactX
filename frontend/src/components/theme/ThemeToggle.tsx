@@ -82,11 +82,11 @@ export function ThemeToggle({
             onClick={() => setTheme(opt.value)}
             className={`inline-flex items-center justify-center min-h-[28px] ${
               fullWidth
-                ? "flex-1 gap-1 px-1.5 py-1 text-[11px]"
+                ? "flex-1 gap-1 px-1 py-1 text-[10.5px]"
                 : compact
                 ? "gap-1.5 px-2 py-1 text-xs"
                 : "gap-1.5 px-2 sm:px-2.5 py-1 text-xs"
-            } font-medium rounded-md transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] cursor-pointer ${
+            } font-medium rounded-md transition-colors whitespace-nowrap overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] cursor-pointer ${
               isSelected
                 ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-[var(--shadow-subtle)] font-semibold"
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
